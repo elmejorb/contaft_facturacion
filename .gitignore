@@ -21,9 +21,34 @@ desktop.ini
 *.tmp
 *.temp
 
-# Carpetas excluidas del repo
+# Carpetas excluidas
 conta-app-frontend/
 vb6/
 dist-electron/
 Dashboard-Facturación/dist/
 Dashboard-Facturación/build/
+
+# Archivos raíz que no son del proyecto
+/ACTUALIZACION_AUDITORIA_INVENTARIO.md
+/ACTUALIZACION_MENU_DASHBOARD.md
+/AUTENTICACION.md
+/CAMBIOS_AUTENTICACION.md
+/DOCUMENTACION_INVENTARIO_VENTAS.md
+/HOT_RELOAD_GUIDE.md
+/INSTRUCCIONES_INSTALACION.md
+/SYNC_README.md
+/analizar-kardex.js
+/corregir-kardex.php
+/prueba-kardex.php
+/sync-backend.bat
+/sync-backend.ps1
+/sync-watcher.js
+/sync.config.json
+/tblkardex.csv
+/test-password-encoder.html
+/package.json
+/package-lock.json
+/presupuesto.png
+/Dashboard-Facturación.zip
+.claude/
+Dashboard-Facturación/.env
