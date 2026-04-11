@@ -4,6 +4,7 @@ import { AllCommunityModule, ModuleRegistry, ColDef } from 'ag-grid-community';
 import { X, FileText, ShoppingBag, BarChart3, DollarSign, Receipt, CreditCard, Wallet, Save, CheckCircle, Search, Ban, Pencil, Printer } from 'lucide-react';
 import { ReciboImpresion } from './ReciboImpresion';
 import { getConfigImpresion } from './ConfiguracionSistema';
+import toast from 'react-hot-toast';
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
@@ -30,6 +31,8 @@ export function ClienteDetalle({ clienteId, onClose, tabInicial = 'ventas' }: Pr
   const [pagosData, setPagosData] = useState<any>(null);
   const [abonos, setAbonos] = useState<Map<number, number>>(new Map());
   const [medioPago, setMedioPago] = useState(0);
+  const [fechaPago, setFechaPago] = useState(new Date().toISOString().split('T')[0]);
+  const [reciboImprimir, setReciboImprimir] = useState<any>(null);
   const [pagoGlobal, setPagoGlobal] = useState('');
   const [descuentoGlobal, setDescuentoGlobal] = useState('');
   const [guardandoPago, setGuardandoPago] = useState(false);
@@ -87,17 +90,31 @@ export function ClienteDetalle({ clienteId, onClose, tabInicial = 'ventas' }: Pr
       const r = await fetch(API_PAGOS, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'pagar', cliente: clienteId, pagos: pagosArr, medio_pago: medioPago })
+        body: JSON.stringify({ action: 'pagar', cliente: clienteId, pagos: pagosArr, medio_pago: medioPago, fecha: fechaPago })
       });
       const d = await r.json();
       if (d.success) {
-        setPagoSuccess(d.message);
-        setTimeout(() => setPagoSuccess(''), 5000);
+        toast.success(d.message);
         setAbonos(new Map());
         setPagoGlobal('');
         setDescuentoGlobal('');
         cargarPagos();
-        cargar(anio); // refresh ventas too
+        cargar(anio);
+        // Preguntar si imprimir recibo
+        if (confirm('Pago registrado. ¿Desea imprimir el recibo?')) {
+          const cfg = getConfigImpresion();
+          const pagoData = {
+            RecCajaN: d.recibo,
+            Fecha: fechaPago + ' ' + new Date().toLocaleTimeString('es-CO'),
+            NFactAnt: pagosArr.map((p: any) => p.factura_n).join(', '),
+            ValorPago: d.total_pagado,
+            SaldoAct: 0,
+            Descuento: descGlobal,
+            MedioPago: mediosPago.find((m: any) => m.id_mediopago === medioPago)?.nombre_medio || 'Efectivo',
+            DetallePago: `Pago de ${d.facturas_afectadas} factura(s)`
+          };
+          setReciboImprimir({ pago: pagoData, formato: cfg.formatoPago });
+        }
       } else { setPagoError(d.message); }
     } catch (e) { setPagoError('Error al guardar pagos'); }
     setGuardandoPago(false);
@@ -427,6 +444,11 @@ export function ClienteDetalle({ clienteId, onClose, tabInicial = 'ventas' }: Pr
 
               {/* Toolbar pagos */}
               <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, flexShrink: 0, whiteSpace: 'nowrap' }}>
+                <div>
+                  <label style={{ fontSize: 9, color: '#6b7280', display: 'block', marginBottom: 2 }}>FECHA</label>
+                  <input type="date" value={fechaPago} onChange={e => setFechaPago(e.target.value)}
+                    style={{ height: 28, border: '1px solid #d1d5db', borderRadius: 6, fontSize: 12, padding: '0 6px' }} />
+                </div>
                 <div>
                   <label style={{ fontSize: 9, color: '#6b7280', display: 'block', marginBottom: 2 }}>MEDIO</label>
                   <select value={medioPago} onChange={e => setMedioPago(parseInt(e.target.value))}
@@ -815,6 +837,16 @@ export function ClienteDetalle({ clienteId, onClose, tabInicial = 'ventas' }: Pr
           cliente={cliente}
           formato={getConfigImpresion().formatoPago}
           onClose={() => setImprimirPago(null)}
+        />
+      )}
+
+      {/* Recibo de pago recién guardado */}
+      {reciboImprimir && (
+        <ReciboImpresion
+          pago={reciboImprimir.pago}
+          cliente={{ CodigoClien: clienteId, Razon_Social: cliente?.Razon_Social || '', Nit: cliente?.Nit || '', Telefonos: cliente?.Telefonos || '' }}
+          formato={reciboImprimir.formato}
+          onClose={() => setReciboImprimir(null)}
         />
       )}
     </div>

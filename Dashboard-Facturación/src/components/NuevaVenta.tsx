@@ -1,11 +1,74 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Search, Trash2, Plus, Save, X, ShoppingCart } from 'lucide-react';
+import { Search, Trash2, Plus, Save, X, ShoppingCart, Lock, Unlock } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { getConfigImpresion } from './ConfiguracionSistema';
 import { imprimirFactura, buildDatosFactura } from './ImpresionFactura';
 
 const API_VENTA = 'http://localhost:80/conta-app-backend/api/ventas/nueva.php';
 const API_CLIENTES = 'http://localhost:80/conta-app-backend/api/clientes/buscar.php';
+const API_FE = 'http://localhost:80/conta-app-backend/api/facturacion-electronica/enviar.php';
+
+// Modal de buscar cliente como componente independiente (no se re-renderiza con NuevaVenta)
+function BuscarClienteModal({ onSelect, onClose }: { onSelect: (c: any) => void; onClose: () => void }) {
+  const [busqueda, setBusqueda] = useState('');
+  const [results, setResults] = useState<any[]>([]);
+  const timerRef = useRef<any>(null);
+
+  const buscar = (q: string) => {
+    setBusqueda(q);
+    if (q.length < 2) { setResults([]); return; }
+    clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(async () => {
+      try {
+        const r = await fetch(`${API_CLIENTES}?q=${encodeURIComponent(q)}`);
+        const d = await r.json();
+        if (d.success) setResults(d.clientes || d.data || []);
+      } catch (e) {}
+    }, 250);
+  };
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 99999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.3)' }} onClick={onClose} />
+      <div style={{ position: 'relative', background: '#fff', borderRadius: 12, width: 520, maxHeight: 420, boxShadow: '0 20px 60px rgba(0,0,0,0.2)', display: 'flex', flexDirection: 'column' }}
+        onClick={e => e.stopPropagation()}>
+        <div style={{ padding: '12px 16px', borderBottom: '1px solid #e5e7eb', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span style={{ fontSize: 14, fontWeight: 700 }}>Buscar Cliente</span>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}><X size={18} /></button>
+        </div>
+        <div style={{ padding: '10px 16px' }}>
+          <div style={{ position: 'relative' }}>
+            <Search size={16} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: '#9ca3af' }} />
+            <input type="text" placeholder="Escriba nombre o NIT del cliente..." value={busqueda}
+              onChange={e => buscar(e.target.value)} autoFocus
+              style={{ width: '100%', height: 34, paddingLeft: 34, border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, outline: 'none' }} />
+          </div>
+        </div>
+        <div style={{ flex: 1, overflow: 'auto', maxHeight: 300 }}>
+          {results.length === 0 ? (
+            <div style={{ padding: 20, textAlign: 'center', color: '#9ca3af', fontSize: 13 }}>
+              {busqueda.length < 2 ? 'Escriba al menos 2 caracteres' : 'Sin resultados'}
+            </div>
+          ) : results.map((c: any) => (
+            <div key={c.CodigoClien}
+              onDoubleClick={() => onSelect(c)}
+              style={{ padding: '8px 16px', cursor: 'pointer', fontSize: 12, borderBottom: '1px solid #f3f4f6', display: 'flex', alignItems: 'center', gap: 10 }}
+              onMouseOver={e => (e.currentTarget.style.background = '#f3e8ff')}
+              onMouseOut={e => (e.currentTarget.style.background = '')}>
+              <span style={{ color: '#7c3aed', fontWeight: 700, width: 55, flexShrink: 0 }}>{c.CodigoClien}</span>
+              <span style={{ fontWeight: 600, flex: 1 }}>{c.Nombre_Cliente || c.Razon_Social}</span>
+              <span style={{ color: '#6b7280', width: 100, textAlign: 'right' }}>{c.Identificacion || c.Nit}</span>
+              <span style={{ color: '#6b7280', width: 80, textAlign: 'right' }}>{c.Telefono !== '0' ? c.Telefono : '-'}</span>
+            </div>
+          ))}
+        </div>
+        <div style={{ padding: '8px 16px', borderTop: '1px solid #e5e7eb', fontSize: 11, color: '#9ca3af', textAlign: 'center' }}>
+          Doble clic para seleccionar cliente
+        </div>
+      </div>
+    </div>
+  );
+}
 const fmtMon = (v: number) => '$ ' + Math.round(v).toLocaleString('es-CO');
 
 interface LineaVenta {
@@ -39,8 +102,15 @@ interface NuevaVentaProps {
   onStateChange?: (state: TabState) => void;
 }
 
+const API_CAJA = 'http://localhost:80/conta-app-backend/api/caja/sesion.php';
+
 export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: NuevaVentaProps) {
-  const init = initialState || { tipo: 'Contado', dias: 0, listaPrecio: 1, descuentoGlobal: 0, cliente: { id: 130500, nombre: 'VENTAS AL CONTADO', nit: '0', tel: '0', dir: '-', cupo: 0, esCliente: false }, lineas: [] };
+  const init = initialState || { tipo: 'Contado', dias: 0, listaPrecio: 1, descuentoGlobal: 0, cliente: { id: 130500, nombre: 'VENTAS AL CONTADO', nit: '0', tel: '0', dir: '-', cupo: 0, esCliente: false, email: '' }, lineas: [] };
+  const [tipoDocumento, setTipoDocumento] = useState('pos'); // pos, electronica, soporte
+  const [enviarEmailFE, setEnviarEmailFE] = useState(false);
+  const [cajaAbierta, setCajaAbierta] = useState<boolean | null>(null); // null=loading, true/false
+  const [baseApertura, setBaseApertura] = useState('');
+  const [abriendoCaja, setAbriendoCaja] = useState(false);
   const [tipo, setTipo] = useState(init.tipo);
   const [dias, setDias] = useState(init.dias);
   const [medioPago, setMedioPago] = useState(0);
@@ -48,6 +118,7 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
   const [clienteBusqueda, setClienteBusqueda] = useState('');
   const [clienteResults, setClienteResults] = useState<any[]>([]);
   const [showClienteDropdown, setShowClienteDropdown] = useState(false);
+  const clienteModalRef = useRef<HTMLDivElement>(null);
   const [listaPrecio, setListaPrecio] = useState(init.listaPrecio);
   const [lineas, setLineas] = useState<LineaVenta[]>(init.lineas);
   const [buscarProducto, setBuscarProducto] = useState('');
@@ -95,11 +166,14 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
   };
 
   const seleccionarCliente = (c: any) => {
+    const email = c.Email || '';
     setCliente({
       id: c.CodigoClien, nombre: c.Nombre_Cliente, nit: c.Identificacion || '0',
       tel: c.Telefono || '0', dir: c.Direccion || '-',
-      cupo: parseFloat(c.Cupo) || 0, esCliente: true
+      cupo: parseFloat(c.Cupo) || 0, esCliente: true, email
     });
+    // Si no tiene email válido, desactivar envío
+    if (!email || !email.includes('@')) setEnviarEmailFE(false);
     setClienteBusqueda('');
     setShowClienteDropdown(false);
     productoInputRef.current?.focus();
@@ -151,7 +225,43 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
     }));
   };
 
+  // Verificar caja abierta al montar
+  useEffect(() => {
+    fetch(API_CAJA).then(r => r.json()).then(d => {
+      if (d.success) setCajaAbierta(d.abierta);
+      else setCajaAbierta(false);
+    }).catch(() => setCajaAbierta(false));
+  }, []);
+
+  const abrirCajaRapida = async () => {
+    setAbriendoCaja(true);
+    try {
+      const r = await fetch(API_CAJA, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'abrir', caja_id: 1, usuario_id: 0, base: parseInt(baseApertura) || 0 })
+      });
+      const d = await r.json();
+      if (d.success) { toast.success(d.message); setCajaAbierta(true); }
+      else toast.error(d.message);
+    } catch (e) { toast.error('Error al abrir caja'); }
+    setAbriendoCaja(false);
+  };
+
   const eliminarLinea = (id: number) => setLineas(prev => prev.filter(l => l.id !== id));
+
+  // Sync state to parent — use ref to avoid re-render loops
+  const onStateChangeRef = useRef(onStateChange);
+  onStateChangeRef.current = onStateChange;
+  const prevSyncKey = useRef('');
+  useEffect(() => {
+    const key = `${tipo}|${dias}|${listaPrecio}|${descuentoGlobal}|${cliente.id}|${lineas.map(l=>l.id+':'+l.Cantidad).join(',')}|${tipoDocumento}`;
+    if (key === prevSyncKey.current) return;
+    prevSyncKey.current = key;
+    // Use setTimeout to break the sync cycle
+    setTimeout(() => {
+      onStateChangeRef.current?.({ tipo, dias, listaPrecio, descuentoGlobal, cliente, lineas, tipoDocumento } as any);
+    }, 0);
+  }, [tipo, dias, listaPrecio, descuentoGlobal, cliente.id, lineas, tipoDocumento]);
 
   // Totales
   const subtotal = lineas.reduce((s, l) => s + l.Subtotal, 0);
@@ -200,23 +310,46 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
       });
       const d = await r.json();
       if (d.success) {
+        const factN = d.Factura_N;
+
+        // Si es factura electrónica, enviar a DIAN
+        if (tipoDocumento === 'electronica') {
+          toast.loading('Enviando a DIAN...', { id: 'dian' });
+          try {
+            const rDian = await fetch(API_FE, {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ action: 'factura', factura_n: factN, send_email: enviarEmailFE })
+            });
+            const dDian = await rDian.json();
+            if (dDian.success) {
+              const emailMsg = dDian.email_result?.success ? ` — Email enviado a ${dDian.email_result.recipient}` : '';
+              toast.success(`DIAN: Factura ${dDian.consecutive ? '#' + dDian.consecutive : ''} aprobada${emailMsg}`, { id: 'dian', duration: 6000 });
+            } else {
+              toast.error(`DIAN: ${dDian.message || 'Error al enviar'}`, { id: 'dian', duration: 10000 });
+            }
+          } catch (e) {
+            toast.error('Error de conexión con la API de facturación electrónica', { id: 'dian', duration: 8000 });
+          }
+        }
+
         const cfg = getConfigImpresion();
         // Imprimir si está configurado
         if (cfg.imprimirAlGuardar) {
           const medioNombre = pagoTransfNum > 0 ? (['','Tarjeta','Bancolombia','Nequi'][pagoMedioTransf] || 'Transferencia') : 'Efectivo';
-          const datosImp = buildDatosFactura(d.Factura_N, lineas, cliente, tipo, dias, descuentoGlobal, pagoEfectivoNum, pagoTransfNum, cambioPago, tipo !== 'Contado' ? pagoAbonoNum : 0, medioNombre);
+          const datosImp = buildDatosFactura(factN, lineas, cliente, tipo, dias, descuentoGlobal, pagoEfectivoNum, pagoTransfNum, cambioPago, tipo !== 'Contado' ? pagoAbonoNum : 0, medioNombre);
           imprimirFactura(datosImp);
         }
         setShowPagoModal(false);
         toast.success(
           cambioPago > 0
-            ? `Factura #${d.Factura_N} guardada — Cambio: ${fmtMon(cambioPago)}`
-            : `Factura #${d.Factura_N} guardada exitosamente`,
+            ? `Factura #${factN} guardada — Cambio: ${fmtMon(cambioPago)}`
+            : `Factura #${factN} guardada exitosamente`,
           { duration: cambioPago > 0 ? 8000 : 4000 }
         );
         setLineas([]); setDescuentoGlobal(0); setEfectivo('');
-        setCliente({ id: 130500, nombre: 'VENTAS AL CONTADO', nit: '0', tel: '0', dir: '-', cupo: 0, esCliente: false });
-        onFacturaCreada?.(d.Factura_N);
+        setCliente({ id: 130500, nombre: 'VENTAS AL CONTADO', nit: '0', tel: '0', dir: '-', cupo: 0, esCliente: false, email: '' });
+        setTipoDocumento('pos');
+        onFacturaCreada?.(factN);
       } else { toast.error(d.message); }
     } catch (e) { toast.error('Error al crear factura'); }
     setGuardando(false);
@@ -225,7 +358,7 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
   // Nueva factura (reset)
   const nueva = () => {
     setLineas([]); setDescuentoGlobal(0); setEfectivo(''); setError(''); setSuccess('');
-    setCliente({ id: 130500, nombre: 'VENTAS AL CONTADO', nit: '0', tel: '0', dir: '-', cupo: 0, esCliente: false });
+    setCliente({ id: 130500, nombre: 'VENTAS AL CONTADO', nit: '0', tel: '0', dir: '-', cupo: 0, esCliente: false, email: '' });
     setTipo('Contado'); setDias(0);
     productoInputRef.current?.focus();
   };
@@ -248,6 +381,36 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
     if (!allowed.includes(e.key) && !e.ctrlKey) e.preventDefault();
   };
 
+  // Si no hay caja abierta, mostrar pantalla de apertura
+  if (cajaAbierta === null) return <div style={{ padding: 40, textAlign: 'center', color: '#9ca3af' }}>Verificando caja...</div>;
+
+  if (cajaAbierta === false) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 'calc(100vh - 150px)' }}>
+        <div style={{ background: '#fff', borderRadius: 16, padding: 30, boxShadow: '0 4px 20px rgba(0,0,0,0.08)', textAlign: 'center', width: 380 }}>
+          <div style={{ width: 56, height: 56, borderRadius: 14, background: '#fef3c7', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 14px' }}>
+            <Lock size={24} color="#d97706" />
+          </div>
+          <h3 style={{ fontSize: 17, fontWeight: 700, margin: '0 0 6px' }}>Caja no abierta</h3>
+          <p style={{ fontSize: 13, color: '#6b7280', marginBottom: 20 }}>Debe abrir la caja antes de realizar ventas</p>
+          <div style={{ display: 'flex', justifyContent: 'center', gap: 8, alignItems: 'center' }}>
+            <div>
+              <label style={{ fontSize: 10, color: '#6b7280', display: 'block', marginBottom: 4 }}>BASE INICIAL</label>
+              <input type="text" value={baseApertura} onChange={e => setBaseApertura(e.target.value.replace(/[^0-9]/g, ''))}
+                placeholder="$ 0" autoFocus
+                onKeyDown={e => { if (e.key === 'Enter') abrirCajaRapida(); }}
+                style={{ width: 140, height: 38, textAlign: 'center', border: '2px solid #d1d5db', borderRadius: 10, fontSize: 16, fontWeight: 700, outline: 'none' }} />
+            </div>
+            <button onClick={abrirCajaRapida} disabled={abriendoCaja}
+              style={{ height: 38, padding: '0 20px', background: '#16a34a', color: '#fff', border: 'none', borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, marginTop: 18, opacity: abriendoCaja ? 0.6 : 1 }}>
+              <Unlock size={16} /> {abriendoCaja ? 'Abriendo...' : 'Abrir Caja'}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 110px)' }}>
       {error && <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, padding: '6px 14px', marginBottom: 8, color: '#dc2626', fontSize: 12, display: 'flex', justifyContent: 'space-between' }}>{error}<button onClick={() => setError('')} style={{ background: 'none', border: 'none', cursor: 'pointer' }}><X size={14} /></button></div>}
@@ -256,7 +419,21 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
       {/* Fila 1: Datos factura */}
       <div style={{ background: '#fff', borderRadius: 12, padding: '8px 16px', marginBottom: 6, boxShadow: '0 1px 3px rgba(0,0,0,0.08)', flexShrink: 0, display: 'flex', alignItems: 'flex-end', gap: 10 }}>
         <div>
-          <label style={{ fontSize: 9, color: '#6b7280', display: 'block', marginBottom: 2 }}>TIPO</label>
+          <label style={{ fontSize: 9, color: '#6b7280', display: 'block', marginBottom: 2 }}>DOCUMENTO</label>
+          <select value={tipoDocumento} onChange={e => setTipoDocumento(e.target.value)}
+            style={{
+              height: 28, border: '1px solid #d1d5db', borderRadius: 6, fontSize: 12, padding: '0 4px', width: 150,
+              fontWeight: 600,
+              color: tipoDocumento === 'electronica' ? '#2563eb' : tipoDocumento === 'soporte' ? '#d97706' : '#374151',
+              background: tipoDocumento === 'electronica' ? '#eff6ff' : tipoDocumento === 'soporte' ? '#fffbeb' : '#fff'
+            }}>
+            <option value="pos">Factura POS</option>
+            <option value="electronica">Factura Electrónica</option>
+            <option value="soporte">Doc. Soporte</option>
+          </select>
+        </div>
+        <div>
+          <label style={{ fontSize: 9, color: '#6b7280', display: 'block', marginBottom: 2 }}>TÉRMINO</label>
           <select value={tipo} onChange={e => { setTipo(e.target.value); if (e.target.value === 'Contado') setDias(0); }}
             style={{ height: 28, border: '1px solid #d1d5db', borderRadius: 6, fontSize: 12, padding: '0 4px', width: 90 }}>
             <option value="Contado">Contado</option>
@@ -286,6 +463,24 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
             ))}
           </div>
         </div>
+        {tipoDocumento === 'electronica' && (() => {
+          const tieneEmail = cliente.email && cliente.email.includes('@');
+          return (
+            <label style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: tieneEmail ? 'pointer' : 'not-allowed', padding: '0 8px', opacity: tieneEmail ? 1 : 0.5 }}
+              title={tieneEmail ? `Enviar a: ${cliente.email}` : 'El cliente no tiene correo registrado'}>
+              <input type="checkbox" checked={enviarEmailFE}
+                disabled={!tieneEmail}
+                onChange={e => {
+                  if (!tieneEmail) { toast.error('El cliente no tiene correo. Edite el cliente para agregar un email.'); return; }
+                  setEnviarEmailFE(e.target.checked);
+                }}
+                style={{ accentColor: '#2563eb', width: 16, height: 16 }} />
+              <span style={{ fontSize: 11, color: tieneEmail ? '#2563eb' : '#9ca3af', fontWeight: 500 }}>
+                {tieneEmail ? `Email (${cliente.email})` : 'Sin email'}
+              </span>
+            </label>
+          );
+        })()}
         <div style={{ flex: 1 }} />
         <div style={{ textAlign: 'right' }}>
           <div style={{ fontSize: 9, color: '#6b7280' }}>TOTAL</div>
@@ -305,7 +500,7 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
               <Search size={14} color="#7c3aed" />
             </button>
             {cliente.esCliente && (
-              <button onClick={() => setCliente({ id: 130500, nombre: 'VENTAS AL CONTADO', nit: '0', tel: '0', dir: '-', cupo: 0, esCliente: false })}
+              <button onClick={() => setCliente({ id: 130500, nombre: 'VENTAS AL CONTADO', nit: '0', tel: '0', dir: '-', cupo: 0, esCliente: false, email: '' })}
                 title="Quitar cliente" style={{ width: 28, height: 28, border: '1px solid #fecaca', borderRadius: 6, cursor: 'pointer', background: '#fef2f2', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 <X size={14} color="#dc2626" />
               </button>
@@ -340,43 +535,12 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
         </div>
       </div>
 
-      {/* Modal buscar cliente */}
+      {/* Modal buscar cliente (componente independiente) */}
       {showClienteDropdown && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.3)' }} onClick={() => setShowClienteDropdown(false)} />
-          <div style={{ position: 'relative', background: '#fff', borderRadius: 12, width: 500, maxHeight: 400, boxShadow: '0 20px 60px rgba(0,0,0,0.2)', display: 'flex', flexDirection: 'column' }}>
-            <div style={{ padding: '12px 16px', borderBottom: '1px solid #e5e7eb', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: 14, fontWeight: 700 }}>Buscar Cliente</span>
-              <button onClick={() => setShowClienteDropdown(false)} style={{ background: 'none', border: 'none', cursor: 'pointer' }}><X size={18} /></button>
-            </div>
-            <div style={{ padding: '10px 16px' }}>
-              <div style={{ position: 'relative' }}>
-                <Search size={16} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: '#9ca3af' }} />
-                <input type="text" placeholder="Escriba nombre o NIT del cliente..." value={clienteBusqueda}
-                  onChange={e => buscarCliente(e.target.value)} autoFocus
-                  style={{ width: '100%', height: 34, paddingLeft: 34, border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, outline: 'none' }} />
-              </div>
-            </div>
-            <div style={{ flex: 1, overflow: 'auto', maxHeight: 280 }}>
-              {clienteResults.length === 0 ? (
-                <div style={{ padding: 20, textAlign: 'center', color: '#9ca3af', fontSize: 13 }}>
-                  {clienteBusqueda.length < 2 ? 'Escriba al menos 2 caracteres' : 'Sin resultados'}
-                </div>
-              ) : clienteResults.map((c: any) => (
-                <div key={c.CodigoClien}
-                  onClick={() => { seleccionarCliente(c); setShowClienteDropdown(false); }}
-                  style={{ padding: '8px 16px', cursor: 'pointer', fontSize: 12, borderBottom: '1px solid #f3f4f6', display: 'flex', alignItems: 'center', gap: 10 }}
-                  onMouseOver={e => (e.currentTarget.style.background = '#f3e8ff')}
-                  onMouseOut={e => (e.currentTarget.style.background = '')}>
-                  <span style={{ color: '#7c3aed', fontWeight: 700, width: 55, flexShrink: 0 }}>{c.CodigoClien}</span>
-                  <span style={{ fontWeight: 600, flex: 1 }}>{c.Nombre_Cliente}</span>
-                  <span style={{ color: '#6b7280', width: 100, textAlign: 'right' }}>{c.Identificacion}</span>
-                  <span style={{ color: '#6b7280', width: 80, textAlign: 'right' }}>{c.Telefono !== '0' ? c.Telefono : '-'}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
+        <BuscarClienteModal
+          onSelect={(c) => { seleccionarCliente(c); setShowClienteDropdown(false); }}
+          onClose={() => setShowClienteDropdown(false)}
+        />
       )}
 
       {/* Tabla de items con fila de entrada */}
@@ -562,7 +726,12 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
           <div style={{ position: 'relative', background: '#fff', borderRadius: 14, width: 420, boxShadow: '0 20px 60px rgba(0,0,0,0.25)' }}>
             {/* Header */}
             <div style={{ padding: '14px 20px', borderBottom: '1px solid #e5e7eb', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: 16, fontWeight: 700 }}>Guardar Factura</span>
+              <span style={{ fontSize: 16, fontWeight: 700 }}>
+                {tipoDocumento === 'electronica' ? 'Factura Electrónica' : tipoDocumento === 'soporte' ? 'Documento Soporte' : 'Guardar Factura'}
+              </span>
+              {tipoDocumento === 'electronica' && (
+                <span style={{ fontSize: 11, background: '#dbeafe', color: '#2563eb', padding: '2px 8px', borderRadius: 6, fontWeight: 600, marginLeft: 8 }}>DIAN</span>
+              )}
               <button onClick={() => setShowPagoModal(false)} style={{ background: 'none', border: 'none', cursor: 'pointer' }}><X size={18} /></button>
             </div>
 
@@ -674,7 +843,7 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
                   cursor: (tipo === 'Contado' && faltaPagar > 0) ? 'default' : 'pointer',
                   display: 'flex', alignItems: 'center', gap: 6, opacity: guardando ? 0.6 : 1
                 }}>
-                <Save size={15} /> Guardar Factura
+                <Save size={15} /> {tipoDocumento === 'electronica' ? 'Guardar y Enviar a DIAN' : tipoDocumento === 'soporte' ? 'Guardar Doc. Soporte' : 'Guardar Factura'}
               </button>
             </div>
           </div>

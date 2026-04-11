@@ -38,9 +38,9 @@ try {
         $stmt2->execute([$id]);
         $items = $stmt2->fetchAll();
 
-        // Pagos realizados a esta factura
-        $stmt3 = $db->prepare("SELECT * FROM tblpagos WHERE Fact_N = ? AND Estado = 'Valida' ORDER BY Fecha");
-        $stmt3->execute([$id]);
+        // Pagos realizados a esta factura (busca por Fact_N y NFactAnt)
+        $stmt3 = $db->prepare("SELECT * FROM tblpagos WHERE (Fact_N = ? OR NFactAnt = ?) AND Estado = 'Valida' ORDER BY Fecha");
+        $stmt3->execute([$id, strval($id)]);
         $pagos = $stmt3->fetchAll();
 
         // Devoluciones

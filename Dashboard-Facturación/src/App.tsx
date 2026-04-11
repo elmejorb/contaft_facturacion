@@ -1,11 +1,24 @@
+import { useState, useEffect } from 'react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { LoginPage } from './components/LoginPage';
 import { Dashboard } from './components/Dashboard';
 import { Toaster } from 'react-hot-toast';
 import { ConfirmDialogProvider } from './components/ConfirmDialog';
+import { ConfigurarServidor } from './components/ConfigurarServidor';
+import { isApiConfigured, loadConfigFromFile } from './config/api';
 
 function AppContent() {
   const { isAuthenticated, user, logout, loading } = useAuth();
+  const [serverConfigured, setServerConfigured] = useState(isApiConfigured());
+  const [configLoaded, setConfigLoaded] = useState(false);
+
+  // Cargar config desde archivo JSON al inicio (Electron)
+  useEffect(() => {
+    loadConfigFromFile().then(() => {
+      setServerConfigured(isApiConfigured());
+      setConfigLoaded(true);
+    });
+  }, []);
 
   if (loading) {
     return (
@@ -16,6 +29,12 @@ function AppContent() {
         </div>
       </div>
     );
+  }
+
+  // En desarrollo, saltar la configuración del servidor
+  const isDev = import.meta.env.DEV;
+  if (!isDev && !serverConfigured) {
+    return <ConfigurarServidor onConfigured={() => { setServerConfigured(true); window.location.reload(); }} />;
   }
 
   return (

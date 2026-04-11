@@ -9,3 +9,4 @@
 
   Run `npm run dev` to start the development server.
   
+  npm run electron:dev

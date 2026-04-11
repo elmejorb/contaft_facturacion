@@ -43,6 +43,15 @@ import { VentasTabs } from './VentasTabs';
 import { PurchasesManagement } from './PurchasesManagement';
 import { SalesManagement } from './SalesManagement';
 import { VentasPorTipoPago } from './VentasPorTipoPago';
+import { FacturacionElectronica } from './FacturacionElectronica';
+import { CajaRegistradora } from './CajaRegistradora';
+import { HistorialCajas } from './HistorialCajas';
+import { ListadoPagosClientes, ListadoPagosProveedores } from './ListadoPagos';
+import { GastosManagement } from './GastosManagement';
+import { BancosManagement } from './BancosManagement';
+import { ConfigCategoriasGasto } from './ConfigCategoriasGasto';
+import { ConfigCajas } from './ConfigCajas';
+import { ConfigServidor } from './ConfigServidor';
 import { InventarioManagement } from './InventarioManagement';
 import { DiagnosticoInventario } from './DiagnosticoInventario';
 import { AuditoriaInventario } from './AuditoriaInventario';
@@ -77,7 +86,7 @@ interface DashboardProps {
   user?: UserData | null;
 }
 
-type View = 'overview' | 'products' | 'customers' | 'suppliers' | 'purchases' | 'sales' | 'inventario' | 'diagnostico' | 'auditoria' | 'categorias' | 'conteo' | 'configuracion' | 'cuentas-cobrar' | 'top-clientes' | 'cumpleanos' | 'cuentas-pagar' | 'productos-proveedor' | 'nueva-venta' | 'ventas-tipo-pago' | 'datos-empresa' | 'usuarios' | 'nueva-compra';
+type View = 'overview' | 'products' | 'customers' | 'suppliers' | 'purchases' | 'sales' | 'inventario' | 'diagnostico' | 'auditoria' | 'categorias' | 'conteo' | 'configuracion' | 'cuentas-cobrar' | 'top-clientes' | 'cumpleanos' | 'cuentas-pagar' | 'productos-proveedor' | 'nueva-venta' | 'ventas-tipo-pago' | 'datos-empresa' | 'usuarios' | 'nueva-compra' | 'facturacion-electronica' | 'caja' | 'caja-historial' | 'pagos-clientes' | 'pagos-proveedores' | 'gastos' | 'bancos' | 'config-categorias-gasto' | 'config-cajas' | 'config-servidor';
 
 interface MenuItem {
   id: string;
@@ -153,6 +162,7 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
         { id: 'new-sale', label: 'Nueva Venta', view: 'nueva-venta' as View },
         { id: 'sales-list', label: 'Listado de Ventas', view: 'sales' },
         { id: 'sales-by-payment', label: 'Listado por Tipo de Pago', view: 'ventas-tipo-pago' as View },
+        { id: 'fe-panel', label: 'Facturación Electrónica', view: 'facturacion-electronica' as View },
       ]
     },
     { 
@@ -173,6 +183,19 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
       ]
     },
     {
+      id: 'movimientos-menu',
+      label: 'Movimientos',
+      icon: TrendingUp,
+      children: [
+        { id: 'caja-actual', label: 'Abrir / Cerrar Caja', view: 'caja' as View },
+        { id: 'caja-historial', label: 'Historial de Cajas', view: 'caja-historial' as View },
+        { id: 'pagos-clientes', label: 'Listado Pagos Clientes', view: 'pagos-clientes' as View },
+        { id: 'pagos-proveedores', label: 'Pagos a Proveedores', view: 'pagos-proveedores' as View },
+        { id: 'gastos', label: 'Gastos', view: 'gastos' as View },
+        { id: 'bancos', label: 'Bancos', view: 'bancos' as View },
+      ]
+    },
+    {
       id: 'configuracion',
       label: 'Configuración',
       icon: Settings,
@@ -180,6 +203,9 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
         { id: 'config-sistema', label: 'Sistema e Impresión', view: 'configuracion' as View },
         { id: 'config-empresa', label: 'Datos de la Empresa', view: 'datos-empresa' as View },
         { id: 'config-usuarios', label: 'Usuarios', view: 'usuarios' as View },
+        { id: 'config-categorias', label: 'Categorías de Gastos', view: 'config-categorias-gasto' as View },
+        { id: 'config-cajas', label: 'Administrar Cajas', view: 'config-cajas' as View },
+        { id: 'config-servidor', label: 'Servidor', view: 'config-servidor' as View },
       ]
     },
   ];
@@ -396,6 +422,16 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
           {currentView === 'sales' && <SalesManagement />}
           {currentView === 'ventas-tipo-pago' && <VentasPorTipoPago />}
           {currentView === 'nueva-venta' && <VentasTabs />}
+          {currentView === 'facturacion-electronica' && <FacturacionElectronica />}
+          {currentView === 'caja' && <CajaRegistradora />}
+          {currentView === 'caja-historial' && <HistorialCajas />}
+          {currentView === 'pagos-clientes' && <ListadoPagosClientes />}
+          {currentView === 'pagos-proveedores' && <ListadoPagosProveedores />}
+          {currentView === 'gastos' && <GastosManagement />}
+          {currentView === 'bancos' && <BancosManagement />}
+          {currentView === 'config-categorias-gasto' && <ConfigCategoriasGasto />}
+          {currentView === 'config-cajas' && <ConfigCajas />}
+          {currentView === 'config-servidor' && <ConfigServidor />}
         </div>
       </main>
     </div>

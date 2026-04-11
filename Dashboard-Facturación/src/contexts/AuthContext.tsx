@@ -36,7 +36,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const storedUser = localStorage.getItem('user');
+    const storedUser = sessionStorage.getItem('user');
     if (storedUser) {
       setUser(JSON.parse(storedUser));
     }
@@ -45,32 +45,37 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
 
   const login = async (username: string, password: string) => {
     try {
-      // Codificar la contraseña usando el mismo método que VB6
       const passwordCodificada = codificarPassword(password);
+      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:80/conta-app-backend/api';
 
-      const response = await api.post('/auth/login.php', {
-        username,
-        password: passwordCodificada,
+      const res = await fetch(`${API_URL}/auth/login.php`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password: passwordCodificada }),
       });
 
-      const { token, user: userData } = response.data;
+      const data = await res.json();
 
-      localStorage.setItem('token', token);
-      localStorage.setItem('user', JSON.stringify(userData));
-      setUser(userData);
+      if (!data.success) {
+        return { success: false, message: data.message || 'Usuario o contraseña incorrectos' };
+      }
+
+      sessionStorage.setItem('token', data.token);
+      sessionStorage.setItem('user', JSON.stringify(data.user));
+      setUser(data.user);
 
       return { success: true };
     } catch (error: any) {
       return {
         success: false,
-        message: error.response?.data?.message || 'Error al iniciar sesión',
+        message: 'Error de conexión con el servidor',
       };
     }
   };
 
   const logout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
+    sessionStorage.removeItem('token');
+    sessionStorage.removeItem('user');
     setUser(null);
   };
 

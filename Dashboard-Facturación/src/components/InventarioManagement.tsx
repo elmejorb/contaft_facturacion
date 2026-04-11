@@ -13,6 +13,7 @@ import { AgGridReact } from 'ag-grid-react';
 import { AllCommunityModule, ModuleRegistry, themeQuartz } from 'ag-grid-community';
 import api from '../services/api';
 import { Kardex } from './Kardex';
+import { DetalleProductoModal } from './DetalleProductoModal';
 import { EditarArticuloModal } from './EditarArticuloModal';
 
 ModuleRegistry.registerModules([AllCommunityModule]);
@@ -57,6 +58,7 @@ export function InventarioManagement() {
     isOpen: false,
     producto: null
   });
+  const [detalleProducto, setDetalleProducto] = useState<number | null>(null);
   const [editarModal, setEditarModal] = useState<{ isOpen: boolean; producto: Articulo | null }>({
     isOpen: false,
     producto: null
@@ -202,6 +204,13 @@ export function InventarioManagement() {
             });
           }}
         >
+          <button title="Detalle del producto" data-c="#7c3aed" data-hc="#7c3aed"
+            onClick={() => setDetalleProducto(params.data.Items)}
+            style={btn('#7c3aed', '#7c3aed')}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>
+            </svg>
+          </button>
           <button title="Ver Kardex" data-c="#3b82f6" data-hc="#3b82f6"
             onClick={() => setKardexModal({ isOpen: true, producto: params.data })}
             style={btn('#3b82f6', '#3b82f6')}>
@@ -411,6 +420,11 @@ export function InventarioManagement() {
         onGuardado={cargarArticulos}
         modo={editarModal.producto ? 'editar' : 'nuevo'}
       />
+
+      {/* Modal detalle producto */}
+      {detalleProducto && (
+        <DetalleProductoModal items={detalleProducto} onClose={() => setDetalleProducto(null)} />
+      )}
     </div>
   );
 }

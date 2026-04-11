@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
 import { AgGridReact } from 'ag-grid-react';
 import { AllCommunityModule, ModuleRegistry, ColDef } from 'ag-grid-community';
-import { Search, RefreshCw, Users, DollarSign, AlertTriangle, Clock, Wallet, Eye, Printer } from 'lucide-react';
+import { Search, RefreshCw, Users, DollarSign, AlertTriangle, Clock, Wallet, Eye, Printer, Plus, X } from 'lucide-react';
 import { ClienteDetalle } from './ClienteDetalle';
+import toast from 'react-hot-toast';
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
@@ -29,6 +30,17 @@ export function CuentasPorCobrar() {
   const [busqueda, setBusqueda] = useState('');
   const [filtro, setFiltro] = useState('todos');
   const [detalleId, setDetalleId] = useState<number | null>(null);
+  const [showFactAnt, setShowFactAnt] = useState(false);
+  const [faCliente, setFaCliente] = useState('');
+  const [faClienteResults, setFaClienteResults] = useState<any[]>([]);
+  const [faClienteId, setFaClienteId] = useState(0);
+  const [faClienteNombre, setFaClienteNombre] = useState('');
+  const [faFacturaN, setFaFacturaN] = useState('');
+  const [faFecha, setFaFecha] = useState(new Date().toISOString().slice(0, 10));
+  const [faValor, setFaValor] = useState('');
+  const [faSaldo, setFaSaldo] = useState('');
+  const [faDias, setFaDias] = useState('30');
+  const faTimer = useRef<any>(null);
   const gridRef = useRef<AgGridReact>(null);
 
   const generarReportePDF = () => {
@@ -283,6 +295,32 @@ export function CuentasPorCobrar() {
     setLoading(false);
   };
 
+  const buscarClienteFA = (q: string) => {
+    setFaCliente(q);
+    if (q.length < 2) { setFaClienteResults([]); return; }
+    clearTimeout(faTimer.current);
+    faTimer.current = setTimeout(async () => {
+      try {
+        const r = await fetch(`http://localhost:80/conta-app-backend/api/clientes/buscar.php?q=${encodeURIComponent(q)}`);
+        const d = await r.json();
+        if (d.success) setFaClienteResults(d.clientes || d.data || []);
+      } catch (e) {}
+    }, 250);
+  };
+
+  const guardarFactAnt = async () => {
+    if (!faClienteId || !faFacturaN || !(parseInt(faValor) > 0)) { toast.error('Complete cliente, número y valor'); return; }
+    try {
+      const r = await fetch('http://localhost:80/conta-app-backend/api/clientes/factura-anterior.php', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'crear', cliente_id: faClienteId, factura_n: faFacturaN, fecha: faFecha, valor: parseInt(faValor), saldo: parseInt(faSaldo || faValor), dias: parseInt(faDias) || 30 })
+      });
+      const d = await r.json();
+      if (d.success) { toast.success(d.message); setShowFactAnt(false); setFaFacturaN(''); setFaValor(''); setFaSaldo(''); setFaClienteId(0); setFaClienteNombre(''); cargar(); }
+      else toast.error(d.message);
+    } catch (e) { toast.error('Error'); }
+  };
+
   useEffect(() => { cargar(); }, []);
 
   const filtrados = clientes.filter(c => {
@@ -390,6 +428,13 @@ export function CuentasPorCobrar() {
           }}>
             <Printer size={14} /> Detallado
           </button>
+          <button onClick={() => setShowFactAnt(true)} title="Agregar factura de sistema anterior para cargar saldos iniciales" style={{
+            height: 30, padding: '0 12px', background: '#d97706', color: '#fff',
+            border: 'none', borderRadius: 8, fontSize: 12, cursor: 'pointer',
+            display: 'flex', alignItems: 'center', gap: 5
+          }}>
+            <Plus size={14} /> Factura Anterior
+          </button>
         </div>
       </div>
 
@@ -486,6 +531,87 @@ export function CuentasPorCobrar() {
 
       {detalleId !== null && (
         <ClienteDetalle clienteId={detalleId} tabInicial="pagar" onClose={() => { setDetalleId(null); cargar(); }} />
+      )}
+
+      {/* Modal Factura Anterior */}
+      {showFactAnt && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.4)' }} onClick={() => setShowFactAnt(false)} />
+          <div style={{ position: 'relative', background: '#fff', borderRadius: 12, width: 450, boxShadow: '0 20px 60px rgba(0,0,0,0.25)', padding: 20 }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <span style={{ fontSize: 16, fontWeight: 700, color: '#d97706' }}>Agregar Factura Anterior</span>
+              <button onClick={() => setShowFactAnt(false)} style={{ background: 'none', border: 'none', cursor: 'pointer' }}><X size={18} /></button>
+            </div>
+            <p style={{ fontSize: 12, color: '#6b7280', marginBottom: 12 }}>Use esta opción para cargar saldos de un sistema anterior</p>
+
+            {/* Buscar cliente */}
+            <div style={{ marginBottom: 12, position: 'relative' }}>
+              <label style={{ fontSize: 10, fontWeight: 600, color: '#6b7280', display: 'block', marginBottom: 4 }}>CLIENTE</label>
+              {faClienteId ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, height: 32, padding: '0 10px', background: '#f9fafb', borderRadius: 8, border: '1px solid #d1d5db' }}>
+                  <span style={{ color: '#7c3aed', fontWeight: 700, fontSize: 12 }}>{faClienteId}</span>
+                  <span style={{ flex: 1, fontSize: 13, fontWeight: 500 }}>{faClienteNombre}</span>
+                  <button onClick={() => { setFaClienteId(0); setFaClienteNombre(''); }} style={{ background: 'none', border: 'none', cursor: 'pointer' }}><X size={14} color="#9ca3af" /></button>
+                </div>
+              ) : (
+                <div>
+                  <input type="text" value={faCliente} onChange={e => buscarClienteFA(e.target.value)} placeholder="Buscar cliente..."
+                    style={{ width: '100%', height: 32, border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, padding: '0 10px', boxSizing: 'border-box' }} />
+                  {faClienteResults.length > 0 && (
+                    <div style={{ position: 'absolute', left: 0, right: 0, background: '#fff', border: '1px solid #d1d5db', borderRadius: 8, boxShadow: '0 4px 12px rgba(0,0,0,0.1)', maxHeight: 150, overflow: 'auto', zIndex: 10 }}>
+                      {faClienteResults.map((c: any) => (
+                        <div key={c.CodigoClien} onClick={() => { setFaClienteId(c.CodigoClien); setFaClienteNombre(c.Nombre_Cliente || c.Razon_Social); setFaClienteResults([]); setFaCliente(''); }}
+                          style={{ padding: '6px 10px', cursor: 'pointer', fontSize: 12, borderBottom: '1px solid #f3f4f6' }}
+                          onMouseOver={e => (e.currentTarget.style.background = '#f3e8ff')} onMouseOut={e => (e.currentTarget.style.background = '')}>
+                          <span style={{ color: '#7c3aed', fontWeight: 700, marginRight: 8 }}>{c.CodigoClien}</span>{c.Nombre_Cliente || c.Razon_Social}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
+              <div>
+                <label style={{ fontSize: 10, fontWeight: 600, color: '#6b7280', display: 'block', marginBottom: 4 }}>Nº FACTURA</label>
+                <input type="text" value={faFacturaN} onChange={e => setFaFacturaN(e.target.value)} placeholder="AT-12345"
+                  style={{ width: '100%', height: 32, border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, padding: '0 10px', boxSizing: 'border-box' }} />
+              </div>
+              <div>
+                <label style={{ fontSize: 10, fontWeight: 600, color: '#6b7280', display: 'block', marginBottom: 4 }}>FECHA</label>
+                <input type="date" value={faFecha} onChange={e => setFaFecha(e.target.value)}
+                  style={{ width: '100%', height: 32, border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, padding: '0 8px', boxSizing: 'border-box' }} />
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 80px', gap: 10, marginBottom: 16 }}>
+              <div>
+                <label style={{ fontSize: 10, fontWeight: 600, color: '#6b7280', display: 'block', marginBottom: 4 }}>VALOR</label>
+                <input type="text" value={faValor} onChange={e => { setFaValor(e.target.value.replace(/[^0-9]/g, '')); if (!faSaldo) setFaSaldo(e.target.value.replace(/[^0-9]/g, '')); }} placeholder="$ 0"
+                  style={{ width: '100%', height: 32, border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, fontWeight: 700, padding: '0 10px', boxSizing: 'border-box' }} />
+              </div>
+              <div>
+                <label style={{ fontSize: 10, fontWeight: 600, color: '#6b7280', display: 'block', marginBottom: 4 }}>SALDO</label>
+                <input type="text" value={faSaldo} onChange={e => setFaSaldo(e.target.value.replace(/[^0-9]/g, ''))} placeholder="= Valor"
+                  style={{ width: '100%', height: 32, border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, fontWeight: 700, padding: '0 10px', color: '#dc2626', boxSizing: 'border-box' }} />
+              </div>
+              <div>
+                <label style={{ fontSize: 10, fontWeight: 600, color: '#6b7280', display: 'block', marginBottom: 4 }}>DÍAS</label>
+                <input type="text" value={faDias} onChange={e => setFaDias(e.target.value.replace(/[^0-9]/g, ''))}
+                  style={{ width: '100%', height: 32, border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, padding: '0 8px', textAlign: 'center', boxSizing: 'border-box' }} />
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button onClick={() => setShowFactAnt(false)} style={{ height: 34, padding: '0 16px', background: '#f3f4f6', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 13, cursor: 'pointer' }}>Cancelar</button>
+              <button onClick={guardarFactAnt}
+                style={{ height: 34, padding: '0 20px', background: '#d97706', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+                Agregar Factura
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

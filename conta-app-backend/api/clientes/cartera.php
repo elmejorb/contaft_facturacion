@@ -9,16 +9,24 @@ $database = new Database();
 $db = $database->getConnection();
 
 try {
+    // Ventas con saldo + facturas anteriores con saldo
     $stmt = $db->query("
-        SELECT c.CodigoClien, c.Razon_Social, c.Nit, c.Telefonos, c.CupoAutorizado,
-               COUNT(v.Factura_N) as Facturas_Pendientes,
-               SUM(v.Saldo) as Saldo_Total,
-               MIN(v.Fecha) as Factura_Mas_Antigua,
-               DATEDIFF(CURDATE(), MIN(v.Fecha)) as Dias_Mayor_Vencimiento
-        FROM tblclientes c
-        INNER JOIN tblventas v ON c.CodigoClien = v.CodigoCli
-        WHERE v.Saldo > 0
-        GROUP BY c.CodigoClien, c.Razon_Social, c.Nit, c.Telefonos, c.CupoAutorizado
+        SELECT CodigoClien, Razon_Social, Nit, Telefonos, CupoAutorizado,
+               Facturas_Pendientes, Saldo_Total, Factura_Mas_Antigua, Dias_Mayor_Vencimiento
+        FROM (
+            SELECT c.CodigoClien, c.Razon_Social, c.Nit, c.Telefonos, c.CupoAutorizado,
+                   COUNT(*) as Facturas_Pendientes,
+                   SUM(saldo) as Saldo_Total,
+                   MIN(fecha) as Factura_Mas_Antigua,
+                   DATEDIFF(CURDATE(), MIN(fecha)) as Dias_Mayor_Vencimiento
+            FROM tblclientes c
+            INNER JOIN (
+                SELECT CodigoCli as cod, Factura_N, Fecha as fecha, Saldo as saldo FROM tblventas WHERE Saldo > 0
+                UNION ALL
+                SELECT CodigoCli as cod, FacturaN, Fecha as fecha, Saldo as saldo FROM tblfacturasanteriores WHERE Saldo > 0
+            ) f ON c.CodigoClien = f.cod
+            GROUP BY c.CodigoClien, c.Razon_Social, c.Nit, c.Telefonos, c.CupoAutorizado
+        ) t
         ORDER BY Saldo_Total DESC
     ");
     $clientes = $stmt->fetchAll();

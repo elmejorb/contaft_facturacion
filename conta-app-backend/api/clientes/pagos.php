@@ -93,6 +93,8 @@ try {
                 exit;
             }
 
+            $fechaPago = $data->fecha ?? date('Y-m-d');
+
             $db->beginTransaction();
 
             // Next RecCajaN
@@ -101,9 +103,9 @@ try {
 
             $stmtInsert = $db->prepare("
                 INSERT INTO tblpagos (RecCajaN, Codigo, Fact_N, ValorPago, Fecha, DetallePago,
-                    ValorFact, SaldoAct, Descuento, Retencion, Estado, Afectada, id_mediopago, NFactAnt, FechaMod)
-                VALUES (:rec, :codigo, 0, :valor, NOW(), :detalle, :valor_fact, :saldo_act,
-                    :descuento, 0, 'Valida', '1110', :medio, :nfact_ant, NOW())
+                    ValorFact, SaldoAct, Descuento, Retencion, Estado, Afectada, id_mediopago, NFactAnt, Nfact_electronica, FechaMod)
+                VALUES (:rec, :codigo, 0, :valor, :fecha, :detalle, :valor_fact, :saldo_act,
+                    :descuento, 0, 'Valida', '1110', :medio, :nfact_ant, '', NOW())
             ");
 
             $stmtUpdateVenta = $db->prepare("
@@ -144,6 +146,7 @@ try {
                     ':rec' => $recCaja,
                     ':codigo' => $clienteId,
                     ':valor' => $valor,
+                    ':fecha' => $fechaPago,
                     ':detalle' => $detalle,
                     ':valor_fact' => $valorFact,
                     ':saldo_act' => max($nuevoSaldo, 0),

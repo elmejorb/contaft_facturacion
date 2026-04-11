@@ -79,9 +79,20 @@ export function VentasTabs() {
   };
 
   // Actualizar state de la tab activa
-  const onStateChange = useCallback((newState: TabState) => {
-    setTabs(prev => prev.map(t => t.id === activeTabId ? { ...t, state: newState } : t));
-  }, [activeTabId]);
+  const activeTabIdRef = useRef(activeTabId);
+  activeTabIdRef.current = activeTabId;
+  const onStateChange = useCallback((newState: any) => {
+    setTabs(prev => prev.map(t => {
+      if (t.id !== activeTabIdRef.current) return t;
+      const updated = { ...t, state: newState };
+      if (newState.tipoDocumento && !t.dbId) {
+        const docLabels: Record<string, string> = { pos: 'Factura', electronica: 'F. Electrónica', soporte: 'Doc. Soporte' };
+        const num = t.label.match(/\d+$/)?.[0] || '';
+        updated.label = `${docLabels[newState.tipoDocumento] || 'Factura'} ${num}`.trim();
+      }
+      return updated;
+    }));
+  }, []);
 
   // Cuando se finaliza una venta exitosamente, limpiar la tab
   const onFacturaCreada = useCallback((factN: number) => {

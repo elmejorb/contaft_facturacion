@@ -1,234 +1,134 @@
-import { useState } from 'react';
-import { Button } from './ui/button';
-import { Input } from './ui/input';
-import { Label } from './ui/label';
-import { Card, CardContent, CardHeader } from './ui/card';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from './ui/dialog';
-import { Plus, Eye, Search } from 'lucide-react';
-import { Badge } from './ui/badge';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
+import { useState, useEffect, useRef } from 'react';
+import { AgGridReact } from 'ag-grid-react';
+import { Search, RefreshCw, Edit2, Eye, Printer, Package } from 'lucide-react';
+import toast from 'react-hot-toast';
+import { NuevaCompra } from './NuevaCompra';
 
-interface Purchase {
-  id: number;
-  date: string;
-  supplier: string;
-  product: string;
-  quantity: number;
-  unitPrice: number;
-  total: number;
-  status: 'pending' | 'completed' | 'cancelled';
-}
+const API = 'http://localhost:80/conta-app-backend/api/compras/nueva.php';
+const fmtMon = (v: number) => '$ ' + Math.round(v).toLocaleString('es-CO');
 
 export function PurchasesManagement() {
-  const [purchases, setPurchases] = useState<Purchase[]>([
-    { id: 1, date: '2024-11-15', supplier: 'TechSupply Co.', product: 'Laptop HP ProBook', quantity: 10, unitPrice: 800, total: 8000, status: 'completed' },
-    { id: 2, date: '2024-11-14', supplier: 'GlobalTech', product: 'Mouse Logitech', quantity: 50, unitPrice: 20, total: 1000, status: 'completed' },
-    { id: 3, date: '2024-11-13', supplier: 'Office Plus', product: 'Silla Ergonómica', quantity: 5, unitPrice: 150, total: 750, status: 'pending' },
-    { id: 4, date: '2024-11-12', supplier: 'TechSupply Co.', product: 'Monitor Samsung 24"', quantity: 15, unitPrice: 180, total: 2700, status: 'completed' },
-  ]);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [formData, setFormData] = useState({
-    supplier: '',
-    product: '',
-    quantity: '',
-    unitPrice: '',
-  });
+  const [compras, setCompras] = useState<any[]>([]);
+  const [anio, setAnio] = useState(new Date().getFullYear());
+  const [mes, setMes] = useState(0);
+  const [buscar, setBuscar] = useState('');
+  const [cargando, setCargando] = useState(false);
+  const [editarPedido, setEditarPedido] = useState<number | null>(null);
+  const gridRef = useRef<any>(null);
 
-  const filteredPurchases = purchases.filter(purchase =>
-    purchase.supplier.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    purchase.product.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const meses = ['Todos','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const quantity = parseInt(formData.quantity);
-    const unitPrice = parseFloat(formData.unitPrice);
-    const newPurchase: Purchase = {
-      id: Math.max(...purchases.map(p => p.id)) + 1,
-      date: new Date().toISOString().split('T')[0],
-      supplier: formData.supplier,
-      product: formData.product,
-      quantity,
-      unitPrice,
-      total: quantity * unitPrice,
-      status: 'pending',
-    };
-    setPurchases([newPurchase, ...purchases]);
-    resetForm();
+  const cargar = async () => {
+    setCargando(true);
+    try {
+      const r = await fetch(`${API}?listar=1&anio=${anio}&mes=${mes}`);
+      const d = await r.json();
+      if (d.success) setCompras(d.compras);
+    } catch (e) { toast.error('Error al cargar compras'); }
+    setCargando(false);
   };
 
-  const resetForm = () => {
-    setFormData({ supplier: '', product: '', quantity: '', unitPrice: '' });
-    setIsDialogOpen(false);
-  };
+  useEffect(() => { cargar(); }, [anio, mes]);
 
-  const getStatusColor = (status: Purchase['status']) => {
-    switch (status) {
-      case 'completed': return 'default';
-      case 'pending': return 'secondary';
-      case 'cancelled': return 'destructive';
+  const filtradas = buscar
+    ? compras.filter(c =>
+        String(c.Pedido_N).includes(buscar) ||
+        String(c.FacturaCompra_N).toLowerCase().includes(buscar.toLowerCase()) ||
+        (c.Proveedor || '').toLowerCase().includes(buscar.toLowerCase()))
+    : compras;
+
+  const totalCompras = filtradas.reduce((s, c) => s + c.Total, 0);
+
+  if (editarPedido) {
+    return <NuevaCompra pedidoEditar={editarPedido} onClose={() => { setEditarPedido(null); cargar(); }} />;
+  }
+
+  const colDefs: any[] = [
+    { field: 'Pedido_N', headerName: 'Pedido', width: 80, cellStyle: { color: '#7c3aed', fontWeight: 600 } },
+    { field: 'FacturaCompra_N', headerName: 'Fact. Compra', width: 120 },
+    { field: 'Fecha', headerName: 'Fecha', width: 100, valueFormatter: (p: any) => p.value ? new Date(p.value).toLocaleDateString('es-CO') : '' },
+    { field: 'Proveedor', headerName: 'Proveedor', flex: 1, minWidth: 180 },
+    { field: 'TipoPedido', headerName: 'Tipo', width: 80,
+      cellRenderer: (p: any) => {
+        const t = p.value;
+        const bg = t === 'Contado' ? '#dcfce7' : '#fef3c7';
+        const color = t === 'Contado' ? '#16a34a' : '#d97706';
+        return <span style={{ padding: '2px 8px', borderRadius: 10, fontSize: 11, fontWeight: 600, background: bg, color }}>{t}</span>;
+      }
+    },
+    { field: 'Items', headerName: 'Items', width: 60, cellStyle: { textAlign: 'center' } },
+    { field: 'Total', headerName: 'Total', width: 120, cellStyle: { textAlign: 'right', fontWeight: 700 },
+      valueFormatter: (p: any) => fmtMon(p.value || 0) },
+    { field: 'Saldo', headerName: 'Saldo', width: 100, cellStyle: (p: any) => ({ textAlign: 'right', fontWeight: 600, color: p.value > 0 ? '#dc2626' : '#16a34a' }),
+      valueFormatter: (p: any) => fmtMon(p.value || 0) },
+    { field: 'Flete', headerName: 'Flete', width: 80, cellStyle: { textAlign: 'right' },
+      valueFormatter: (p: any) => p.value > 0 ? fmtMon(p.value) : '-' },
+    {
+      headerName: '', width: 70, sortable: false, filter: false,
+      cellRenderer: (p: any) => (
+        <div style={{ display: 'flex', gap: 4, alignItems: 'center', height: '100%' }}>
+          <button onClick={() => setEditarPedido(p.data.Pedido_N)} title="Editar compra"
+            style={{ background: 'none', border: 'none', cursor: 'pointer' }}>
+            <Edit2 size={14} color="#7c3aed" />
+          </button>
+        </div>
+      )
     }
-  };
+  ];
 
-  const getStatusLabel = (status: Purchase['status']) => {
-    switch (status) {
-      case 'completed': return 'Completada';
-      case 'pending': return 'Pendiente';
-      case 'cancelled': return 'Cancelada';
-    }
-  };
+  const inp: React.CSSProperties = { height: 28, border: '1px solid #d1d5db', borderRadius: 6, fontSize: 12, padding: '0 8px', outline: 'none' };
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
         <div>
-          <h2>Gestión de Compras</h2>
-          <p className="text-gray-500">Registra y administra tus compras a proveedores</p>
+          <h2 style={{ fontSize: 20, fontWeight: 700, margin: 0 }}>Listado de Compras</h2>
+          <p style={{ fontSize: 12, color: '#6b7280', margin: 0 }}>Historial de compras a proveedores</p>
         </div>
-        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-          <DialogTrigger asChild>
-            <Button>
-              <Plus className="w-4 h-4 mr-2" />
-              Nueva Compra
-            </Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Nueva Compra</DialogTitle>
-              <DialogDescription>
-                Registra una nueva compra a proveedor
-              </DialogDescription>
-            </DialogHeader>
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="supplier">Proveedor</Label>
-                <Select value={formData.supplier} onValueChange={(value) => setFormData({ ...formData, supplier: value })}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Selecciona un proveedor" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="TechSupply Co.">TechSupply Co.</SelectItem>
-                    <SelectItem value="Office Plus">Office Plus</SelectItem>
-                    <SelectItem value="GlobalTech">GlobalTech</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="product">Producto</Label>
-                <Select value={formData.product} onValueChange={(value) => setFormData({ ...formData, product: value })}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Selecciona un producto" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Laptop HP ProBook">Laptop HP ProBook</SelectItem>
-                    <SelectItem value="Mouse Logitech">Mouse Logitech</SelectItem>
-                    <SelectItem value="Teclado Mecánico">Teclado Mecánico</SelectItem>
-                    <SelectItem value="Monitor Samsung 24">Monitor Samsung 24"</SelectItem>
-                    <SelectItem value="Silla Ergonómica">Silla Ergonómica</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="quantity">Cantidad</Label>
-                  <Input
-                    id="quantity"
-                    type="number"
-                    value={formData.quantity}
-                    onChange={(e) => setFormData({ ...formData, quantity: e.target.value })}
-                    required
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="unitPrice">Precio Unitario</Label>
-                  <Input
-                    id="unitPrice"
-                    type="number"
-                    step="0.01"
-                    value={formData.unitPrice}
-                    onChange={(e) => setFormData({ ...formData, unitPrice: e.target.value })}
-                    required
-                  />
-                </div>
-              </div>
-              {formData.quantity && formData.unitPrice && (
-                <div className="p-4 bg-gray-50 rounded-lg">
-                  <p className="text-sm text-gray-600">Total</p>
-                  <p className="text-2xl">
-                    ${(parseFloat(formData.quantity) * parseFloat(formData.unitPrice)).toFixed(2)}
-                  </p>
-                </div>
-              )}
-              <div className="flex gap-2 justify-end">
-                <Button type="button" variant="outline" onClick={resetForm}>
-                  Cancelar
-                </Button>
-                <Button type="submit">
-                  Registrar Compra
-                </Button>
-              </div>
-            </form>
-          </DialogContent>
-        </Dialog>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <div style={{ background: '#f3e8ff', padding: '6px 14px', borderRadius: 10 }}>
+            <span style={{ fontSize: 11, color: '#6b7280' }}>Total: </span>
+            <span style={{ fontSize: 15, fontWeight: 700, color: '#7c3aed' }}>{fmtMon(totalCompras)}</span>
+            <span style={{ fontSize: 11, color: '#6b7280', marginLeft: 6 }}>({filtradas.length} compras)</span>
+          </div>
+        </div>
       </div>
 
-      <Card>
-        <CardHeader>
-          <div className="flex items-center gap-4">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
-              <Input
-                placeholder="Buscar compras..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-10"
-              />
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>ID</TableHead>
-                <TableHead>Fecha</TableHead>
-                <TableHead>Proveedor</TableHead>
-                <TableHead>Producto</TableHead>
-                <TableHead>Cantidad</TableHead>
-                <TableHead>Precio Unit.</TableHead>
-                <TableHead>Total</TableHead>
-                <TableHead>Estado</TableHead>
-                <TableHead className="text-right">Acciones</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filteredPurchases.map((purchase) => (
-                <TableRow key={purchase.id}>
-                  <TableCell>#{purchase.id}</TableCell>
-                  <TableCell>{purchase.date}</TableCell>
-                  <TableCell>{purchase.supplier}</TableCell>
-                  <TableCell>{purchase.product}</TableCell>
-                  <TableCell>{purchase.quantity}</TableCell>
-                  <TableCell>${purchase.unitPrice.toFixed(2)}</TableCell>
-                  <TableCell>${purchase.total.toFixed(2)}</TableCell>
-                  <TableCell>
-                    <Badge variant={getStatusColor(purchase.status)}>
-                      {getStatusLabel(purchase.status)}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <Button size="sm" variant="outline">
-                      <Eye className="w-4 h-4" />
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+      {/* Filtros */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, background: '#fff', padding: '8px 12px', borderRadius: 10, boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
+        <select value={anio} onChange={e => setAnio(parseInt(e.target.value))} style={{ ...inp, width: 80 }}>
+          {[2026, 2025, 2024].map(a => <option key={a} value={a}>{a}</option>)}
+        </select>
+        <select value={mes} onChange={e => setMes(parseInt(e.target.value))} style={{ ...inp, width: 90 }}>
+          {meses.map((m, i) => <option key={i} value={i}>{m}</option>)}
+        </select>
+        <div style={{ position: 'relative', flex: 1, maxWidth: 300 }}>
+          <Search size={14} style={{ position: 'absolute', left: 8, top: 7, color: '#9ca3af' }} />
+          <input type="text" placeholder="Buscar por pedido, factura o proveedor..." value={buscar}
+            onChange={e => setBuscar(e.target.value)}
+            style={{ ...inp, width: '100%', paddingLeft: 28 }} />
+        </div>
+        <div style={{ flex: 1 }} />
+        <button onClick={cargar} disabled={cargando}
+          style={{ height: 28, padding: '0 12px', background: '#7c3aed', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
+          <RefreshCw size={12} className={cargando ? 'animate-spin' : ''} /> Refrescar
+        </button>
+      </div>
+
+      {/* AG Grid */}
+      <div className="ag-theme-alpine" style={{ height: 'calc(100vh - 240px)', width: '100%' }}>
+        <AgGridReact
+          ref={gridRef}
+          rowData={filtradas}
+          columnDefs={colDefs}
+          defaultColDef={{ sortable: true, filter: true, resizable: true }}
+          animateRows
+          rowHeight={34}
+          headerHeight={32}
+          getRowId={(p: any) => String(p.data.Pedido_N)}
+          overlayNoRowsTemplate="<span style='font-size:13px;color:#6b7280'>No hay compras para mostrar</span>"
+        />
+      </div>
     </div>
   );
 }

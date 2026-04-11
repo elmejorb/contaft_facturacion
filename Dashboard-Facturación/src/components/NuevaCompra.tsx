@@ -3,11 +3,15 @@ import { Search, Trash2, Plus, Save, X, Package } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 const API = 'http://localhost:80/conta-app-backend/api/compras/nueva.php';
-const fmtMon = (v: number) => '$ ' + Math.round(v).toLocaleString('es-CO');
+const fmtMon = (v: number) => {
+  if (v % 1 !== 0) return '$ ' + v.toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return '$ ' + Math.round(v).toLocaleString('es-CO');
+};
 const fmtDec = (v: number) => v.toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 interface LineaCompra {
   id: number;
+  IdDetalle: number; // 0 = nuevo, >0 = existente en DB
   Items: number; Codigo: string; Nombre: string;
   Existencia: number; Cantidad: number;
   CostoSinIva: number; IvaPct: number; IvaVal: number;
@@ -27,8 +31,10 @@ function loadSaved() {
   return null;
 }
 
-export function NuevaCompra() {
-  const saved = loadSaved();
+export function NuevaCompra({ pedidoEditar, onClose }: { pedidoEditar?: number; onClose?: () => void } = {}) {
+  const saved = pedidoEditar ? null : loadSaved();
+  const [pedidoN, setPedidoN] = useState(pedidoEditar || 0);
+  const [modoEdicion, setModoEdicion] = useState(!!pedidoEditar);
   const [tipo, setTipo] = useState(saved?.tipo || 'Crédito');
   const [dias, setDias] = useState(saved?.dias || 30);
   const [facturaCompra, setFacturaCompra] = useState(saved?.facturaCompra || '');
@@ -59,6 +65,37 @@ export function NuevaCompra() {
     fetch(`${API}?proveedores=1`).then(r => r.json()).then(d => { if (d.success) setProveedores(d.proveedores); });
   }, []);
 
+  // Cargar compra para edición
+  useEffect(() => {
+    if (!pedidoEditar) return;
+    fetch(`${API}?detalle=${pedidoEditar}`).then(r => r.json()).then(d => {
+      if (!d.success) { toast.error(d.message); return; }
+      const c = d.compra;
+      setPedidoN(c.Pedido_N);
+      setTipo(c.TipoPedido);
+      setDias(c.Dias);
+      setFacturaCompra(c.FacturaCompra_N);
+      setProveedor({ id: c.CodigoPro, nombre: c.RazonSocial || '', nit: c.ProvNit || '' });
+      setOpcionIva(c.opcion_factura || 0);
+      setFlete(c.Flete);
+      setDescuento(c.Descuento);
+      setRetencion(c.Retencion);
+      setLineas(d.detalle.map((det: any) => ({
+        id: ++lid,
+        IdDetalle: det.Id_DetallePedido,
+        Items: det.Items, Codigo: det.Codigo, Nombre: det.Nombres_Articulo,
+        Existencia: det.Existencia, Cantidad: det.Cantidad,
+        CostoSinIva: det.CostoSinIva, IvaPct: det.IvaPct,
+        IvaVal: det.CostoSinIva * (det.IvaPct / 100),
+        CostoConIva: det.CostoConIva, FleteUnit: det.FleteUnit,
+        CostoFinal: det.CostoFinal, CostoAnterior: det.CostoAnterior,
+        CostoPromedio: det.CostoPromedio,
+        PrecioVenta: det.PrecioV, Subtotal: det.Cantidad * det.CostoConIva
+      })));
+      setModoEdicion(true);
+    });
+  }, [pedidoEditar]);
+
   const buscarProducto = (q: string) => {
     setBuscarProd(q);
     if (q.length < 1) { setProdResults([]); setShowProdDrop(false); return; }
@@ -79,7 +116,7 @@ export function NuevaCompra() {
     }
     const costoAnt = art.Precio_Costo || 0;
     const nueva: LineaCompra = {
-      id: ++lid, Items: art.Items, Codigo: art.Codigo, Nombre: art.Nombres_Articulo,
+      id: ++lid, IdDetalle: 0, Items: art.Items, Codigo: art.Codigo, Nombre: art.Nombres_Articulo,
       Existencia: art.Existencia, Cantidad: 1,
       CostoSinIva: costoAnt, IvaPct: art.Iva || 0, IvaVal: costoAnt * ((art.Iva || 0) / 100),
       CostoConIva: costoAnt * (1 + (art.Iva || 0) / 100), FleteUnit: 0,
@@ -91,19 +128,44 @@ export function NuevaCompra() {
   };
 
   const actualizarLinea = (id: number, field: string, value: number) => {
-    setLineas(prev => prev.map(l => {
-      if (l.id !== id) return l;
-      const u = { ...l, [field]: value };
-      u.IvaVal = u.CostoSinIva * (u.IvaPct / 100);
-      u.CostoConIva = u.CostoSinIva + u.IvaVal;
-      u.CostoFinal = u.CostoSinIva; // flete se recalcula abajo
-      u.Subtotal = u.Cantidad * u.CostoConIva;
-      // Promedio
-      const existAnt = u.Existencia;
-      const nuevaExist = existAnt + u.Cantidad;
-      u.CostoPromedio = nuevaExist > 0 ? (existAnt * u.CostoAnterior + u.Cantidad * u.CostoFinal) / nuevaExist : u.CostoFinal;
-      return u;
-    }));
+    setLineas(prev => {
+      // First pass: update the changed field and recalculate IVA
+      let updated = prev.map(l => {
+        if (l.id !== id) return l;
+        const u = { ...l, [field]: value };
+        if (field === 'CostoConIva') {
+          const factor = 1 + (u.IvaPct / 100);
+          u.CostoSinIva = factor > 0 ? Math.round((u.CostoConIva / factor) * 100) / 100 : u.CostoConIva;
+          u.IvaVal = u.CostoConIva - u.CostoSinIva;
+        } else if (field === 'IvaPct' || field === 'CostoSinIva') {
+          u.IvaVal = u.CostoSinIva * (u.IvaPct / 100);
+          u.CostoConIva = u.CostoSinIva + u.IvaVal;
+        } else {
+          u.IvaVal = u.CostoSinIva * (u.IvaPct / 100);
+          u.CostoConIva = u.CostoSinIva + u.IvaVal;
+        }
+        u.Subtotal = u.Cantidad * u.CostoConIva;
+        return u;
+      });
+
+      // Second pass: redistribute flete across all lines
+      const totalSub = updated.reduce((s, l) => s + l.Subtotal, 0);
+      updated = updated.map(l => {
+        let fleteU = 0;
+        if (flete > 0 && totalSub > 0 && l.Cantidad > 0) {
+          const prop = l.Subtotal / totalSub;
+          fleteU = Math.round(((flete * prop) / l.Cantidad) * 100) / 100;
+        }
+        const cf = Math.round((l.CostoSinIva + fleteU) * 100) / 100;
+        const nuevaExist = l.Existencia + l.Cantidad;
+        const prom = nuevaExist > 0
+          ? Math.round(((l.Existencia * l.CostoAnterior + l.Cantidad * cf) / nuevaExist) * 100) / 100
+          : cf;
+        return { ...l, FleteUnit: fleteU, CostoFinal: cf, CostoPromedio: prom };
+      });
+
+      return updated;
+    });
   };
 
   // Recalcular flete cuando cambia
@@ -141,21 +203,29 @@ export function NuevaCompra() {
     if (!facturaCompra) { toast.error('Ingrese el Nº de factura del proveedor'); return; }
     setGuardando(true);
     try {
-      const body = {
+      const body: any = {
         tipo, dias, proveedor_id: proveedor.id, factura_compra: facturaCompra,
         flete, descuento, retencion, opcion_factura: opcionIva,
         items: lineas.map(l => ({
+          id_detalle: l.IdDetalle || 0,
           items: l.Items, cantidad: l.Cantidad, costo_sin_iva: l.CostoSinIva,
           iva_pct: l.IvaPct, precio_venta: l.PrecioVenta
         }))
       };
+      if (modoEdicion && pedidoN > 0) body.pedido_n = pedidoN;
+
       const r = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
       const d = await r.json();
       if (d.success) {
         toast.success(d.message, { duration: 5000 });
-        setLineas([]); setFacturaCompra(''); setFlete(0); setDescuento(0); setRetencion(0);
-        setProveedor({ id: 0, nombre: '', nit: '' });
-        localStorage.removeItem(LS_KEY);
+        if (modoEdicion && onClose) {
+          onClose();
+        } else {
+          setLineas([]); setFacturaCompra(''); setFlete(0); setDescuento(0); setRetencion(0);
+          setProveedor({ id: 0, nombre: '', nit: '' });
+          setPedidoN(0); setModoEdicion(false);
+          localStorage.removeItem(LS_KEY);
+        }
       } else toast.error(d.message);
     } catch (e) { toast.error('Error al guardar'); }
     setGuardando(false);
@@ -166,6 +236,19 @@ export function NuevaCompra() {
     if (!ok.includes(e.key) && !e.ctrlKey) e.preventDefault();
   };
 
+  // Input con formato moneda: muestra formateado sin foco, número crudo con foco
+  const moneyInputHandlers = (value: number, onChange: (v: number) => void, fallback?: number) => ({
+    defaultValue: fmtMon(value),
+    onFocus: (e: React.FocusEvent<HTMLInputElement>) => { e.target.value = String(value); e.target.select(); },
+    onBlur: (e: React.FocusEvent<HTMLInputElement>) => {
+      const v = parseFloat(e.target.value.replace(/[^0-9.]/g, ''));
+      if (!isNaN(v) && v >= 0) { onChange(v); e.target.value = fmtMon(v); }
+      else if (fallback !== undefined) { onChange(fallback); e.target.value = fmtMon(fallback); }
+      else { e.target.value = fmtMon(value); }
+    },
+    onKeyDown: soloNum
+  });
+
   const inp: React.CSSProperties = { height: 28, border: '1px solid #d1d5db', borderRadius: 6, fontSize: 12, padding: '0 8px', outline: 'none' };
   const lbl: React.CSSProperties = { fontSize: 9, color: '#6b7280', display: 'block', marginBottom: 2 };
 
@@ -175,6 +258,12 @@ export function NuevaCompra() {
     <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 110px)' }}>
       {/* Header: datos compra */}
       <div style={{ background: '#fff', borderRadius: 12, padding: '8px 16px', marginBottom: 6, boxShadow: '0 1px 3px rgba(0,0,0,0.08)', flexShrink: 0 }}>
+        {modoEdicion && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, paddingBottom: 4, borderBottom: '1px solid #e5e7eb' }}>
+            <span style={{ fontSize: 14, fontWeight: 700, color: '#7c3aed' }}>Editando Compra #{pedidoN}</span>
+            {onClose && <button onClick={onClose} style={{ marginLeft: 'auto', height: 26, padding: '0 10px', background: '#f3f4f6', border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 11, cursor: 'pointer' }}>← Volver al listado</button>}
+          </div>
+        )}
         <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, marginBottom: 6 }}>
           <div>
             <label style={lbl}>Nº FACT. COMPRA</label>
@@ -256,20 +345,24 @@ export function NuevaCompra() {
                       style={{ width: 40, height: 22, textAlign: 'center', border: '1px solid #d1d5db', borderRadius: 4, fontSize: 11, fontWeight: 600 }} />
                   </td>
                   <td style={{ padding: '2px 3px', textAlign: 'right' }}>
-                    <input type="text" defaultValue={String(l.CostoSinIva)} onBlur={e => { const v = parseFloat(e.target.value); if (!v && v !== 0) { e.target.value = String(l.CostoAnterior); actualizarLinea(l.id, 'CostoSinIva', l.CostoAnterior); } else { actualizarLinea(l.id, 'CostoSinIva', v); } }} onFocus={e => e.target.select()} onKeyDown={soloNum}
+                    <input type="text" {...moneyInputHandlers(l.CostoSinIva, v => actualizarLinea(l.id, 'CostoSinIva', v), l.CostoAnterior)}
                       style={{ width: 70, height: 22, textAlign: 'right', border: '1px solid #d1d5db', borderRadius: 4, fontSize: 11 }} />
                   </td>
                   <td style={{ padding: '2px 3px', textAlign: 'center' }}>
                     <input type="text" defaultValue={String(l.IvaPct)} onBlur={e => actualizarLinea(l.id, 'IvaPct', parseFloat(e.target.value) || 0)} onFocus={e => e.target.select()} onKeyDown={soloNum}
                       style={{ width: 32, height: 22, textAlign: 'center', border: '1px solid #d1d5db', borderRadius: 4, fontSize: 11 }} />
                   </td>
-                  <td style={{ padding: '3px 6px', textAlign: 'right', fontSize: 11 }}>{fmtMon(l.CostoConIva)}</td>
+                  <td style={{ padding: '2px 3px', textAlign: 'right' }}>
+                    <input type="text" key={`civa-${l.id}-${l.CostoSinIva}-${l.IvaPct}`}
+                      {...moneyInputHandlers(Math.round(l.CostoConIva * 100) / 100, v => actualizarLinea(l.id, 'CostoConIva', v))}
+                      style={{ width: 80, height: 22, textAlign: 'right', border: '1px solid #d1d5db', borderRadius: 4, fontSize: 11 }} />
+                  </td>
                   <td style={{ padding: '3px 6px', textAlign: 'right', fontSize: 10, color: flete > 0 ? '#d97706' : '#d1d5db' }}>{l.FleteUnit > 0 ? fmtMon(l.FleteUnit) : '-'}</td>
                   <td style={{ padding: '3px 6px', textAlign: 'right', fontWeight: 700, color: '#16a34a', fontSize: 11 }}>{fmtMon(l.CostoFinal)}</td>
                   <td style={{ padding: '3px 6px', textAlign: 'right', color: '#9ca3af', fontSize: 10 }}>{fmtMon(l.CostoAnterior)}</td>
                   <td style={{ padding: '3px 6px', textAlign: 'right', fontWeight: 700, color: '#2563eb', fontSize: 11 }}>{fmtMon(l.CostoPromedio)}</td>
                   <td style={{ padding: '2px 3px', textAlign: 'right' }}>
-                    <input type="text" defaultValue={String(l.PrecioVenta)} onBlur={e => actualizarLinea(l.id, 'PrecioVenta', parseFloat(e.target.value) || 0)} onFocus={e => e.target.select()} onKeyDown={soloNum}
+                    <input type="text" {...moneyInputHandlers(l.PrecioVenta, v => actualizarLinea(l.id, 'PrecioVenta', v))}
                       style={{ width: 70, height: 22, textAlign: 'right', border: '1px solid #d1d5db', borderRadius: 4, fontSize: 11, color: '#7c3aed', fontWeight: 600 }} />
                   </td>
                   <td style={{ padding: '3px 6px', textAlign: 'right', fontWeight: 700 }}>{fmtMon(l.Subtotal)}</td>
@@ -357,7 +450,7 @@ export function NuevaCompra() {
           </button>
           <button onClick={guardar} disabled={guardando || lineas.length === 0}
             style={{ height: 30, padding: '0 14px', background: lineas.length > 0 ? '#dc2626' : '#d1d5db', color: '#fff', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: lineas.length > 0 ? 'pointer' : 'default', display: 'flex', alignItems: 'center', gap: 5 }}>
-            <Save size={13} /> Guardar Compra
+            <Save size={13} /> {modoEdicion ? 'Actualizar Compra' : 'Guardar Compra'}
           </button>
         </div>
       </div>

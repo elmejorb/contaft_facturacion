@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Save, Printer, CheckCircle, Settings, FileText, ShoppingCart } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Save, Printer, CheckCircle, Settings, FileText, ShoppingCart, Tag, Plus, Trash2, RotateCcw } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 export interface ConfigImpresion {
@@ -74,8 +74,55 @@ export function saveConfigImpresion(config: ConfigImpresion) {
   localStorage.setItem(CONFIG_KEY, JSON.stringify(config));
 }
 
+const API_CAT = 'http://localhost:80/conta-app-backend/api/movimientos/categorias-gasto.php';
+
 export function ConfiguracionSistema() {
   const [config, setConfig] = useState<ConfigImpresion>(getConfigImpresion);
+  const [categoriasGasto, setCategoriasGasto] = useState<any[]>([]);
+  const [nuevaCat, setNuevaCat] = useState('');
+  const [editandoCat, setEditandoCat] = useState<number | null>(null);
+  const [editNombre, setEditNombre] = useState('');
+
+  const cargarCategorias = async () => {
+    try {
+      const r = await fetch(API_CAT);
+      const d = await r.json();
+      if (d.success) setCategoriasGasto(d.categorias || []);
+    } catch (e) {}
+  };
+
+  useEffect(() => { cargarCategorias(); }, []);
+
+  const crearCategoria = async () => {
+    if (!nuevaCat.trim()) return;
+    try {
+      const r = await fetch(API_CAT, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'crear', nombre: nuevaCat.trim() }) });
+      const d = await r.json();
+      if (d.success) { toast.success(d.message); setNuevaCat(''); cargarCategorias(); }
+      else toast.error(d.message);
+    } catch (e) { toast.error('Error'); }
+  };
+
+  const editarCategoria = async (id: number) => {
+    if (!editNombre.trim()) return;
+    try {
+      const r = await fetch(API_CAT, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'editar', id, nombre: editNombre.trim() }) });
+      const d = await r.json();
+      if (d.success) { toast.success(d.message); setEditandoCat(null); cargarCategorias(); }
+      else toast.error(d.message);
+    } catch (e) { toast.error('Error'); }
+  };
+
+  const toggleCategoria = async (id: number, activa: boolean) => {
+    try {
+      const r = await fetch(API_CAT, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: activa ? 'eliminar' : 'activar', id }) });
+      const d = await r.json();
+      if (d.success) { toast.success(d.message); cargarCategorias(); }
+    } catch (e) {}
+  };
 
   const set = (field: keyof ConfigImpresion, value: any) => {
     setConfig(c => ({ ...c, [field]: value }));

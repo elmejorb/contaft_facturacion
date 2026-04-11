@@ -1,5 +1,6 @@
-const { app, BrowserWindow, globalShortcut } = require('electron');
+const { app, BrowserWindow, globalShortcut, ipcMain } = require('electron');
 const path = require('path');
+const fs = require('fs');
 
 // Hot reload en desarrollo
 if (process.env.NODE_ENV === 'development') {
@@ -12,6 +13,49 @@ if (process.env.NODE_ENV === 'development') {
     console.log('Error loading electron-reload:', err);
   }
 }
+
+// ============================================================
+// Config file: config.json en la carpeta de instalación
+// ============================================================
+function getConfigPath() {
+  if (process.env.NODE_ENV === 'development') {
+    return path.join(__dirname, '..', 'config.json');
+  }
+  // En producción: junto al .exe
+  return path.join(path.dirname(app.getPath('exe')), 'config.json');
+}
+
+function readConfig() {
+  try {
+    const configPath = getConfigPath();
+    if (fs.existsSync(configPath)) {
+      return JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    }
+  } catch (e) {
+    console.error('Error reading config:', e);
+  }
+  return {};
+}
+
+function writeConfig(data) {
+  try {
+    const configPath = getConfigPath();
+    const existing = readConfig();
+    const merged = { ...existing, ...data };
+    fs.writeFileSync(configPath, JSON.stringify(merged, null, 2), 'utf8');
+    return true;
+  } catch (e) {
+    console.error('Error writing config:', e);
+    return false;
+  }
+}
+
+// ============================================================
+// IPC handlers para config
+// ============================================================
+ipcMain.handle('config:read', () => readConfig());
+ipcMain.handle('config:write', (_, data) => writeConfig(data));
+ipcMain.handle('config:getPath', () => getConfigPath());
 
 let mainWindow;
 
