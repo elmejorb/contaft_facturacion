@@ -226,7 +226,7 @@ try {
             $login = loginFE($db, $API_BASE);
             if (!$login['success']) { echo json_encode($login); exit; }
 
-            $result = apiRequest("$API_BASE/api/v2/resolutions?company_id={$login['company_id']}", 'GET', null, $login['token']);
+            $result = apiRequest("$API_BASE/api/resoluciones/company/{$login['company_id']}", 'GET', null, $login['token']);
             echo json_encode($result, JSON_UNESCAPED_UNICODE);
             exit;
         }
@@ -286,67 +286,71 @@ try {
                 }
             }
 
-            // Send to DIAN API
-            $result = apiRequest("$API_BASE/api/v2/invoice", 'POST', $invoiceJSON, $token);
+            // PASO 1: Guardar en local con status "pendiente" ANTES de enviar a DIAN
+            $notaFactura = $factura['Comentario'] ?? '-';
+            $stmtDoc = $db->prepare("
+                INSERT INTO electronic_documents
+                (fecha, cod_cliente, customer_identification, type_document_id, prefix, number, status, total, cufe, dian_response, id_usuario, id_mediopago, efectivo, valorpagado1, pagada, EstadoFact, email_sent, nota)
+                VALUES (?, ?, ?, 1, 'FCON', 0, 'pendiente', ?, '', '{}', ?, ?, ?, ?, ?, 1, 0, ?)
+            ");
+            $stmtDoc->execute([
+                $factura['Fecha'], $factura['CodigoCli'], $factura['Identificacion'],
+                $factura['Total'], $factura['Id_Usuario'],
+                $factura['id_mediopago'], $factura['efectivo'], $factura['valorpagado1'],
+                $factura['pagada'] ?: 'N', $notaFactura
+            ]);
+            $docElecId = $db->lastInsertId();
 
-            // Save response
+            // Guardar detalle en local
+            $stmtDet = $db->prepare("
+                INSERT INTO detalle_document_electronic
+                (factura_n, items, unit_measure_id, invoiced_quantity, line_extension_amount,
+                 free_of_charge_indicator, description, type_item_identification_id,
+                 price_amount, discount_amount, base_quantity,
+                 tax_id, tax_amount, taxable_amount, tax_percent)
+                VALUES (?, ?, ?, ?, ?, 0, ?, 3, ?, ?, ?, 1, ?, ?, ?)
+            ");
+            foreach ($items as $item) {
+                $cant = floatval($item['Cantidad']);
+                $precioV = floatval($item['PrecioV']);
+                $iva = floatval($item['IVA'] ?? 0);
+                $desc = floatval($item['Descuento'] ?? 0);
+                $lineAmount = ($cant * $precioV) - $desc;
+                $ivaAmount = $iva > 0 ? round($lineAmount * ($iva / (100 + $iva)), 2) : 0;
+                $baseAmount = $lineAmount - $ivaAmount;
+                $unitMeasure = intval($item['unit_measure_id'] ?? 70);
+                $stmtDet->execute([
+                    $docElecId, $item['Items'], $unitMeasure,
+                    number_format($cant, 2, '.', ''), number_format($baseAmount, 2, '.', ''),
+                    $item['Nombres_Articulo'] ?? 'Producto',
+                    number_format($precioV, 2, '.', ''), number_format($desc, 2, '.', ''),
+                    number_format($cant, 2, '.', ''), number_format($ivaAmount, 2, '.', ''),
+                    number_format($baseAmount, 2, '.', ''), number_format($iva, 2, '.', '')
+                ]);
+            }
+
+            // PASO 2: Enviar a DIAN
+            $result = apiRequest("$API_BASE/api/factura/send-v2", 'POST', $invoiceJSON, $token);
+
+            // PASO 3: Actualizar según respuesta
             if (isset($result['success']) && $result['success']) {
                 $cufe = $result['cufe'] ?? '';
+                $consecutive = $result['consecutive'] ?? 0;
+
+                // Actualizar tblventas
                 $db->prepare("UPDATE tblventas SET enviada_dian = 1, fecha_envio_dian = NOW(), cufe = ? WHERE Factura_N = ?")
                    ->execute([$cufe, $factN]);
 
-                // Check if email was sent in the response
+                // Actualizar electronic_documents con CUFE y status autorizado
                 $emailResult = $result['email_result'] ?? null;
                 $emailSent = ($emailResult && isset($emailResult['success']) && $emailResult['success']) ? 1 : 0;
 
-                // Save in electronic_documents
-                $db->prepare("
-                    INSERT INTO electronic_documents (fecha, cod_cliente, customer_identification, type_document_id, prefix, number, status, total, cufe, dian_response, id_usuario, id_mediopago, efectivo, valorpagado1, pagada, EstadoFact, email_sent, email_sent_at)
-                    VALUES (?, ?, ?, 1, 'FCON', ?, 'autorizado', ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
-                ")->execute([
-                    $factura['Fecha'], $factura['CodigoCli'], $factura['Identificacion'],
-                    $result['consecutive'] ?? 0, $factura['Total'], $cufe,
-                    json_encode($result), $factura['Id_Usuario'],
-                    $factura['id_mediopago'], $factura['efectivo'], $factura['valorpagado1'],
-                    $factura['pagada'] ?: 'N',
-                    $emailSent, $emailSent ? date('Y-m-d H:i:s') : null
-                ]);
-
-                $docElecId = $db->lastInsertId();
-
-                // Save detail in detalle_document_electronic
-                $stmtDet = $db->prepare("
-                    INSERT INTO detalle_document_electronic
-                    (factura_n, items, unit_measure_id, invoiced_quantity, line_extension_amount,
-                     free_of_charge_indicator, description, type_item_identification_id,
-                     price_amount, discount_amount, base_quantity,
-                     tax_id, tax_amount, taxable_amount, tax_percent)
-                    VALUES (?, ?, ?, ?, ?, 0, ?, 3, ?, ?, ?, 1, ?, ?, ?)
-                ");
-
-                foreach ($items as $item) {
-                    $cant = floatval($item['Cantidad']);
-                    $precioV = floatval($item['PrecioV']);
-                    $iva = floatval($item['IVA'] ?? 0);
-                    $desc = floatval($item['Descuento'] ?? 0);
-                    $lineAmount = ($cant * $precioV) - $desc;
-                    $ivaAmount = $iva > 0 ? round($lineAmount * ($iva / (100 + $iva)), 2) : 0;
-                    $baseAmount = $lineAmount - $ivaAmount;
-                    $unitMeasure = intval($item['unit_measure_id'] ?? 70);
-
-                    $stmtDet->execute([
-                        $docElecId, $item['Items'], $unitMeasure,
-                        number_format($cant, 2, '.', ''),
-                        number_format($baseAmount, 2, '.', ''),
-                        $item['Nombres_Articulo'] ?? 'Producto',
-                        number_format($precioV, 2, '.', ''),
-                        number_format($desc, 2, '.', ''),
-                        number_format($cant, 2, '.', ''),
-                        number_format($ivaAmount, 2, '.', ''),
-                        number_format($baseAmount, 2, '.', ''),
-                        number_format($iva, 2, '.', '')
-                    ]);
-                }
+                $db->prepare("UPDATE electronic_documents SET status = 'autorizado', number = ?, cufe = ?, dian_response = ?, email_sent = ?, email_sent_at = ? WHERE id = ?")
+                   ->execute([$consecutive, $cufe, json_encode($result), $emailSent, $emailSent ? date('Y-m-d H:i:s') : null, $docElecId]);
+            } else {
+                // Falló: actualizar status a rechazado con el mensaje de error
+                $db->prepare("UPDATE electronic_documents SET status = 'rechazado', dian_response = ? WHERE id = ?")
+                   ->execute([json_encode($result), $docElecId]);
             }
 
             echo json_encode([
@@ -356,6 +360,7 @@ try {
                 'consecutive' => $result['consecutive'] ?? null,
                 'qr_code' => $result['qr_code'] ?? null,
                 'email_result' => $result['email_result'] ?? null,
+                'doc_local_id' => $docElecId,
                 'respuesta_dian' => $result
             ], JSON_UNESCAPED_UNICODE);
             break;
@@ -388,7 +393,7 @@ try {
                 'description' => $motivo
             ];
 
-            $result = apiRequest("$API_BASE/api/v2/credit-note", 'POST', $ncJSON, $token);
+            $result = apiRequest("$API_BASE/api/notas/credito/enviar", 'POST', $ncJSON, $token);
 
             echo json_encode([
                 'success' => $result['success'] ?? false,
@@ -452,7 +457,7 @@ try {
             $ncCustomer = buildInvoiceJSON($db, $factura, [], $companyId);
             $ndJSON['customer'] = $ncCustomer['customer'];
 
-            $result = apiRequest("$API_BASE/api/v2/debit-note", 'POST', $ndJSON, $token);
+            $result = apiRequest("$API_BASE/api/notas/debito/enviar", 'POST', $ndJSON, $token);
 
             echo json_encode([
                 'success' => $result['success'] ?? false,

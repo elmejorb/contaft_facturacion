@@ -24,16 +24,19 @@ try {
         $stmt = $db->prepare("
             SELECT a.Items, a.Codigo, a.Nombres_Articulo, a.Existencia, a.Precio_Costo,
                    a.Precio_Venta, a.Precio_Venta2, a.Precio_Venta3, a.Iva, a.Precio_Minimo,
-                   COALESCE(c.Categoria, 'VARIOS') as Categoria
+                   COALESCE(c.Categoria, 'VARIOS') as Categoria,
+                   a.unidad_base
             FROM tblarticulos a
             LEFT JOIN tblcategoria c ON a.Id_Categoria = c.Id_Categoria
-            WHERE a.Estado = 1 AND (a.Codigo LIKE :cod OR a.Nombres_Articulo LIKE :nom)
+            WHERE a.Estado = 1 AND (a.Codigo LIKE :cod OR a.Nombres_Articulo LIKE :nom OR a.Codigo IN (SELECT Codigo_Barras FROM tblpresentaciones WHERE Codigo_Barras LIKE :bar AND Activa = 1))
             ORDER BY a.Nombres_Articulo
             LIMIT 20
         ");
         $buscarLike = "%$buscar%";
-        $stmt->execute([':cod' => $buscarLike, ':nom' => $buscarLike]);
+        $stmt->execute([':cod' => $buscarLike, ':nom' => $buscarLike, ':bar' => $buscarLike]);
         $articulos = $stmt->fetchAll();
+
+        $stmtPres = $db->prepare("SELECT Id_Presentacion, Nombre, Factor, Precio_Venta, Codigo_Barras FROM tblpresentaciones WHERE Items = ? AND Activa = 1 ORDER BY Factor");
 
         foreach ($articulos as &$a) {
             $a['Existencia'] = floatval($a['Existencia']);
@@ -43,6 +46,11 @@ try {
             $a['Precio_Venta3'] = floatval($a['Precio_Venta3']);
             $a['Precio_Minimo'] = floatval($a['Precio_Minimo']);
             $a['Iva'] = floatval($a['Iva']);
+            // Presentaciones
+            $stmtPres->execute([$a['Items']]);
+            $pres = $stmtPres->fetchAll();
+            $a['presentaciones'] = $pres;
+            $a['tiene_presentaciones'] = count($pres) > 0;
         }
 
         echo json_encode(["success" => true, "articulos" => $articulos], JSON_UNESCAPED_UNICODE);

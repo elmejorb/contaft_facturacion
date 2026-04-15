@@ -126,17 +126,24 @@ export function FacturacionElectronica() {
     } catch (e) { toast.error('Error de conexión', { id: 'nd-send' }); }
   };
 
-  const enviarEmail = async (cufe: string) => {
+  const enviarEmail = async (cufe: string, forceResend: boolean = false) => {
     toast.loading('Enviando correo...', { id: 'email-send' });
     try {
       const r = await fetch(`${API}/email.php`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cufe })
+        body: JSON.stringify({ cufe, force_resend: forceResend })
       });
       const d = await r.json();
       if (d.success) {
         toast.success(d.message, { id: 'email-send', duration: 5000 });
         cargar();
+      } else if (d.code === 409) {
+        // Ya fue enviado — preguntar si reenviar
+        toast.dismiss('email-send');
+        if (confirm('El correo ya fue enviado anteriormente. ¿Desea reenviarlo?')) {
+          enviarEmail(cufe, true);
+        }
+        return;
       } else {
         toast.error(d.message, { id: 'email-send', duration: 8000 });
       }

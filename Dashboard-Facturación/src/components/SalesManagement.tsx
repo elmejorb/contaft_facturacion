@@ -3,8 +3,9 @@ import { AgGridReact } from 'ag-grid-react';
 import { AllCommunityModule, ModuleRegistry, ColDef } from 'ag-grid-community';
 import {
   Search, RefreshCw, TrendingUp, DollarSign, CreditCard, Wallet,
-  Eye, X, Printer
+  Eye, X, Printer, Send
 } from 'lucide-react';
+import toast from 'react-hot-toast';
 import { getConfigImpresion } from './ConfiguracionSistema';
 import { imprimirFactura, type DatosFactura } from './ImpresionFactura';
 import { DetalleFacturaModal } from './DetalleFacturaModal';
@@ -47,6 +48,20 @@ export function SalesManagement() {
   useEffect(() => { cargar(); }, [anio, mes, filtroEstado]);
 
   const verDetalle = (factN: number) => setFacturaDetalleN(factN);
+
+  const enviarDIAN = async (factN: number) => {
+    if (!confirm(`¿Enviar factura #${factN} a la DIAN?`)) return;
+    toast.loading('Enviando a DIAN...', { id: 'dian' });
+    try {
+      const r = await fetch('http://localhost:80/conta-app-backend/api/facturacion-electronica/enviar.php', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'factura', factura_n: factN })
+      });
+      const d = await r.json();
+      if (d.success) { toast.success(`DIAN: ${d.message}`, { id: 'dian', duration: 6000 }); cargar(); }
+      else toast.error(`DIAN: ${d.message}`, { id: 'dian', duration: 10000 });
+    } catch (e) { toast.error('Error de conexión', { id: 'dian' }); }
+  };
 
   // Imprimir factura desde listado
   const imprimirDesdeListado = async (factN: number) => {
@@ -146,6 +161,12 @@ export function SalesManagement() {
             style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 3 }}>
             <Printer size={15} color="#2563eb" />
           </button>
+          {!p.data.enviada_dian && (
+            <button title="Enviar a DIAN" onClick={() => enviarDIAN(p.data.Factura_N)}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 3 }}>
+              <Send size={15} color="#d97706" />
+            </button>
+          )}
         </div>
       )
     },

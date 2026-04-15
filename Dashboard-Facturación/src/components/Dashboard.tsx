@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Button } from './ui/button';
 import appIcon from '../assets/icon.png';
 import {
@@ -29,6 +29,7 @@ import {
   Hash,
   Send,
   DollarSign,
+  Lock,
   CreditCard,
   Cake,
   Crown,
@@ -52,6 +53,8 @@ import { BancosManagement } from './BancosManagement';
 import { ConfigCategoriasGasto } from './ConfigCategoriasGasto';
 import { ConfigCajas } from './ConfigCajas';
 import { ConfigServidor } from './ConfigServidor';
+import { ConfigPermisos } from './ConfigPermisos';
+import { DashboardVendedor } from './DashboardVendedor';
 import { InventarioManagement } from './InventarioManagement';
 import { DiagnosticoInventario } from './DiagnosticoInventario';
 import { AuditoriaInventario } from './AuditoriaInventario';
@@ -86,7 +89,7 @@ interface DashboardProps {
   user?: UserData | null;
 }
 
-type View = 'overview' | 'products' | 'customers' | 'suppliers' | 'purchases' | 'sales' | 'inventario' | 'diagnostico' | 'auditoria' | 'categorias' | 'conteo' | 'configuracion' | 'cuentas-cobrar' | 'top-clientes' | 'cumpleanos' | 'cuentas-pagar' | 'productos-proveedor' | 'nueva-venta' | 'ventas-tipo-pago' | 'datos-empresa' | 'usuarios' | 'nueva-compra' | 'facturacion-electronica' | 'caja' | 'caja-historial' | 'pagos-clientes' | 'pagos-proveedores' | 'gastos' | 'bancos' | 'config-categorias-gasto' | 'config-cajas' | 'config-servidor';
+type View = 'overview' | 'products' | 'customers' | 'suppliers' | 'purchases' | 'sales' | 'inventario' | 'diagnostico' | 'auditoria' | 'categorias' | 'conteo' | 'configuracion' | 'cuentas-cobrar' | 'top-clientes' | 'cumpleanos' | 'cuentas-pagar' | 'productos-proveedor' | 'nueva-venta' | 'ventas-tipo-pago' | 'datos-empresa' | 'usuarios' | 'nueva-compra' | 'facturacion-electronica' | 'caja' | 'caja-historial' | 'pagos-clientes' | 'pagos-proveedores' | 'gastos' | 'bancos' | 'config-categorias-gasto' | 'config-cajas' | 'config-servidor' | 'config-permisos';
 
 interface MenuItem {
   id: string;
@@ -106,24 +109,36 @@ interface SubMenuItem {
 
 export function Dashboard({ onLogout, user }: DashboardProps) {
   const [currentView, setCurrentView] = useState<View>('overview');
+  const [empresa, setEmpresa] = useState<any>(null);
+
+  useEffect(() => {
+    fetch('http://localhost:80/conta-app-backend/api/empresa/datos.php')
+      .then(r => r.json())
+      .then(d => { if (d.success) setEmpresa(d.empresa); })
+      .catch(() => {});
+  }, []);
   const cumpleProximos = useCumpleanosHoy();
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [expandedMenus, setExpandedMenus] = useState<string[]>([]);
 
-  const menuItems: MenuItem[] = [
+  const esAdmin = user?.tipoUsuario === 1 || user?.tipoUsuario === '1';
+  const esVendedor = user?.tipoUsuario === 2 || user?.tipoUsuario === '2';
+  const [showCambiarClave, setShowCambiarClave] = useState(false);
+  const [claveActual, setClaveActual] = useState('');
+  const [claveNueva, setClaveNueva] = useState('');
+  const [claveConfirmar, setClaveConfirmar] = useState('');
+
+  const allMenuItems: MenuItem[] = [
     {
       id: 'overview',
       label: 'Panel de Ingresos',
       icon: LayoutDashboard,
-      view: 'overview',
-      badge: '5'
+      view: 'overview'
     },
     {
       id: 'inventario',
       label: 'Inventario',
       icon: Boxes,
-      badge: 'New',
-      badgeVariant: 'secondary',
       children: [
         { id: 'inventario-list', label: 'Listado de Artículos', view: 'inventario' },
         { id: 'inventario-categorias', label: 'Categorías', view: 'categorias' as View },
@@ -149,15 +164,12 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
       children: [
         { id: 'supplier-list', label: 'Listado de Proveedores', view: 'suppliers' as View },
         { id: 'supplier-products', label: 'Productos Proveedor', view: 'productos-proveedor' as View },
-        { id: 'supplier-cartera', label: 'Cuentas por Pagar', view: 'cuentas-pagar' as View },
       ]
     },
     { 
       id: 'sales', 
       label: 'Ventas', 
       icon: TrendingUp,
-      badge: 'New',
-      badgeVariant: 'secondary',
       children: [
         { id: 'new-sale', label: 'Nueva Venta', view: 'nueva-venta' as View },
         { id: 'sales-list', label: 'Listado de Ventas', view: 'sales' },
@@ -180,6 +192,7 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
       icon: Wallet,
       children: [
         { id: 'accounts-receivable', label: 'Cartera de Clientes', view: 'cuentas-cobrar' as View },
+        { id: 'accounts-payable', label: 'Cuentas por Pagar', view: 'cuentas-pagar' as View },
       ]
     },
     {
@@ -203,12 +216,52 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
         { id: 'config-sistema', label: 'Sistema e Impresión', view: 'configuracion' as View },
         { id: 'config-empresa', label: 'Datos de la Empresa', view: 'datos-empresa' as View },
         { id: 'config-usuarios', label: 'Usuarios', view: 'usuarios' as View },
+        { id: 'config-permisos', label: 'Permisos', view: 'config-permisos' as View },
         { id: 'config-categorias', label: 'Categorías de Gastos', view: 'config-categorias-gasto' as View },
         { id: 'config-cajas', label: 'Administrar Cajas', view: 'config-cajas' as View },
         { id: 'config-servidor', label: 'Servidor', view: 'config-servidor' as View },
       ]
     },
   ];
+
+  // Permisos del usuario (viene del login)
+  const permisos: string[] = user?.permisos || [];
+  const tiene = (p: string) => esAdmin || permisos.includes(p);
+
+  // Mapeo de items del menú a permisos
+  const menuPermisos: Record<string, string> = {
+    'overview': 'dashboard_completo',
+    'inventario': 'inventario', 'inventario-list': 'inventario', 'inventario-categorias': 'categorias',
+    'inventario-diagnostico': 'inventario_diagnostico', 'inventario-auditoria': 'inventario_diagnostico',
+    'inventario-conteo': 'inventario_conteo',
+    'customers-list': 'clientes', 'top-clientes': 'clientes_top', 'cumpleanos': 'clientes',
+    'accounts-receivable': 'clientes_cartera', 'accounts-payable': 'proveedores_pagar',
+    'suppliers': 'proveedores', 'supplier-list': 'proveedores', 'supplier-products': 'proveedores',
+    'new-sale': 'ventas', 'sales-list': 'ventas_listado',
+    'sales-by-payment': 'ventas_tipo_pago', 'fe-panel': 'facturacion_electronica',
+    'purchases': 'compras', 'new-purchase': 'compras', 'purchase-list': 'compras',
+    'caja-actual': 'caja', 'caja-historial': 'caja_historial',
+    'pagos-clientes': 'pagos_listado', 'pagos-proveedores': 'pagos_listado',
+    'gastos': 'gastos', 'bancos': 'bancos',
+    'configuracion': 'configuracion', 'config-sistema': 'configuracion',
+    'config-empresa': 'datos_empresa', 'config-usuarios': 'usuarios',
+    'config-categorias': 'configuracion', 'config-cajas': 'configuracion', 'config-servidor': 'configuracion', 'config-permisos': 'usuarios',
+  };
+
+  // Filtrar menú por permisos
+  const menuItems = esAdmin ? allMenuItems : allMenuItems
+    .map(item => {
+      if (item.children) {
+        const hijos = item.children.filter(c => {
+          const perm = menuPermisos[c.id];
+          return !perm || tiene(perm);
+        });
+        return hijos.length > 0 ? { ...item, children: hijos } : null;
+      }
+      const perm = menuPermisos[item.id];
+      return (!perm || tiene(perm)) ? item : null;
+    })
+    .filter(Boolean) as MenuItem[];
 
   const toggleMenu = (menuId: string) => {
     setExpandedMenus(prev =>
@@ -346,8 +399,8 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
                 {sidebarOpen ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />}
               </Button>
               <div>
-                <div style={{ fontSize: 14, fontWeight: 700, color: '#1f2937', lineHeight: 1.2 }}>DISTRIBUIDORA DE SALSAS DE PLANETA RICA</div>
-                <div style={{ fontSize: 10, color: '#9ca3af' }}>NIT: 901.529.697-3 — Régimen Común</div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: '#1f2937', lineHeight: 1.2 }}>{empresa?.Empresa || 'Cargando...'}</div>
+                <div style={{ fontSize: 10, color: '#9ca3af' }}>NIT: {empresa?.Nit || '-'} — {empresa?.Regimen || ''}</div>
               </div>
             </div>
 
@@ -382,9 +435,15 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
                     <p className="text-xs text-gray-500 mt-1">{user?.tipoUsuario || 'Usuario del Sistema'}</p>
                   </div>
                   <div className="py-1">
-                    <DropdownMenuItem className="cursor-pointer py-2 px-3" onClick={() => setCurrentView('configuracion')}>
-                      <Settings className="w-4 h-4 mr-2 text-blue-600" />
-                      <span>Configuración</span>
+                    {esAdmin && (
+                      <DropdownMenuItem className="cursor-pointer py-2 px-3" onClick={() => setCurrentView('configuracion')}>
+                        <Settings className="w-4 h-4 mr-2 text-blue-600" />
+                        <span>Configuración</span>
+                      </DropdownMenuItem>
+                    )}
+                    <DropdownMenuItem className="cursor-pointer py-2 px-3" onClick={() => setShowCambiarClave(true)}>
+                      <Lock className="w-4 h-4 mr-2 text-gray-600" />
+                      <span>Cambiar Contraseña</span>
                     </DropdownMenuItem>
                   </div>
                   <DropdownMenuSeparator />
@@ -400,7 +459,7 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
         </header>
 
         <div className="p-6">
-          {currentView === 'overview' && <IncomeOverview />}
+          {currentView === 'overview' && (esVendedor ? <DashboardVendedor user={user} /> : <IncomeOverview />)}
           {currentView === 'inventario' && <InventarioManagement />}
           {currentView === 'diagnostico' && <DiagnosticoInventario />}
           {currentView === 'auditoria' && <AuditoriaInventario />}
@@ -432,8 +491,58 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
           {currentView === 'config-categorias-gasto' && <ConfigCategoriasGasto />}
           {currentView === 'config-cajas' && <ConfigCajas />}
           {currentView === 'config-servidor' && <ConfigServidor />}
+          {currentView === 'config-permisos' && <ConfigPermisos />}
         </div>
       </main>
+
+      {/* Modal cambiar contraseña */}
+      {showCambiarClave && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 99999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.4)' }} onClick={() => setShowCambiarClave(false)} />
+          <div style={{ position: 'relative', background: '#fff', borderRadius: 12, width: 380, boxShadow: '0 20px 60px rgba(0,0,0,0.25)', padding: 20 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <span style={{ fontSize: 16, fontWeight: 700 }}>Cambiar Contraseña</span>
+              <button onClick={() => setShowCambiarClave(false)} style={{ background: 'none', border: 'none', cursor: 'pointer' }}><X size={18} /></button>
+            </div>
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ fontSize: 11, fontWeight: 600, display: 'block', marginBottom: 4 }}>CONTRASEÑA ACTUAL</label>
+              <input type="password" value={claveActual} onChange={e => setClaveActual(e.target.value)}
+                style={{ width: '100%', height: 34, border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, padding: '0 10px', boxSizing: 'border-box' }} />
+            </div>
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ fontSize: 11, fontWeight: 600, display: 'block', marginBottom: 4 }}>NUEVA CONTRASEÑA</label>
+              <input type="password" value={claveNueva} onChange={e => setClaveNueva(e.target.value)}
+                style={{ width: '100%', height: 34, border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, padding: '0 10px', boxSizing: 'border-box' }} />
+            </div>
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ fontSize: 11, fontWeight: 600, display: 'block', marginBottom: 4 }}>CONFIRMAR CONTRASEÑA</label>
+              <input type="password" value={claveConfirmar} onChange={e => setClaveConfirmar(e.target.value)}
+                style={{ width: '100%', height: 34, border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, padding: '0 10px', boxSizing: 'border-box' }} />
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button onClick={() => setShowCambiarClave(false)} style={{ height: 34, padding: '0 16px', background: '#f3f4f6', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 13, cursor: 'pointer' }}>Cancelar</button>
+              <button onClick={async () => {
+                if (!claveActual || !claveNueva) return;
+                if (claveNueva !== claveConfirmar) { alert('Las contraseñas no coinciden'); return; }
+                if (claveNueva.length < 4) { alert('La contraseña debe tener al menos 4 caracteres'); return; }
+                try {
+                  const { codificarPassword } = await import('../utils/passwordEncoder');
+                  const r = await fetch('http://localhost:80/conta-app-backend/api/usuarios/listar.php', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'cambiar-pass', Id_Usuario: user?.id, contrasena: claveNueva, contrasena_actual: codificarPassword(claveActual) })
+                  });
+                  const d = await r.json();
+                  if (d.success) { alert('Contraseña actualizada'); setShowCambiarClave(false); setClaveActual(''); setClaveNueva(''); setClaveConfirmar(''); }
+                  else alert(d.message);
+                } catch (e) { alert('Error al cambiar contraseña'); }
+              }}
+                style={{ height: 34, padding: '0 20px', background: '#7c3aed', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+                Cambiar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

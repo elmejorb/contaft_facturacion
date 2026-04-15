@@ -94,7 +94,7 @@ try {
         $stmt = $db->prepare("
             SELECT v.Factura_N, v.Fecha, v.Tipo, v.CodigoCli, v.A_nombre,
                    v.Total, v.Saldo, v.EstadoFact, v.Descuento, v.Impuesto,
-                   v.id_mediopago, v.Hora, v.Id_Usuario,
+                   v.id_mediopago, v.Hora, v.Id_Usuario, v.enviada_dian, v.cufe,
                    COALESCE(m.nombre_medio, 'Efectivo') as MedioPago,
                    COALESCE(u.Nombre, '') as NombreUsuario,
                    (SELECT COUNT(*) FROM tbldetalle_venta d WHERE d.Factura_N = v.Factura_N) as Total_Items

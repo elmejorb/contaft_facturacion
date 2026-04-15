@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Save, X } from 'lucide-react';
 import api from '../services/api';
+import { PresentacionesProducto } from './PresentacionesProducto';
 
 interface Articulo {
   Items: number; Codigo: string; Descripcion: string; Existencia: number;
@@ -10,7 +11,7 @@ interface Articulo {
 }
 
 interface Props {
-  isOpen: boolean; onClose: () => void; articulo: Articulo | null; onGuardado: () => void;
+  isOpen: boolean; onClose: () => void; articulo: Articulo | null; onGuardado: (producto?: any) => void;
   modo?: 'editar' | 'nuevo';
 }
 
@@ -78,7 +79,7 @@ export function EditarArticuloModal({ isOpen, onClose, articulo, onGuardado, mod
       const r = esNuevo ? await api.post(url, form) : await api.put(url, form);
       if (r.data.success) {
         setMensaje({ tipo: 'ok', texto: esNuevo ? 'Artículo creado' : 'Artículo actualizado' });
-        setTimeout(() => { onGuardado(); onClose(); }, 500);
+        setTimeout(() => { onGuardado({ Items: r.data.items || form.Items, Codigo: form.Codigo, Nombres_Articulo: form.Nombres_Articulo }); onClose(); }, 500);
       } else setMensaje({ tipo: 'error', texto: r.data.message || 'Error' });
     } catch { setMensaje({ tipo: 'error', texto: 'Error de conexión' }); }
     finally { setGuardando(false); }
@@ -356,6 +357,14 @@ export function EditarArticuloModal({ isOpen, onClose, articulo, onGuardado, mod
               })}
             </div>
           </fieldset>
+
+          {/* Presentaciones - solo en modo editar */}
+          {!esNuevo && form.Items > 0 && (
+            <fieldset style={s.fieldset}>
+              <legend style={s.legend}>Presentaciones</legend>
+              <PresentacionesProducto items={form.Items} />
+            </fieldset>
+          )}
 
           {/* Mensaje */}
           {mensaje && (

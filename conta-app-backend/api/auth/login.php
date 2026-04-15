@@ -72,6 +72,19 @@ try {
                     break;
             }
 
+            // Get permisos del tipo de usuario
+            $stmtPermisos = $db->prepare("SELECT permisos FROM tbltiposusuario WHERE Id_TiposUsuario = ?");
+            $stmtPermisos->execute([$usuario['Id_TiposUsuario']]);
+            $tipoData = $stmtPermisos->fetch();
+            $permisos = $tipoData && $tipoData['permisos'] ? json_decode($tipoData['permisos'], true) : null;
+
+            // Admin tiene todo por defecto
+            if (!$permisos && $usuario['Id_TiposUsuario'] == 1) {
+                $permisos = ['dashboard_completo','inventario','inventario_editar','inventario_diagnostico','inventario_conteo','categorias','clientes','clientes_editar','clientes_pagos','clientes_cartera','clientes_top','proveedores','proveedores_pagar','ventas','ventas_listado','ventas_tipo_pago','facturacion_electronica','compras','caja','caja_historial','pagos_listado','gastos','bancos','configuracion','usuarios','datos_empresa'];
+            } elseif (!$permisos) {
+                $permisos = ['ventas','ventas_listado','clientes','caja'];
+            }
+
             http_response_code(200);
             echo json_encode([
                 "success" => true,
@@ -81,7 +94,8 @@ try {
                     "username" => $usuario['Usuario'],
                     "nombre" => $usuario['Nombre'],
                     "role" => $rol,
-                    "tipoUsuario" => $usuario['Id_TiposUsuario']
+                    "tipoUsuario" => $usuario['Id_TiposUsuario'],
+                    "permisos" => $permisos
                 ]
             ]);
         } else {

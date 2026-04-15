@@ -66,7 +66,7 @@ try {
         'force_resend' => $forceResend
     ];
 
-    $result = apiRequest("$API_BASE/api/v2/send-email", 'POST', $emailData, $token);
+    $result = apiRequest("$API_BASE/api/email/send-complete", 'POST', $emailData, $token);
 
     if ($result['code'] === 200) {
         // Update local DB

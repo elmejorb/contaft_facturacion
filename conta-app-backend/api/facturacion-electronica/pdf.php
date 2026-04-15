@@ -187,7 +187,9 @@ try {
     $pdf->SetX(55);
     $pdf->MultiCell(95, 4, $empresa['Propietario'] !== '-' ? strtoupper($empresa['Propietario']) . "\n" : '' . "NIT " . $empresa['Nit'] . "-$dv", 0, 'C');
     $pdf->SetX(55);
-    $pdf->MultiCell(95, 4, $empresa['Direccion'] . "\nTel: " . $empresa['Telefono'], 0, 'C');
+    $pdf->MultiCell(95, 4, $empresa['Direccion'], 0, 'C');
+    $pdf->SetX(55);
+    $pdf->MultiCell(95, 4, "Tel: " . $empresa['Telefono'] . "  -  " . ($empresa['email_factelect'] ?: $empresa['email']), 0, 'C');
 
     // Tipo documento + número
     $pdf->SetXY(155, 8);
@@ -210,11 +212,28 @@ try {
     $tipoIdent = $cliente['type_doc_name'] ?? 'CC';
 
     $html = <<<EOD
-<style>td { border: 0.5px solid #ccc; font-size: 8px; } .gris { background-color: #f0f0f0; font-weight: bold; }</style>
-<table cellpadding="3" border="0.5">
-<tr><td class="gris" width="12%"><b>SEÑOR(ES)</b></td><td colspan="3" width="65%">$clienteNombre</td><td class="gris" width="21%"><b>FECHA</b></td></tr>
-<tr><td class="gris" width="12%"><b>DIRECCIÓN</b></td><td colspan="3">$clienteDir</td><td style="text-align:center;">$fecha</td></tr>
-<tr><td class="gris"><b>TELÉFONO</b></td><td>$clienteTel</td><td class="gris" style="text-align:right;">$tipoIdent</td><td>$clienteNit - $dvCliente</td><td style="text-align:center;">Vence: $fechaVencStr</td></tr>
+<style>td { border: 0.5px solid #ccc; font-size: 8px; } .gris { background-color: #f0f0f0; font-weight: bold; font-size: 7.5px; }</style>
+<table cellpadding="3" border="0.5" width="100%">
+<tr>
+    <td class="gris" width="12%"><b>SEÑOR(ES)</b></td>
+    <td colspan="3" width="67%">$clienteNombre</td>
+    <td class="gris" width="21%"><b>FECHA DEL DOCUMENTO</b></td>
+</tr>
+<tr>
+    <td rowspan="2" class="gris" width="12%"><b>DIRECCIÓN</b></td>
+    <td colspan="3" rowspan="2">$clienteDir</td>
+    <td style="text-align:center;">$fecha</td>
+</tr>
+<tr>
+    <td class="gris" style="text-align:center;"><b>FECHA DE VENCIMIENTO</b></td>
+</tr>
+<tr>
+    <td class="gris" width="12%"><b>TELÉFONO</b></td>
+    <td width="20%">$clienteTel</td>
+    <td class="gris" style="text-align:right;" width="18%">$tipoIdent</td>
+    <td width="29%">$clienteNit - $dvCliente</td>
+    <td style="text-align:center;">$fechaVencStr</td>
+</tr>
 </table>
 EOD;
     $pdf->writeHTML($html, true, false, false, false, '');
@@ -230,14 +249,23 @@ EOD;
         $desc_item = number_format(floatval($item['discount_amount']), 2, ',', '.');
         $totalItem = number_format(floatval($item['line_extension_amount']), 2, ',', '.');
         $ivaItem = floatval($item['tax_percent']);
-        $rows .= "<tr><td style='text-align:center;'>$idx</td><td>$desc</td><td style='text-align:center;'>$unidad</td><td style='text-align:right;'>\$$precio</td><td style='text-align:center;'>$cant</td><td style='text-align:center;'>{$ivaItem}%</td><td style='text-align:right;'>\$$totalItem</td></tr>";
+        $rows .= "<tr><td style='text-align:center;'>$idx</td><td>$desc</td><td style='text-align:center;'>$unidad</td><td style='text-align:right;'>\$$precio</td><td style='text-align:center;'>$cant</td><td style='text-align:right;'>\$$desc_item</td><td style='text-align:center;'>{$ivaItem}%</td><td style='text-align:right;'>\$$totalItem</td></tr>";
         $idx++;
     }
 
     $htmlItems = <<<EOD
-<style>td, th { border: 0.5px solid #ccc; font-size: 8px; }</style>
-<table cellpadding="3" border="0.5">
-<tr style="background-color:#f0f0f0;"><th style="text-align:center;" width="4%"><b>#</b></th><th width="34%"><b>Ítem</b></th><th style="text-align:center;" width="10%"><b>Unidad</b></th><th style="text-align:center;" width="12%"><b>Precio</b></th><th style="text-align:center;" width="8%"><b>Cant</b></th><th style="text-align:center;" width="8%"><b>IVA</b></th><th style="text-align:center;" width="14%"><b>Total</b></th></tr>
+<style>td, th { border: 0.5px solid #ccc; font-size: 8.3px; } th { height: 4px; }</style>
+<table cellpadding="3" border="0.5" width="100%">
+<tr style="background-color:#f0f0f0; font-size: 8px;">
+    <th style="text-align:center;" width="4%"><b>#</b></th>
+    <th style="text-align:center;" width="32%"><b>Ítem</b></th>
+    <th style="text-align:center;" width="10%"><b>Unidad</b></th>
+    <th style="text-align:center;" width="13%"><b>Precio</b></th>
+    <th style="text-align:center;" width="8%"><b>Cant</b></th>
+    <th style="text-align:center;" width="10%"><b>Descuento</b></th>
+    <th style="text-align:center;" width="7%"><b>IVA</b></th>
+    <th style="text-align:center;" width="16%"><b>Total</b></th>
+</tr>
 $rows
 </table>
 EOD;
@@ -248,7 +276,7 @@ EOD;
     $alturaPagina = $pdf->getPageHeight();
     $margenFooter = 30; // espacio del footer TCPDF
     $alturaMaxima = $alturaPagina - $margenFooter;
-    $alturaBloqueF = 80; // alto aprox del bloque QR+totales+firmas
+    $alturaBloqueF = 65; // alto del bloque QR+totales (sin firmas)
 
     // Si no cabe, nueva página
     if (($alturaActual + $alturaBloqueF) > $alturaMaxima) {
@@ -269,74 +297,66 @@ EOD;
 
     // Info al lado del QR
     $pdf->SetXY(44, $yPos + 2);
-    $pdf->SetFont('helvetica', '', 8);
-    $pdf->MultiCell(95, 4,
+    $pdf->SetFont('helvetica', '', 9);
+    $pdf->MultiCell(100, 5,
         "Moneda: COP\n" .
         "Tipo de operación: Estándar    Forma de pago: $paymentForm\n" .
         "Medio de pago: $metodoPago", 0, 'L');
     $pdf->SetXY(44, $pdf->GetY());
-    $pdf->SetFont('helvetica', 'B', 6);
-    $pdf->MultiCell(120, 4, "CUFE: $cufeDoc", 0, 'L');
+    $pdf->SetFont('helvetica', 'B', 5.5);
+    $pdf->Cell(0, 4, "CUFE: $cufeDoc", 0, 1, 'L');
+
+    // Asegurar que bajamos después del QR (QR tiene 32mm de alto)
+    $yDespuesQR = $yPos + 34;
+    if ($pdf->GetY() < $yDespuesQR) $pdf->SetY($yDespuesQR);
+
+    // Texto legal + Totales en paralelo
+    $pdf->Ln(2);
+    $yTot = $pdf->GetY();
 
     // Texto legal a la izquierda
-    $pdf->Ln(3);
-    $yLegal = $pdf->GetY();
-    $pdf->SetFont('helvetica', '', 7);
-    $pdf->SetXY(10, $yLegal);
-    $pdf->MultiCell(85, 4, "Esta factura se asimila en todos sus efectos a una letra de cambio de conformidad con el Art. 774 del código de comercio. Autorizo que en caso de incumplimiento de esta obligación sea reportado a las centrales de riesgo, se cobrarán intereses por mora.", 0, 'J');
-
-    // Nota
+    $pdf->SetFont('helvetica', '', 8);
+    $pdf->SetXY(10, $yTot);
+    $pdf->MultiCell(90, 4, "Esta factura se asimila en todos sus efectos a una letra de cambio de conformidad con el Art. 774 del código de comercio. Autorizo que en caso de incumplimiento de esta obligación sea reportado a las centrales de riesgo, se cobrarán intereses por mora.", 0, 'J');
     if ($doc['nota']) {
-        $pdf->Ln(1);
-        $pdf->SetFont('helvetica', '', 8);
-        $pdf->Cell(85, 4, 'Nota: ' . $doc['nota'], 0, 1, 'L');
+        $pdf->SetX(10);
+        $pdf->Cell(90, 5, 'Nota: ' . $doc['nota'], 0, 1, 'L');
     }
 
-    // Totales a la derecha (alineados con el texto legal)
-    $yTot = $yLegal;
+    // Totales a la derecha (mismo nivel que texto legal)
     $pdf->SetXY(130, $yTot);
-    $pdf->SetFont('helvetica', '', 9);
-    $pdf->Cell(35, 6, 'Subtotal', 0, 0, 'R');
-    $pdf->Cell(35, 6, '$' . number_format($subtotal, 2, ',', '.'), 0, 1, 'R');
+    $pdf->SetFont('helvetica', '', 10);
+    $pdf->Cell(35, 7, 'Subtotal', 0, 0, 'R');
+    $pdf->Cell(35, 7, '$' . number_format($subtotal, 2, ',', '.'), 0, 1, 'R');
 
     if ($totalIva > 0) {
         $pdf->SetX(130);
-        $pdf->Cell(35, 6, 'IVA', 0, 0, 'R');
-        $pdf->Cell(35, 6, '$' . number_format($totalIva, 2, ',', '.'), 0, 1, 'R');
+        $pdf->Cell(35, 7, 'IVA', 0, 0, 'R');
+        $pdf->Cell(35, 7, '$' . number_format($totalIva, 2, ',', '.'), 0, 1, 'R');
     }
     if ($descuento > 0) {
         $pdf->SetX(130);
-        $pdf->Cell(35, 6, 'Descuento', 0, 0, 'R');
-        $pdf->Cell(35, 6, '-$' . number_format($descuento, 2, ',', '.'), 0, 1, 'R');
+        $pdf->Cell(35, 7, 'Descuento', 0, 0, 'R');
+        $pdf->Cell(35, 7, '-$' . number_format($descuento, 2, ',', '.'), 0, 1, 'R');
     }
 
     $pdf->SetFillColor(200, 200, 200);
     $pdf->SetX(130);
-    $pdf->Cell(35, 7, 'Total', 0, 0, 'R', true);
-    $pdf->Cell(35, 7, '$' . number_format($total, 2, ',', '.'), 0, 1, 'R', true);
+    $pdf->Cell(35, 8, 'Total', 0, 0, 'R', true);
+    $pdf->Cell(35, 8, '$' . number_format($total, 2, ',', '.'), 0, 1, 'R', true);
 
-    $pdf->SetFont('helvetica', 'B', 9);
+    $pdf->SetFont('helvetica', 'B', 10);
     $pdf->SetX(130);
     $pdf->SetFillColor(240, 240, 240);
-    $pdf->Cell(35, 7, 'Total a pagar', 0, 0, 'R', true);
-    $pdf->Cell(35, 7, '$' . number_format($total, 2, ',', '.'), 0, 1, 'R', true);
+    $pdf->Cell(35, 8, 'Total a pagar', 0, 0, 'R', true);
+    $pdf->Cell(35, 8, '$' . number_format($total, 2, ',', '.'), 0, 1, 'R', true);
 
+
+    // Total de líneas
     $pdf->SetFont('helvetica', '', 8);
     $pdf->SetX(130);
     $pdf->Cell(70, 5, 'Total de líneas: ' . count($items), 0, 1, 'R');
 
-    // Firmas
-    $pdf->Ln(6);
-    $pdf->SetFont('helvetica', '', 7);
-    $yF = $pdf->GetY();
-    $pdf->SetXY(30, $yF);
-    $pdf->Cell(55, 0, '', 'T');
-    $pdf->Cell(10);
-    $pdf->Cell(55, 0, '', 'T');
-    $pdf->SetXY(30, $yF + 2);
-    $pdf->Cell(55, 4, 'ELABORADO POR', 0, 0, 'C');
-    $pdf->Cell(10);
-    $pdf->Cell(55, 4, 'ACEPTADA, FIRMA Y/O SELLO Y FECHA', 0, 0, 'C');
 
     // Output
     $pdf->SetTitle("$tipoDoc $prefijo$numFact - Conta FT");

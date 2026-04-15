@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Search, Trash2, Plus, Save, X, ShoppingCart, Lock, Unlock } from 'lucide-react';
+import { Search, Trash2, Plus, Save, X, ShoppingCart, Lock, Unlock, PackagePlus } from 'lucide-react';
+import { EditarArticuloModal } from './EditarArticuloModal';
 import toast from 'react-hot-toast';
 import { getConfigImpresion } from './ConfiguracionSistema';
 import { imprimirFactura, buildDatosFactura } from './ImpresionFactura';
@@ -71,8 +72,12 @@ function BuscarClienteModal({ onSelect, onClose }: { onSelect: (c: any) => void;
 }
 const fmtMon = (v: number) => '$ ' + Math.round(v).toLocaleString('es-CO');
 
+interface Presentacion {
+  Id_Presentacion: number; Nombre: string; Factor: number; Precio_Venta: number; Codigo_Barras?: string;
+}
+
 interface LineaVenta {
-  id: number; // temporal
+  id: number;
   Items: number;
   Codigo: string;
   Nombre: string;
@@ -83,6 +88,10 @@ interface LineaVenta {
   Iva: number;
   Descuento: number;
   Subtotal: number;
+  presentaciones?: Presentacion[];
+  presentacionId?: number;
+  factor?: number; // factor de conversión activo
+  unidadBase?: string;
 }
 
 export interface TabState {
@@ -108,6 +117,8 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
   const init = initialState || { tipo: 'Contado', dias: 0, listaPrecio: 1, descuentoGlobal: 0, cliente: { id: 130500, nombre: 'VENTAS AL CONTADO', nit: '0', tel: '0', dir: '-', cupo: 0, esCliente: false, email: '' }, lineas: [] };
   const [tipoDocumento, setTipoDocumento] = useState('pos'); // pos, electronica, soporte
   const [enviarEmailFE, setEnviarEmailFE] = useState(false);
+  const [nota, setNota] = useState('');
+  const [showCrearProducto, setShowCrearProducto] = useState(false);
   const [cajaAbierta, setCajaAbierta] = useState<boolean | null>(null); // null=loading, true/false
   const [baseApertura, setBaseApertura] = useState('');
   const [abriendoCaja, setAbriendoCaja] = useState(false);
@@ -198,16 +209,17 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
   };
 
   const agregarProducto = (art: any) => {
-    // Check if already in list
-    const existente = lineas.find(l => l.Items === art.Items);
-    if (existente) {
-      setLineas(prev => prev.map(l => l.Items === art.Items ? { ...l, Cantidad: l.Cantidad + 1, Subtotal: (l.Cantidad + 1) * l.PrecioVenta - l.Descuento } : l));
+    // Check if already in list (mismo producto y misma presentación)
+    const existente = lineas.find(l => l.Items === art.Items && !l.presentacionId);
+    if (existente && !art.tiene_presentaciones) {
+      setLineas(prev => prev.map(l => l.Items === art.Items && !l.presentacionId ? { ...l, Cantidad: l.Cantidad + 1, Subtotal: (l.Cantidad + 1) * l.PrecioVenta - l.Descuento } : l));
     } else {
       const precio = listaPrecio === 2 ? (art.Precio_Venta2 || art.Precio_Venta) : listaPrecio === 3 ? (art.Precio_Venta3 || art.Precio_Venta) : art.Precio_Venta;
       const nueva: LineaVenta = {
         id: ++lineaId, Items: art.Items, Codigo: art.Codigo, Nombre: art.Nombres_Articulo,
         Existencia: art.Existencia, Cantidad: 1, PrecioCosto: art.Precio_Costo,
-        PrecioVenta: precio, Iva: art.Iva || 0, Descuento: 0, Subtotal: precio
+        PrecioVenta: precio, Iva: art.Iva || 0, Descuento: 0, Subtotal: precio,
+        presentaciones: art.presentaciones || [], factor: 1, unidadBase: art.unidad_base || 'Unidad'
       };
       setLineas(prev => [...prev, nueva]);
     }
@@ -296,7 +308,7 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
         tipo, dias: tipo === 'Contado' ? 0 : dias,
         cliente_id: cliente.id, cliente_nombre: cliente.nombre,
         cliente_identificacion: cliente.nit, cliente_direccion: cliente.dir, cliente_telefono: cliente.tel,
-        medio_pago: medioFinal, vendedor: 0, descuento_global: descuentoGlobal,
+        medio_pago: medioFinal, vendedor: 0, descuento_global: descuentoGlobal, comentario: nota || '-',
         efectivo: pagoEfectivoNum, valor_pagado: pagoTransfNum,
         abono: tipo !== 'Contado' ? pagoAbonoNum : 0,
         items: lineas.map(l => ({
@@ -313,6 +325,7 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
         const factN = d.Factura_N;
 
         // Si es factura electrónica, enviar a DIAN
+        let dianDocId: number | null = null;
         if (tipoDocumento === 'electronica') {
           toast.loading('Enviando a DIAN...', { id: 'dian' });
           try {
@@ -321,6 +334,7 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
               body: JSON.stringify({ action: 'factura', factura_n: factN, send_email: enviarEmailFE })
             });
             const dDian = await rDian.json();
+            dianDocId = dDian.doc_local_id || null;
             if (dDian.success) {
               const emailMsg = dDian.email_result?.success ? ` — Email enviado a ${dDian.email_result.recipient}` : '';
               toast.success(`DIAN: Factura ${dDian.consecutive ? '#' + dDian.consecutive : ''} aprobada${emailMsg}`, { id: 'dian', duration: 6000 });
@@ -335,9 +349,14 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
         const cfg = getConfigImpresion();
         // Imprimir si está configurado
         if (cfg.imprimirAlGuardar) {
-          const medioNombre = pagoTransfNum > 0 ? (['','Tarjeta','Bancolombia','Nequi'][pagoMedioTransf] || 'Transferencia') : 'Efectivo';
-          const datosImp = buildDatosFactura(factN, lineas, cliente, tipo, dias, descuentoGlobal, pagoEfectivoNum, pagoTransfNum, cambioPago, tipo !== 'Contado' ? pagoAbonoNum : 0, medioNombre);
-          imprimirFactura(datosImp);
+          if (tipoDocumento === 'electronica' && dianDocId) {
+            // Para factura electrónica: abrir el PDF de TCPDF
+            window.open(`http://localhost:80/conta-app-backend/api/facturacion-electronica/pdf.php?id=${dianDocId}`, 'PDF_FE', 'width=900,height=700,menubar=no,toolbar=no');
+          } else {
+            const medioNombre = pagoTransfNum > 0 ? (['','Tarjeta','Bancolombia','Nequi'][pagoMedioTransf] || 'Transferencia') : 'Efectivo';
+            const datosImp = buildDatosFactura(factN, lineas, cliente, tipo, dias, descuentoGlobal, pagoEfectivoNum, pagoTransfNum, cambioPago, tipo !== 'Contado' ? pagoAbonoNum : 0, medioNombre);
+            imprimirFactura(datosImp);
+          }
         }
         setShowPagoModal(false);
         toast.success(
@@ -346,7 +365,7 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
             : `Factura #${factN} guardada exitosamente`,
           { duration: cambioPago > 0 ? 8000 : 4000 }
         );
-        setLineas([]); setDescuentoGlobal(0); setEfectivo('');
+        setLineas([]); setDescuentoGlobal(0); setEfectivo(''); setNota('');
         setCliente({ id: 130500, nombre: 'VENTAS AL CONTADO', nit: '0', tel: '0', dir: '-', cupo: 0, esCliente: false, email: '' });
         setTipoDocumento('pos');
         onFacturaCreada?.(factN);
@@ -566,7 +585,28 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
               {lineas.map(l => (
                 <tr key={l.id} style={{ borderBottom: '1px solid #f3f4f6' }}>
                   <td style={{ padding: '4px 8px', width: 100, color: '#6b7280', fontSize: 11 }}>{l.Codigo}</td>
-                  <td style={{ padding: '4px 8px', fontWeight: 500 }}>{l.Nombre}</td>
+                  <td style={{ padding: '4px 8px', fontWeight: 500 }}>
+                    {l.Nombre}
+                    {l.presentaciones && l.presentaciones.length > 0 && (
+                      <select value={l.presentacionId || ''}
+                        onChange={e => {
+                          const presId = parseInt(e.target.value) || 0;
+                          const pres = l.presentaciones?.find((p: any) => p.Id_Presentacion === presId);
+                          setLineas(prev => prev.map(li => {
+                            if (li.id !== l.id) return li;
+                            if (pres) {
+                              const newPrecio = parseFloat(pres.Precio_Venta) || li.PrecioVenta;
+                              return { ...li, presentacionId: presId, factor: parseFloat(pres.Factor), PrecioVenta: newPrecio, Subtotal: li.Cantidad * newPrecio - li.Descuento, Nombre: `${l.Nombre.split(' [')[0]} [${pres.Nombre}]` };
+                            }
+                            return { ...li, presentacionId: undefined, factor: 1, Nombre: li.Nombre.split(' [')[0] };
+                          }));
+                        }}
+                        style={{ marginLeft: 6, height: 20, border: '1px solid #d1d5db', borderRadius: 4, fontSize: 10, padding: '0 4px', color: '#7c3aed' }}>
+                        <option value="">{l.unidadBase || 'Unidad'}</option>
+                        {l.presentaciones.map((p: any) => <option key={p.Id_Presentacion} value={p.Id_Presentacion}>{p.Nombre} ({p.Factor} {l.unidadBase})</option>)}
+                      </select>
+                    )}
+                  </td>
                   <td style={{ padding: '4px 8px', textAlign: 'center', width: 55, color: l.Existencia < l.Cantidad ? '#dc2626' : '#16a34a', fontWeight: 600, fontSize: 11 }}>{l.Existencia}</td>
                   <td style={{ padding: '3px 4px', textAlign: 'center', width: 65 }}>
                     <input type="text" defaultValue={String(l.Cantidad)} data-venta-cant={l.id}
@@ -662,9 +702,9 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
                     }}
                     onFocus={() => { if (productoResults.length > 0) setShowProductoDropdown(true); (window as any).__prodIdx = 0; }}
                     style={{ width: '100%', height: 26, padding: '0 6px', border: '1px solid #d1d5db', borderRadius: 4, fontSize: 12, outline: 'none' }} />
-                  {showProductoDropdown && productoResults.length > 0 && (
-                    <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#fff', border: '1px solid #d1d5db', borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,0.15)', maxHeight: 220, overflow: 'auto', zIndex: 100 }}>
-                      {productoResults.map((a: any, i: number) => {
+                  {showProductoDropdown && (
+                    <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#fff', border: '1px solid #d1d5db', borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,0.15)', maxHeight: 250, overflow: 'auto', zIndex: 100 }}>
+                      {productoResults.length > 0 ? productoResults.map((a: any, i: number) => {
                         const selected = i === ((window as any).__prodIdx ?? 0);
                         return (
                           <div key={a.Items} onClick={() => { agregarProducto(a); (window as any).__prodIdx = 0;
@@ -677,7 +717,18 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
                             <span style={{ fontWeight: 700, color: '#7c3aed', width: 80, textAlign: 'right', fontSize: 11 }}>{fmtMon(a.Precio_Venta)}</span>
                           </div>
                         );
-                      })}
+                      }) : buscarProducto.length >= 2 && (
+                        <div style={{ padding: '12px 10px', textAlign: 'center', color: '#9ca3af', fontSize: 12 }}>
+                          No se encontró "{buscarProducto}"
+                        </div>
+                      )}
+                      {buscarProducto.length >= 1 && (
+                        <div onClick={() => { setShowProductoDropdown(false); setBuscarProducto(''); setShowCrearProducto(true); }}
+                          style={{ padding: '8px 10px', cursor: 'pointer', fontSize: 12, borderTop: '1px solid #e5e7eb', display: 'flex', alignItems: 'center', gap: 6, color: '#7c3aed', fontWeight: 600, background: '#f9fafb' }}
+                          onMouseOver={e => (e.currentTarget.style.background = '#f3e8ff')} onMouseOut={e => (e.currentTarget.style.background = '#f9fafb')}>
+                          <PackagePlus size={15} /> Crear nuevo producto
+                        </div>
+                      )}
                     </div>
                   )}
                 </td>
@@ -702,7 +753,11 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
             onChange={e => setDescuentoGlobal(parseInt(e.target.value.replace(/[^0-9]/g, '')) || 0)}
             style={{ display: 'block', height: 26, width: 80, textAlign: 'right', border: '1px solid #d1d5db', borderRadius: 4, fontSize: 12, padding: '0 6px' }} />
         </div>
-        <div style={{ flex: 1 }} />
+        <div style={{ flex: 1 }}>
+          <label style={{ fontSize: 9, color: '#6b7280' }}>NOTA</label>
+          <input type="text" value={nota} onChange={e => setNota(e.target.value)} placeholder="Observación..."
+            style={{ display: 'block', width: '100%', height: 26, border: '1px solid #d1d5db', borderRadius: 4, fontSize: 12, padding: '0 6px', boxSizing: 'border-box' }} />
+        </div>
         <div style={{ display: 'flex', gap: 16, alignItems: 'center', fontSize: 12 }}>
           {descuentoGlobal > 0 && <div><span style={{ color: '#6b7280' }}>Desc:</span> <span style={{ color: '#d97706', fontWeight: 600 }}>-{fmtMon(descuentoGlobal)}</span></div>}
           {totalIva > 0 && <div><span style={{ color: '#6b7280' }}>IVA:</span> <span style={{ fontWeight: 600 }}>{fmtMon(totalIva)}</span></div>}
@@ -718,6 +773,39 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
           </button>
         </div>
       </div>
+
+      {/* Modal crear producto rápido */}
+      {showCrearProducto && (
+        <EditarArticuloModal
+          isOpen={true}
+          onClose={() => setShowCrearProducto(false)}
+          articulo={null}
+          onGuardado={async (nuevoProducto?: any) => {
+            setShowCrearProducto(false);
+            if (nuevoProducto?.Items) {
+              // Buscar el producto recién creado y agregarlo
+              try {
+                const r = await fetch(`${API_VENTA}?buscar=${nuevoProducto.Codigo || nuevoProducto.Items}`);
+                const d = await r.json();
+                if (d.success && d.articulos?.length > 0) {
+                  agregarProducto(d.articulos[0]);
+                  toast.success('Producto creado y agregado');
+                  setTimeout(() => {
+                    const cants = document.querySelectorAll('input[data-venta-cant]');
+                    const last = cants[cants.length - 1] as HTMLInputElement;
+                    last?.focus(); last?.select();
+                  }, 100);
+                } else {
+                  toast.success('Producto creado. Búsquelo para agregarlo.');
+                }
+              } catch (e) { toast.success('Producto creado'); }
+            } else {
+              toast.success('Producto creado. Búsquelo para agregarlo.');
+            }
+          }}
+          modo="nuevo"
+        />
+      )}
 
       {/* Modal de Pago */}
       {showPagoModal && (

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Search, Trash2, Plus, Save, X, Package } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { EditarArticuloModal } from './EditarArticuloModal';
 
 const API = 'http://localhost:80/conta-app-backend/api/compras/nueva.php';
 const fmtMon = (v: number) => {
@@ -51,6 +52,7 @@ export function NuevaCompra({ pedidoEditar, onClose }: { pedidoEditar?: number; 
   const [prodResults, setProdResults] = useState<any[]>([]);
   const [showProdDrop, setShowProdDrop] = useState(false);
   const [guardando, setGuardando] = useState(false);
+  const [showCrearProducto, setShowCrearProducto] = useState(false);
   const searchTimer = useRef<any>(null);
   const codigoRef = useRef<HTMLInputElement>(null);
   const buscarInputRef = useRef<HTMLInputElement>(null);
@@ -390,11 +392,11 @@ export function NuevaCompra({ pedidoEditar, onClose }: { pedidoEditar?: number; 
                     onChange={e => buscarProducto(e.target.value)}
                     onKeyDown={e => { if (e.key === 'Enter' && prodResults.length > 0) { agregarProducto(prodResults[0]); } if (e.key === 'Escape') { setShowProdDrop(false); setBuscarProd(''); } }}
                     style={{ width: '100%', height: 24, padding: '0 6px', border: '1px solid #d1d5db', borderRadius: 4, fontSize: 11 }} />
-                  {showProdDrop && prodResults.length > 0 && buscarInputRef.current && (() => {
+                  {showProdDrop && buscarInputRef.current && (() => {
                     const rect = buscarInputRef.current!.getBoundingClientRect();
                     return (
-                      <div style={{ position: 'fixed', top: rect.bottom + 2, left: rect.left, width: Math.max(rect.width, 500), background: '#fff', border: '1px solid #d1d5db', borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,0.15)', maxHeight: 220, overflow: 'auto', zIndex: 9999 }}>
-                        {prodResults.map(a => (
+                      <div style={{ position: 'fixed', top: rect.bottom + 2, left: rect.left, width: Math.max(rect.width, 500), background: '#fff', border: '1px solid #d1d5db', borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,0.15)', maxHeight: 250, overflow: 'auto', zIndex: 9999 }}>
+                        {prodResults.length > 0 ? prodResults.map(a => (
                           <div key={a.Items} onClick={() => agregarProducto(a)}
                             style={{ padding: '5px 10px', cursor: 'pointer', fontSize: 12, borderBottom: '1px solid #f3f4f6', display: 'flex', gap: 6 }}
                             onMouseOver={e => (e.currentTarget.style.background = '#fef2f2')} onMouseOut={e => (e.currentTarget.style.background = '')}>
@@ -403,7 +405,18 @@ export function NuevaCompra({ pedidoEditar, onClose }: { pedidoEditar?: number; 
                             <span style={{ color: '#16a34a', fontWeight: 600, width: 40, textAlign: 'right' }}>{a.Existencia}</span>
                             <span style={{ color: '#dc2626', fontWeight: 600, width: 80, textAlign: 'right' }}>{fmtMon(a.Precio_Costo)}</span>
                           </div>
-                        ))}
+                        )) : buscarProd.length >= 2 && (
+                          <div style={{ padding: '12px 10px', textAlign: 'center', color: '#9ca3af', fontSize: 12 }}>
+                            No se encontró "{buscarProd}"
+                          </div>
+                        )}
+                        {buscarProd.length >= 1 && (
+                          <div onClick={() => { setShowProdDrop(false); setBuscarProd(''); setShowCrearProducto(true); }}
+                            style={{ padding: '8px 10px', cursor: 'pointer', fontSize: 12, borderTop: '1px solid #e5e7eb', display: 'flex', alignItems: 'center', gap: 6, color: '#7c3aed', fontWeight: 600, background: '#f9fafb' }}
+                            onMouseOver={e => (e.currentTarget.style.background = '#f3e8ff')} onMouseOut={e => (e.currentTarget.style.background = '#f9fafb')}>
+                            <span style={{ fontSize: 14 }}>+</span> Crear nuevo producto
+                          </div>
+                        )}
                       </div>
                     );
                   })()}
@@ -484,6 +497,33 @@ export function NuevaCompra({ pedidoEditar, onClose }: { pedidoEditar?: number; 
             </div>
           </div>
         </div>
+      )}
+
+      {/* Modal crear producto rápido */}
+      {showCrearProducto && (
+        <EditarArticuloModal
+          isOpen={true}
+          onClose={() => setShowCrearProducto(false)}
+          articulo={null}
+          onGuardado={async (nuevoProducto?: any) => {
+            setShowCrearProducto(false);
+            if (nuevoProducto?.Items) {
+              try {
+                const r = await fetch(`${API}?buscar=${nuevoProducto.Codigo || nuevoProducto.Items}`);
+                const d = await r.json();
+                if (d.success && d.articulos?.length > 0) {
+                  agregarProducto(d.articulos[0]);
+                  toast.success('Producto creado y agregado');
+                } else {
+                  toast.success('Producto creado. Búsquelo para agregarlo.');
+                }
+              } catch (e) { toast.success('Producto creado'); }
+            } else {
+              toast.success('Producto creado. Búsquelo para agregarlo.');
+            }
+          }}
+          modo="nuevo"
+        />
       )}
     </div>
   );
