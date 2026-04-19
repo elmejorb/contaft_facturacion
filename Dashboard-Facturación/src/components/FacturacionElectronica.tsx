@@ -3,7 +3,7 @@ import { AgGridReact } from 'ag-grid-react';
 import { AllCommunityModule, ModuleRegistry, ColDef } from 'ag-grid-community';
 import {
   Search, RefreshCw, FileText, CheckCircle, XCircle, AlertTriangle,
-  Clock, Send, Eye, Printer, Globe, Mail, MailCheck
+  Clock, Send, Eye, Printer, Globe, Mail, MailCheck, MailOpen, MailX
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { DetalleDocElectronico } from './DetalleDocElectronico';
@@ -33,6 +33,7 @@ export function FacturacionElectronica() {
   const [ndMotivo, setNdMotivo] = useState('Cobro de intereses');
   const [ndValor, setNdValor] = useState('');
   const [ndDescripcion, setNdDescripcion] = useState('');
+  const [emailStatusMap, setEmailStatusMap] = useState<Record<string, any>>({});
   const gridRef = useRef<AgGridReact>(null);
 
   const cargar = async () => {
@@ -137,6 +138,7 @@ export function FacturacionElectronica() {
       if (d.success) {
         toast.success(d.message, { id: 'email-send', duration: 5000 });
         cargar();
+        cargarEmailStatus(true);
       } else if (d.code === 409) {
         // Ya fue enviado — preguntar si reenviar
         toast.dismiss('email-send');
@@ -150,7 +152,36 @@ export function FacturacionElectronica() {
     } catch (e) { toast.error('Error de conexión', { id: 'email-send' }); }
   };
 
-  useEffect(() => { cargar(); }, [anio, mes]);
+  const cargarEmailStatus = async (force = false) => {
+    try {
+      const nocache = force ? '&nocache=1' : '';
+      const url = `${API}/enviar.php?email_status=1&anio=${anio}${mes > 0 ? `&mes=${mes}` : ''}${nocache}`;
+      const r = await fetch(url);
+      const d = await r.json();
+      if (d.success) setEmailStatusMap(d.data || {});
+    } catch (e) { /* silencioso: el sobre cae al estado local */ }
+  };
+
+  useEffect(() => { cargar(); cargarEmailStatus(); }, [anio, mes]);
+
+  const emailStatusStyle = (status: string | null, sent: boolean) => {
+    switch (status) {
+      case 'enviado':            return { color: '#2563eb', bg: '#eff6ff', icon: Send,      label: 'Enviado' };
+      case 'entregado':          return { color: '#0891b2', bg: '#ecfeff', icon: MailCheck, label: 'Entregado' };
+      case 'abierto':            return { color: '#16a34a', bg: '#f0fdf4', icon: MailOpen,  label: 'Abierto por el cliente' };
+      case 'clic':               return { color: '#15803d', bg: '#dcfce7', icon: MailOpen,  label: 'Cliente hizo clic en enlace' };
+      case 'diferido':           return { color: '#eab308', bg: '#fefce8', icon: Clock,     label: 'Diferido (reintentando)' };
+      case 'rebote_temporal':    return { color: '#f59e0b', bg: '#fffbeb', icon: AlertTriangle, label: 'Rebote temporal' };
+      case 'rebote_permanente':  return { color: '#dc2626', bg: '#fef2f2', icon: MailX,     label: 'Rebote permanente' };
+      case 'bloqueado':          return { color: '#dc2626', bg: '#fef2f2', icon: MailX,     label: 'Bloqueado' };
+      case 'spam':               return { color: '#dc2626', bg: '#fef2f2', icon: MailX,     label: 'Marcado como spam' };
+      case 'invalido':           return { color: '#dc2626', bg: '#fef2f2', icon: MailX,     label: 'Email inválido' };
+      case 'desuscrito':         return { color: '#f97316', bg: '#fff7ed', icon: MailX,     label: 'Cliente desuscrito' };
+      default:
+        if (sent) return { color: '#2563eb', bg: '#eff6ff', icon: Send, label: 'Enviado' };
+        return      { color: '#d1d5db', bg: 'transparent', icon: Mail, label: 'No enviado' };
+    }
+  };
 
   const docsFiltrados = docs.filter(d => {
     if (filtroTipo !== 'todos' && d.status !== filtroTipo) return false;
@@ -214,12 +245,24 @@ export function FacturacionElectronica() {
         : <span style={{ color: '#d1d5db' }}>-</span>
     },
     {
-      headerName: 'Email', field: 'email_sent', width: 60, sortable: true,
-      cellRenderer: (p: any) => p.value ? (
-        <span title="Correo enviado" style={{ color: '#16a34a' }}><MailCheck size={15} /></span>
-      ) : (
-        <span style={{ color: '#d1d5db' }}><Mail size={15} /></span>
-      )
+      headerName: 'Email', field: 'email_sent', width: 70, sortable: true,
+      valueGetter: (p: any) => {
+        const remote = p.data.cufe ? emailStatusMap[p.data.cufe] : null;
+        return remote?.email_status || (p.data.email_sent ? 'enviado' : '');
+      },
+      cellRenderer: (p: any) => {
+        const remote = p.data.cufe ? emailStatusMap[p.data.cufe] : null;
+        const status = remote?.email_status || null;
+        const sent = !!(remote?.email_sent ?? p.data.email_sent);
+        const s = emailStatusStyle(status, sent);
+        const Icon = s.icon;
+        const title = s.label + (remote?.email_recipient ? ` — ${remote.email_recipient}` : '');
+        return (
+          <span title={title} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 26, height: 22, borderRadius: 6, background: s.bg, color: s.color }}>
+            <Icon size={15} />
+          </span>
+        );
+      }
     },
     {
       headerName: '', width: 110, sortable: false,
@@ -302,7 +345,7 @@ export function FacturacionElectronica() {
             style={{ height: 30, padding: '0 12px', background: '#f3f4f6', color: '#374151', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
             <Globe size={14} /> Resoluciones
           </button>
-          <button onClick={cargar}
+          <button onClick={() => { cargar(); cargarEmailStatus(true); }}
             style={{ height: 30, padding: '0 12px', background: '#7c3aed', color: '#fff', border: 'none', borderRadius: 8, fontSize: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
             <RefreshCw size={14} /> Refrescar
           </button>

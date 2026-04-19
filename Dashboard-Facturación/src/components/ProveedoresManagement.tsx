@@ -3,20 +3,24 @@ import { AgGridReact } from 'ag-grid-react';
 import { AllCommunityModule, ModuleRegistry, ColDef } from 'ag-grid-community';
 import {
   Search, RefreshCw, Plus, Truck, DollarSign, Eye, Pencil, Trash2, X, Save,
-  FileText, Wallet, Receipt, ShoppingCart, Ban
+  FileText, Wallet, Receipt, ShoppingCart, Ban, Printer
 } from 'lucide-react';
+
+const tipoPagoNombre = (id: number) => ({ 0: 'Efectivo', 1: 'Tarjeta', 2: 'Bancolombia', 3: 'Nequi' } as Record<number,string>)[id] || 'Efectivo';
+import { ReciboImpresion } from './ReciboImpresion';
+import { getConfigImpresion } from './ConfiguracionSistema';
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
 const API = 'http://localhost:80/conta-app-backend/api/proveedores/listar.php';
 const fmtMon = (v: number) => '$ ' + Math.round(v).toLocaleString('es-CO');
 
-export function ProveedoresManagement() {
+export function ProveedoresManagement({ modoCxP = false }: { modoCxP?: boolean } = {}) {
   const [proveedores, setProveedores] = useState<any[]>([]);
   const [resumen, setResumen] = useState<any>({});
   const [loading, setLoading] = useState(true);
   const [busqueda, setBusqueda] = useState('');
-  const [filtro, setFiltro] = useState('todos');
+  const [filtro, setFiltro] = useState(modoCxP ? 'con_saldo' : 'todos');
   const [modal, setModal] = useState<'cerrado' | 'editar' | 'crear'>('cerrado');
   const [form, setForm] = useState<any>({});
   const [detalleId, setDetalleId] = useState<number | null>(null);
@@ -90,24 +94,29 @@ export function ProveedoresManagement() {
     },
     { headerName: '', width: 90, sortable: false,
       cellStyle: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px' },
-      cellRenderer: (p: any) => (
-        <div style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
-          <button title="Ver detalle" onClick={() => setDetalleId(p.data.CodigoPro)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 3 }}>
-            <Eye size={15} color="#7c3aed" />
-          </button>
-          <button title="Editar" onClick={() => { setForm({ ...p.data }); setModal('editar'); }} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 3 }}>
-            <Pencil size={15} color="#f59e0b" />
-          </button>
-        </div>
-      )
+      cellRenderer: (p: any) => {
+        const esGenerico = p.data.CodigoPro === 220500;
+        return (
+          <div style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
+            <button title="Ver detalle" onClick={() => setDetalleId(p.data.CodigoPro)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 3 }}>
+              <Eye size={15} color="#7c3aed" />
+            </button>
+            <button title={esGenerico ? 'Proveedor del sistema — no editable' : 'Editar'} disabled={esGenerico}
+              onClick={() => !esGenerico && (setForm({ ...p.data }), setModal('editar'))}
+              style={{ background: 'none', border: 'none', cursor: esGenerico ? 'not-allowed' : 'pointer', padding: 3, opacity: esGenerico ? 0.3 : 1 }}>
+              <Pencil size={15} color="#f59e0b" />
+            </button>
+          </div>
+        );
+      }
     }
   ];
 
   return (
     <div>
       <div style={{ marginBottom: 16 }}>
-        <h2 style={{ fontSize: 22, fontWeight: 700, color: '#1f2937' }}>Proveedores</h2>
-        <p style={{ fontSize: 13, color: '#6b7280' }}>Gestión de proveedores y cuentas por pagar</p>
+        <h2 style={{ fontSize: 22, fontWeight: 700, color: '#1f2937' }}>{modoCxP ? 'Cuentas por Pagar' : 'Proveedores'}</h2>
+        <p style={{ fontSize: 13, color: '#6b7280' }}>{modoCxP ? 'Proveedores con saldo pendiente' : 'Gestión de proveedores y cuentas por pagar'}</p>
       </div>
 
       {error && <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, padding: '8px 14px', marginBottom: 12, color: '#dc2626', fontSize: 13, display: 'flex', justifyContent: 'space-between' }}>{error}<button onClick={() => setError('')} style={{ background: 'none', border: 'none', cursor: 'pointer' }}><X size={14} /></button></div>}
@@ -220,6 +229,8 @@ function ProveedorDetalle({ provId, onClose }: { provId: number; onClose: () => 
   const [abonos, setAbonos] = useState<Map<number, number>>(new Map());
   const [guardando, setGuardando] = useState(false);
   const [msg, setMsg] = useState({ type: '', text: '' });
+  const [reciboImprimir, setReciboImprimir] = useState<any>(null);
+  const [formVersion, setFormVersion] = useState(0);
 
   const cargar = async () => {
     setLoading(true);
@@ -243,7 +254,10 @@ function ProveedorDetalle({ provId, onClose }: { provId: number; onClose: () => 
   const totalAbonos = Array.from(abonos.values()).reduce((s, v) => s + v, 0);
 
   const guardarPagos = async () => {
-    const pagosArr = Array.from(abonos.entries()).filter(([_, v]) => v > 0).map(([id, v]) => ({ fact_id: id, valor: v, descuento: 0 }));
+    const pagosArr = Array.from(abonos.entries()).filter(([_, v]) => v > 0).map(([id, v]) => {
+      const pen = pendientes.find((p: any) => p.ID_FactAnterioresP === id);
+      return { fact_id: id, origen: pen?.Origen || 'anterior', valor: v, descuento: 0 };
+    });
     if (!pagosArr.length) return;
     setGuardando(true);
     try {
@@ -252,8 +266,27 @@ function ProveedorDetalle({ provId, onClose }: { provId: number; onClose: () => 
         body: JSON.stringify({ action: 'pagar', proveedor: provId, pagos: pagosArr })
       });
       const d = await r.json();
-      if (d.success) { setMsg({ type: 'ok', text: d.message }); setTimeout(() => setMsg({ type: '', text: '' }), 5000); cargar(); }
-      else setMsg({ type: 'err', text: d.message });
+      if (d.success) {
+        setMsg({ type: 'ok', text: d.message });
+        setTimeout(() => setMsg({ type: '', text: '' }), 5000);
+        setFormVersion(v => v + 1);
+        cargar();
+        // Preguntar si imprimir recibo
+        if (confirm('Pago registrado. ¿Desea imprimir el comprobante de egreso?')) {
+          const cfg = getConfigImpresion();
+          const pagoData = {
+            RecCajaN: d.comprobante,
+            Fecha: new Date().toLocaleString('es-CO'),
+            NFactAnt: (d.facturas_nums || []).join(', '),
+            ValorPago: d.total_pagado,
+            SaldoAct: 0,
+            Descuento: 0,
+            MedioPago: 'Efectivo',
+            DetallePago: `Pago de ${d.facturas_afectadas} factura(s) a ${prov?.RazonSocial || ''}`
+          };
+          setReciboImprimir({ pago: pagoData, formato: cfg.formatoPago });
+        }
+      } else setMsg({ type: 'err', text: d.message });
     } catch (e) { setMsg({ type: 'err', text: 'Error' }); }
     setGuardando(false);
   };
@@ -358,6 +391,7 @@ function ProveedorDetalle({ provId, onClose }: { provId: number; onClose: () => 
                           <td style={{ padding: '5px 8px', textAlign: 'center', color: f.Dias_Mora > 30 ? '#dc2626' : '#6b7280' }}>{f.Dias_Mora}d</td>
                           <td style={{ padding: '4px 8px', textAlign: 'center' }}>
                             <input type="text" data-prov-input="true"
+                              key={`abono-${f.ID_FactAnterioresP}-${formVersion}`}
                               defaultValue={abono > 0 ? abono.toLocaleString('es-CO') : ''}
                               onFocus={e => { e.target.value = abonos.get(f.ID_FactAnterioresP) ? String(abonos.get(f.ID_FactAnterioresP)) : ''; e.target.select(); }}
                               onBlur={e => {
@@ -404,6 +438,7 @@ function ProveedorDetalle({ provId, onClose }: { provId: number; onClose: () => 
                       <th style={{ padding: '6px 8px', textAlign: 'right' }}>Valor</th>
                       <th style={{ padding: '6px 8px', textAlign: 'right' }}>Saldo Qdo.</th>
                       <th style={{ padding: '6px 8px', textAlign: 'left' }}>Concepto</th>
+                      <th style={{ padding: '6px 8px', width: 40 }}></th>
                     </tr>
                   </thead>
                   <tbody>
@@ -415,6 +450,26 @@ function ProveedorDetalle({ provId, onClose }: { provId: number; onClose: () => 
                         <td style={{ padding: '5px 8px', textAlign: 'right', fontWeight: 600, color: '#16a34a' }}>{fmtMon(e.Valor)}</td>
                         <td style={{ padding: '5px 8px', textAlign: 'right', color: e.Saldoact > 0 ? '#d97706' : '#16a34a' }}>{fmtMon(e.Saldoact)}</td>
                         <td style={{ padding: '5px 8px', color: '#6b7280', fontSize: 11, maxWidth: 250, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.Concepto}</td>
+                        <td style={{ padding: '5px 8px', textAlign: 'center' }}>
+                          <button title="Reimprimir comprobante" onClick={() => {
+                            const cfg = getConfigImpresion();
+                            setReciboImprimir({
+                              pago: {
+                                RecCajaN: e.N_Comprobante,
+                                Fecha: new Date(e.Fecha).toLocaleString('es-CO'),
+                                NFactAnt: e.NFacturaAnt || '-',
+                                ValorPago: parseFloat(e.Valor),
+                                SaldoAct: parseFloat(e.Saldoact),
+                                Descuento: parseFloat(e.Descuento || 0),
+                                MedioPago: tipoPagoNombre(parseInt(e.TipoPago || 0)),
+                                DetallePago: e.Concepto || 'Pago',
+                              },
+                              formato: cfg.formatoPago,
+                            });
+                          }} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}>
+                            <Printer size={14} color="#7c3aed" />
+                          </button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -424,6 +479,15 @@ function ProveedorDetalle({ provId, onClose }: { provId: number; onClose: () => 
           )}
         </div>
       </div>
+      {reciboImprimir && prov && (
+        <ReciboImpresion
+          pago={reciboImprimir.pago}
+          cliente={{ CodigoClien: provId, Razon_Social: prov.RazonSocial || '', Nit: prov.Nit || '', Telefonos: prov.Telefonos || '' }}
+          formato={reciboImprimir.formato}
+          tipoTercero="proveedor"
+          onClose={() => setReciboImprimir(null)}
+        />
+      )}
     </div>
   );
 }

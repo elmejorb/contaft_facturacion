@@ -33,6 +33,13 @@ export interface ConfigImpresion {
   usarDecimales: boolean;
   numDecimales: number;
   precioIvaIncluido: boolean;
+  // Módulos opcionales del negocio
+  usarFamilias: boolean; // familias de productos + distribución entre unidades
+  confirmarDistribucion: boolean; // pedir confirmación antes de distribuir desde unidad mayor
+  usarFacturacionElectronica: boolean;
+  usarCotizaciones: boolean;
+  usarConteoInventario: boolean;
+  tipoNegocio: string; // Tienda, Farmacia, Boutique, etc.
 }
 
 const CONFIG_KEY = 'config_sistema';
@@ -60,6 +67,12 @@ const defaultConfig: ConfigImpresion = {
   usarDecimales: false,
   numDecimales: 2,
   precioIvaIncluido: true,
+  usarFamilias: false,
+  confirmarDistribucion: true,
+  usarFacturacionElectronica: false,
+  usarCotizaciones: true,
+  usarConteoInventario: true,
+  tipoNegocio: '',
 };
 
 export function getConfigImpresion(): ConfigImpresion {
@@ -273,6 +286,53 @@ export function ConfiguracionSistema() {
           ])}
         </div>
       ))}
+
+      {/* Módulos del Negocio */}
+      <div style={{ background: '#fff', borderRadius: 12, padding: 20, boxShadow: '0 1px 3px rgba(0,0,0,0.08)', marginTop: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+          <Settings size={20} color="#7c3aed" />
+          <span style={{ fontSize: 16, fontWeight: 700, color: '#1f2937' }}>Módulos del Negocio</span>
+        </div>
+        <p style={{ fontSize: 12, color: '#6b7280', marginBottom: 16 }}>Active solo las funciones que su negocio necesita</p>
+
+        <div style={{ marginBottom: 16 }}>
+          <label style={{ fontSize: 12, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 6 }}>Tipo de negocio</label>
+          <select value={config.tipoNegocio} onChange={e => set('tipoNegocio', e.target.value)}
+            style={{ height: 32, width: 250, border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, padding: '0 8px' }}>
+            <option value="">-- Seleccionar --</option>
+            {['Tienda / Abarrotes', 'Farmacia / Droguería', 'Boutique / Ropa', 'Agropecuaria', 'Accesorios Celular', 'Dulcería', 'Ferretería', 'Papelería', 'Restaurante', 'Distribuidora', 'Otro'].map(t => (
+              <option key={t} value={t}>{t}</option>
+            ))}
+          </select>
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {[
+            { key: 'usarFamilias', label: 'Familias de productos', desc: 'Agrupar unidades del mismo producto (Bulto, Kilo, Libra, Caja) como SKUs distintos. Al vender una unidad pequeña sin stock, el sistema abre automáticamente una unidad mayor.' },
+            { key: 'confirmarDistribucion', label: 'Confirmar antes de distribuir', desc: 'Cuando el sistema necesite abrir una unidad mayor para completar una venta, pide confirmación. Si está desactivado, lo hace en silencio.' },
+            { key: 'usarFacturacionElectronica', label: 'Facturación electrónica (DIAN)', desc: 'Enviar facturas electrónicas a la DIAN. Requiere certificado digital y resolución de numeración.' },
+            { key: 'usarCotizaciones', label: 'Cotizaciones', desc: 'Crear y guardar cotizaciones para clientes antes de facturar.' },
+            { key: 'usarConteoInventario', label: 'Conteo de inventario', desc: 'Realizar conteos físicos de inventario con compensación automática de ventas durante el conteo.' },
+          ].map(m => (
+            <label key={m.key}
+              onClick={() => set(m.key as keyof ConfigImpresion, !(config as any)[m.key])}
+              style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 14px', borderRadius: 8, cursor: 'pointer', border: `2px solid ${(config as any)[m.key] ? '#7c3aed' : '#e5e7eb'}`, background: (config as any)[m.key] ? '#f5f3ff' : '#fff', transition: 'all 0.15s' }}>
+              <div style={{
+                width: 20, height: 20, borderRadius: 4, flexShrink: 0, marginTop: 2,
+                border: `2px solid ${(config as any)[m.key] ? '#7c3aed' : '#d1d5db'}`,
+                background: (config as any)[m.key] ? '#7c3aed' : '#fff',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}>
+                {(config as any)[m.key] && <span style={{ color: '#fff', fontSize: 14, fontWeight: 700, lineHeight: 1 }}>✓</span>}
+              </div>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: (config as any)[m.key] ? '#7c3aed' : '#374151' }}>{m.label}</div>
+                <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>{m.desc}</div>
+              </div>
+            </label>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }

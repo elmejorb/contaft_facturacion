@@ -29,12 +29,22 @@ try {
                     exit;
                 }
 
-                // Facturas pendientes
+                // Facturas pendientes: suma saldos iniciales + pedidos a crédito con saldo
                 $stmt = $db->prepare("
-                    SELECT ID_FactAnterioresP, FacturaN, Fecha, Dias, Valor, Saldo,
+                    SELECT ID_FactAnterioresP, FacturaN, Fecha, Dias, Valor, Saldo, Origen,
                            DATEDIFF(CURDATE(), Fecha) as Dias_Mora
-                    FROM tblfacturasanterioresproveedor
-                    WHERE CodigoProv = :id AND Saldo > 0
+                    FROM (
+                        SELECT ID_FactAnterioresP, FacturaN, Fecha, Dias, Valor, Saldo,
+                               'anterior' AS Origen, CodigoProv
+                        FROM tblfacturasanterioresproveedor
+                        WHERE Saldo > 0
+                        UNION ALL
+                        SELECT Pedido_N AS ID_FactAnterioresP, FacturaCompra_N AS FacturaN,
+                               Fecha, Dias, Total AS Valor, Saldo, 'pedido' AS Origen, CodigoPro AS CodigoProv
+                        FROM tblpedidos
+                        WHERE TipoPedido = 'Crédito' AND Saldo > 0
+                    ) x
+                    WHERE CodigoProv = :id
                     ORDER BY Fecha
                 ");
                 $stmt->execute([':id' => $id]);
@@ -45,11 +55,19 @@ try {
                     $f['Dias_Mora'] = intval($f['Dias_Mora']);
                 }
 
-                // Todas las facturas del año
+                // Todas las facturas del año (ambas fuentes)
                 $anio = $_GET['anio'] ?? date('Y');
                 $stmt = $db->prepare("
-                    SELECT ID_FactAnterioresP, FacturaN, Fecha, Dias, Valor, Saldo
-                    FROM tblfacturasanterioresproveedor
+                    SELECT ID_FactAnterioresP, FacturaN, Fecha, Dias, Valor, Saldo, Origen
+                    FROM (
+                        SELECT ID_FactAnterioresP, FacturaN, Fecha, Dias, Valor, Saldo,
+                               'anterior' AS Origen, CodigoProv
+                        FROM tblfacturasanterioresproveedor
+                        UNION ALL
+                        SELECT Pedido_N AS ID_FactAnterioresP, FacturaCompra_N AS FacturaN,
+                               Fecha, Dias, Total AS Valor, Saldo, 'pedido' AS Origen, CodigoPro AS CodigoProv
+                        FROM tblpedidos
+                    ) x
                     WHERE CodigoProv = :id AND YEAR(Fecha) = :anio
                     ORDER BY Fecha DESC
                 ");
@@ -78,8 +96,14 @@ try {
                     $e['Saldoact'] = floatval($e['Saldoact']);
                 }
 
-                // Años disponibles
-                $stmt = $db->prepare("SELECT DISTINCT YEAR(Fecha) as anio FROM tblfacturasanterioresproveedor WHERE CodigoProv = :id ORDER BY anio DESC");
+                // Años disponibles (ambas fuentes)
+                $stmt = $db->prepare("
+                    SELECT DISTINCT YEAR(Fecha) as anio FROM (
+                        SELECT Fecha, CodigoProv FROM tblfacturasanterioresproveedor
+                        UNION ALL
+                        SELECT Fecha, CodigoPro AS CodigoProv FROM tblpedidos
+                    ) x WHERE CodigoProv = :id ORDER BY anio DESC
+                ");
                 $stmt->execute([':id' => $id]);
                 $aniosDisp = array_column($stmt->fetchAll(), 'anio');
 
@@ -96,31 +120,40 @@ try {
                 ], JSON_UNESCAPED_UNICODE);
 
             } else {
-                // Listado con saldos
+                // Listado con saldos — suma facturas anteriores (saldos iniciales) + pedidos en sistema
                 $stmt = $db->query("
                     SELECT p.CodigoPro, p.RazonSocial, p.Nit, p.Telefonos, p.Direccion,
-                           COALESCE(f.Facturas_Pendientes, 0) as Facturas_Pendientes,
-                           COALESCE(f.Saldo_Total, 0) as Saldo_Total,
-                           COALESCE(f.Dias_Mayor, 0) as Dias_Mayor_Vencimiento,
-                           COALESCE(c.Total_Compras, 0) as Total_Compras,
-                           COALESCE(c.Monto_Compras, 0) as Monto_Compras
+                           COALESCE(sld.Facturas_Pendientes, 0) as Facturas_Pendientes,
+                           COALESCE(sld.Saldo_Total, 0)         as Saldo_Total,
+                           COALESCE(sld.Dias_Mayor, 0)          as Dias_Mayor_Vencimiento,
+                           COALESCE(tot.Total_Compras, 0)       as Total_Compras,
+                           COALESCE(tot.Monto_Compras, 0)       as Monto_Compras
                     FROM tblproveedores p
                     LEFT JOIN (
+                        -- Saldos pendientes: une facturas anteriores + pedidos a crédito con saldo
                         SELECT CodigoProv,
                                COUNT(*) as Facturas_Pendientes,
                                SUM(Saldo) as Saldo_Total,
                                DATEDIFF(CURDATE(), MIN(Fecha)) as Dias_Mayor
-                        FROM tblfacturasanterioresproveedor
-                        WHERE Saldo > 0
+                        FROM (
+                            SELECT CodigoProv, Saldo, Fecha FROM tblfacturasanterioresproveedor WHERE Saldo > 0
+                            UNION ALL
+                            SELECT CodigoPro AS CodigoProv, Saldo, Fecha FROM tblpedidos WHERE TipoPedido = 'Crédito' AND Saldo > 0
+                        ) x
                         GROUP BY CodigoProv
-                    ) f ON p.CodigoPro = f.CodigoProv
+                    ) sld ON p.CodigoPro = sld.CodigoProv
                     LEFT JOIN (
+                        -- Totales de compras: incluye saldos iniciales + pedidos (cualquier tipo)
                         SELECT CodigoProv,
                                COUNT(*) as Total_Compras,
                                SUM(Valor) as Monto_Compras
-                        FROM tblfacturasanterioresproveedor
+                        FROM (
+                            SELECT CodigoProv, Valor FROM tblfacturasanterioresproveedor
+                            UNION ALL
+                            SELECT CodigoPro AS CodigoProv, Total AS Valor FROM tblpedidos
+                        ) y
                         GROUP BY CodigoProv
-                    ) c ON p.CodigoPro = c.CodigoProv
+                    ) tot ON p.CodigoPro = tot.CodigoProv
                     ORDER BY p.RazonSocial
                 ");
                 $proveedores = $stmt->fetchAll();
@@ -182,22 +215,28 @@ try {
                         :prov, :nfact, :valfact, :saldo, :cedula, :tipo)
                 ");
 
-                $stmtUpdateFact = $db->prepare("
-                    UPDATE tblfacturasanterioresproveedor SET Saldo = Saldo - :pago WHERE ID_FactAnterioresP = :id
-                ");
+                $stmtUpdAnt    = $db->prepare("UPDATE tblfacturasanterioresproveedor SET Saldo = Saldo - :pago WHERE ID_FactAnterioresP = :id");
+                $stmtUpdPedido = $db->prepare("UPDATE tblpedidos SET Saldo = Saldo - :pago WHERE Pedido_N = :id");
 
                 $totalPagado = 0;
                 $facturasAfectadas = 0;
+                $facturasNums = [];
 
                 foreach ($pagos as $pago) {
-                    $factId = $pago->fact_id;
+                    $factId = intval($pago->fact_id);
+                    $origen = $pago->origen ?? 'anterior';
                     $valor = floatval($pago->valor);
                     $descuento = floatval($pago->descuento ?? 0);
                     if ($valor <= 0 && $descuento <= 0) continue;
 
-                    $stmt = $db->prepare("SELECT FacturaN, Valor, Saldo FROM tblfacturasanterioresproveedor WHERE ID_FactAnterioresP = :id");
-                    $stmt->execute([':id' => $factId]);
-                    $fact = $stmt->fetch();
+                    // Leer saldo y N° de factura según origen
+                    if ($origen === 'pedido') {
+                        $st = $db->prepare("SELECT FacturaCompra_N AS FacturaN, Total AS Valor, Saldo FROM tblpedidos WHERE Pedido_N = :id");
+                    } else {
+                        $st = $db->prepare("SELECT FacturaN, Valor, Saldo FROM tblfacturasanterioresproveedor WHERE ID_FactAnterioresP = :id");
+                    }
+                    $st->execute([':id' => $factId]);
+                    $fact = $st->fetch();
                     if (!$fact) continue;
 
                     $valorTotal = $valor + $descuento;
@@ -222,9 +261,12 @@ try {
                         ':tipo' => $tipoPago
                     ]);
 
-                    $stmtUpdateFact->execute([':pago' => $valorTotal, ':id' => $factId]);
+                    if ($origen === 'pedido') $stmtUpdPedido->execute([':pago' => $valorTotal, ':id' => $factId]);
+                    else                      $stmtUpdAnt->execute([':pago' => $valorTotal, ':id' => $factId]);
+
                     $totalPagado += $valor;
                     $facturasAfectadas++;
+                    $facturasNums[] = $fact['FacturaN'];
                 }
 
                 $db->commit();
@@ -233,7 +275,9 @@ try {
                     "success" => true,
                     "message" => "Egreso #$nComprobante registrado. $facturasAfectadas factura(s).",
                     "comprobante" => $nComprobante,
-                    "total_pagado" => $totalPagado
+                    "total_pagado" => $totalPagado,
+                    "facturas_afectadas" => $facturasAfectadas,
+                    "facturas_nums" => $facturasNums
                 ], JSON_UNESCAPED_UNICODE);
                 break;
             }
@@ -264,6 +308,11 @@ try {
             if (empty($data->CodigoPro)) {
                 http_response_code(400);
                 echo json_encode(["success" => false, "message" => "ID requerido"]);
+                exit;
+            }
+            if (intval($data->CodigoPro) === 220500) {
+                http_response_code(403);
+                echo json_encode(["success" => false, "message" => "El proveedor genérico COMPRAS AL CONTADO es del sistema y no puede modificarse."]);
                 exit;
             }
             $stmt = $db->prepare("

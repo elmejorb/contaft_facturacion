@@ -8,6 +8,7 @@ import { imprimirFactura, buildDatosFactura } from './ImpresionFactura';
 const API_VENTA = 'http://localhost:80/conta-app-backend/api/ventas/nueva.php';
 const API_CLIENTES = 'http://localhost:80/conta-app-backend/api/clientes/buscar.php';
 const API_FE = 'http://localhost:80/conta-app-backend/api/facturacion-electronica/enviar.php';
+const API_DISTRIBUIR = 'http://localhost:80/conta-app-backend/api/familias/distribuir.php';
 
 // Modal de buscar cliente como componente independiente (no se re-renderiza con NuevaVenta)
 function BuscarClienteModal({ onSelect, onClose }: { onSelect: (c: any) => void; onClose: () => void }) {
@@ -72,10 +73,6 @@ function BuscarClienteModal({ onSelect, onClose }: { onSelect: (c: any) => void;
 }
 const fmtMon = (v: number) => '$ ' + Math.round(v).toLocaleString('es-CO');
 
-interface Presentacion {
-  Id_Presentacion: number; Nombre: string; Factor: number; Precio_Venta: number; Codigo_Barras?: string;
-}
-
 interface LineaVenta {
   id: number;
   Items: number;
@@ -88,10 +85,6 @@ interface LineaVenta {
   Iva: number;
   Descuento: number;
   Subtotal: number;
-  presentaciones?: Presentacion[];
-  presentacionId?: number;
-  factor?: number; // factor de conversión activo
-  unidadBase?: string;
 }
 
 export interface TabState {
@@ -141,6 +134,7 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [showPagoModal, setShowPagoModal] = useState(false);
+  const [distribucionesPendientes, setDistribucionesPendientes] = useState<any[] | null>(null);
   const [pagoEfectivo, setPagoEfectivo] = useState('');
   const [pagoTransferencia, setPagoTransferencia] = useState('');
   const [pagoMedioTransf, setPagoMedioTransf] = useState(2); // Bancolombia por defecto
@@ -209,17 +203,15 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
   };
 
   const agregarProducto = (art: any) => {
-    // Check if already in list (mismo producto y misma presentación)
-    const existente = lineas.find(l => l.Items === art.Items && !l.presentacionId);
-    if (existente && !art.tiene_presentaciones) {
-      setLineas(prev => prev.map(l => l.Items === art.Items && !l.presentacionId ? { ...l, Cantidad: l.Cantidad + 1, Subtotal: (l.Cantidad + 1) * l.PrecioVenta - l.Descuento } : l));
+    const existente = lineas.find(l => l.Items === art.Items);
+    if (existente) {
+      setLineas(prev => prev.map(l => l.Items === art.Items ? { ...l, Cantidad: l.Cantidad + 1, Subtotal: (l.Cantidad + 1) * l.PrecioVenta - l.Descuento } : l));
     } else {
       const precio = listaPrecio === 2 ? (art.Precio_Venta2 || art.Precio_Venta) : listaPrecio === 3 ? (art.Precio_Venta3 || art.Precio_Venta) : art.Precio_Venta;
       const nueva: LineaVenta = {
         id: ++lineaId, Items: art.Items, Codigo: art.Codigo, Nombre: art.Nombres_Articulo,
         Existencia: art.Existencia, Cantidad: 1, PrecioCosto: art.Precio_Costo,
         PrecioVenta: precio, Iva: art.Iva || 0, Descuento: 0, Subtotal: precio,
-        presentaciones: art.presentaciones || [], factor: 1, unidadBase: art.unidad_base || 'Unidad'
       };
       setLineas(prev => [...prev, nueva]);
     }
@@ -284,6 +276,10 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
   // Abrir modal de pago
   const finalizar = () => {
     if (lineas.length === 0) { setError('Agregue al menos un producto'); return; }
+    if (tipo === 'Crédito' && cliente.id === 130500) {
+      setError('El cliente genérico "VENTAS AL CONTADO" no puede usarse en ventas a crédito. Seleccione un cliente real para que la deuda aparezca en Cuentas por Cobrar.');
+      return;
+    }
     setPagoEfectivo('');
     setPagoTransferencia('');
     setPagoAbono('');
@@ -298,9 +294,64 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
   const cambioPago = tipo === 'Contado' ? Math.max(totalPagado - total, 0) : 0;
   const faltaPagar = tipo === 'Contado' ? Math.max(total - totalPagado, 0) : 0;
 
+  // Pre-check: ¿hay líneas que requieran distribuir desde la unidad mayor?
+  const verificarDistribucion = async (): Promise<{ ok: boolean; distribuciones: any[]; faltantes: any[] } | null> => {
+    const cfg = getConfigImpresion();
+    if (!cfg.usarFamilias) return { ok: true, distribuciones: [], faltantes: [] };
+    try {
+      const r = await fetch(API_DISTRIBUIR, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'verificar', items: lineas.map(l => ({ items: l.Items, cantidad: l.Cantidad })) })
+      });
+      const d = await r.json();
+      if (!d.success) { toast.error(d.message || 'Error al verificar stock'); return null; }
+      return d;
+    } catch (e) { toast.error('Error de conexión verificando stock'); return null; }
+  };
+
+  const aplicarDistribuciones = async (distribuciones: any[]): Promise<boolean> => {
+    try {
+      const r = await fetch(API_DISTRIBUIR, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'aplicar', items: lineas.map(l => ({ items: l.Items, cantidad: l.Cantidad })) })
+      });
+      const d = await r.json();
+      if (!d.success) { toast.error(d.message || 'Error aplicando distribución'); return false; }
+      if (distribuciones.length > 0) {
+        const msg = distribuciones.map((x: any) => `${x.cant_origen} ${x.codigo_origen} → ${x.cant_destino} ${x.codigo_destino}`).join(' · ');
+        toast.success(`Distribuido: ${msg}`, { duration: 5000 });
+      }
+      return true;
+    } catch (e) { toast.error('Error de conexión distribuyendo'); return false; }
+  };
+
   // Confirmar venta
   const confirmarVenta = async () => {
     if (tipo === 'Contado' && totalPagado < total) { setError('El pago no cubre el total'); return; }
+
+    // Pre-check de distribución
+    const check = await verificarDistribucion();
+    if (!check) return;
+    if (check.faltantes.length > 0) {
+      setError(`Stock insuficiente: ${check.faltantes.map((f: any) => `${f.nombre} (faltan ${f.faltante})`).join(', ')}`);
+      return;
+    }
+    if (check.distribuciones.length > 0) {
+      const cfg = getConfigImpresion();
+      if (cfg.confirmarDistribucion) {
+        // Mostrar modal de confirmación — se retomará desde aplicarVentaConDistribucion
+        setDistribucionesPendientes(check.distribuciones);
+        return;
+      }
+      // Silencioso: aplicar directamente
+      const ok = await aplicarDistribuciones(check.distribuciones);
+      if (!ok) return;
+    }
+
+    await ejecutarVenta();
+  };
+
+  const ejecutarVenta = async () => {
     setGuardando(true); setError('');
     const medioFinal = pagoTransfNum > 0 && pagoEfectivoNum === 0 ? pagoMedioTransf : pagoTransfNum > 0 ? pagoMedioTransf : 0;
     try {
@@ -313,7 +364,7 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
         abono: tipo !== 'Contado' ? pagoAbonoNum : 0,
         items: lineas.map(l => ({
           items: l.Items, cantidad: l.Cantidad, precio: l.PrecioVenta,
-          precio_costo: l.PrecioCosto, iva: l.Iva, descuento: l.Descuento
+          precio_costo: l.PrecioCosto, iva: l.Iva, descuento: l.Descuento,
         }))
       };
       const r = await fetch(API_VENTA, {
@@ -447,7 +498,7 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
               background: tipoDocumento === 'electronica' ? '#eff6ff' : tipoDocumento === 'soporte' ? '#fffbeb' : '#fff'
             }}>
             <option value="pos">Factura POS</option>
-            <option value="electronica">Factura Electrónica</option>
+            {getConfigImpresion().usarFacturacionElectronica && <option value="electronica">Factura Electrónica</option>}
             <option value="soporte">Doc. Soporte</option>
           </select>
         </div>
@@ -554,6 +605,12 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
         </div>
       </div>
 
+      {tipo === 'Crédito' && cliente.id === 130500 && (
+        <div style={{ margin: '0 0 6px', padding: '6px 12px', background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 8, fontSize: 11, color: '#dc2626', fontWeight: 600 }}>
+          ⚠ Cliente genérico no válido para ventas a crédito. Seleccione un cliente real para que la deuda aparezca en Cuentas por Cobrar.
+        </div>
+      )}
+
       {/* Modal buscar cliente (componente independiente) */}
       {showClienteDropdown && (
         <BuscarClienteModal
@@ -585,28 +642,7 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
               {lineas.map(l => (
                 <tr key={l.id} style={{ borderBottom: '1px solid #f3f4f6' }}>
                   <td style={{ padding: '4px 8px', width: 100, color: '#6b7280', fontSize: 11 }}>{l.Codigo}</td>
-                  <td style={{ padding: '4px 8px', fontWeight: 500 }}>
-                    {l.Nombre}
-                    {l.presentaciones && l.presentaciones.length > 0 && (
-                      <select value={l.presentacionId || ''}
-                        onChange={e => {
-                          const presId = parseInt(e.target.value) || 0;
-                          const pres = l.presentaciones?.find((p: any) => p.Id_Presentacion === presId);
-                          setLineas(prev => prev.map(li => {
-                            if (li.id !== l.id) return li;
-                            if (pres) {
-                              const newPrecio = parseFloat(pres.Precio_Venta) || li.PrecioVenta;
-                              return { ...li, presentacionId: presId, factor: parseFloat(pres.Factor), PrecioVenta: newPrecio, Subtotal: li.Cantidad * newPrecio - li.Descuento, Nombre: `${l.Nombre.split(' [')[0]} [${pres.Nombre}]` };
-                            }
-                            return { ...li, presentacionId: undefined, factor: 1, Nombre: li.Nombre.split(' [')[0] };
-                          }));
-                        }}
-                        style={{ marginLeft: 6, height: 20, border: '1px solid #d1d5db', borderRadius: 4, fontSize: 10, padding: '0 4px', color: '#7c3aed' }}>
-                        <option value="">{l.unidadBase || 'Unidad'}</option>
-                        {l.presentaciones.map((p: any) => <option key={p.Id_Presentacion} value={p.Id_Presentacion}>{p.Nombre} ({p.Factor} {l.unidadBase})</option>)}
-                      </select>
-                    )}
-                  </td>
+                  <td style={{ padding: '4px 8px', fontWeight: 500 }}>{l.Nombre}</td>
                   <td style={{ padding: '4px 8px', textAlign: 'center', width: 55, color: l.Existencia < l.Cantidad ? '#dc2626' : '#16a34a', fontWeight: 600, fontSize: 11 }}>{l.Existencia}</td>
                   <td style={{ padding: '3px 4px', textAlign: 'center', width: 65 }}>
                     <input type="text" defaultValue={String(l.Cantidad)} data-venta-cant={l.id}
@@ -619,7 +655,7 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
                       style={{ width: 48, height: 24, textAlign: 'center', border: '1px solid #d1d5db', borderRadius: 4, fontSize: 12, fontWeight: 600, outline: 'none' }} />
                   </td>
                   <td style={{ padding: '3px 4px', textAlign: 'right', width: 95 }}>
-                    <input type="text" defaultValue={String(l.PrecioVenta)}
+                    <input type="text" key={`precio-${l.id}-${l.PrecioVenta}`} defaultValue={String(l.PrecioVenta)}
                       onFocus={e => e.target.select()}
                       onBlur={e => { const v = parseFloat(e.target.value) || 0; actualizarLinea(l.id, 'PrecioVenta', v); e.target.value = v.toLocaleString('es-CO'); }}
                       onKeyDown={e => { soloNum(e); if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
@@ -808,6 +844,47 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
       )}
 
       {/* Modal de Pago */}
+      {distribucionesPendientes && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 999999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.5)' }} />
+          <div style={{ position: 'relative', background: '#fff', borderRadius: 12, width: 520, boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+            <div style={{ padding: '14px 18px', borderBottom: '1px solid #e5e7eb', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <PackagePlus size={18} color="#d97706" />
+              <span style={{ fontSize: 14, fontWeight: 700 }}>Confirmar distribución de productos</span>
+            </div>
+            <div style={{ padding: 18, fontSize: 13 }}>
+              <p style={{ margin: '0 0 12px', color: '#374151' }}>Para completar esta venta el sistema va a abrir las siguientes unidades:</p>
+              <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: 10 }}>
+                {distribucionesPendientes.map((d: any, idx: number) => (
+                  <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, padding: '4px 0' }}>
+                    <span style={{ color: '#d97706', fontWeight: 700 }}>{d.cant_origen}</span>
+                    <span style={{ color: '#6b7280' }}>×</span>
+                    <span style={{ fontWeight: 600 }}>{d.codigo_origen} {d.nombre_origen}</span>
+                    <span style={{ color: '#6b7280' }}>→</span>
+                    <span style={{ color: '#16a34a', fontWeight: 700 }}>{d.cant_destino}</span>
+                    <span style={{ color: '#6b7280' }}>×</span>
+                    <span style={{ fontWeight: 600 }}>{d.codigo_destino} {d.nombre_destino}</span>
+                  </div>
+                ))}
+              </div>
+              <p style={{ margin: '12px 0 0', fontSize: 11, color: '#6b7280' }}>Esto NO afecta el costo o precio — solo cambia las cantidades en existencia.</p>
+            </div>
+            <div style={{ padding: '10px 18px', borderTop: '1px solid #e5e7eb', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button onClick={() => setDistribucionesPendientes(null)}
+                style={{ height: 32, padding: '0 14px', background: '#f3f4f6', border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 12, cursor: 'pointer' }}>Cancelar</button>
+              <button onClick={async () => {
+                  const dists = distribucionesPendientes!;
+                  setDistribucionesPendientes(null);
+                  const ok = await aplicarDistribuciones(dists);
+                  if (ok) await ejecutarVenta();
+                }}
+                style={{ height: 32, padding: '0 14px', background: '#d97706', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, cursor: 'pointer', fontWeight: 600 }}>
+                Sí, distribuir y vender
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {showPagoModal && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.4)' }} onClick={() => setShowPagoModal(false)} />

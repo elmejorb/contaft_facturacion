@@ -230,6 +230,53 @@ try {
             echo json_encode($result, JSON_UNESCAPED_UNICODE);
             exit;
         }
+
+        // Email status (Brevo tracking) — batched por mes/año con caché 5 min
+        if (isset($_GET['email_status'])) {
+            $anio = intval($_GET['anio'] ?? date('Y'));
+            $mes  = intval($_GET['mes'] ?? 0);
+
+            $cacheDir = __DIR__ . '/cache';
+            if (!is_dir($cacheDir)) @mkdir($cacheDir, 0777, true);
+            $cacheFile = "$cacheDir/emailstatus_{$anio}_{$mes}.json";
+            $nocache = isset($_GET['nocache']);
+            if (!$nocache && file_exists($cacheFile) && (time() - filemtime($cacheFile)) < 300) {
+                header('Content-Type: application/json; charset=utf-8');
+                readfile($cacheFile);
+                exit;
+            }
+
+            $login = loginFE($db, $API_BASE);
+            if (!$login['success']) { echo json_encode($login); exit; }
+
+            $map = [];
+            $page = 1;
+            $maxPages = 50;
+            do {
+                $qs = "page=$page";
+                if ($mes > 0) $qs .= "&mes=$mes&anio=$anio";
+                else $qs .= "&anio=$anio";
+                $r = apiRequest("$API_BASE/api/empresas/{$login['company_id']}/documentos-electronicos?$qs", 'GET', null, $login['token']);
+                $docs = $r['data'] ?? [];
+                foreach ($docs as $doc) {
+                    $cufe = $doc['cufe'] ?? '';
+                    if (!$cufe) continue;
+                    $map[$cufe] = [
+                        'email_sent'      => $doc['email_sent'] ?? null,
+                        'email_status'    => $doc['email_status'] ?? null,
+                        'email_recipient' => $doc['email_recipient'] ?? null,
+                    ];
+                }
+                $lastPage = intval($r['last_page'] ?? 1);
+                $page++;
+            } while ($page <= $lastPage && $page <= $maxPages);
+
+            $out = json_encode(['success' => true, 'data' => $map, 'cached_at' => date('c')], JSON_UNESCAPED_UNICODE);
+            @file_put_contents($cacheFile, $out);
+            header('Content-Type: application/json; charset=utf-8');
+            echo $out;
+            exit;
+        }
     }
 
     // POST actions
@@ -329,8 +376,18 @@ try {
                 ]);
             }
 
+            // CAPTURA: guardar JSON enviado para análisis
+            $logDir = __DIR__ . '/logs';
+            if (!is_dir($logDir)) @mkdir($logDir, 0777, true);
+            $ts = date('Ymd_His');
+            $logBase = "$logDir/factura_{$factN}_{$ts}";
+            @file_put_contents("{$logBase}_request.json", json_encode($invoiceJSON, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+
             // PASO 2: Enviar a DIAN
             $result = apiRequest("$API_BASE/api/factura/send-v2", 'POST', $invoiceJSON, $token);
+
+            // CAPTURA: guardar respuesta DIAN
+            @file_put_contents("{$logBase}_response.json", json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
 
             // PASO 3: Actualizar según respuesta
             if (isset($result['success']) && $result['success']) {

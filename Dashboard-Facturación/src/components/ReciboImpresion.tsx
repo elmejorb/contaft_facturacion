@@ -17,6 +17,7 @@ interface Props {
   cliente: { CodigoClien: number; Razon_Social: string; Nit: string; Telefonos: string };
   formato: 'media-carta' | 'tirilla';
   onClose: () => void;
+  tipoTercero?: 'cliente' | 'proveedor';
 }
 
 const empresa = {
@@ -74,7 +75,9 @@ function numeroALetras(num: number): string {
   return convertir(n) + ' Pesos';
 }
 
-export function ReciboImpresion({ pago, cliente, formato, onClose }: Props) {
+export function ReciboImpresion({ pago, cliente, formato, onClose, tipoTercero = 'cliente' }: Props) {
+  const labelTercero = tipoTercero === 'proveedor' ? 'Proveedor' : 'Cliente';
+  const tituloRecibo = tipoTercero === 'proveedor' ? 'COMPROBANTE DE EGRESO' : 'RECIBO DE PAGO';
   const printRef = useRef<HTMLDivElement>(null);
 
   const imprimir = () => {
@@ -137,7 +140,7 @@ export function ReciboImpresion({ pago, cliente, formato, onClose }: Props) {
                   </div>
                   <div style={{ border: '2px solid #000', padding: '8px 14px', textAlign: 'center', flexShrink: 0 }}>
                     <div style={{ fontSize: 11, fontWeight: 700 }}>COMPROBANTE</div>
-                    <div style={{ fontSize: 11, fontWeight: 700 }}>DE INGRESO No.</div>
+                    <div style={{ fontSize: 11, fontWeight: 700 }}>{tipoTercero === 'proveedor' ? 'DE EGRESO No.' : 'DE INGRESO No.'}</div>
                     <div style={{ fontSize: 22, fontWeight: 700, marginTop: 2 }}>{pago.RecCajaN}</div>
                   </div>
                 </div>
@@ -152,7 +155,7 @@ export function ReciboImpresion({ pago, cliente, formato, onClose }: Props) {
                       <td style={{ border: '1px solid #000', padding: '6px 10px', fontWeight: 700, fontSize: 16, textAlign: 'right' }}>{fmtMon(pago.ValorPago)}</td>
                     </tr>
                     <tr>
-                      <td style={{ border: '1px solid #000', padding: '6px 10px', fontWeight: 600, fontSize: 12, background: '#f9f9f9' }}>PAGADO A</td>
+                      <td style={{ border: '1px solid #000', padding: '6px 10px', fontWeight: 600, fontSize: 12, background: '#f9f9f9' }}>{tipoTercero === 'proveedor' ? 'PAGADO A' : 'RECIBIDO DE'}</td>
                       <td colSpan={3} style={{ border: '1px solid #000', padding: '6px 10px' }}>{cliente.Razon_Social} — NIT: {cliente.Nit || '-'}</td>
                     </tr>
                     <tr>
@@ -195,7 +198,7 @@ export function ReciboImpresion({ pago, cliente, formato, onClose }: Props) {
                 </div>
 
                 <div style={{ borderTop: '1px dashed #000', borderBottom: '1px dashed #000', padding: '6px 0', textAlign: 'center', fontWeight: 700, fontSize: 13, margin: '4px 0' }}>
-                  RECIBO DE PAGO #{pago.RecCajaN}
+                  {tituloRecibo} #{pago.RecCajaN}
                 </div>
 
                 <div style={{ padding: '4px 0' }}>
@@ -203,7 +206,7 @@ export function ReciboImpresion({ pago, cliente, formato, onClose }: Props) {
                     <span>Fecha:</span><span>{fechaStr} {horaStr}</span>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span>Cliente:</span><span style={{ textAlign: 'right', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis' }}>{cliente.Razon_Social}</span>
+                    <span>{labelTercero}:</span><span style={{ textAlign: 'right', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis' }}>{cliente.Razon_Social}</span>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                     <span>NIT:</span><span>{cliente.Nit || '-'}</span>

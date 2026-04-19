@@ -11,6 +11,23 @@ DELETE FROM tblkardex WHERE Id_kardex = 0;
 ALTER TABLE tblkardex MODIFY Id_kardex INT(11) NOT NULL AUTO_INCREMENT;
 
 -- ============================================================
+-- 1b. CORREGIR tblpedidos: Pedido_N debe ser AUTO_INCREMENT
+--     (compra nueva se guardaba con Pedido_N=0 y rompía edición/listado)
+-- ============================================================
+-- Si existe una compra huérfana con Pedido_N=0, se reasigna al siguiente disponible.
+SET @next_pedido = IFNULL((SELECT MAX(Pedido_N) FROM tblpedidos WHERE Pedido_N > 0), 0) + 1;
+UPDATE tbldetalle_pedido SET Pedido_N = @next_pedido WHERE Pedido_N = 0;
+UPDATE tblpedidos        SET Pedido_N = @next_pedido WHERE Pedido_N = 0;
+
+SET @is_autoinc = (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tblpedidos'
+      AND COLUMN_NAME = 'Pedido_N' AND EXTRA LIKE '%auto_increment%');
+SET @sql = IF(@is_autoinc = 0,
+    "ALTER TABLE tblpedidos MODIFY Pedido_N INT(11) NOT NULL AUTO_INCREMENT",
+    'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- ============================================================
 -- 2. TABLAS NUEVAS: Conteo de Inventario
 -- ============================================================
 CREATE TABLE IF NOT EXISTS tblconteo_inventario (
@@ -269,42 +286,8 @@ WHERE a.Estado = 1;
 -- extension=pdo_mysql
 
 -- ============================================================
--- 9. PRESENTACIONES DE PRODUCTO (conversión de unidades)
+-- 9. [DESCARTADO] Presentaciones — reemplazado por Familias de Productos (ver migracion_v4.2.sql)
 -- ============================================================
-CREATE TABLE IF NOT EXISTS tblpresentaciones (
-    Id_Presentacion INT AUTO_INCREMENT PRIMARY KEY,
-    Items INT NOT NULL,
-    Nombre VARCHAR(80) NOT NULL,
-    Factor DECIMAL(10,4) NOT NULL DEFAULT 1,
-    Precio_Venta DECIMAL(19,4) DEFAULT 0,
-    Codigo_Barras VARCHAR(25) DEFAULT NULL,
-    Activa TINYINT(1) DEFAULT 1,
-    KEY idx_items (Items)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
--- Agregar unidad_base a tblarticulos si no existe
-SET @col_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS
-    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tblarticulos' AND COLUMN_NAME = 'unidad_base');
-SET @sql = IF(@col_exists = 0,
-    "ALTER TABLE tblarticulos ADD COLUMN unidad_base VARCHAR(20) DEFAULT 'Unidad'",
-    'SELECT 1');
-PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
-
--- Agregar Id_Presentacion a tbldetalle_venta para saber qué presentación se vendió
-SET @col_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS
-    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tbldetalle_venta' AND COLUMN_NAME = 'Id_Presentacion');
-SET @sql = IF(@col_exists = 0,
-    "ALTER TABLE tbldetalle_venta ADD COLUMN Id_Presentacion INT DEFAULT NULL",
-    'SELECT 1');
-PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
-
--- Agregar Id_Presentacion a tbldetalle_pedido (compras)
-SET @col_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS
-    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tbldetalle_pedido' AND COLUMN_NAME = 'Id_Presentacion');
-SET @sql = IF(@col_exists = 0,
-    "ALTER TABLE tbldetalle_pedido ADD COLUMN Id_Presentacion INT DEFAULT NULL",
-    'SELECT 1');
-PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 -- ============================================================
 -- 10. PERMISOS POR TIPO DE USUARIO
@@ -325,5 +308,4 @@ SELECT
     (SELECT COUNT(*) FROM tblcajas) AS cajas,
     (SELECT COUNT(*) FROM tblcategorias_gasto) AS categorias_gasto,
     (SELECT COUNT(*) FROM vw_diagnostico_inventario_30d) AS diagnostico_30d,
-    (SELECT COUNT(*) FROM vw_auditoria_inventario_90d) AS auditoria_90d,
-    (SELECT COUNT(*) FROM tblpresentaciones) AS presentaciones;
+    (SELECT COUNT(*) FROM vw_auditoria_inventario_90d) AS auditoria_90d;

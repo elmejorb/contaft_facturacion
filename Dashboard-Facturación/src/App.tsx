@@ -5,6 +5,7 @@ import { Dashboard } from './components/Dashboard';
 import { Toaster } from 'react-hot-toast';
 import { ConfirmDialogProvider } from './components/ConfirmDialog';
 import { ConfigurarServidor } from './components/ConfigurarServidor';
+import { AutoUpdater } from './components/AutoUpdater';
 import { isApiConfigured, loadConfigFromFile } from './config/api';
 
 function AppContent() {
@@ -39,6 +40,7 @@ function AppContent() {
 
   return (
     <div className="min-h-screen bg-gray-50">
+      <AutoUpdater />
       {!isAuthenticated ? (
         <LoginPage />
       ) : (

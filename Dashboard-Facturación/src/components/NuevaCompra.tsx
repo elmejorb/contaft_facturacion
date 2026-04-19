@@ -201,6 +201,10 @@ export function NuevaCompra({ pedidoEditar, onClose }: { pedidoEditar?: number; 
 
   const guardar = async () => {
     if (!proveedor.id) { toast.error('Seleccione un proveedor'); return; }
+    if (tipo === 'Crédito' && proveedor.id === 220500) {
+      toast.error('El proveedor genérico "COMPRAS AL CONTADO" no puede usarse en compras a crédito. Seleccione un proveedor real para que aparezca en Cuentas por Pagar.', { duration: 6000 });
+      return;
+    }
     if (lineas.length === 0) { toast.error('Agregue al menos un producto'); return; }
     if (!facturaCompra) { toast.error('Ingrese el Nº de factura del proveedor'); return; }
     setGuardando(true);
@@ -314,6 +318,11 @@ export function NuevaCompra({ pedidoEditar, onClose }: { pedidoEditar?: number; 
             <input type="text" value={proveedor.nit} readOnly style={{ ...inp, width: 110, background: '#f9fafb' }} />
           </div>
         </div>
+        {tipo === 'Crédito' && proveedor.id === 220500 && (
+          <div style={{ marginTop: 6, padding: '6px 10px', background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 6, fontSize: 11, color: '#dc2626', fontWeight: 600 }}>
+            ⚠ Proveedor genérico no válido para compras a crédito. Seleccione un proveedor real para que la deuda aparezca en Cuentas por Pagar.
+          </div>
+        )}
       </div>
 
       {/* Tabla de items */}

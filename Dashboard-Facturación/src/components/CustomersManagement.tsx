@@ -288,22 +288,27 @@ export function CustomersManagement() {
     {
       headerName: 'Acciones', width: 120, sortable: false, filter: false,
       cellStyle: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px' },
-      cellRenderer: (p: any) => (
-        <div style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
-          <button title="Detalle de movimientos" onClick={() => setDetalleId(p.data.CodigoClien)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 3 }}>
-            <BarChart3 size={15} color="#7c3aed" />
-          </button>
-          <button title="Ver datos" onClick={() => abrirVer(p.data)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 3 }}>
-            <Eye size={15} color="#3b82f6" />
-          </button>
-          <button title="Editar" onClick={() => abrirEditar(p.data)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 3 }}>
-            <Pencil size={15} color="#f59e0b" />
-          </button>
-          <button title="Eliminar" onClick={() => eliminar(p.data.CodigoClien, p.data.Razon_Social)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 3 }}>
-            <Trash2 size={15} color="#ef4444" />
-          </button>
-        </div>
-      )
+      cellRenderer: (p: any) => {
+        const esGenerico = p.data.CodigoClien === 130500;
+        return (
+          <div style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
+            <button title="Detalle de movimientos" onClick={() => setDetalleId(p.data.CodigoClien)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 3 }}>
+              <BarChart3 size={15} color="#7c3aed" />
+            </button>
+            <button title="Ver datos" onClick={() => abrirVer(p.data)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 3 }}>
+              <Eye size={15} color="#3b82f6" />
+            </button>
+            <button title={esGenerico ? 'Cliente del sistema — no editable' : 'Editar'} disabled={esGenerico} onClick={() => !esGenerico && abrirEditar(p.data)}
+              style={{ background: 'none', border: 'none', cursor: esGenerico ? 'not-allowed' : 'pointer', padding: 3, opacity: esGenerico ? 0.3 : 1 }}>
+              <Pencil size={15} color="#f59e0b" />
+            </button>
+            <button title={esGenerico ? 'Cliente del sistema — no eliminable' : 'Eliminar'} disabled={esGenerico} onClick={() => !esGenerico && eliminar(p.data.CodigoClien, p.data.Razon_Social)}
+              style={{ background: 'none', border: 'none', cursor: esGenerico ? 'not-allowed' : 'pointer', padding: 3, opacity: esGenerico ? 0.3 : 1 }}>
+              <Trash2 size={15} color="#ef4444" />
+            </button>
+          </div>
+        );
+      }
     }
   ];
 

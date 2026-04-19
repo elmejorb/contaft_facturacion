@@ -24,33 +24,25 @@ try {
         $stmt = $db->prepare("
             SELECT a.Items, a.Codigo, a.Nombres_Articulo, a.Existencia, a.Precio_Costo,
                    a.Precio_Venta, a.Precio_Venta2, a.Precio_Venta3, a.Iva, a.Precio_Minimo,
-                   COALESCE(c.Categoria, 'VARIOS') as Categoria,
-                   a.unidad_base
+                   COALESCE(c.Categoria, 'VARIOS') as Categoria
             FROM tblarticulos a
             LEFT JOIN tblcategoria c ON a.Id_Categoria = c.Id_Categoria
-            WHERE a.Estado = 1 AND (a.Codigo LIKE :cod OR a.Nombres_Articulo LIKE :nom OR a.Codigo IN (SELECT Codigo_Barras FROM tblpresentaciones WHERE Codigo_Barras LIKE :bar AND Activa = 1))
+            WHERE a.Estado = 1 AND (a.Codigo LIKE :cod OR a.Nombres_Articulo LIKE :nom)
             ORDER BY a.Nombres_Articulo
             LIMIT 20
         ");
         $buscarLike = "%$buscar%";
-        $stmt->execute([':cod' => $buscarLike, ':nom' => $buscarLike, ':bar' => $buscarLike]);
+        $stmt->execute([':cod' => $buscarLike, ':nom' => $buscarLike]);
         $articulos = $stmt->fetchAll();
 
-        $stmtPres = $db->prepare("SELECT Id_Presentacion, Nombre, Factor, Precio_Venta, Codigo_Barras FROM tblpresentaciones WHERE Items = ? AND Activa = 1 ORDER BY Factor");
-
         foreach ($articulos as &$a) {
-            $a['Existencia'] = floatval($a['Existencia']);
+            $a['Existencia']   = floatval($a['Existencia']);
             $a['Precio_Costo'] = floatval($a['Precio_Costo']);
             $a['Precio_Venta'] = floatval($a['Precio_Venta']);
-            $a['Precio_Venta2'] = floatval($a['Precio_Venta2']);
-            $a['Precio_Venta3'] = floatval($a['Precio_Venta3']);
-            $a['Precio_Minimo'] = floatval($a['Precio_Minimo']);
-            $a['Iva'] = floatval($a['Iva']);
-            // Presentaciones
-            $stmtPres->execute([$a['Items']]);
-            $pres = $stmtPres->fetchAll();
-            $a['presentaciones'] = $pres;
-            $a['tiene_presentaciones'] = count($pres) > 0;
+            $a['Precio_Venta2']= floatval($a['Precio_Venta2']);
+            $a['Precio_Venta3']= floatval($a['Precio_Venta3']);
+            $a['Precio_Minimo']= floatval($a['Precio_Minimo']);
+            $a['Iva']          = floatval($a['Iva']);
         }
 
         echo json_encode(["success" => true, "articulos" => $articulos], JSON_UNESCAPED_UNICODE);
@@ -165,6 +157,7 @@ try {
             ':sub' => $lineaSubtotal, ':iva' => $iva, ':desc' => $desc
         ]);
 
+        // Descontar inventario
         $stmtStock->execute([':cant' => $cant, ':items' => $itemId]);
 
         // Get new stock for kardex
@@ -178,7 +171,7 @@ try {
             ':mes' => $mesNombre, ':items' => $itemId,
             ':det' => "Venta Fra. N° $factN",
             ':cant' => $cant, ':cost_sal' => $cant * $costoUnit,
-            ':saldo_cant' => $nuevaExist, ':saldo_cost' => $nuevaExist * $costoUnit,
+            ':saldo_cant' => floatval($artActual['Existencia']), ':saldo_cost' => floatval($artActual['Existencia']) * $costoUnit,
             ':cost_unit' => $costoUnit
         ]);
     }

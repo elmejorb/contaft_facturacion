@@ -213,12 +213,16 @@ try {
         foreach ($data['items'] as $i => $item) {
             $itemId = intval($item['items']);
             $cant = floatval($item['cantidad']);
+            $factor = floatval($item['factor'] ?? 1);
+            $cantReal = $cant * $factor; // Cantidad en unidad base
             $costoSinIva = floatval($item['costo_sin_iva']);
+            // Si compra por presentación, el costo por unidad base = costo / factor
+            $costoSinIvaBase = $factor > 1 ? $costoSinIva / $factor : $costoSinIva;
             $ivaPct = floatval($item['iva_pct'] ?? 0);
             $ivaVal = $costoSinIva * ($ivaPct / 100);
             $costoConIva = $costoSinIva + $ivaVal;
             $fleteUnit = $fleteMap[$i] ?? 0;
-            $costoFinal = $costoSinIva + $fleteUnit;
+            $costoFinal = $costoSinIvaBase + ($factor > 1 ? $fleteUnit / $factor : $fleteUnit);
             $precioVenta = floatval($item['precio_venta'] ?? 0);
             $subtotal = $cant * $costoConIva;
             $idDetalle = intval($item['id_detalle'] ?? 0);
@@ -232,7 +236,7 @@ try {
 
             if ($idDetalle === 0) {
                 // ---- PRODUCTO NUEVO (no existía en la compra original) ----
-                $nuevaExist = $existActual + $cant;
+                $nuevaExist = $existActual + $cantReal;
                 $costoPromedio = $nuevaExist > 0
                     ? round(($existActual * $costoActual + $cant * $costoFinal) / $nuevaExist, 4)
                     : $costoFinal;
@@ -442,17 +446,6 @@ try {
             ")->execute([
                 $fecha, $mesNombre, $itemId, "Compra Ped. N° $pedidoN Fac. $facturaCompra",
                 $cant, $cant * $costoFinal, $nuevaExist, $nuevaExist * $costoPromedio, $costoPromedio
-            ]);
-        }
-
-        // If credit, create provider invoice record
-        if ($tipoPedido !== 'Contado' && $saldo > 0) {
-            $db->prepare("
-                INSERT INTO tblfacturasanterioresproveedor (FacturaN, Fecha, Dias, Descuento, IVA, Subtotal, Valor, Saldo, CodigoProv)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ")->execute([
-                $facturaCompra, $fecha, $dias, $descuento, $totalImpuesto,
-                $totalItems, $totalCompra, $saldo, $codigoPro
             ]);
         }
 

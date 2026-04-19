@@ -39,7 +39,7 @@ export function PurchasesManagement() {
 
   const totalCompras = filtradas.reduce((s, c) => s + c.Total, 0);
 
-  if (editarPedido) {
+  if (editarPedido !== null) {
     return <NuevaCompra pedidoEditar={editarPedido} onClose={() => { setEditarPedido(null); cargar(); }} />;
   }
 

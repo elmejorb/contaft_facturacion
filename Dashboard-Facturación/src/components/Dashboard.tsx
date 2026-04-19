@@ -60,6 +60,9 @@ import { DiagnosticoInventario } from './DiagnosticoInventario';
 import { AuditoriaInventario } from './AuditoriaInventario';
 import { CategoriasManagement } from './CategoriasManagement';
 import { ConteoInventario } from './ConteoInventario';
+import { FamiliasProducto } from './FamiliasProducto';
+import { DistribuirProductos } from './DistribuirProductos';
+import { StockBajo, useStockBajoCount } from './StockBajo';
 import { ConfiguracionSistema } from './ConfiguracionSistema';
 import { DatosEmpresa } from './DatosEmpresa';
 import { NuevaCompra } from './NuevaCompra';
@@ -89,7 +92,7 @@ interface DashboardProps {
   user?: UserData | null;
 }
 
-type View = 'overview' | 'products' | 'customers' | 'suppliers' | 'purchases' | 'sales' | 'inventario' | 'diagnostico' | 'auditoria' | 'categorias' | 'conteo' | 'configuracion' | 'cuentas-cobrar' | 'top-clientes' | 'cumpleanos' | 'cuentas-pagar' | 'productos-proveedor' | 'nueva-venta' | 'ventas-tipo-pago' | 'datos-empresa' | 'usuarios' | 'nueva-compra' | 'facturacion-electronica' | 'caja' | 'caja-historial' | 'pagos-clientes' | 'pagos-proveedores' | 'gastos' | 'bancos' | 'config-categorias-gasto' | 'config-cajas' | 'config-servidor' | 'config-permisos';
+type View = 'overview' | 'products' | 'customers' | 'suppliers' | 'purchases' | 'sales' | 'inventario' | 'diagnostico' | 'auditoria' | 'categorias' | 'conteo' | 'configuracion' | 'cuentas-cobrar' | 'top-clientes' | 'cumpleanos' | 'cuentas-pagar' | 'productos-proveedor' | 'nueva-venta' | 'ventas-tipo-pago' | 'datos-empresa' | 'usuarios' | 'nueva-compra' | 'facturacion-electronica' | 'caja' | 'caja-historial' | 'pagos-clientes' | 'pagos-proveedores' | 'gastos' | 'bancos' | 'config-categorias-gasto' | 'config-cajas' | 'config-servidor' | 'config-permisos' | 'familias' | 'distribuir' | 'stock-bajo';
 
 interface MenuItem {
   id: string;
@@ -118,6 +121,7 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
       .catch(() => {});
   }, []);
   const cumpleProximos = useCumpleanosHoy();
+  const stockBajoCount = useStockBajoCount();
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [expandedMenus, setExpandedMenus] = useState<string[]>([]);
 
@@ -139,9 +143,14 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
       id: 'inventario',
       label: 'Inventario',
       icon: Boxes,
+      badge: stockBajoCount > 0 ? String(stockBajoCount) : undefined,
+      badgeVariant: 'destructive',
       children: [
         { id: 'inventario-list', label: 'Listado de Artículos', view: 'inventario' },
         { id: 'inventario-categorias', label: 'Categorías', view: 'categorias' as View },
+        { id: 'inventario-familias', label: 'Familias de Productos', view: 'familias' as View },
+        { id: 'inventario-distribuir', label: 'Distribuir Productos', view: 'distribuir' as View },
+        { id: 'inventario-stock-bajo', label: stockBajoCount > 0 ? `Stock Bajo (${stockBajoCount})` : 'Stock Bajo', view: 'stock-bajo' as View },
         { id: 'inventario-diagnostico', label: 'Diagnóstico (30 días)', view: 'diagnostico' as View },
         { id: 'inventario-auditoria', label: 'Auditoría (90 días)', view: 'auditoria' as View },
         { id: 'inventario-conteo', label: 'Conteo de Inventario', view: 'conteo' as View },
@@ -234,6 +243,7 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
     'inventario': 'inventario', 'inventario-list': 'inventario', 'inventario-categorias': 'categorias',
     'inventario-diagnostico': 'inventario_diagnostico', 'inventario-auditoria': 'inventario_diagnostico',
     'inventario-conteo': 'inventario_conteo',
+    'inventario-familias': 'inventario', 'inventario-distribuir': 'inventario', 'inventario-stock-bajo': 'inventario',
     'customers-list': 'clientes', 'top-clientes': 'clientes_top', 'cumpleanos': 'clientes',
     'accounts-receivable': 'clientes_cartera', 'accounts-payable': 'proveedores_pagar',
     'suppliers': 'proveedores', 'supplier-list': 'proveedores', 'supplier-products': 'proveedores',
@@ -465,6 +475,9 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
           {currentView === 'auditoria' && <AuditoriaInventario />}
           {currentView === 'categorias' && <CategoriasManagement />}
           {currentView === 'conteo' && <ConteoInventario />}
+          {currentView === 'familias' && <FamiliasProducto />}
+          {currentView === 'distribuir' && <DistribuirProductos />}
+          {currentView === 'stock-bajo' && <StockBajo />}
           {currentView === 'configuracion' && <ConfiguracionSistema />}
           {currentView === 'datos-empresa' && <DatosEmpresa />}
           {currentView === 'usuarios' && <UsuariosManagement />}
@@ -475,7 +488,7 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
           {currentView === 'customers' && <CustomersManagement />}
           {currentView === 'suppliers' && <ProveedoresManagement />}
           {currentView === 'productos-proveedor' && <ProductosProveedor />}
-          {currentView === 'cuentas-pagar' && <ProveedoresManagement />}
+          {currentView === 'cuentas-pagar' && <ProveedoresManagement modoCxP />}
           {currentView === 'purchases' && <PurchasesManagement />}
           {currentView === 'nueva-compra' && <NuevaCompra />}
           {currentView === 'sales' && <SalesManagement />}

@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Save, X } from 'lucide-react';
 import api from '../services/api';
-import { PresentacionesProducto } from './PresentacionesProducto';
 
 interface Articulo {
   Items: number; Codigo: string; Descripcion: string; Existencia: number;
@@ -357,14 +356,6 @@ export function EditarArticuloModal({ isOpen, onClose, articulo, onGuardado, mod
               })}
             </div>
           </fieldset>
-
-          {/* Presentaciones - solo en modo editar */}
-          {!esNuevo && form.Items > 0 && (
-            <fieldset style={s.fieldset}>
-              <legend style={s.legend}>Presentaciones</legend>
-              <PresentacionesProducto items={form.Items} />
-            </fieldset>
-          )}
 
           {/* Mensaje */}
           {mensaje && (
