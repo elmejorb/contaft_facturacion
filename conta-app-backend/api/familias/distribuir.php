@@ -172,13 +172,35 @@ function planificar($db, $itemsVenta) {
 }
 
 function aplicarDistribucion($db, $dist, $facturaN, $idUsuario, $motivo, $comentario = null) {
+    static $MESES = ['','Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+    $mes = $MESES[intval(date('n'))];
+
+    // Datos del origen y destino antes de modificar
+    $stmt = $db->prepare("SELECT Items, Codigo, Nombres_Articulo, Existencia, Precio_Costo FROM tblarticulos WHERE Items = ?");
+    $stmt->execute([$dist['items_origen']]);
+    $origen = $stmt->fetch();
+    $stmt->execute([$dist['items_destino']]);
+    $destino = $stmt->fetch();
+
+    $costoOrigen  = floatval($origen['Precio_Costo']);
+    $costoDestUnit = $dist['factor_origen'] > 0
+        ? $costoOrigen * ($dist['factor_destino'] / $dist['factor_origen'])
+        : floatval($destino['Precio_Costo']);
+
     // Descontar origen
     $db->prepare("UPDATE tblarticulos SET Existencia = Existencia - ? WHERE Items = ?")
        ->execute([$dist['cant_origen'], $dist['items_origen']]);
-    // Sumar destino
-    $db->prepare("UPDATE tblarticulos SET Existencia = Existencia + ? WHERE Items = ?")
-       ->execute([$dist['cant_destino'], $dist['items_destino']]);
-    // Registrar movimiento
+    // Sumar destino + actualizar costo promedio
+    $existDestActual = floatval($destino['Existencia']);
+    $existDestNueva = $existDestActual + $dist['cant_destino'];
+    $costoDestActual = floatval($destino['Precio_Costo']);
+    $costoDestPromedio = $existDestNueva > 0
+        ? (($existDestActual * $costoDestActual + $dist['cant_destino'] * $costoDestUnit) / $existDestNueva)
+        : $costoDestUnit;
+    $db->prepare("UPDATE tblarticulos SET Existencia = ?, Precio_Costo = ? WHERE Items = ?")
+       ->execute([$existDestNueva, $costoDestPromedio, $dist['items_destino']]);
+
+    // Registrar movimiento en tblmovimientos_distribucion
     $db->prepare("
         INSERT INTO tblmovimientos_distribucion
             (Id_Usuario, Items_Origen, Items_Destino, Cant_Origen, Cant_Destino,
@@ -189,6 +211,30 @@ function aplicarDistribucion($db, $dist, $facturaN, $idUsuario, $motivo, $coment
         $dist['cant_origen'], $dist['cant_destino'],
         $dist['factor_origen'], $dist['factor_destino'],
         $motivo, $facturaN, $comentario,
+    ]);
+
+    // KARDEX — 2 movimientos: salida del origen + entrada al destino
+    $existOrigenNueva = floatval($origen['Existencia']) - $dist['cant_origen'];
+    $detSalida = "Distribución → " . $destino['Codigo'] . ($motivo === 'automatico' && $facturaN ? " (Factura $facturaN)" : "");
+    $db->prepare("
+        INSERT INTO tblkardex (Mes, Items, Detalle, Cant_Sal, Cost_Sal, Cant_Saldo, Cost_Saldo, Cost_Unit)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ")->execute([
+        $mes, $dist['items_origen'], $detSalida,
+        $dist['cant_origen'], $dist['cant_origen'] * $costoOrigen,
+        $existOrigenNueva, $existOrigenNueva * $costoOrigen,
+        $costoOrigen,
+    ]);
+
+    $detEntrada = "Distribución ← " . $origen['Codigo'] . ($motivo === 'automatico' && $facturaN ? " (Factura $facturaN)" : "");
+    $db->prepare("
+        INSERT INTO tblkardex (Mes, Items, Detalle, Cant_Ent, Cost_Ent, Cant_Saldo, Cost_Saldo, Cost_Unit)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ")->execute([
+        $mes, $dist['items_destino'], $detEntrada,
+        $dist['cant_destino'], $dist['cant_destino'] * $costoDestUnit,
+        $existDestNueva, $existDestNueva * $costoDestPromedio,
+        $costoDestUnit,
     ]);
 }
 

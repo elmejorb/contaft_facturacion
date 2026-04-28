@@ -40,6 +40,7 @@ try {
         Existencia_minima = :existenciaMinima,
         CodigoPro = :proveedor,
         Estado = :estado,
+        requiere_lote = :requiereLote,
         FechaMod = NOW()
     WHERE Items = :items";
 
@@ -57,6 +58,7 @@ try {
         ':existenciaMinima' => $input['Existencia_minima'] ?? 0,
         ':proveedor' => $input['CodigoPro'] ?? 0,
         ':estado' => $input['Estado'] ?? 1,
+        ':requiereLote' => !empty($input['requiere_lote']) ? 1 : 0,
         ':items' => $input['Items'],
     ]);
 

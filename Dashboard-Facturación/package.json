@@ -1,6 +1,6 @@
 {
       "name": "dashboard-facturacion",
-      "version": "4.1.1",
+      "version": "4.2.0",
       "private": true,
       "main": "electron/main.js",
       "dependencies": {
@@ -73,7 +73,7 @@
       },
       "build": {
             "appId": "com.contaft.app",
-            "productName": "Conta FT 4.1",
+            "productName": "Conta FT 4.2",
             "directories": {
                   "output": "dist-electron"
             },
@@ -90,7 +90,7 @@
             "nsis": {
                   "oneClick": false,
                   "allowToChangeInstallationDirectory": true,
-                  "shortcutName": "Conta FT 4.1"
+                  "shortcutName": "Conta FT 4.2"
             },
             "publish": [
                   {

@@ -7,6 +7,7 @@ interface Articulo {
   Iva: number; Costo: number; Precio1: number; Precio2: number;
   Precio3: number; PrecioMinimo: number; Categoria: string; Proveedor: string; Estado: string;
   Id_Categoria?: number; CodigoPro?: number; Estante?: string; Existencia_minima?: number;
+  requiere_lote?: number;
 }
 
 interface Props {
@@ -24,7 +25,7 @@ export function EditarArticuloModal({ isOpen, onClose, articulo, onGuardado, mod
     Items: 0, Codigo: '', Nombres_Articulo: '',
     Precio_Costo: 0, Precio_Venta: 0, Precio_Venta2: 0, Precio_Venta3: 0,
     Precio_Minimo: 0, Iva: 0, Existencia_minima: 0,
-    Id_Categoria: 0, CodigoPro: 0, Estante: '', Estado: 1,
+    Id_Categoria: 0, CodigoPro: 0, Estante: '', Estado: 1, requiere_lote: 0,
   };
 
   const formDesdeArticulo = (a: Articulo) => ({
@@ -37,6 +38,7 @@ export function EditarArticuloModal({ isOpen, onClose, articulo, onGuardado, mod
     CodigoPro: a.CodigoPro || 0,
     Estante: a.Estante || '',
     Estado: a.Estado === 'Activo' ? 1 : 0,
+    requiere_lote: a.requiere_lote ? 1 : 0,
   });
 
   // Inicializar form directamente desde props (no useEffect)
@@ -222,11 +224,16 @@ export function EditarArticuloModal({ isOpen, onClose, articulo, onGuardado, mod
               </div>
             </fieldset>
             <fieldset style={{ ...s.fieldset, marginBottom: 0 }}>
-              <legend style={s.legend}>Ubicación</legend>
+              <legend style={s.legend}>Ubicación / Lote</legend>
               <div>
                 <label style={s.label}>Estante</label>
                 <input value={form.Estante} onChange={e => set('Estante', e.target.value)} style={s.input} />
               </div>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#374151', marginTop: 6, cursor: 'pointer' }}>
+                <input type="checkbox" checked={!!form.requiere_lote}
+                  onChange={e => set('requiere_lote', e.target.checked ? 1 : 0)} />
+                <span>Requiere fecha de vencimiento (perecedero)</span>
+              </label>
             </fieldset>
           </div>
 

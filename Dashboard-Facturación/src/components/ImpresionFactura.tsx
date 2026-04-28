@@ -24,8 +24,17 @@ export interface DatosFactura {
   empresa: { nombre: string; nit: string; telefono: string; direccion: string; regimen: string; propietario: string; resolucion: string; };
   caja?: number;
   esCotizacion?: boolean;
+  enContingencia?: boolean; // factura electrónica emitida en modo contingencia (sin internet/DIAN caída)
+  retenciones?: { codigo: string; nombre: string; porcentaje: number; base: number; valor: number }[];
+  retencionModo?: 'informativo' | 'gross_up';
   logo?: string; // URL o base64 del logo
 }
+
+const BANNER_CONTINGENCIA_HTML = `
+  <div style="border:2px solid #b91c1c;background:#fef2f2;color:#991b1b;padding:6px 8px;margin:6px 0;text-align:center;font-weight:700;font-size:11px;line-height:1.3;">
+    FACTURA EMITIDA EN CONTINGENCIA<br/>
+    <span style="font-weight:400;font-size:10px;">Se transmitirá a la DIAN al restablecerse la conexión — Res. DIAN 000165/2023 art. 31</span>
+  </div>`;
 
 // ============================================================
 // TIRILLA POS 80mm
@@ -36,6 +45,7 @@ function tirilla(d: DatosFactura): string {
   const linea = '<div style="border-bottom:1px dashed #000;margin:4px 0;"></div>';
 
   let html = `<div style="width:62mm;font-family:'Courier New',monospace;font-size:11px;padding:3mm 4mm;line-height:1.4;word-wrap:break-word;overflow-wrap:break-word;">`;
+  if (d.enContingencia) html += BANNER_CONTINGENCIA_HTML;
   // Empresa
   html += `<div style="text-align:center;margin-bottom:6px;">`;
   if (d.logo) html += `<img src="${d.logo}" style="max-width:40mm;max-height:15mm;margin-bottom:4px;" />`;
@@ -77,7 +87,14 @@ function tirilla(d: DatosFactura): string {
   html += `<div style="display:flex;justify-content:space-between;font-size:11px;"><span>SUBTOTAL</span><span>${fmtMonDec(d.subtotal)}</span></div>`;
   html += linea;
   if (d.descuento > 0) html += `<div style="display:flex;justify-content:space-between;font-size:11px;"><span>DESCUENTO</span><span>${fmtMonDec(d.descuento)}</span></div>`;
-  html += `<div style="display:flex;justify-content:space-between;font-weight:bold;font-size:13px;margin:3px 0;"><span>TOTAL</span><span>${fmtMonDec(d.total)}</span></div>`;
+  html += `<div style="display:flex;justify-content:space-between;font-weight:bold;font-size:13px;margin:3px 0;"><span>TOTAL A PAGAR</span><span>${fmtMonDec(d.total)}</span></div>`;
+  if (d.retenciones && d.retenciones.length > 0) {
+    const totalRet = d.retenciones.reduce((s, r) => s + r.valor, 0);
+    d.retenciones.forEach(r => {
+      html += `<div style="display:flex;justify-content:space-between;font-size:10px;"><span>Ret ${r.porcentaje.toFixed(2)}%</span><span>-${fmtMonDec(r.valor)}</span></div>`;
+    });
+    html += `<div style="display:flex;justify-content:space-between;font-size:11px;font-weight:bold;"><span>Neto a recibir</span><span>${fmtMonDec(d.total - totalRet)}</span></div>`;
+  }
 
   if (!d.esCotizacion) {
     if (d.efectivo > 0) html += `<div style="display:flex;justify-content:space-between;font-size:11px;"><span>EFECTIVO</span><span>${fmtMonDec(d.efectivo)}</span></div>`;
@@ -138,6 +155,8 @@ function mediaCarta(d: DatosFactura, lado: 'izquierda' | 'derecha' = 'izquierda'
   const ml = lado === 'derecha' ? '50%' : '0';
 
   let html = `<div style="width:${w};margin-left:${ml};font-family:Arial,sans-serif;font-size:12px;padding:8mm 10mm;box-sizing:border-box;min-height:100vh;display:flex;flex-direction:column;">`;
+
+  if (d.enContingencia) html += BANNER_CONTINGENCIA_HTML;
 
   // ===== HEADER: Empresa + Cliente =====
   // Nombre empresa centrado arriba
@@ -202,9 +221,21 @@ function mediaCarta(d: DatosFactura, lado: 'izquierda' | 'derecha' = 'izquierda'
   // Derecha: totales
   html += `<div style="border:1px solid #000;padding:4px 8px;min-width:160px;">`;
   html += `<div style="display:flex;justify-content:space-between;gap:14px;margin-bottom:3px;"><b>SUBTOTAL:</b><span>${fmtMonDec(d.subtotal)}</span></div>`;
+  if (d.retenciones && d.retenciones.length > 0) {
+    d.retenciones.forEach(r => {
+      html += `<div style="display:flex;justify-content:space-between;gap:14px;margin-bottom:2px;color:#b91c1c;"><span>${r.nombre} (${r.porcentaje.toFixed(2)}%):</span><span>-${fmtMonDec(r.valor)}</span></div>`;
+    });
+  }
   if (d.descuento > 0) html += `<div style="display:flex;justify-content:space-between;gap:14px;margin-bottom:3px;"><b>DESCUENTO:</b><span>${fmtMonDec(d.descuento)}</span></div>`;
   html += `<div style="display:flex;justify-content:space-between;gap:14px;margin-bottom:3px;"><b>IVA:</b><span>${fmtMonDec(d.iva)}</span></div>`;
-  html += `<div style="display:flex;justify-content:space-between;gap:14px;font-weight:bold;font-size:13px;border-top:2px solid #000;padding-top:3px;"><span>TOTAL:</span><span>${fmtMonDec(d.total)}</span></div>`;
+  html += `<div style="display:flex;justify-content:space-between;gap:14px;font-weight:bold;font-size:13px;border-top:2px solid #000;padding-top:3px;"><span>TOTAL A PAGAR:</span><span>${fmtMonDec(d.total)}</span></div>`;
+  if (d.retenciones && d.retenciones.length > 0) {
+    const totalRet = d.retenciones.reduce((s, r) => s + r.valor, 0);
+    d.retenciones.forEach(r => {
+      html += `<div style="display:flex;justify-content:space-between;gap:14px;font-size:10px;"><span>${r.nombre} (${r.porcentaje.toFixed(2)}%):</span><span>-${fmtMonDec(r.valor)}</span></div>`;
+    });
+    html += `<div style="display:flex;justify-content:space-between;gap:14px;font-weight:bold;font-size:12px;"><span>Valor neto a recibir:</span><span>${fmtMonDec(d.total - totalRet)}</span></div>`;
+  }
   if (d.abono > 0) html += `<div style="display:flex;justify-content:space-between;gap:14px;margin-top:3px;"><b>ABONO:</b><span>${fmtMonDec(d.abono)}</span></div>`;
   if (d.saldo > 0) html += `<div style="display:flex;justify-content:space-between;gap:14px;"><b>SALDO:</b><span>${fmtMonDec(d.saldo)}</span></div>`;
   html += `</div></div>`;
@@ -227,6 +258,8 @@ function carta(d: DatosFactura): string {
   const titulo = d.esCotizacion ? 'Cotización Nº' : 'Factura de Venta Nº';
 
   let html = `<div style="width:100%;font-family:Arial,sans-serif;font-size:12px;padding:12mm;box-sizing:border-box;">`;
+
+  if (d.enContingencia) html += BANNER_CONTINGENCIA_HTML;
 
   // Empresa + Nº factura
   html += `<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;">`;
@@ -294,7 +327,14 @@ function carta(d: DatosFactura): string {
   html += `<div style="display:flex;justify-content:space-between;gap:20px;margin-bottom:3px;"><b>SUBTOTAL:</b><span>${fmtMon(d.subtotal)}</span></div>`;
   if (d.descuento > 0) html += `<div style="display:flex;justify-content:space-between;gap:20px;margin-bottom:3px;"><b>DESCUENTO:</b><span>${fmtMon(d.descuento)}</span></div>`;
   if (d.iva > 0) html += `<div style="display:flex;justify-content:space-between;gap:20px;margin-bottom:3px;"><b>IVA:</b><span>${fmtMon(d.iva)}</span></div>`;
-  html += `<div style="display:flex;justify-content:space-between;gap:20px;font-weight:bold;font-size:14px;border-top:2px solid #000;padding-top:4px;"><span>TOTAL:</span><span>${fmtMon(d.total)}</span></div>`;
+  html += `<div style="display:flex;justify-content:space-between;gap:20px;font-weight:bold;font-size:14px;border-top:2px solid #000;padding-top:4px;"><span>TOTAL A PAGAR:</span><span>${fmtMon(d.total)}</span></div>`;
+  if (d.retenciones && d.retenciones.length > 0) {
+    const totalRet = d.retenciones.reduce((s, r) => s + r.valor, 0);
+    d.retenciones.forEach(r => {
+      html += `<div style="display:flex;justify-content:space-between;gap:20px;"><span>${r.nombre} (${r.porcentaje.toFixed(2)}%):</span><span>-${fmtMon(r.valor)}</span></div>`;
+    });
+    html += `<div style="display:flex;justify-content:space-between;gap:20px;font-weight:bold;font-size:13px;"><span>Valor neto a recibir:</span><span>${fmtMon(d.total - totalRet)}</span></div>`;
+  }
   html += `</div></div>`;
 
   // Legal
@@ -398,7 +438,10 @@ export function buildDatosFactura(
   cambio: number,
   abono: number,
   medioPago: string,
-  esCotizacion?: boolean
+  esCotizacion?: boolean,
+  enContingencia?: boolean,
+  retenciones?: DatosFactura['retenciones'],
+  retencionModo?: DatosFactura['retencionModo']
 ): DatosFactura {
   const items = lineas.map(l => ({
     codigo: l.Codigo, nombre: l.Nombre, cantidad: l.Cantidad,
@@ -430,6 +473,9 @@ export function buildDatosFactura(
     },
     caja: 1,
     esCotizacion,
+    enContingencia,
+    retenciones,
+    retencionModo,
     logo: getConfigImpresion().logo || undefined
   };
 }

@@ -11,6 +11,7 @@ ModuleRegistry.registerModules([AllCommunityModule]);
 
 const API = 'http://localhost:80/conta-app-backend/api/clientes/listar.php';
 const API_OPC = 'http://localhost:80/conta-app-backend/api/clientes/opciones.php';
+const API_RET = 'http://localhost:80/conta-app-backend/api/retenciones/listar.php';
 
 interface Cliente {
   CodigoClien: number;
@@ -59,6 +60,9 @@ export function CustomersManagement() {
   const [form, setForm] = useState<any>({});
   const [opciones, setOpciones] = useState<any>({ liabilities: [], organizations: [], regimes: [], municipalities: [] });
   const [detalleId, setDetalleId] = useState<number | null>(null);
+  const [retenciones, setRetenciones] = useState<any[]>([]);
+  const [retencionesCli, setRetencionesCli] = useState<number[]>([]);
+  const [retencionModo, setRetencionModo] = useState<'informativo' | 'gross_up'>('gross_up');
   const gridRef = useRef<AgGridReact>(null);
 
   const cargar = async () => {
@@ -82,12 +86,33 @@ export function CustomersManagement() {
     } catch (e) { console.error(e); }
   };
 
-  useEffect(() => { cargar(); cargarOpciones(); }, []);
+  const cargarRetenciones = async () => {
+    try {
+      const r = await fetch(`${API_RET}?activas=1`);
+      const d = await r.json();
+      if (d.success) setRetenciones(d.retenciones || []);
+    } catch (e) {}
+  };
 
-  const abrirVer = (c: Cliente) => { setClienteActual(c); setModal('ver'); };
-  const abrirEditar = (c: Cliente) => { setClienteActual(c); setForm({ ...c }); setModal('editar'); };
+  const cargarRetencionesCliente = async (codCli: number) => {
+    try {
+      const r = await fetch(`${API_RET}?cliente=${codCli}`);
+      const d = await r.json();
+      if (d.success) {
+        setRetencionesCli(d.retenciones_aplicadas || []);
+        setRetencionModo(d.modo || 'gross_up');
+      }
+    } catch (e) { setRetencionesCli([]); setRetencionModo('gross_up'); }
+  };
+
+  useEffect(() => { cargar(); cargarOpciones(); cargarRetenciones(); }, []);
+
+  const abrirVer = (c: Cliente) => { setClienteActual(c); setModal('ver'); cargarRetencionesCliente(c.CodigoClien); };
+  const abrirEditar = (c: Cliente) => { setClienteActual(c); setForm({ ...c }); setModal('editar'); cargarRetencionesCliente(c.CodigoClien); };
   const abrirCrear = () => {
     setClienteActual(null);
+    setRetencionesCli([]);
+    setRetencionModo('gross_up');
     setForm({
       Razon_Social: '', Nit: '', Identificacion: '', Telefonos: '', Direccion: '',
       Email: '', Whatsapp: '', CupoAutorizado: 0, FechaCumple: '',
@@ -110,6 +135,15 @@ export function CustomersManagement() {
       });
       const d = await r.json();
       if (d.success) {
+        const codCli = d.CodigoClien || form.CodigoClien;
+        if (codCli) {
+          try {
+            await fetch(API_RET, {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ action: 'set_cliente', cliente: codCli, retenciones: retencionesCli, modo: retencionModo })
+            });
+          } catch (e) {}
+        }
         setSuccess(d.message); setTimeout(() => setSuccess(''), 3000);
         setModal('cerrado'); cargar();
       } else { setError(d.message); }
@@ -408,6 +442,54 @@ export function CustomersManagement() {
                     {chk('Facturar con vencimientos', 'FacVenc')}
                     {chk('Facturar a precio costo', 'Preciocosto')}
                   </div>
+                </fieldset>
+
+                <fieldset style={{ border: '1px solid #e5e7eb', borderRadius: 8, padding: '10px 14px', marginTop: 12 }}>
+                  <legend style={{ fontSize: 11, fontWeight: 700, color: '#dc2626', padding: '0 6px' }}>Retenciones que me aplica este cliente</legend>
+                  {retenciones.length === 0 ? (
+                    <div style={{ padding: 8, fontSize: 11, color: '#9ca3af' }}>No hay retenciones activas. Configúralas en Configuración → Retenciones.</div>
+                  ) : (
+                    <>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, padding: '4px 0' }}>
+                        {retenciones.map((r: any) => {
+                          const checked = retencionesCli.includes(r.Id_Retencion);
+                          return (
+                            <label key={r.Id_Retencion}
+                              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 8px', borderRadius: 6, cursor: isView ? 'default' : 'pointer', border: `1px solid ${checked ? '#dc2626' : '#e5e7eb'}`, background: checked ? '#fef2f2' : '#fff', fontSize: 12 }}>
+                              <input type="checkbox" checked={checked} disabled={isView}
+                                onChange={e => {
+                                  if (e.target.checked) setRetencionesCli(prev => [...prev, r.Id_Retencion]);
+                                  else setRetencionesCli(prev => prev.filter(id => id !== r.Id_Retencion));
+                                }}
+                                style={{ accentColor: '#dc2626', width: 14, height: 14 }} />
+                              <span style={{ flex: 1, fontWeight: checked ? 600 : 400 }}>{r.Nombre}</span>
+                              <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#dc2626' }}>{parseFloat(r.Porcentaje).toFixed(2)}%</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                      {retencionesCli.length > 0 && (
+                        <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px dashed #e5e7eb' }}>
+                          <div style={{ fontSize: 11, color: '#6b7280', fontWeight: 600, marginBottom: 4 }}>MODO DE APLICACIÓN</div>
+                          <div style={{ display: 'flex', gap: 8 }}>
+                            {[
+                              { value: 'gross_up' as const, label: 'Gross-up', desc: 'Subir el subtotal para que, después de la retención, reciba el monto objetivo.' },
+                              { value: 'informativo' as const, label: 'Informativo', desc: 'Solo mostrar la retención en la factura sin modificar totales.' },
+                            ].map(opt => (
+                              <label key={opt.value}
+                                style={{ flex: 1, padding: '6px 10px', borderRadius: 6, cursor: isView ? 'default' : 'pointer', border: `2px solid ${retencionModo === opt.value ? '#dc2626' : '#e5e7eb'}`, background: retencionModo === opt.value ? '#fef2f2' : '#fff' }}>
+                                <input type="radio" name="ret_modo" checked={retencionModo === opt.value} disabled={isView}
+                                  onChange={() => setRetencionModo(opt.value)}
+                                  style={{ accentColor: '#dc2626', marginRight: 6 }} />
+                                <b style={{ fontSize: 12 }}>{opt.label}</b>
+                                <div style={{ fontSize: 10, color: '#6b7280', marginTop: 2 }}>{opt.desc}</div>
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )}
                 </fieldset>
               </div>
             )}

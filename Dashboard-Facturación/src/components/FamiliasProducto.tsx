@@ -185,10 +185,29 @@ export function FamiliasProducto() {
 // ---------- Modal: Editar/Crear Familia ----------
 function EditarFamiliaModal({ familia, setFamilia, guardar }: { familia: Familia; setFamilia: (f: Familia | null) => void; guardar: () => void }) {
   const isNew = !familia.Id_Familia;
+  // Estado local — evita re-renders del padre en cada tecla y que se pierda el foco
+  const [nombre, setNombre] = useState(familia.Nombre || '');
+  const [descripcion, setDescripcion] = useState(familia.Descripcion || '');
+  const [activa, setActiva] = useState(familia.Activa ?? 1);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    // Asegurar foco aunque autoFocus no se aplique
+    setTimeout(() => inputRef.current?.focus(), 50);
+  }, []);
+
+  const onGuardar = () => {
+    const n = nombre.trim();
+    if (!n) return;
+    setFamilia({ ...familia, Nombre: n, Descripcion: descripcion, Activa: activa });
+    // Pequeño delay para que el setState propague antes de llamar guardar
+    setTimeout(() => guardar(), 0);
+  };
+
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 99999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.3)' }} onClick={() => setFamilia(null)} />
-      <div style={{ position: 'relative', background: '#fff', borderRadius: 12, width: 460, boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }} onClick={e => e.stopPropagation()}>
+      <div style={{ position: 'relative', background: '#fff', borderRadius: 12, width: 460, boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }}>
         <div style={{ padding: '12px 16px', borderBottom: '1px solid #e5e7eb', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <span style={{ fontSize: 14, fontWeight: 700 }}>{isNew ? 'Nueva Familia' : 'Editar Familia'}</span>
           <button onClick={() => setFamilia(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}><X size={18} /></button>
@@ -196,18 +215,19 @@ function EditarFamiliaModal({ familia, setFamilia, guardar }: { familia: Familia
         <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
           <div>
             <label style={{ fontSize: 11, color: '#6b7280', fontWeight: 600 }}>NOMBRE *</label>
-            <input autoFocus value={familia.Nombre} onChange={e => setFamilia({ ...familia, Nombre: e.target.value })}
+            <input ref={inputRef} value={nombre} onChange={e => setNombre(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter' && nombre.trim()) onGuardar(); }}
               style={{ width: '100%', height: 32, border: '1px solid #d1d5db', borderRadius: 6, padding: '0 8px', fontSize: 13, marginTop: 2 }} />
           </div>
           <div>
             <label style={{ fontSize: 11, color: '#6b7280', fontWeight: 600 }}>DESCRIPCIÓN</label>
-            <input value={familia.Descripcion || ''} onChange={e => setFamilia({ ...familia, Descripcion: e.target.value })}
+            <input value={descripcion} onChange={e => setDescripcion(e.target.value)}
               placeholder="Opcional"
               style={{ width: '100%', height: 32, border: '1px solid #d1d5db', borderRadius: 6, padding: '0 8px', fontSize: 13, marginTop: 2 }} />
           </div>
           {!isNew && (
             <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer' }}>
-              <input type="checkbox" checked={!!familia.Activa} onChange={e => setFamilia({ ...familia, Activa: e.target.checked ? 1 : 0 })}
+              <input type="checkbox" checked={!!activa} onChange={e => setActiva(e.target.checked ? 1 : 0)}
                 style={{ accentColor: '#7c3aed', width: 16, height: 16 }} />
               Familia activa
             </label>
@@ -215,8 +235,8 @@ function EditarFamiliaModal({ familia, setFamilia, guardar }: { familia: Familia
         </div>
         <div style={{ padding: '10px 16px', borderTop: '1px solid #e5e7eb', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
           <button onClick={() => setFamilia(null)} style={{ height: 30, padding: '0 14px', background: '#f3f4f6', border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 12, cursor: 'pointer' }}>Cancelar</button>
-          <button onClick={guardar} disabled={!familia.Nombre.trim()}
-            style={{ height: 30, padding: '0 14px', background: familia.Nombre.trim() ? '#7c3aed' : '#d1d5db', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, cursor: familia.Nombre.trim() ? 'pointer' : 'not-allowed', display: 'flex', alignItems: 'center', gap: 5 }}>
+          <button onClick={onGuardar} disabled={!nombre.trim()}
+            style={{ height: 30, padding: '0 14px', background: nombre.trim() ? '#7c3aed' : '#d1d5db', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, cursor: nombre.trim() ? 'pointer' : 'not-allowed', display: 'flex', alignItems: 'center', gap: 5 }}>
             <Save size={12} /> Guardar
           </button>
         </div>

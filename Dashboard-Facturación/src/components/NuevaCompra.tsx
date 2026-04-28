@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, Fragment } from 'react';
 import { Search, Trash2, Plus, Save, X, Package } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { EditarArticuloModal } from './EditarArticuloModal';
@@ -19,6 +19,9 @@ interface LineaCompra {
   CostoConIva: number; FleteUnit: number; CostoFinal: number;
   CostoAnterior: number; CostoPromedio: number;
   PrecioVenta: number; Subtotal: number;
+  RequiereLote?: number;
+  FechaVencimiento?: string;
+  NumeroLote?: string;
 }
 
 let lid = Date.now();
@@ -123,7 +126,10 @@ export function NuevaCompra({ pedidoEditar, onClose }: { pedidoEditar?: number; 
       CostoSinIva: costoAnt, IvaPct: art.Iva || 0, IvaVal: costoAnt * ((art.Iva || 0) / 100),
       CostoConIva: costoAnt * (1 + (art.Iva || 0) / 100), FleteUnit: 0,
       CostoFinal: costoAnt, CostoAnterior: costoAnt, CostoPromedio: costoAnt,
-      PrecioVenta: art.Precio_Venta || 0, Subtotal: costoAnt * (1 + (art.Iva || 0) / 100)
+      PrecioVenta: art.Precio_Venta || 0, Subtotal: costoAnt * (1 + (art.Iva || 0) / 100),
+      RequiereLote: art.requiere_lote ? 1 : 0,
+      FechaVencimiento: '',
+      NumeroLote: '',
     };
     setLineas(prev => [...prev, nueva]);
     setBuscarProd(''); setShowProdDrop(false);
@@ -195,6 +201,10 @@ export function NuevaCompra({ pedidoEditar, onClose }: { pedidoEditar?: number; 
 
   const eliminarLinea = (id: number) => setLineas(prev => prev.filter(l => l.id !== id));
 
+  const actualizarLote = (id: number, field: 'FechaVencimiento' | 'NumeroLote', value: string) => {
+    setLineas(prev => prev.map(l => l.id === id ? { ...l, [field]: value } : l));
+  };
+
   const subtotalCompra = lineas.reduce((s, l) => s + l.Subtotal, 0);
   const totalIva = lineas.reduce((s, l) => s + l.IvaVal * l.Cantidad, 0);
   const totalCompra = subtotalCompra + flete - descuento;
@@ -207,6 +217,11 @@ export function NuevaCompra({ pedidoEditar, onClose }: { pedidoEditar?: number; 
     }
     if (lineas.length === 0) { toast.error('Agregue al menos un producto'); return; }
     if (!facturaCompra) { toast.error('Ingrese el Nº de factura del proveedor'); return; }
+    const sinFecha = lineas.filter(l => l.RequiereLote && !l.FechaVencimiento);
+    if (sinFecha.length > 0) {
+      toast.error(`Falta fecha de vencimiento en: ${sinFecha.map(l => l.Codigo).join(', ')}`, { duration: 5000 });
+      return;
+    }
     setGuardando(true);
     try {
       const body: any = {
@@ -224,6 +239,32 @@ export function NuevaCompra({ pedidoEditar, onClose }: { pedidoEditar?: number; 
       const d = await r.json();
       if (d.success) {
         toast.success(d.message, { duration: 5000 });
+        // Crear lotes para productos perecederos
+        const perecederas = lineas.filter(l => l.RequiereLote && l.FechaVencimiento);
+        if (perecederas.length > 0) {
+          const pedidoCreado = d.Pedido_N || pedidoN || null;
+          let okLotes = 0, failLotes = 0;
+          for (const l of perecederas) {
+            try {
+              const rl = await fetch('http://localhost:80/conta-app-backend/api/lotes/index.php', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  action: 'crear',
+                  items: l.Items,
+                  fecha_vencimiento: l.FechaVencimiento,
+                  cantidad: l.Cantidad,
+                  numero_lote: l.NumeroLote || null,
+                  pedido_n: pedidoCreado,
+                  comentario: `Compra #${pedidoCreado || ''} — ${facturaCompra}`,
+                })
+              });
+              const dl = await rl.json();
+              if (dl.success) okLotes++; else failLotes++;
+            } catch (e) { failLotes++; }
+          }
+          if (okLotes > 0) toast.success(`${okLotes} lote(s) registrados`);
+          if (failLotes > 0) toast.error(`${failLotes} lote(s) fallaron — revisa Productos por Vencer`);
+        }
         if (modoEdicion && onClose) {
           onClose();
         } else {
@@ -348,9 +389,13 @@ export function NuevaCompra({ pedidoEditar, onClose }: { pedidoEditar?: number; 
             </thead>
             <tbody>
               {lineas.map(l => (
-                <tr key={l.id} style={{ borderBottom: '1px solid #f3f4f6' }}>
+                <Fragment key={l.id}>
+                <tr style={{ borderBottom: l.RequiereLote ? 'none' : '1px solid #f3f4f6' }}>
                   <td style={{ padding: '3px 6px', color: '#6b7280', fontSize: 10 }}>{l.Codigo}</td>
-                  <td style={{ padding: '3px 6px', fontWeight: 500, fontSize: 11 }}>{l.Nombre}</td>
+                  <td style={{ padding: '3px 6px', fontWeight: 500, fontSize: 11 }}>
+                    {l.Nombre}
+                    {l.RequiereLote ? <span style={{ marginLeft: 6, padding: '1px 6px', background: '#fef3c7', color: '#92400e', fontSize: 9, borderRadius: 3, fontWeight: 700 }}>PERECEDERO</span> : null}
+                  </td>
                   <td style={{ padding: '2px 3px', textAlign: 'center' }}>
                     <input type="text" defaultValue={String(l.Cantidad)} onBlur={e => actualizarLinea(l.id, 'Cantidad', parseFloat(e.target.value) || 1)} onFocus={e => e.target.select()} onKeyDown={soloNum}
                       style={{ width: 40, height: 22, textAlign: 'center', border: '1px solid #d1d5db', borderRadius: 4, fontSize: 11, fontWeight: 600 }} />
@@ -379,6 +424,27 @@ export function NuevaCompra({ pedidoEditar, onClose }: { pedidoEditar?: number; 
                   <td style={{ padding: '3px 6px', textAlign: 'right', fontWeight: 700 }}>{fmtMon(l.Subtotal)}</td>
                   <td style={{ padding: '2px' }}><button onClick={() => eliminarLinea(l.id)} style={{ background: 'none', border: 'none', cursor: 'pointer' }}><Trash2 size={12} color="#dc2626" /></button></td>
                 </tr>
+                {l.RequiereLote ? (
+                  <tr style={{ borderBottom: '1px solid #f3f4f6', background: '#fffbeb' }}>
+                    <td colSpan={2} style={{ padding: '3px 6px 5px 24px', fontSize: 10, color: '#92400e', fontWeight: 600 }}>
+                      ↳ Lote / Vencimiento
+                    </td>
+                    <td colSpan={11} style={{ padding: '3px 6px 5px 6px' }}>
+                      <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center', fontSize: 10 }}>
+                        <span style={{ color: '#92400e', fontWeight: 600 }}>Vence:</span>
+                        <input type="date" value={l.FechaVencimiento || ''}
+                          onChange={e => actualizarLote(l.id, 'FechaVencimiento', e.target.value)}
+                          style={{ height: 22, padding: '0 4px', border: l.FechaVencimiento ? '1px solid #d1d5db' : '1px solid #f59e0b', borderRadius: 4, fontSize: 11 }} />
+                        <span style={{ color: '#92400e', fontWeight: 600, marginLeft: 6 }}>N° Lote:</span>
+                        <input type="text" placeholder="(opcional)" value={l.NumeroLote || ''}
+                          onChange={e => actualizarLote(l.id, 'NumeroLote', e.target.value)}
+                          style={{ width: 120, height: 22, padding: '0 6px', border: '1px solid #d1d5db', borderRadius: 4, fontSize: 11 }} />
+                        {!l.FechaVencimiento && <span style={{ color: '#dc2626', fontWeight: 600 }}>⚠ Fecha requerida</span>}
+                      </span>
+                    </td>
+                  </tr>
+                ) : null}
+                </Fragment>
               ))}
               {/* Fila entrada */}
               <tr style={{ background: '#fef2f2', borderBottom: '2px solid #e5e7eb' }}>

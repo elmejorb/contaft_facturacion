@@ -42,11 +42,11 @@ try {
     $query = "INSERT INTO tblarticulos (
         Items, Codigo, Nombres_Articulo, Id_Categoria, Existencia, Existencia_minima,
         Precio_Costo, Precio_Venta, Precio_Venta2, Precio_Venta3, Precio_Minimo,
-        Iva, CodigoPro, Estante, Estado, FechaMod
+        Iva, CodigoPro, Estante, Estado, requiere_lote, FechaMod
     ) VALUES (
         :items, :codigo, :nombre, :categoria, 0, :existenciaMinima,
         :costo, :precio1, :precio2, :precio3, :precioMinimo,
-        :iva, :proveedor, :estante, :estado, NOW()
+        :iva, :proveedor, :estante, :estado, :requiereLote, NOW()
     )";
 
     $stmt = $db->prepare($query);
@@ -65,6 +65,7 @@ try {
         ':proveedor' => $input['CodigoPro'] ?? 0,
         ':estante' => $input['Estante'] ?? '',
         ':estado' => $input['Estado'] ?? 1,
+        ':requiereLote' => !empty($input['requiere_lote']) ? 1 : 0,
     ]);
 
     echo json_encode([

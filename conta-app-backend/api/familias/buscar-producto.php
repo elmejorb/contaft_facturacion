@@ -15,7 +15,7 @@ if (strlen($q) < 2) { echo json_encode(['success' => true, 'articulos' => []]); 
 
 try {
     $sql = "
-        SELECT a.Items, a.Codigo, a.Nombres_Articulo, a.Existencia, a.Precio_Venta
+        SELECT a.Items, a.Codigo, a.Nombres_Articulo, a.Existencia, a.Precio_Venta, a.Precio_Costo, a.Iva
         FROM tblarticulos a
         WHERE a.Estado = 1
           AND (a.Codigo LIKE :q OR a.Nombres_Articulo LIKE :q)

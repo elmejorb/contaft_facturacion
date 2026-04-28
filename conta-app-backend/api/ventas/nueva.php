@@ -176,6 +176,26 @@ try {
         ]);
     }
 
+    // Guardar retenciones aplicadas a esta factura (snapshot)
+    if (!empty($data->retenciones) && is_array($data->retenciones)) {
+        $stmtRet = $db->prepare("
+            INSERT INTO tblventa_retenciones (Factura_N, Id_Retencion, Codigo, Nombre, Porcentaje, Base, Valor, Modo)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ");
+        foreach ($data->retenciones as $ret) {
+            $stmtRet->execute([
+                $factN,
+                intval($ret->id_retencion ?? 0) ?: null,
+                $ret->codigo ?? '',
+                $ret->nombre ?? '',
+                floatval($ret->porcentaje ?? 0),
+                floatval($ret->base ?? 0),
+                floatval($ret->valor ?? 0),
+                ($ret->modo ?? 'informativo') === 'gross_up' ? 'gross_up' : 'informativo',
+            ]);
+        }
+    }
+
     $db->commit();
 
     echo json_encode([

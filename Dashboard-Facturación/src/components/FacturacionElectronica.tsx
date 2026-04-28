@@ -3,7 +3,7 @@ import { AgGridReact } from 'ag-grid-react';
 import { AllCommunityModule, ModuleRegistry, ColDef } from 'ag-grid-community';
 import {
   Search, RefreshCw, FileText, CheckCircle, XCircle, AlertTriangle,
-  Clock, Send, Eye, Printer, Globe, Mail, MailCheck, MailOpen, MailX
+  Clock, Send, Eye, Printer, Globe, Mail, MailCheck, MailOpen, MailX, FileMinus, X
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { DetalleDocElectronico } from './DetalleDocElectronico';
@@ -34,6 +34,9 @@ export function FacturacionElectronica() {
   const [ndValor, setNdValor] = useState('');
   const [ndDescripcion, setNdDescripcion] = useState('');
   const [emailStatusMap, setEmailStatusMap] = useState<Record<string, any>>({});
+  const [contingencias, setContingencias] = useState<any[]>([]);
+  const [showContingencias, setShowContingencias] = useState(false);
+  const [reenviandoCont, setReenviandoCont] = useState(false);
   const gridRef = useRef<AgGridReact>(null);
 
   const cargar = async () => {
@@ -91,18 +94,22 @@ export function FacturacionElectronica() {
     } catch (e) { toast.error('Error'); }
   };
 
-  const enviarNotaCredito = async (factN: number, motivo: string) => {
+  const enviarNotaCredito = async (factN: number, motivo: string, conceptId: number = 2) => {
     toast.loading('Enviando Nota Crédito a DIAN...', { id: 'nc-send' });
     try {
       const r = await fetch(`${API}/enviar.php`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'nota_credito', factura_n: factN, motivo })
+        body: JSON.stringify({ action: 'nota_credito', factura_n: factN, motivo, concept_id: conceptId })
       });
       const d = await r.json();
       if (d.success) {
         toast.success(`Nota Crédito enviada: ${d.message}`, { id: 'nc-send', duration: 6000 });
         setShowNotaCredito(null);
         cargar();
+        // Abrir PDF de la NC recién creada
+        if (d.doc_local_id) {
+          window.open(`${API}/pdf.php?id=${d.doc_local_id}`, 'PDF_NC', 'width=900,height=700,menubar=no,toolbar=no');
+        }
       } else {
         toast.error(`Error: ${d.message}`, { id: 'nc-send', duration: 10000 });
       }
@@ -152,6 +159,44 @@ export function FacturacionElectronica() {
     } catch (e) { toast.error('Error de conexión', { id: 'email-send' }); }
   };
 
+  const cargarContingencias = async () => {
+    try {
+      const r = await fetch(`${API}/enviar.php`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'listar_contingencias' })
+      });
+      const d = await r.json();
+      if (d.success) setContingencias(d.contingencias || []);
+    } catch (e) { /* silencioso */ }
+  };
+
+  const reenviarUnaContingencia = async (factN: number) => {
+    try {
+      const r = await fetch(`${API}/enviar.php`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'reenviar_contingencia', factura_n: factN })
+      });
+      const d = await r.json();
+      return { ok: !!d.success, msg: d.message || '' };
+    } catch (e) {
+      return { ok: false, msg: 'Error de conexión' };
+    }
+  };
+
+  const reenviarTodasContingencias = async () => {
+    if (contingencias.length === 0) { toast('No hay facturas en contingencia'); return; }
+    setReenviandoCont(true);
+    let ok = 0, fail = 0;
+    for (const c of contingencias) {
+      const r = await reenviarUnaContingencia(c.Factura_N);
+      if (r.ok) ok++; else fail++;
+    }
+    setReenviandoCont(false);
+    toast.success(`Reenvío completado: ${ok} exitosas, ${fail} fallidas`, { duration: 6000 });
+    cargarContingencias();
+    cargar();
+  };
+
   const cargarEmailStatus = async (force = false) => {
     try {
       const nocache = force ? '&nocache=1' : '';
@@ -162,7 +207,7 @@ export function FacturacionElectronica() {
     } catch (e) { /* silencioso: el sobre cae al estado local */ }
   };
 
-  useEffect(() => { cargar(); cargarEmailStatus(); }, [anio, mes]);
+  useEffect(() => { cargar(); cargarEmailStatus(); cargarContingencias(); }, [anio, mes]);
 
   const emailStatusStyle = (status: string | null, sent: boolean) => {
     switch (status) {
@@ -300,6 +345,13 @@ export function FacturacionElectronica() {
               <Mail size={13} color={p.data.email_sent ? '#16a34a' : '#2563eb'} />
             </button>
           )}
+          {p.data.cufe && p.data.status === 'autorizado' && p.data.factura_n_local && (
+            <button title="Anular / Nota Crédito"
+              onClick={() => setShowNotaCredito({ factN: p.data.number, factura_n_local: p.data.factura_n_local, id: p.data.id, cliente: p.data.cliente_nombre, total: p.data.total, prefix: p.data.prefix })}
+              style={{ width: 26, height: 24, border: '1px solid #fca5a5', borderRadius: 4, cursor: 'pointer', background: '#fef2f2', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <FileMinus size={13} color="#dc2626" />
+            </button>
+          )}
         </div>
       )
     }
@@ -341,11 +393,17 @@ export function FacturacionElectronica() {
           <p style={{ fontSize: 13, color: '#6b7280', margin: '2px 0 0' }}>Documentos electrónicos enviados a la DIAN</p>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
+          {contingencias.length > 0 && (
+            <button onClick={() => setShowContingencias(true)} title="Facturas pendientes de reenviar a DIAN"
+              style={{ height: 30, padding: '0 12px', background: '#fef3c7', color: '#92400e', border: '1px solid #fde68a', borderRadius: 8, fontSize: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5, fontWeight: 600 }}>
+              <AlertTriangle size={14} /> Contingencias ({contingencias.length})
+            </button>
+          )}
           <button onClick={() => { cargarResoluciones(); setShowResoluciones(true); }}
             style={{ height: 30, padding: '0 12px', background: '#f3f4f6', color: '#374151', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
             <Globe size={14} /> Resoluciones
           </button>
-          <button onClick={() => { cargar(); cargarEmailStatus(true); }}
+          <button onClick={() => { cargar(); cargarEmailStatus(true); cargarContingencias(); }}
             style={{ height: 30, padding: '0 12px', background: '#7c3aed', color: '#fff', border: 'none', borderRadius: 8, fontSize: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
             <RefreshCw size={14} /> Refrescar
           </button>
@@ -449,6 +507,78 @@ export function FacturacionElectronica() {
       )}
 
       {/* Modal resoluciones */}
+      {showNotaCredito && (
+        <NotaCreditoModal nc={showNotaCredito} onClose={() => setShowNotaCredito(null)} onEnviar={enviarNotaCredito} />
+      )}
+      {showContingencias && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 99999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.4)' }} onClick={() => setShowContingencias(false)} />
+          <div style={{ position: 'relative', background: '#fff', borderRadius: 12, width: 820, maxHeight: '85vh', boxShadow: '0 20px 60px rgba(0,0,0,0.25)', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()}>
+            <div style={{ padding: '14px 18px', borderBottom: '1px solid #e5e7eb', display: 'flex', alignItems: 'center', gap: 10, background: '#fffbeb' }}>
+              <AlertTriangle size={20} color="#d97706" />
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 15, fontWeight: 700 }}>Facturas en contingencia</div>
+                <div style={{ fontSize: 11, color: '#6b7280' }}>Pendientes de transmitir a la DIAN. Plazo máximo legal: 48 horas desde la emisión.</div>
+              </div>
+              <button onClick={() => setShowContingencias(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}>✕</button>
+            </div>
+            <div style={{ padding: 14, overflow: 'auto', flex: 1 }}>
+              {contingencias.length === 0 ? (
+                <div style={{ padding: 40, textAlign: 'center', color: '#9ca3af', fontSize: 13 }}>No hay facturas en contingencia</div>
+              ) : (
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                  <thead>
+                    <tr style={{ background: '#f9fafb', color: '#6b7280', fontSize: 11, fontWeight: 600 }}>
+                      <th style={{ padding: 8, textAlign: 'left' }}>Factura</th>
+                      <th style={{ padding: 8, textAlign: 'left' }}>Fecha emisión</th>
+                      <th style={{ padding: 8, textAlign: 'left' }}>Cliente</th>
+                      <th style={{ padding: 8, textAlign: 'right' }}>Total</th>
+                      <th style={{ padding: 8, textAlign: 'center' }}>Espera</th>
+                      <th style={{ padding: 8, textAlign: 'left' }}>Motivo</th>
+                      <th style={{ padding: 8 }}></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {contingencias.map((c: any) => {
+                      const dias = parseInt(c.dias_espera || 0);
+                      const vencida = dias > 2;
+                      return (
+                        <tr key={c.Factura_N} style={{ borderTop: '1px solid #f3f4f6' }}>
+                          <td style={{ padding: 8, color: '#7c3aed', fontWeight: 700 }}>{c.Factura_N}</td>
+                          <td style={{ padding: 8 }}>{c.contingencia_fecha ? new Date(c.contingencia_fecha).toLocaleString('es-CO') : '-'}</td>
+                          <td style={{ padding: 8 }}>{c.A_nombre || '-'}</td>
+                          <td style={{ padding: 8, textAlign: 'right', fontWeight: 600 }}>{fmtMon(parseFloat(c.Total))}</td>
+                          <td style={{ padding: 8, textAlign: 'center', color: vencida ? '#dc2626' : '#d97706', fontWeight: 600 }}>{dias}d</td>
+                          <td style={{ padding: 8, fontSize: 11, color: '#6b7280', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={c.contingencia_motivo}>{c.contingencia_motivo || '-'}</td>
+                          <td style={{ padding: 8, textAlign: 'right' }}>
+                            <button onClick={async () => {
+                                const r = await reenviarUnaContingencia(c.Factura_N);
+                                if (r.ok) { toast.success(`Factura #${c.Factura_N} enviada a DIAN`); cargarContingencias(); cargar(); }
+                                else toast.error(`#${c.Factura_N}: ${r.msg}`);
+                              }}
+                              style={{ height: 26, padding: '0 10px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: 6, fontSize: 11, cursor: 'pointer', fontWeight: 600 }}>
+                              Reenviar
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
+            <div style={{ padding: '10px 18px', borderTop: '1px solid #e5e7eb', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button onClick={() => setShowContingencias(false)} style={{ height: 32, padding: '0 14px', background: '#f3f4f6', border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 12, cursor: 'pointer' }}>Cerrar</button>
+              {contingencias.length > 0 && (
+                <button onClick={reenviarTodasContingencias} disabled={reenviandoCont}
+                  style={{ height: 32, padding: '0 14px', background: reenviandoCont ? '#9ca3af' : '#d97706', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, cursor: reenviandoCont ? 'wait' : 'pointer', fontWeight: 700 }}>
+                  {reenviandoCont ? 'Reenviando...' : `Reenviar todas (${contingencias.length})`}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
       {showResoluciones && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.4)' }} onClick={() => setShowResoluciones(false)} />
@@ -514,6 +644,82 @@ export function FacturacionElectronica() {
         <DetalleDocElectronico docId={facturaDetalle} onClose={() => setFacturaDetalle(null)} onUpdate={cargar} />
       )}
 
+    </div>
+  );
+}
+
+// ==================== Modal Nota Crédito (Anulación) ====================
+const CONCEPTOS_NC = [
+  { id: 2, label: 'Anulación de factura electrónica', desc: 'La factura queda sin efecto. Se envía NC por el total de la factura original.', disabled: false },
+  { id: 1, label: 'Devolución parcial de bienes / no aceptación parcial del servicio', desc: 'Próximamente — requiere selección de ítems y cantidades.', disabled: true },
+  { id: 3, label: 'Rebaja o descuento parcial o total', desc: 'Próximamente — requiere campo de rebaja.', disabled: true },
+  { id: 4, label: 'Ajuste de precio', desc: 'Próximamente — requiere precio nuevo por ítem.', disabled: true },
+  { id: 5, label: 'Otros', desc: 'Próximamente.', disabled: true },
+];
+
+function NotaCreditoModal({ nc, onClose, onEnviar }: { nc: any; onClose: () => void; onEnviar: (factN: number, motivo: string, conceptId: number) => void }) {
+  const [conceptId, setConceptId] = useState(2);
+  const [motivo, setMotivo] = useState('Anulación de la factura por error en los datos');
+  const [confirmando, setConfirmando] = useState(false);
+
+  const factN = nc.factura_n_local || nc.factN || 0;
+
+  const enviar = () => {
+    if (!factN) { toast.error('No se encontró la factura local'); return; }
+    if (!motivo.trim()) { toast.error('Ingrese un motivo'); return; }
+    if (!confirm(`¿Confirmar la emisión de Nota Crédito ${conceptId === 2 ? '(ANULACIÓN)' : ''} para la factura ${nc.prefix}${nc.factN}?\n\nEsta operación NO se puede revertir.`)) return;
+    setConfirmando(true);
+    onEnviar(factN, motivo, conceptId);
+  };
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 99999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.5)' }} onClick={onClose} />
+      <div style={{ position: 'relative', background: '#fff', borderRadius: 12, width: 560, boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }} onClick={e => e.stopPropagation()}>
+        <div style={{ padding: '14px 18px', borderBottom: '1px solid #e5e7eb', display: 'flex', alignItems: 'center', gap: 10, background: '#fef2f2' }}>
+          <FileMinus size={20} color="#dc2626" />
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 15, fontWeight: 700 }}>Emitir Nota Crédito</div>
+            <div style={{ fontSize: 11, color: '#6b7280' }}>Factura {nc.prefix}{nc.factN} — {nc.cliente} — ${Math.round(nc.total).toLocaleString('es-CO')}</div>
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer' }}><X size={18} /></button>
+        </div>
+        <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div>
+            <label style={{ fontSize: 11, color: '#6b7280', fontWeight: 600 }}>CONCEPTO DIAN *</label>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 4 }}>
+              {CONCEPTOS_NC.map(c => (
+                <label key={c.id}
+                  style={{ padding: '8px 10px', borderRadius: 6, cursor: c.disabled ? 'not-allowed' : 'pointer', border: `2px solid ${conceptId === c.id ? '#dc2626' : '#e5e7eb'}`, background: conceptId === c.id ? '#fef2f2' : '#fff', opacity: c.disabled ? 0.4 : 1 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <input type="radio" name="concept" checked={conceptId === c.id} disabled={c.disabled}
+                      onChange={() => !c.disabled && setConceptId(c.id)} style={{ accentColor: '#dc2626' }} />
+                    <span style={{ fontSize: 12, fontWeight: 600 }}>{c.id}. {c.label}</span>
+                  </div>
+                  {c.desc && <div style={{ fontSize: 10, color: '#6b7280', marginLeft: 22, marginTop: 2 }}>{c.desc}</div>}
+                </label>
+              ))}
+            </div>
+          </div>
+          <div>
+            <label style={{ fontSize: 11, color: '#6b7280', fontWeight: 600 }}>MOTIVO / DESCRIPCIÓN *</label>
+            <textarea value={motivo} onChange={e => setMotivo(e.target.value)} rows={2}
+              placeholder="Describe brevemente por qué se anula o corrige esta factura"
+              style={{ width: '100%', border: '1px solid #d1d5db', borderRadius: 6, padding: '6px 8px', fontSize: 12, marginTop: 2, resize: 'vertical', fontFamily: 'inherit' }} />
+          </div>
+          <div style={{ padding: 8, background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 6, fontSize: 11, color: '#78350f' }}>
+            <b>⚠ Importante:</b> una vez enviada a la DIAN, la Nota Crédito queda registrada permanentemente. Si es anulación, la factura original quedará marcada como <b>Anulada</b>.
+          </div>
+        </div>
+        <div style={{ padding: '10px 18px', borderTop: '1px solid #e5e7eb', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+          <button onClick={onClose} disabled={confirmando}
+            style={{ height: 32, padding: '0 14px', background: '#f3f4f6', border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 12, cursor: 'pointer' }}>Cancelar</button>
+          <button onClick={enviar} disabled={confirmando}
+            style={{ height: 32, padding: '0 16px', background: confirmando ? '#9ca3af' : '#dc2626', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, cursor: confirmando ? 'wait' : 'pointer', fontWeight: 700 }}>
+            {confirmando ? 'Enviando...' : 'Emitir Nota Crédito'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

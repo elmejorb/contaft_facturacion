@@ -29,10 +29,12 @@ try {
                e.type_document_id, td.name as tipo_documento,
                e.prefix, e.number, e.status, e.total, e.cufe, e.invoice_cufe,
                e.sent_at, e.nota, e.EstadoFact, e.email_sent,
-               c.Razon_Social as cliente_nombre
+               c.Razon_Social as cliente_nombre,
+               v.Factura_N as factura_n_local
         FROM electronic_documents e
         LEFT JOIN type_documents td ON e.type_document_id = td.id
         LEFT JOIN tblclientes c ON e.cod_cliente = c.CodigoClien
+        LEFT JOIN tblventas v ON v.cufe = e.cufe
         WHERE $where
         ORDER BY e.id DESC
     ");

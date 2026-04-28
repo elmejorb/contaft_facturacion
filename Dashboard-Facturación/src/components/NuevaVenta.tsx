@@ -9,6 +9,7 @@ const API_VENTA = 'http://localhost:80/conta-app-backend/api/ventas/nueva.php';
 const API_CLIENTES = 'http://localhost:80/conta-app-backend/api/clientes/buscar.php';
 const API_FE = 'http://localhost:80/conta-app-backend/api/facturacion-electronica/enviar.php';
 const API_DISTRIBUIR = 'http://localhost:80/conta-app-backend/api/familias/distribuir.php';
+const API_RETENCIONES = 'http://localhost:80/conta-app-backend/api/retenciones/listar.php';
 
 // Modal de buscar cliente como componente independiente (no se re-renderiza con NuevaVenta)
 function BuscarClienteModal({ onSelect, onClose }: { onSelect: (c: any) => void; onClose: () => void }) {
@@ -135,6 +136,10 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
   const [success, setSuccess] = useState('');
   const [showPagoModal, setShowPagoModal] = useState(false);
   const [distribucionesPendientes, setDistribucionesPendientes] = useState<any[] | null>(null);
+  const [contingenciaPrompt, setContingenciaPrompt] = useState<{ factN: number; motivo: string; intentos: number } | null>(null);
+  const [previewXml, setPreviewXml] = useState<{ factN: number; xml: string } | null>(null);
+  const [retencionesCliente, setRetencionesCliente] = useState<any[]>([]);
+  const [retencionModoCliente, setRetencionModoCliente] = useState<'informativo' | 'gross_up'>('gross_up');
   const [pagoEfectivo, setPagoEfectivo] = useState('');
   const [pagoTransferencia, setPagoTransferencia] = useState('');
   const [pagoMedioTransf, setPagoMedioTransf] = useState(2); // Bancolombia por defecto
@@ -267,10 +272,55 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
     }, 0);
   }, [tipo, dias, listaPrecio, descuentoGlobal, cliente.id, lineas, tipoDocumento]);
 
-  // Totales
-  const subtotal = lineas.reduce((s, l) => s + l.Subtotal, 0);
-  const totalIva = lineas.reduce((s, l) => s + (l.Subtotal * (l.Iva / 100)), 0);
-  const total = subtotal + totalIva - descuentoGlobal;
+  // Cargar retenciones del cliente seleccionado
+  useEffect(() => {
+    if (!cliente.id || cliente.id === 130500) { setRetencionesCliente([]); setRetencionModoCliente('gross_up'); return; }
+    (async () => {
+      try {
+        const [rRet, rAsig] = await Promise.all([
+          fetch(`${API_RETENCIONES}?activas=1`).then(r => r.json()),
+          fetch(`${API_RETENCIONES}?cliente=${cliente.id}`).then(r => r.json())
+        ]);
+        if (rRet.success && rAsig.success) {
+          const aplicadas = (rAsig.retenciones_aplicadas || []) as number[];
+          const retenciones = (rRet.retenciones || []).filter((r: any) => aplicadas.includes(r.Id_Retencion));
+          setRetencionesCliente(retenciones);
+          setRetencionModoCliente(rAsig.modo || 'gross_up');
+        }
+      } catch (e) { setRetencionesCliente([]); }
+    })();
+  }, [cliente.id]);
+
+  // Totales "base" (si no hubiera retención)
+  const subtotalBase = lineas.reduce((s, l) => s + l.Subtotal, 0);
+  const totalIvaBase = lineas.reduce((s, l) => s + (l.Subtotal * (l.Iva / 100)), 0);
+  const ivaFrac = subtotalBase > 0 ? totalIvaBase / subtotalBase : 0;
+
+  // Suma de % de retenciones aplicadas (todas se aplican sobre el subtotal antes de IVA)
+  const pctTotalRetencion = retencionesCliente.reduce((s, r) => s + (parseFloat(r.Porcentaje) || 0), 0);
+
+  // Gross-up: subir el subtotal de modo que (Total_new - Retención_new) == Total_base.
+  // Fórmula: f = (1 + iva_frac) / (1 + iva_frac - ret_pct)
+  const retFrac = pctTotalRetencion / 100;
+  const factorGrossUp = retencionModoCliente === 'gross_up' && retFrac > 0 && (1 + ivaFrac - retFrac) > 0
+    ? (1 + ivaFrac) / (1 + ivaFrac - retFrac)
+    : 1;
+
+  const subtotal = subtotalBase * factorGrossUp;
+  const totalIva = totalIvaBase * factorGrossUp;
+  const totalFactura = subtotal + totalIva - descuentoGlobal;
+  const retencionesCalc = retencionesCliente.map((r: any) => {
+    const pct = parseFloat(r.Porcentaje) || 0;
+    const base = subtotal;
+    const valor = +(base * (pct / 100)).toFixed(2);
+    return { id_retencion: r.Id_Retencion, codigo: r.Codigo, nombre: r.Nombre, porcentaje: pct, base, valor, modo: retencionModoCliente };
+  });
+  const totalRetenciones = retencionesCalc.reduce((s, r) => s + r.valor, 0);
+
+  // total = lo que el cliente paga (ya contiene el gross-up si aplica)
+  // netoEsperado = lo que recibo neto tras retención
+  const total = totalFactura;
+  const netoEsperado = total - totalRetenciones;
   const cambio = tipo === 'Contado' && efectivo ? Math.max(parseInt(efectivo) - total, 0) : 0;
 
   // Abrir modal de pago
@@ -351,10 +401,83 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
     await ejecutarVenta();
   };
 
+  const finalizarVentaExitosa = (factN: number, dianDocId: number | null, enContingencia: boolean) => {
+    const cfg = getConfigImpresion();
+    if (cfg.imprimirAlGuardar) {
+      if (tipoDocumento === 'electronica' && dianDocId && !enContingencia) {
+        window.open(`http://localhost:80/conta-app-backend/api/facturacion-electronica/pdf.php?id=${dianDocId}`, 'PDF_FE', 'width=900,height=700,menubar=no,toolbar=no');
+      } else {
+        const medioNombre = pagoTransfNum > 0 ? (['','Tarjeta','Bancolombia','Nequi'][pagoMedioTransf] || 'Transferencia') : 'Efectivo';
+        const lineasPrint = factorGrossUp !== 1
+          ? lineas.map(l => ({ ...l, PrecioVenta: l.PrecioVenta * factorGrossUp, Subtotal: l.Subtotal * factorGrossUp, Descuento: l.Descuento * factorGrossUp }))
+          : lineas;
+        const datosImp = buildDatosFactura(factN, lineasPrint, cliente, tipo, dias, descuentoGlobal, pagoEfectivoNum, pagoTransfNum, cambioPago, tipo !== 'Contado' ? pagoAbonoNum : 0, medioNombre, false, enContingencia, retencionesCalc, retencionModoCliente);
+        imprimirFactura(datosImp);
+      }
+    }
+    setShowPagoModal(false);
+    const baseMsg = enContingencia
+      ? `Factura #${factN} emitida en CONTINGENCIA — pendiente de envío a DIAN`
+      : `Factura #${factN} guardada exitosamente`;
+    toast.success(cambioPago > 0 ? `${baseMsg} — Cambio: ${fmtMon(cambioPago)}` : baseMsg,
+      { duration: enContingencia ? 8000 : (cambioPago > 0 ? 8000 : 4000) });
+    setLineas([]); setDescuentoGlobal(0); setEfectivo(''); setNota('');
+    setCliente({ id: 130500, nombre: 'VENTAS AL CONTADO', nit: '0', tel: '0', dir: '-', cupo: 0, esCliente: false, email: '' });
+    setTipoDocumento('pos');
+    onFacturaCreada?.(factN);
+    setGuardando(false);
+  };
+
+  const aceptarContingencia = async () => {
+    if (!contingenciaPrompt) return;
+    const { factN, motivo } = contingenciaPrompt;
+    try {
+      const r = await fetch(API_FE, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'marcar_contingencia', factura_n: factN, motivo })
+      });
+      const d = await r.json();
+      if (!d.success) { toast.error(d.message || 'Error marcando contingencia'); return; }
+    } catch (e) {
+      toast.error('No se pudo marcar contingencia en el servidor local');
+      return;
+    }
+    setContingenciaPrompt(null);
+    finalizarVentaExitosa(contingenciaPrompt.factN, null, true);
+  };
+
+  const reintentarDian = async () => {
+    if (!contingenciaPrompt) return;
+    const { factN, intentos } = contingenciaPrompt;
+    toast.loading('Reintentando DIAN...', { id: 'dian-retry' });
+    try {
+      const rDian = await fetch(API_FE, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'factura', factura_n: factN, send_email: enviarEmailFE })
+      });
+      const dDian = await rDian.json();
+      if (dDian.success) {
+        toast.success(`DIAN: Factura ${dDian.consecutive ? '#' + dDian.consecutive : ''} aprobada`, { id: 'dian-retry', duration: 6000 });
+        setContingenciaPrompt(null);
+        finalizarVentaExitosa(factN, dDian.doc_local_id || null, false);
+      } else {
+        toast.dismiss('dian-retry');
+        setContingenciaPrompt({ factN, motivo: dDian.message || 'DIAN rechazó la factura', intentos: intentos + 1 });
+      }
+    } catch (e) {
+      toast.dismiss('dian-retry');
+      setContingenciaPrompt({ factN, motivo: 'Sin conexión con la API', intentos: intentos + 1 });
+    }
+  };
+
   const ejecutarVenta = async () => {
     setGuardando(true); setError('');
     const medioFinal = pagoTransfNum > 0 && pagoEfectivoNum === 0 ? pagoMedioTransf : pagoTransfNum > 0 ? pagoMedioTransf : 0;
     try {
+      // Si hay gross-up, las líneas se re-escalan individualmente multiplicando cada precio por factorGrossUp
+      const lineasFinal = factorGrossUp !== 1
+        ? lineas.map(l => ({ ...l, PrecioVenta: l.PrecioVenta * factorGrossUp, Subtotal: l.Subtotal * factorGrossUp, Descuento: l.Descuento * factorGrossUp }))
+        : lineas;
       const body = {
         tipo, dias: tipo === 'Contado' ? 0 : dias,
         cliente_id: cliente.id, cliente_nombre: cliente.nombre,
@@ -362,10 +485,11 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
         medio_pago: medioFinal, vendedor: 0, descuento_global: descuentoGlobal, comentario: nota || '-',
         efectivo: pagoEfectivoNum, valor_pagado: pagoTransfNum,
         abono: tipo !== 'Contado' ? pagoAbonoNum : 0,
-        items: lineas.map(l => ({
+        items: lineasFinal.map(l => ({
           items: l.Items, cantidad: l.Cantidad, precio: l.PrecioVenta,
           precio_costo: l.PrecioCosto, iva: l.Iva, descuento: l.Descuento,
-        }))
+        })),
+        retenciones: retencionesCalc,
       };
       const r = await fetch(API_VENTA, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -378,6 +502,28 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
         // Si es factura electrónica, enviar a DIAN
         let dianDocId: number | null = null;
         if (tipoDocumento === 'electronica') {
+          const cfgFE = getConfigImpresion();
+          // Modo prueba: enviar a preview-xml en vez de DIAN
+          if (cfgFE.modoPruebaFE) {
+            toast.loading('Generando XML de prueba...', { id: 'dian' });
+            try {
+              const rPrev = await fetch(API_FE, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'factura_preview', factura_n: factN })
+              });
+              const dPrev = await rPrev.json();
+              if (dPrev.success && dPrev.xml) {
+                toast.success('XML de prueba generado (NO enviado a DIAN)', { id: 'dian', duration: 4000 });
+                setPreviewXml({ factN, xml: dPrev.xml });
+              } else {
+                toast.error(`Preview falló: ${dPrev.message || 'Error'}`, { id: 'dian', duration: 8000 });
+              }
+            } catch (e) { toast.error('Error preview-xml', { id: 'dian' }); }
+            // No llamamos a finalizarVentaExitosa aquí — el modal del XML se muestra al usuario y la venta queda igual sin CUFE.
+            // Igualmente llamamos al cierre normal sin abrir PDF de DIAN
+            finalizarVentaExitosa(factN, null, false);
+            return;
+          }
           toast.loading('Enviando a DIAN...', { id: 'dian' });
           try {
             const rDian = await fetch(API_FE, {
@@ -390,36 +536,20 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
               const emailMsg = dDian.email_result?.success ? ` — Email enviado a ${dDian.email_result.recipient}` : '';
               toast.success(`DIAN: Factura ${dDian.consecutive ? '#' + dDian.consecutive : ''} aprobada${emailMsg}`, { id: 'dian', duration: 6000 });
             } else {
-              toast.error(`DIAN: ${dDian.message || 'Error al enviar'}`, { id: 'dian', duration: 10000 });
+              toast.dismiss('dian');
+              setGuardando(false);
+              setContingenciaPrompt({ factN, motivo: dDian.message || 'DIAN rechazó la factura', intentos: 1 });
+              return; // El modal maneja el resto
             }
           } catch (e) {
-            toast.error('Error de conexión con la API de facturación electrónica', { id: 'dian', duration: 8000 });
+            toast.dismiss('dian');
+            setGuardando(false);
+            setContingenciaPrompt({ factN, motivo: 'Sin conexión con la API de facturación electrónica', intentos: 1 });
+            return;
           }
         }
 
-        const cfg = getConfigImpresion();
-        // Imprimir si está configurado
-        if (cfg.imprimirAlGuardar) {
-          if (tipoDocumento === 'electronica' && dianDocId) {
-            // Para factura electrónica: abrir el PDF de TCPDF
-            window.open(`http://localhost:80/conta-app-backend/api/facturacion-electronica/pdf.php?id=${dianDocId}`, 'PDF_FE', 'width=900,height=700,menubar=no,toolbar=no');
-          } else {
-            const medioNombre = pagoTransfNum > 0 ? (['','Tarjeta','Bancolombia','Nequi'][pagoMedioTransf] || 'Transferencia') : 'Efectivo';
-            const datosImp = buildDatosFactura(factN, lineas, cliente, tipo, dias, descuentoGlobal, pagoEfectivoNum, pagoTransfNum, cambioPago, tipo !== 'Contado' ? pagoAbonoNum : 0, medioNombre);
-            imprimirFactura(datosImp);
-          }
-        }
-        setShowPagoModal(false);
-        toast.success(
-          cambioPago > 0
-            ? `Factura #${factN} guardada — Cambio: ${fmtMon(cambioPago)}`
-            : `Factura #${factN} guardada exitosamente`,
-          { duration: cambioPago > 0 ? 8000 : 4000 }
-        );
-        setLineas([]); setDescuentoGlobal(0); setEfectivo(''); setNota('');
-        setCliente({ id: 130500, nombre: 'VENTAS AL CONTADO', nit: '0', tel: '0', dir: '-', cupo: 0, esCliente: false, email: '' });
-        setTipoDocumento('pos');
-        onFacturaCreada?.(factN);
+        finalizarVentaExitosa(factN, dianDocId, false);
       } else { toast.error(d.message); }
     } catch (e) { toast.error('Error al crear factura'); }
     setGuardando(false);
@@ -485,6 +615,20 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
     <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 110px)' }}>
       {error && <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, padding: '6px 14px', marginBottom: 8, color: '#dc2626', fontSize: 12, display: 'flex', justifyContent: 'space-between' }}>{error}<button onClick={() => setError('')} style={{ background: 'none', border: 'none', cursor: 'pointer' }}><X size={14} /></button></div>}
       {success && <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: '6px 14px', marginBottom: 8, color: '#16a34a', fontSize: 13, fontWeight: 600 }}>{success}</div>}
+
+      {getConfigImpresion().modoPruebaFE && (
+        <div style={{ background: 'repeating-linear-gradient(45deg, #fef3c7, #fef3c7 10px, #fde68a 10px, #fde68a 20px)', border: '2px solid #d97706', borderRadius: 8, padding: '8px 14px', marginBottom: 6, color: '#78350f', fontSize: 12, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 10, animation: 'pulseBanner 2s ease-in-out infinite' }}>
+          <span style={{ fontSize: 18 }}>🧪</span>
+          <div style={{ flex: 1 }}>
+            <div>MODO PRUEBA FE ACTIVO</div>
+            <div style={{ fontSize: 10, fontWeight: 500, marginTop: 2 }}>
+              Las facturas electrónicas NO se enviarán a la DIAN. Solo se generará el XML para revisión. Apaga este modo en producción (Configuración → Módulos del Negocio).
+            </div>
+          </div>
+          <span style={{ fontSize: 18 }}>🧪</span>
+        </div>
+      )}
+      <style>{`@keyframes pulseBanner { 0%,100% { opacity: 1; } 50% { opacity: 0.85; } }`}</style>
 
       {/* Fila 1: Datos factura */}
       <div style={{ background: '#fff', borderRadius: 12, padding: '8px 16px', marginBottom: 6, boxShadow: '0 1px 3px rgba(0,0,0,0.08)', flexShrink: 0, display: 'flex', alignItems: 'flex-end', gap: 10 }}>
@@ -552,6 +696,17 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
           );
         })()}
         <div style={{ flex: 1 }} />
+        {retencionesCalc.length > 0 && (
+          <div style={{ fontSize: 10, textAlign: 'right', borderRight: '1px solid #e5e7eb', paddingRight: 12, marginRight: 4 }}>
+            <div style={{ color: '#6b7280', fontWeight: 600 }}>RETENCIONES {retencionModoCliente === 'gross_up' ? '(gross-up)' : '(inf.)'}</div>
+            {retencionesCalc.map((r: any) => (
+              <div key={r.codigo} style={{ color: '#dc2626', fontFamily: 'monospace' }}>
+                {r.porcentaje.toFixed(2)}% = -{fmtMon(r.valor)}
+              </div>
+            ))}
+            <div style={{ marginTop: 2, color: '#16a34a', fontWeight: 700 }}>Neto: {fmtMon(netoEsperado)}</div>
+          </div>
+        )}
         <div style={{ textAlign: 'right' }}>
           <div style={{ fontSize: 9, color: '#6b7280' }}>TOTAL</div>
           <div style={{ fontSize: 28, fontWeight: 800, color: total > 0 ? '#16a34a' : '#9ca3af', lineHeight: 1 }}>{fmtMon(total)}</div>
@@ -844,6 +999,79 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
       )}
 
       {/* Modal de Pago */}
+      {previewXml && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 999999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.55)' }} onClick={() => setPreviewXml(null)} />
+          <div style={{ position: 'relative', background: '#fff', borderRadius: 12, width: 800, maxHeight: '85vh', boxShadow: '0 20px 60px rgba(0,0,0,0.3)', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()}>
+            <div style={{ padding: '12px 18px', borderBottom: '1px solid #e5e7eb', display: 'flex', alignItems: 'center', gap: 10, background: '#fffbeb' }}>
+              <span style={{ fontSize: 18 }}>🧪</span>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: '#78350f' }}>XML de prueba — Factura #{previewXml.factN}</div>
+                <div style={{ fontSize: 11, color: '#92400e' }}>NO enviado a DIAN. NO consume consecutivo. Solo para validar el contenido.</div>
+              </div>
+              <button onClick={() => {
+                  const blob = new Blob([previewXml.xml], { type: 'application/xml' });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url; a.download = `preview_factura_${previewXml.factN}.xml`;
+                  a.click();
+                  URL.revokeObjectURL(url);
+                }}
+                style={{ height: 28, padding: '0 10px', background: '#7c3aed', color: '#fff', border: 'none', borderRadius: 6, fontSize: 11, cursor: 'pointer', fontWeight: 600 }}>
+                ⬇ Descargar XML
+              </button>
+              <button onClick={() => setPreviewXml(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, fontSize: 18 }}>✕</button>
+            </div>
+            <div style={{ flex: 1, overflow: 'auto', padding: 12, background: '#f9fafb' }}>
+              <pre style={{ margin: 0, fontSize: 11, fontFamily: 'monospace', whiteSpace: 'pre-wrap', wordBreak: 'break-word', color: '#1f2937' }}>{previewXml.xml}</pre>
+            </div>
+            <div style={{ padding: '10px 18px', borderTop: '1px solid #e5e7eb', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11, color: '#6b7280' }}>
+              <span>Tip: busca <code style={{ background: '#fef3c7', padding: '1px 4px' }}>WithholdingTaxTotal</code> para verificar las retenciones.</span>
+              <button onClick={() => setPreviewXml(null)}
+                style={{ height: 28, padding: '0 14px', background: '#f3f4f6', border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 11, cursor: 'pointer' }}>
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {contingenciaPrompt && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 999999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.55)' }} />
+          <div style={{ position: 'relative', background: '#fff', borderRadius: 12, width: 560, boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+            <div style={{ padding: '14px 18px', borderBottom: '1px solid #e5e7eb', display: 'flex', alignItems: 'center', gap: 10, background: '#fef2f2', borderRadius: '12px 12px 0 0' }}>
+              <span style={{ fontSize: 22 }}>⚠</span>
+              <span style={{ fontSize: 15, fontWeight: 700, color: '#991b1b' }}>No se pudo enviar a la DIAN</span>
+            </div>
+            <div style={{ padding: 18, fontSize: 13, color: '#374151' }}>
+              <p style={{ margin: '0 0 10px' }}>La factura <b>#{contingenciaPrompt.factN}</b> quedó guardada localmente pero <b>no llegó a la DIAN</b>.</p>
+              <div style={{ padding: 10, background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 12, color: '#6b7280', marginBottom: 12 }}>
+                <b>Motivo:</b> {contingenciaPrompt.motivo}
+                {contingenciaPrompt.intentos > 1 && <div style={{ marginTop: 4, color: '#d97706' }}>Intentos: {contingenciaPrompt.intentos}</div>}
+              </div>
+              <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 6, padding: 10, fontSize: 11, color: '#78350f' }}>
+                <b>Modo Contingencia (Res. DIAN 000165/2023):</b> puedes emitir la factura en contingencia ahora e imprimir un comprobante físico con el banner legal. El sistema intentará transmitirla automáticamente cuando vuelva la conexión, o podrás reenviarla manualmente desde <i>Facturación Electrónica → Reenviar contingencias</i> (plazo: 48 horas).
+              </div>
+            </div>
+            <div style={{ padding: '12px 18px', borderTop: '1px solid #e5e7eb', display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+              <button onClick={() => setContingenciaPrompt(null)}
+                style={{ height: 34, padding: '0 14px', background: '#f3f4f6', border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 12, cursor: 'pointer', color: '#6b7280' }}>
+                Dejar sin enviar
+              </button>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button onClick={reintentarDian}
+                  style={{ height: 34, padding: '0 14px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, cursor: 'pointer', fontWeight: 600 }}>
+                  Reintentar DIAN
+                </button>
+                <button onClick={aceptarContingencia}
+                  style={{ height: 34, padding: '0 14px', background: '#d97706', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, cursor: 'pointer', fontWeight: 700 }}>
+                  Emitir en contingencia
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       {distribucionesPendientes && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 999999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.5)' }} />

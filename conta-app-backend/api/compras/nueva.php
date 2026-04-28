@@ -19,6 +19,7 @@ try {
             $stmt = $db->prepare("
                 SELECT a.Items, a.Codigo, a.Nombres_Articulo, a.Existencia, a.Precio_Costo,
                        a.Precio_CostoComp, a.Precio_Venta, a.Iva, a.Flete,
+                       COALESCE(a.requiere_lote, 0) AS requiere_lote,
                        COALESCE(c.Categoria, 'VARIOS') as Categoria
                 FROM tblarticulos a
                 LEFT JOIN tblcategoria c ON a.Id_Categoria = c.Id_Categoria

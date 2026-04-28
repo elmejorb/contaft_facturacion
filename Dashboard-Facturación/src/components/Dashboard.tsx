@@ -51,6 +51,7 @@ import { ListadoPagosClientes, ListadoPagosProveedores } from './ListadoPagos';
 import { GastosManagement } from './GastosManagement';
 import { BancosManagement } from './BancosManagement';
 import { ConfigCategoriasGasto } from './ConfigCategoriasGasto';
+import { ConfigRetenciones } from './ConfigRetenciones';
 import { ConfigCajas } from './ConfigCajas';
 import { ConfigServidor } from './ConfigServidor';
 import { ConfigPermisos } from './ConfigPermisos';
@@ -63,6 +64,9 @@ import { ConteoInventario } from './ConteoInventario';
 import { FamiliasProducto } from './FamiliasProducto';
 import { DistribuirProductos } from './DistribuirProductos';
 import { StockBajo, useStockBajoCount } from './StockBajo';
+import { NotasArticulo } from './NotasArticulo';
+import { LotesPorVencer } from './LotesPorVencer';
+import { InformesHub } from './informes/InformesHub';
 import { ConfiguracionSistema } from './ConfiguracionSistema';
 import { DatosEmpresa } from './DatosEmpresa';
 import { NuevaCompra } from './NuevaCompra';
@@ -92,7 +96,7 @@ interface DashboardProps {
   user?: UserData | null;
 }
 
-type View = 'overview' | 'products' | 'customers' | 'suppliers' | 'purchases' | 'sales' | 'inventario' | 'diagnostico' | 'auditoria' | 'categorias' | 'conteo' | 'configuracion' | 'cuentas-cobrar' | 'top-clientes' | 'cumpleanos' | 'cuentas-pagar' | 'productos-proveedor' | 'nueva-venta' | 'ventas-tipo-pago' | 'datos-empresa' | 'usuarios' | 'nueva-compra' | 'facturacion-electronica' | 'caja' | 'caja-historial' | 'pagos-clientes' | 'pagos-proveedores' | 'gastos' | 'bancos' | 'config-categorias-gasto' | 'config-cajas' | 'config-servidor' | 'config-permisos' | 'familias' | 'distribuir' | 'stock-bajo';
+type View = 'overview' | 'products' | 'customers' | 'suppliers' | 'purchases' | 'sales' | 'inventario' | 'diagnostico' | 'auditoria' | 'categorias' | 'conteo' | 'configuracion' | 'cuentas-cobrar' | 'top-clientes' | 'cumpleanos' | 'cuentas-pagar' | 'productos-proveedor' | 'nueva-venta' | 'ventas-tipo-pago' | 'datos-empresa' | 'usuarios' | 'nueva-compra' | 'facturacion-electronica' | 'caja' | 'caja-historial' | 'pagos-clientes' | 'pagos-proveedores' | 'gastos' | 'bancos' | 'config-categorias-gasto' | 'config-cajas' | 'config-servidor' | 'config-permisos' | 'familias' | 'distribuir' | 'stock-bajo' | 'config-retenciones' | 'informes-hub' | 'notas-articulo' | 'lotes-vencer';
 
 interface MenuItem {
   id: string;
@@ -154,6 +158,8 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
         { id: 'inventario-diagnostico', label: 'Diagnóstico (30 días)', view: 'diagnostico' as View },
         { id: 'inventario-auditoria', label: 'Auditoría (90 días)', view: 'auditoria' as View },
         { id: 'inventario-conteo', label: 'Conteo de Inventario', view: 'conteo' as View },
+        { id: 'inventario-notas', label: 'Notas de Artículo', view: 'notas-articulo' as View },
+        { id: 'inventario-lotes', label: 'Productos por Vencer', view: 'lotes-vencer' as View },
       ]
     },
     { 
@@ -218,15 +224,22 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
       ]
     },
     {
+      id: 'informes',
+      label: 'Informes',
+      icon: FileText,
+      view: 'informes-hub' as View,
+    },
+    {
       id: 'configuracion',
       label: 'Configuración',
       icon: Settings,
       children: [
-        { id: 'config-sistema', label: 'Sistema e Impresión', view: 'configuracion' as View },
+        { id: 'config-sistema', label: 'Configuración General', view: 'configuracion' as View },
         { id: 'config-empresa', label: 'Datos de la Empresa', view: 'datos-empresa' as View },
         { id: 'config-usuarios', label: 'Usuarios', view: 'usuarios' as View },
         { id: 'config-permisos', label: 'Permisos', view: 'config-permisos' as View },
         { id: 'config-categorias', label: 'Categorías de Gastos', view: 'config-categorias-gasto' as View },
+        { id: 'config-retenciones', label: 'Retenciones', view: 'config-retenciones' as View },
         { id: 'config-cajas', label: 'Administrar Cajas', view: 'config-cajas' as View },
         { id: 'config-servidor', label: 'Servidor', view: 'config-servidor' as View },
       ]
@@ -244,6 +257,7 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
     'inventario-diagnostico': 'inventario_diagnostico', 'inventario-auditoria': 'inventario_diagnostico',
     'inventario-conteo': 'inventario_conteo',
     'inventario-familias': 'inventario', 'inventario-distribuir': 'inventario', 'inventario-stock-bajo': 'inventario',
+    'inventario-notas': 'inventario', 'inventario-lotes': 'inventario',
     'customers-list': 'clientes', 'top-clientes': 'clientes_top', 'cumpleanos': 'clientes',
     'accounts-receivable': 'clientes_cartera', 'accounts-payable': 'proveedores_pagar',
     'suppliers': 'proveedores', 'supplier-list': 'proveedores', 'supplier-products': 'proveedores',
@@ -256,6 +270,7 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
     'configuracion': 'configuracion', 'config-sistema': 'configuracion',
     'config-empresa': 'datos_empresa', 'config-usuarios': 'usuarios',
     'config-categorias': 'configuracion', 'config-cajas': 'configuracion', 'config-servidor': 'configuracion', 'config-permisos': 'usuarios',
+    'informes': 'informes',
   };
 
   // Filtrar menú por permisos
@@ -478,6 +493,8 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
           {currentView === 'familias' && <FamiliasProducto />}
           {currentView === 'distribuir' && <DistribuirProductos />}
           {currentView === 'stock-bajo' && <StockBajo />}
+          {currentView === 'notas-articulo' && <NotasArticulo />}
+          {currentView === 'lotes-vencer' && <LotesPorVencer />}
           {currentView === 'configuracion' && <ConfiguracionSistema />}
           {currentView === 'datos-empresa' && <DatosEmpresa />}
           {currentView === 'usuarios' && <UsuariosManagement />}
@@ -497,11 +514,13 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
           {currentView === 'facturacion-electronica' && <FacturacionElectronica />}
           {currentView === 'caja' && <CajaRegistradora />}
           {currentView === 'caja-historial' && <HistorialCajas />}
+          {currentView === 'informes-hub' && <InformesHub />}
           {currentView === 'pagos-clientes' && <ListadoPagosClientes />}
           {currentView === 'pagos-proveedores' && <ListadoPagosProveedores />}
           {currentView === 'gastos' && <GastosManagement />}
           {currentView === 'bancos' && <BancosManagement />}
           {currentView === 'config-categorias-gasto' && <ConfigCategoriasGasto />}
+          {currentView === 'config-retenciones' && <ConfigRetenciones />}
           {currentView === 'config-cajas' && <ConfigCajas />}
           {currentView === 'config-servidor' && <ConfigServidor />}
           {currentView === 'config-permisos' && <ConfigPermisos />}

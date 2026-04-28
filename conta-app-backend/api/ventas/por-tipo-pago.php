@@ -6,7 +6,9 @@ $db = $database->getConnection();
 try {
     $anio = $_GET['anio'] ?? date('Y');
     $mes = $_GET['mes'] ?? null;
+    $dia = $_GET['dia'] ?? null;
     $medio = $_GET['medio'] ?? null;
+    $tipo = $_GET['tipo'] ?? null; // Contado | Crédito | null (todos)
 
     // Resumen por tipo de pago
     $whereResumen = "v.EstadoFact = 'Valida' AND YEAR(v.Fecha) = :anio";
@@ -14,6 +16,14 @@ try {
     if ($mes) {
         $whereResumen .= " AND MONTH(v.Fecha) = :mes";
         $paramsResumen[':mes'] = $mes;
+    }
+    if ($dia) {
+        $whereResumen .= " AND DAY(v.Fecha) = :dia";
+        $paramsResumen[':dia'] = $dia;
+    }
+    if ($tipo) {
+        $whereResumen .= " AND v.Tipo = :tipo";
+        $paramsResumen[':tipo'] = $tipo;
     }
 
     $stmt = $db->prepare("
@@ -40,9 +50,17 @@ try {
         $whereDetalle .= " AND MONTH(v.Fecha) = :mes";
         $paramsDetalle[':mes'] = $mes;
     }
+    if ($dia) {
+        $whereDetalle .= " AND DAY(v.Fecha) = :dia";
+        $paramsDetalle[':dia'] = $dia;
+    }
     if ($medio !== null && $medio !== '') {
         $whereDetalle .= " AND v.id_mediopago = :medio";
         $paramsDetalle[':medio'] = intval($medio);
+    }
+    if ($tipo) {
+        $whereDetalle .= " AND v.Tipo = :tipo";
+        $paramsDetalle[':tipo'] = $tipo;
     }
 
     $stmt2 = $db->prepare("
@@ -59,6 +77,12 @@ try {
     $facturas = $stmt2->fetchAll();
 
     // Resumen mensual por tipo de pago
+    $whereMensual = "v.EstadoFact = 'Valida' AND YEAR(v.Fecha) = :anio";
+    $paramsMensual = [':anio' => $anio];
+    if ($tipo) {
+        $whereMensual .= " AND v.Tipo = :tipo";
+        $paramsMensual[':tipo'] = $tipo;
+    }
     $stmtMensual = $db->prepare("
         SELECT
             MONTH(v.Fecha) as mes,
@@ -68,11 +92,11 @@ try {
             SUM(v.Total) as total
         FROM tblventas v
         LEFT JOIN tblmedios_pago m ON v.id_mediopago = m.id_mediopago
-        WHERE v.EstadoFact = 'Valida' AND YEAR(v.Fecha) = :anio
+        WHERE $whereMensual
         GROUP BY MONTH(v.Fecha), v.id_mediopago, m.nombre_medio
         ORDER BY mes, v.id_mediopago
     ");
-    $stmtMensual->execute([':anio' => $anio]);
+    $stmtMensual->execute($paramsMensual);
     $mensual = $stmtMensual->fetchAll();
 
     // Medios de pago disponibles

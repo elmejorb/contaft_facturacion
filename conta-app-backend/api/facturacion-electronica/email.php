@@ -43,9 +43,16 @@ try {
 
     if (!$doc) { echo json_encode(['success' => false, 'message' => 'Documento no encontrado']); exit; }
 
-    // Email destination
+    // Email destination — sanitizar: quitar espacios, tabs, non-breaking spaces y tomar solo el primero si hay varios
     $emailDest = $email ?: $doc['cliente_email'] ?: '';
+    $emailDest = preg_replace('/[\s\x{00A0}]+/u', '', $emailDest);      // quita todos los whitespace
+    $partes = preg_split('/[;,]/', $emailDest);
+    $emailDest = trim($partes[0] ?? '');
     if (!$emailDest) { echo json_encode(['success' => false, 'message' => 'El cliente no tiene correo electrónico registrado']); exit; }
+    if (!filter_var($emailDest, FILTER_VALIDATE_EMAIL)) {
+        echo json_encode(['success' => false, 'message' => "El correo '$emailDest' no tiene un formato válido. Corrija el email en los datos del cliente."]);
+        exit;
+    }
 
     // Login to FE API
     $stmt = $db->query("SELECT email_factelect, password_factelect FROM tbldatosempresa LIMIT 1");

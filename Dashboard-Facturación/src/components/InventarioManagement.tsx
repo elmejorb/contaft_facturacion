@@ -1,4 +1,6 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import toast from 'react-hot-toast';
+import { Edit2, BarChart3, Info, Copy, Trash2, FileText } from 'lucide-react';
 import { Card, CardContent } from './ui/card';
 import { Button } from './ui/button';
 import {
@@ -63,6 +65,29 @@ export function InventarioManagement() {
     isOpen: false,
     producto: null
   });
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; articulo: Articulo } | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // Cerrar menú al hacer click fuera o presionar Escape
+  useEffect(() => {
+    if (!contextMenu) return;
+    const onClick = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setContextMenu(null);
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setContextMenu(null); };
+    setTimeout(() => document.addEventListener('click', onClick), 0);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('click', onClick);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [contextMenu]);
+
+  const copiar = async (texto: string, etiqueta: string) => {
+    try { await navigator.clipboard.writeText(texto); toast.success(`${etiqueta} copiado`); }
+    catch { toast.error('No se pudo copiar'); }
+    setContextMenu(null);
+  };
 
   useEffect(() => {
     cargarArticulos();
@@ -102,14 +127,22 @@ export function InventarioManagement() {
       headerName: 'Código',
       field: 'Codigo' as keyof Articulo,
       width: 140,
-      cellStyle: { color: '#7c3aed', fontWeight: 500 },
+      cellRenderer: (params: { value: string; data: Articulo }) => (
+        <span
+          onClick={() => setEditarModal({ isOpen: true, producto: params.data })}
+          title="Click para editar"
+          style={{ color: '#7c3aed', fontWeight: 600, cursor: 'pointer', textDecoration: 'underline', textUnderlineOffset: 2 }}
+        >
+          {params.value}
+        </span>
+      ),
     },
     {
       headerName: 'Nombre Artículo',
       field: 'Descripcion' as keyof Articulo,
       flex: 2,
       minWidth: 200,
-      cellStyle: { fontWeight: 500 },
+      cellStyle: { fontWeight: 500, userSelect: 'text' },
     },
     {
       headerName: 'Exist.',
@@ -389,6 +422,15 @@ export function InventarioManagement() {
             paginationPageSizeSelector={[25, 50, 100, 200]}
             animateRows={true}
             rowSelection={'single' as any}
+            enableCellTextSelection={true}
+            ensureDomOrder={true}
+            preventDefaultOnContextMenu={true}
+            onCellContextMenu={(e: any) => {
+              const ev = e.event as MouseEvent;
+              if (!ev || !e.data) return;
+              ev.preventDefault();
+              setContextMenu({ x: ev.clientX, y: ev.clientY, articulo: e.data });
+            }}
             getRowStyle={(params: { data: Articulo }) => {
               if (params.data?.Existencia <= 0) {
                 return { background: '#fef2f2' };
@@ -425,6 +467,51 @@ export function InventarioManagement() {
       {detalleProducto && (
         <DetalleProductoModal items={detalleProducto} onClose={() => setDetalleProducto(null)} />
       )}
+
+      {/* Menú contextual (click derecho) */}
+      {contextMenu && (() => {
+        const W = 220, H = 320;
+        const x = Math.min(contextMenu.x, window.innerWidth - W - 8);
+        const y = Math.min(contextMenu.y, window.innerHeight - H - 8);
+        const Item = ({ icon: Icon, label, onClick, color, danger }: any) => (
+          <button onClick={onClick}
+            style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '8px 14px', background: 'transparent', border: 'none', cursor: 'pointer', fontSize: 13, color: danger ? '#dc2626' : '#1f2937', textAlign: 'left' as const }}
+            onMouseEnter={e => (e.currentTarget.style.background = danger ? '#fee2e2' : '#f3e8ff')}
+            onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
+            <Icon size={15} color={color || (danger ? '#dc2626' : '#6b7280')} />
+            <span>{label}</span>
+          </button>
+        );
+        const sep = <div style={{ height: 1, background: '#e5e7eb', margin: '4px 0' }} />;
+        return (
+          <>
+            <div style={{ position: 'fixed', inset: 0, zIndex: 9998 }} />
+            <div ref={menuRef}
+              style={{ position: 'fixed', top: y, left: x, width: W, background: '#fff', borderRadius: 8, boxShadow: '0 10px 30px rgba(0,0,0,0.15), 0 2px 6px rgba(0,0,0,0.08)', border: '1px solid #e5e7eb', padding: '6px 0', zIndex: 9999, fontFamily: 'inherit' }}>
+              <div style={{ padding: '6px 14px 8px', borderBottom: '1px solid #f3f4f6', marginBottom: 4 }}>
+                <div style={{ fontSize: 11, color: '#7c3aed', fontWeight: 600 }}>{contextMenu.articulo.Codigo}</div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: '#1f2937', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={contextMenu.articulo.Descripcion}>
+                  {contextMenu.articulo.Descripcion}
+                </div>
+              </div>
+              <Item icon={Edit2} label="Editar producto" color="#f59e0b"
+                onClick={() => { setEditarModal({ isOpen: true, producto: contextMenu.articulo }); setContextMenu(null); }} />
+              <Item icon={BarChart3} label="Ver kardex" color="#3b82f6"
+                onClick={() => { setKardexModal({ isOpen: true, producto: contextMenu.articulo }); setContextMenu(null); }} />
+              <Item icon={Info} label="Ver detalle / movimientos" color="#7c3aed"
+                onClick={() => { setDetalleProducto(contextMenu.articulo.Items); setContextMenu(null); }} />
+              {sep}
+              <Item icon={Copy} label="Copiar código"
+                onClick={() => copiar(contextMenu.articulo.Codigo, 'Código')} />
+              <Item icon={FileText} label="Copiar nombre"
+                onClick={() => copiar(contextMenu.articulo.Descripcion, 'Nombre')} />
+              {sep}
+              <Item icon={Trash2} label="Eliminar producto" danger
+                onClick={() => { console.log('Eliminar', contextMenu.articulo.Codigo); setContextMenu(null); }} />
+            </div>
+          </>
+        );
+      })()}
     </div>
   );
 }

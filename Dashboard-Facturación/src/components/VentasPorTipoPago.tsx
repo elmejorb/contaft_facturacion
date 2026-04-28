@@ -23,7 +23,9 @@ export function VentasPorTipoPago() {
   const [anios, setAnios] = useState<number[]>([]);
   const [anio, setAnio] = useState(new Date().getFullYear());
   const [mes, setMes] = useState(new Date().getMonth() + 1);
+  const [dia, setDia] = useState(0); // 0 = todos los días
   const [filtroMedio, setFiltroMedio] = useState<string>('');
+  const [filtroTipo, setFiltroTipo] = useState<string>(''); // '' = todos, 'Contado', 'Crédito'
   const [totalGeneral, setTotalGeneral] = useState(0);
   const [loading, setLoading] = useState(true);
   const gridRef = useRef<AgGridReact>(null);
@@ -33,7 +35,9 @@ export function VentasPorTipoPago() {
     try {
       let url = `${API}?anio=${anio}`;
       if (mes > 0) url += `&mes=${mes}`;
+      if (dia > 0) url += `&dia=${dia}`;
       if (filtroMedio !== '') url += `&medio=${filtroMedio}`;
+      if (filtroTipo !== '') url += `&tipo=${encodeURIComponent(filtroTipo)}`;
       const r = await fetch(url);
       const d = await r.json();
       if (d.success) {
@@ -48,7 +52,14 @@ export function VentasPorTipoPago() {
     setLoading(false);
   };
 
-  useEffect(() => { cargar(); }, [anio, mes, filtroMedio]);
+  useEffect(() => { cargar(); }, [anio, mes, dia, filtroMedio, filtroTipo]);
+
+  const verHoy = () => {
+    const hoy = new Date();
+    setAnio(hoy.getFullYear());
+    setMes(hoy.getMonth() + 1);
+    setDia(hoy.getDate());
+  };
 
   const meses = ['', 'Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
   const mesesFull = ['', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
@@ -128,21 +139,64 @@ export function VentasPorTipoPago() {
       </div>
 
       {/* Filtros */}
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
-        <select value={anio} onChange={e => setAnio(parseInt(e.target.value))}
-          style={{ height: 30, border: '1px solid #d1d5db', borderRadius: 6, fontSize: 12, padding: '0 8px' }}>
-          {anios.map(a => <option key={a} value={a}>{a}</option>)}
-        </select>
-        <select value={mes} onChange={e => setMes(parseInt(e.target.value))}
-          style={{ height: 30, border: '1px solid #d1d5db', borderRadius: 6, fontSize: 12, padding: '0 8px' }}>
-          <option value={0}>Todos los meses</option>
-          {mesesFull.slice(1).map((m, i) => <option key={i + 1} value={i + 1}>{m}</option>)}
-        </select>
-        {filtroMedio !== '' && (
-          <span style={{ fontSize: 11, padding: '3px 10px', background: '#f3e8ff', color: '#7c3aed', borderRadius: 6, fontWeight: 600 }}>
-            Filtro: {medios.find(m => String(m.id_mediopago) === filtroMedio)?.nombre_medio || 'Desconocido'}
-            <button onClick={() => setFiltroMedio('')} style={{ background: 'none', border: 'none', cursor: 'pointer', marginLeft: 4, color: '#7c3aed', fontWeight: 700 }}>✕</button>
-          </span>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <span style={{ fontSize: 11, color: '#6b7280', fontWeight: 600 }}>Año:</span>
+          <select value={anio} onChange={e => setAnio(parseInt(e.target.value))}
+            style={{ height: 30, border: '1px solid #d1d5db', borderRadius: 6, fontSize: 12, padding: '0 8px' }}>
+            {anios.map(a => <option key={a} value={a}>{a}</option>)}
+          </select>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <span style={{ fontSize: 11, color: '#6b7280', fontWeight: 600 }}>Mes:</span>
+          <select value={mes} onChange={e => { setMes(parseInt(e.target.value)); setDia(0); }}
+            style={{ height: 30, border: '1px solid #d1d5db', borderRadius: 6, fontSize: 12, padding: '0 8px' }}>
+            <option value={0}>Todos los meses</option>
+            {mesesFull.slice(1).map((m, i) => <option key={i + 1} value={i + 1}>{m}</option>)}
+          </select>
+        </div>
+        {mes > 0 && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <span style={{ fontSize: 11, color: '#6b7280', fontWeight: 600 }}>Día:</span>
+            <select value={dia} onChange={e => setDia(parseInt(e.target.value))}
+              style={{ height: 30, border: '1px solid #d1d5db', borderRadius: 6, fontSize: 12, padding: '0 8px',
+                background: dia > 0 ? '#f3e8ff' : '#fff', color: dia > 0 ? '#7c3aed' : '#1f2937', fontWeight: dia > 0 ? 600 : 400 }}>
+              <option value={0}>Todos</option>
+              {Array.from({ length: new Date(anio, mes, 0).getDate() }, (_, i) => i + 1).map(d =>
+                <option key={d} value={d}>{d}</option>
+              )}
+            </select>
+          </div>
+        )}
+        <button onClick={verHoy}
+          title="Filtrar al día de hoy"
+          style={{ height: 30, padding: '0 12px', background: '#16a34a', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
+          📅 Hoy
+        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <span style={{ fontSize: 11, color: '#6b7280', fontWeight: 600 }}>Tipo factura:</span>
+          <select value={filtroTipo} onChange={e => setFiltroTipo(e.target.value)}
+            style={{ height: 30, border: '1px solid #d1d5db', borderRadius: 6, fontSize: 12, padding: '0 8px',
+              background: filtroTipo ? '#f3e8ff' : '#fff', color: filtroTipo ? '#7c3aed' : '#1f2937', fontWeight: filtroTipo ? 600 : 400 }}>
+            <option value="">Todos</option>
+            <option value="Contado">Contado</option>
+            <option value="Crédito">Crédito</option>
+          </select>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <span style={{ fontSize: 11, color: '#6b7280', fontWeight: 600 }}>Medio de pago:</span>
+          <select value={filtroMedio} onChange={e => setFiltroMedio(e.target.value)}
+            style={{ height: 30, border: '1px solid #d1d5db', borderRadius: 6, fontSize: 12, padding: '0 8px',
+              background: filtroMedio ? '#f3e8ff' : '#fff', color: filtroMedio ? '#7c3aed' : '#1f2937', fontWeight: filtroMedio ? 600 : 400 }}>
+            <option value="">Todos</option>
+            {medios.map(m => <option key={m.id_mediopago} value={m.id_mediopago}>{m.nombre_medio}</option>)}
+          </select>
+        </div>
+        {(filtroTipo || filtroMedio || dia > 0) && (
+          <button onClick={() => { setFiltroTipo(''); setFiltroMedio(''); setDia(0); }}
+            style={{ height: 30, padding: '0 10px', background: '#fff', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 11, cursor: 'pointer', color: '#6b7280' }}>
+            ✕ Limpiar filtros
+          </button>
         )}
       </div>
 

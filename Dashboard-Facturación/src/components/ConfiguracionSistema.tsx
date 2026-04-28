@@ -37,6 +37,7 @@ export interface ConfigImpresion {
   usarFamilias: boolean; // familias de productos + distribución entre unidades
   confirmarDistribucion: boolean; // pedir confirmación antes de distribuir desde unidad mayor
   usarFacturacionElectronica: boolean;
+  modoPruebaFE: boolean; // si está activo, las FE no van a DIAN sino a preview-xml para validar el XML
   usarCotizaciones: boolean;
   usarConteoInventario: boolean;
   tipoNegocio: string; // Tienda, Farmacia, Boutique, etc.
@@ -70,6 +71,7 @@ const defaultConfig: ConfigImpresion = {
   usarFamilias: false,
   confirmarDistribucion: true,
   usarFacturacionElectronica: false,
+  modoPruebaFE: false,
   usarCotizaciones: true,
   usarConteoInventario: true,
   tipoNegocio: '',
@@ -311,6 +313,7 @@ export function ConfiguracionSistema() {
             { key: 'usarFamilias', label: 'Familias de productos', desc: 'Agrupar unidades del mismo producto (Bulto, Kilo, Libra, Caja) como SKUs distintos. Al vender una unidad pequeña sin stock, el sistema abre automáticamente una unidad mayor.' },
             { key: 'confirmarDistribucion', label: 'Confirmar antes de distribuir', desc: 'Cuando el sistema necesite abrir una unidad mayor para completar una venta, pide confirmación. Si está desactivado, lo hace en silencio.' },
             { key: 'usarFacturacionElectronica', label: 'Facturación electrónica (DIAN)', desc: 'Enviar facturas electrónicas a la DIAN. Requiere certificado digital y resolución de numeración.' },
+            { key: 'modoPruebaFE', label: 'Modo prueba FE (no enviar a DIAN)', desc: 'Las facturas electrónicas se envían a un endpoint de previsualización en vez de la DIAN. NO gasta consecutivo, NO firma, NO contacta DIAN. Útil para validar el XML sin generar movimiento real. APAGAR EN PRODUCCIÓN.' },
             { key: 'usarCotizaciones', label: 'Cotizaciones', desc: 'Crear y guardar cotizaciones para clientes antes de facturar.' },
             { key: 'usarConteoInventario', label: 'Conteo de inventario', desc: 'Realizar conteos físicos de inventario con compensación automática de ventas durante el conteo.' },
           ].map(m => (
