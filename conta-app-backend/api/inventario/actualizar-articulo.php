@@ -41,6 +41,7 @@ try {
         CodigoPro = :proveedor,
         Estado = :estado,
         requiere_lote = :requiereLote,
+        Id_Etiqueta = :etiqueta,
         FechaMod = NOW()
     WHERE Items = :items";
 
@@ -59,6 +60,7 @@ try {
         ':proveedor' => $input['CodigoPro'] ?? 0,
         ':estado' => $input['Estado'] ?? 1,
         ':requiereLote' => !empty($input['requiere_lote']) ? 1 : 0,
+        ':etiqueta' => !empty($input['Id_Etiqueta']) ? intval($input['Id_Etiqueta']) : null,
         ':items' => $input['Items'],
     ]);
 

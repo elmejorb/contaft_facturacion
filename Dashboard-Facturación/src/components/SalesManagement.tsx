@@ -3,7 +3,7 @@ import { AgGridReact } from 'ag-grid-react';
 import { AllCommunityModule, ModuleRegistry, ColDef } from 'ag-grid-community';
 import {
   Search, RefreshCw, TrendingUp, DollarSign, CreditCard, Wallet,
-  Eye, X, Printer, Send
+  Eye, X, Printer
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { getConfigImpresion } from './ConfiguracionSistema';
@@ -48,20 +48,6 @@ export function SalesManagement() {
   useEffect(() => { cargar(); }, [anio, mes, filtroEstado]);
 
   const verDetalle = (factN: number) => setFacturaDetalleN(factN);
-
-  const enviarDIAN = async (factN: number) => {
-    if (!confirm(`¿Enviar factura #${factN} a la DIAN?`)) return;
-    toast.loading('Enviando a DIAN...', { id: 'dian' });
-    try {
-      const r = await fetch('http://localhost:80/conta-app-backend/api/facturacion-electronica/enviar.php', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'factura', factura_n: factN })
-      });
-      const d = await r.json();
-      if (d.success) { toast.success(`DIAN: ${d.message}`, { id: 'dian', duration: 6000 }); cargar(); }
-      else toast.error(`DIAN: ${d.message}`, { id: 'dian', duration: 10000 });
-    } catch (e) { toast.error('Error de conexión', { id: 'dian' }); }
-  };
 
   // Imprimir factura desde listado
   const imprimirDesdeListado = async (factN: number) => {
@@ -113,7 +99,10 @@ export function SalesManagement() {
   const filtrados = ventas.filter(v => {
     if (busqueda) {
       const b = busqueda.toLowerCase();
-      if (!String(v.Factura_N).includes(busqueda) && !v.A_nombre?.toLowerCase().includes(b)) return false;
+      const matchFactura = String(v.Factura_N).includes(busqueda);
+      const matchNombre = v.A_nombre?.toLowerCase().includes(b);
+      const matchIdent = v.Identificacion?.toLowerCase().includes(b);
+      if (!matchFactura && !matchNombre && !matchIdent) return false;
     }
     if (filtroTipo === 'contado' && v.Tipo !== 'Contado') return false;
     if (filtroTipo === 'credito' && v.Tipo === 'Contado') return false;
@@ -149,7 +138,7 @@ export function SalesManagement() {
     },
     { headerName: 'Medio', field: 'MedioPago', width: 90,
       cellRenderer: (p: any) => <span style={{ fontSize: 11, padding: '1px 6px', borderRadius: 4, background: '#f3f4f6' }}>{p.value}</span> },
-    { headerName: '', width: 75, sortable: false,
+    { headerName: '', width: 60, sortable: false,
       cellStyle: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 },
       cellRenderer: (p: any) => (
         <div style={{ display: 'flex', gap: 4 }}>
@@ -161,12 +150,6 @@ export function SalesManagement() {
             style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 3 }}>
             <Printer size={15} color="#2563eb" />
           </button>
-          {!p.data.enviada_dian && (
-            <button title="Enviar a DIAN" onClick={() => enviarDIAN(p.data.Factura_N)}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 3 }}>
-              <Send size={15} color="#d97706" />
-            </button>
-          )}
         </div>
       )
     },
@@ -217,14 +200,21 @@ export function SalesManagement() {
           style={{ height: 30, border: '1px solid #d1d5db', borderRadius: 6, fontSize: 12, padding: '0 6px' }}>
           <option value="Valida">Válidas</option>
           <option value="Anulada">Anuladas</option>
+          <option value="Todas">Todas</option>
         </select>
 
-        <div style={{ position: 'relative', flex: '0 0 220px' }}>
+        <div style={{ position: 'relative', flex: '0 0 280px' }}>
           <Search size={14} style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', color: '#9ca3af' }} />
-          <input type="text" placeholder="# Factura o cliente... (Enter para buscar)" value={busqueda}
+          <input type="text" placeholder="# Factura, cliente o identificación... (Enter)" value={busqueda}
             onChange={e => setBusqueda(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter' && busqueda.trim()) cargar(busqueda.trim()); }}
-            style={{ width: '100%', height: 30, paddingLeft: 28, border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 12, outline: 'none' }} />
+            onKeyDown={e => { if (e.key === 'Enter') cargar(busqueda.trim() || undefined); }}
+            style={{ width: '100%', height: 30, paddingLeft: 28, paddingRight: busqueda ? 28 : 8, border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 12, outline: 'none' }} />
+          {busqueda && (
+            <button onClick={() => { setBusqueda(''); cargar(); }}
+              style={{ position: 'absolute', right: 4, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', padding: 4, color: '#9ca3af' }}>
+              <X size={14} />
+            </button>
+          )}
         </div>
 
         {[

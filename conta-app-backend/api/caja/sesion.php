@@ -24,7 +24,31 @@ try {
                     (SELECT u.Nombre FROM tblsesiones_caja s LEFT JOIN tblusuarios u ON s.Id_Usuario = u.Id_Usuario WHERE s.Id_Caja = c.Id_Caja AND s.Estado = 'abierta' LIMIT 1) as cajero_actual
                 FROM tblcajas c WHERE c.Activa = 1 ORDER BY c.Id_Caja
             ");
-            echo json_encode(['success' => true, 'cajas' => $stmt->fetchAll()], JSON_UNESCAPED_UNICODE);
+            $cajas = $stmt->fetchAll();
+
+            // Calcular base sugerida de cada caja (lo que quedó residual de la última sesión cerrada)
+            // residual = ConteoFinal - sumaTraslados (de la última sesión cerrada)
+            $stmtRes = $db->prepare("
+                SELECT s.Id_Sesion, s.ConteoFinal,
+                    COALESCE((SELECT SUM(Valor) FROM tblmov_caja WHERE Id_Sesion = s.Id_Sesion AND Tipo = 'traslado'), 0) AS trasladado,
+                    s.FechaCierre
+                FROM tblsesiones_caja s
+                WHERE s.Id_Caja = ? AND s.Estado = 'cerrada'
+                ORDER BY s.FechaCierre DESC LIMIT 1
+            ");
+            foreach ($cajas as &$c) {
+                $stmtRes->execute([$c['Id_Caja']]);
+                $r = $stmtRes->fetch();
+                if ($r) {
+                    $residual = floatval($r['ConteoFinal']) - floatval($r['trasladado']);
+                    $c['base_sugerida'] = $residual > 0 ? $residual : 0;
+                    $c['ultimo_cierre'] = $r['FechaCierre'];
+                } else {
+                    $c['base_sugerida'] = 0;
+                    $c['ultimo_cierre'] = null;
+                }
+            }
+            echo json_encode(['success' => true, 'cajas' => $cajas], JSON_UNESCAPED_UNICODE);
             exit;
         }
 

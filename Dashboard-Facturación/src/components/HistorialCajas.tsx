@@ -3,6 +3,8 @@ import { AgGridReact } from 'ag-grid-react';
 import { AllCommunityModule, ModuleRegistry, ColDef } from 'ag-grid-community';
 import { RefreshCw, Eye, Plus, ArrowUpRight, ArrowDownRight, FileText, DollarSign, X, Printer } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { useAuth } from '../contexts/AuthContext';
+import { getConfigImpresion } from './ConfiguracionSistema';
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
@@ -10,6 +12,7 @@ const API = 'http://localhost:80/conta-app-backend/api/caja/movimientos.php';
 const fmtMon = (v: number) => '$ ' + Math.round(v).toLocaleString('es-CO');
 
 export function HistorialCajas() {
+  const { user } = useAuth();
   const [sesiones, setSesiones] = useState<any[]>([]);
   const [movimientos, setMovimientos] = useState<any[]>([]);
   const [cajas, setCajas] = useState<any[]>([]);
@@ -67,7 +70,7 @@ export function HistorialCajas() {
     if (val <= 0 || !movDesc || !movCaja) { toast.error('Complete los campos'); return; }
     try {
       const r = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: showNuevoMov, caja_id: movCaja, valor: val, descripcion: movDesc, usuario_id: 0 }) });
+        body: JSON.stringify({ action: showNuevoMov, caja_id: movCaja, valor: val, descripcion: movDesc, usuario_id: user?.id || 0 }) });
       const d = await r.json();
       if (d.success) { toast.success(d.message); setShowNuevoMov(null); setMovValor(''); setMovDesc(''); cargar(); }
       else toast.error(d.message);
@@ -80,7 +83,7 @@ export function HistorialCajas() {
     if (val <= 0) { toast.error('Ingrese un valor'); return; }
     try {
       const r = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'trasladar', sesion_id: detalleSesion.sesion.Id_Sesion, valor: val, usuario_id: 0 }) });
+        body: JSON.stringify({ action: 'trasladar', sesion_id: detalleSesion.sesion.Id_Sesion, valor: val, usuario_id: user?.id || 0 }) });
       const d = await r.json();
       if (d.success) { toast.success(d.message); setShowTrasladar(false); setTrasladarValor(''); verDetalle(detalleSesion.sesion.Id_Sesion); cargar(); }
       else toast.error(d.message);
@@ -103,61 +106,109 @@ export function HistorialCajas() {
     const anulaciones = parseFloat(s.Anulaciones) || 0;
     const retiros = parseFloat(s.RetirosParciales) || 0;
     const totalVenta = ventasEf + ventasTr + ventasCr;
+    const formato = getConfigImpresion().formatoCuadreCaja || 'tirilla';
 
-    const linea = (label: string, ef: number, tr?: number) =>
-      `<tr><td style="padding:3px 6px;">${label}</td><td style="padding:3px 6px;text-align:right;font-weight:600;">${fmtMon(ef)}</td>${tr !== undefined ? `<td style="padding:3px 6px;text-align:right;color:#666;">${fmtMon(tr)}</td>` : ''}</tr>`;
+    let html = '', pageStyle = '', winWidth = 500;
 
-    const html = `
-      <div style="font-family:Arial,sans-serif;max-width:400px;margin:0 auto;padding:20px;">
-        <div style="text-align:center;margin-bottom:16px;">
-          <div style="font-size:16px;font-weight:bold;">CUADRE DE CAJA</div>
-          <div style="font-size:12px;color:#666;">${s.NombreCaja || 'Caja'} — ${s.NombreUsuario || 'Admin'}</div>
-          <div style="font-size:12px;color:#666;">Fecha: ${fecha} — Cierre: ${horaCierre}</div>
-        </div>
-        <table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:12px;">
-          <tr style="background:#f0f0f0;font-weight:bold;">
-            <td style="padding:4px 6px;">Concepto</td>
-            <td style="padding:4px 6px;text-align:right;">Efectivo</td>
-            <td style="padding:4px 6px;text-align:right;">Transferencia</td>
-          </tr>
-          ${linea('Base', base, 0)}
-          ${linea('Ventas Contado', ventasEf, ventasTr)}
-          ${linea('Ventas Crédito', 0, ventasCr)}
-          ${linea('Pagos Clientes', pagosEf, pagosTr)}
-          ${egresos > 0 ? linea('Egresos', -egresos, 0) : ''}
-          ${anulaciones > 0 ? linea('Anulaciones', -anulaciones, 0) : ''}
-          ${retiros > 0 ? linea('Retiros parciales', -retiros, 0) : ''}
-        </table>
-        <div style="border-top:3px solid #000;padding-top:8px;margin-bottom:12px;">
-          <table style="width:100%;font-size:13px;">
-            <tr><td style="font-weight:bold;">Total Efectivo (Sistema):</td><td style="text-align:right;font-weight:bold;">${fmtMon(totalEf)}</td></tr>
-            <tr><td style="font-weight:bold;">Conteo de Caja:</td><td style="text-align:right;font-weight:bold;">${fmtMon(conteoVal)}</td></tr>
-            <tr style="font-size:15px;${diff === 0 ? 'color:green;' : diff > 0 ? 'color:blue;' : 'color:red;'}">
-              <td style="font-weight:bold;">Diferencia:</td>
-              <td style="text-align:right;font-weight:bold;">${diff === 0 ? 'CUADRA ✓' : fmtMon(diff) + (diff > 0 ? ' (Sobrante)' : ' (Faltante)')}</td>
+    if (formato === 'tirilla') {
+      pageStyle = `@page { size: 80mm auto; margin: 2mm; }`;
+      winWidth = 360;
+      const lineDot = (label: string, value: string) =>
+        `<div style="display:flex;justify-content:space-between;font-family:'Courier New',monospace;font-size:11px;line-height:1.4;"><span>${label}</span><span style="font-weight:bold;">${value}</span></div>`;
+      const sepDouble = `<div style="border-top:1px dashed #000;margin:4px 0;"></div>`;
+      const sepSolid = `<div style="border-top:1px solid #000;margin:5px 0;"></div>`;
+      html = `
+        <div style="width:76mm;font-family:'Courier New',monospace;color:#000;padding:4px 2mm;">
+          <div style="text-align:center;font-size:14px;font-weight:bold;letter-spacing:1px;">CUADRE DE CAJA</div>
+          <div style="text-align:center;font-size:9px;color:#666;font-style:italic;">- REIMPRESIÓN -</div>
+          <div style="text-align:center;font-size:10px;">${s.NombreCaja || 'Caja'}</div>
+          <div style="text-align:center;font-size:10px;">Cajero: ${s.NombreUsuario || 'Admin'}</div>
+          <div style="text-align:center;font-size:10px;">${fecha} ${horaCierre ? '- Cierre ' + horaCierre : ''}</div>
+          ${sepDouble}
+          ${lineDot('Base', fmtMon(base))}
+          ${lineDot('Vtas Contado Ef', fmtMon(ventasEf))}
+          ${ventasTr > 0 ? lineDot('  Transferencia', fmtMon(ventasTr)) : ''}
+          ${ventasCr > 0 ? lineDot('Vtas Crédito', fmtMon(ventasCr)) : ''}
+          ${pagosEf > 0 ? lineDot('Pagos Cli Ef', fmtMon(pagosEf)) : ''}
+          ${pagosTr > 0 ? lineDot('  Transferencia', fmtMon(pagosTr)) : ''}
+          ${egresos > 0 ? lineDot('Egresos', '-' + fmtMon(egresos)) : ''}
+          ${anulaciones > 0 ? lineDot('Anulaciones', '-' + fmtMon(anulaciones)) : ''}
+          ${retiros > 0 ? lineDot('Retiros', '-' + fmtMon(retiros)) : ''}
+          ${sepSolid}
+          ${lineDot('TOTAL SISTEMA', fmtMon(totalEf))}
+          ${lineDot('CONTEO REAL', fmtMon(conteoVal))}
+          ${sepDouble}
+          <div style="text-align:center;font-size:13px;font-weight:bold;padding:4px 0;${diff === 0 ? '' : 'border:1px solid #000;'}">
+            ${diff === 0 ? '*** CUADRA ***' : diff > 0 ? `SOBRANTE: ${fmtMon(diff)}` : `FALTANTE: ${fmtMon(Math.abs(diff))}`}
+          </div>
+          ${sepSolid}
+          ${lineDot('VENTA DEL DIA', fmtMon(totalVenta))}
+          ${sepDouble}
+          <div style="margin-top:18px;text-align:center;font-size:9px;">
+            <div style="border-top:1px solid #000;width:60%;margin:0 auto;padding-top:2px;">Firma Cajero</div>
+          </div>
+          <div style="margin-top:14px;text-align:center;font-size:9px;">
+            <div style="border-top:1px solid #000;width:60%;margin:0 auto;padding-top:2px;">Firma Administrador</div>
+          </div>
+          <div style="text-align:center;font-size:9px;margin-top:8px;color:#666;">- - - Conta FT - - -</div>
+        </div>`;
+    } else {
+      pageStyle = `@page { size: auto; margin: 10mm; }`;
+      const linea = (label: string, ef: number, tr?: number) =>
+        `<tr><td style="padding:3px 6px;">${label}</td><td style="padding:3px 6px;text-align:right;font-weight:600;">${fmtMon(ef)}</td>${tr !== undefined ? `<td style="padding:3px 6px;text-align:right;color:#666;">${fmtMon(tr)}</td>` : ''}</tr>`;
+      html = `
+        <div style="font-family:Arial,sans-serif;max-width:400px;margin:0 auto;padding:20px;">
+          <div style="text-align:center;margin-bottom:8px;">
+            <div style="font-size:16px;font-weight:bold;">CUADRE DE CAJA</div>
+            <div style="font-size:11px;color:#999;font-style:italic;">— REIMPRESIÓN —</div>
+            <div style="font-size:12px;color:#666;">${s.NombreCaja || 'Caja'} — ${s.NombreUsuario || 'Admin'}</div>
+            <div style="font-size:12px;color:#666;">Fecha: ${fecha} — Cierre: ${horaCierre}</div>
+          </div>
+          <table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:12px;">
+            <tr style="background:#f0f0f0;font-weight:bold;">
+              <td style="padding:4px 6px;">Concepto</td>
+              <td style="padding:4px 6px;text-align:right;">Efectivo</td>
+              <td style="padding:4px 6px;text-align:right;">Transferencia</td>
             </tr>
+            ${linea('Base', base, 0)}
+            ${linea('Ventas Contado', ventasEf, ventasTr)}
+            ${linea('Ventas Crédito', 0, ventasCr)}
+            ${linea('Pagos Clientes', pagosEf, pagosTr)}
+            ${egresos > 0 ? linea('Egresos', -egresos, 0) : ''}
+            ${anulaciones > 0 ? linea('Anulaciones', -anulaciones, 0) : ''}
+            ${retiros > 0 ? linea('Retiros parciales', -retiros, 0) : ''}
           </table>
-        </div>
-        <div style="border-top:2px solid #000;padding-top:8px;">
-          <table style="width:100%;font-size:14px;">
-            <tr><td style="font-weight:bold;">Total Venta del Día:</td><td style="text-align:right;font-weight:bold;font-size:16px;">${fmtMon(totalVenta)}</td></tr>
-          </table>
-        </div>
-        <div style="margin-top:30px;display:flex;justify-content:space-between;">
-          <div style="text-align:center;width:45%;"><div style="border-top:1px solid #000;padding-top:4px;font-size:10px;">Cajero</div></div>
-          <div style="text-align:center;width:45%;"><div style="border-top:1px solid #000;padding-top:4px;font-size:10px;">Administrador</div></div>
-        </div>
-      </div>`;
+          <div style="border-top:3px solid #000;padding-top:8px;margin-bottom:12px;">
+            <table style="width:100%;font-size:13px;">
+              <tr><td style="font-weight:bold;">Total Efectivo (Sistema):</td><td style="text-align:right;font-weight:bold;">${fmtMon(totalEf)}</td></tr>
+              <tr><td style="font-weight:bold;">Conteo de Caja:</td><td style="text-align:right;font-weight:bold;">${fmtMon(conteoVal)}</td></tr>
+              <tr style="font-size:15px;${diff === 0 ? 'color:green;' : diff > 0 ? 'color:blue;' : 'color:red;'}">
+                <td style="font-weight:bold;">Diferencia:</td>
+                <td style="text-align:right;font-weight:bold;">${diff === 0 ? 'CUADRA ✓' : fmtMon(diff) + (diff > 0 ? ' (Sobrante)' : ' (Faltante)')}</td>
+              </tr>
+            </table>
+          </div>
+          <div style="border-top:2px solid #000;padding-top:8px;">
+            <table style="width:100%;font-size:14px;">
+              <tr><td style="font-weight:bold;">Total Venta del Día:</td><td style="text-align:right;font-weight:bold;font-size:16px;">${fmtMon(totalVenta)}</td></tr>
+            </table>
+          </div>
+          <div style="margin-top:30px;display:flex;justify-content:space-between;">
+            <div style="text-align:center;width:45%;"><div style="border-top:1px solid #000;padding-top:4px;font-size:10px;">Cajero</div></div>
+            <div style="text-align:center;width:45%;"><div style="border-top:1px solid #000;padding-top:4px;font-size:10px;">Administrador</div></div>
+          </div>
+        </div>`;
+    }
 
-    const win = window.open('', 'CuadreCaja', 'width=500,height=600,menubar=no,toolbar=no');
+    const win = window.open('', 'CuadreCaja', `width=${winWidth},height=720,menubar=no,toolbar=no`);
     if (!win) return;
     win.document.write(`<!DOCTYPE html><html><head><title>Cuadre de Caja - ${fecha}</title>
-      <style>@media print { @page { size: auto; margin: 10mm; } .no-print { display: none !important; } }</style>
+      <style>@media print { ${pageStyle} body { margin: 0; } .no-print { display: none !important; } }</style>
       </head><body>
       <div class="no-print" style="padding:8px 16px;background:#7c3aed;display:flex;gap:8px;align-items:center;">
         <button onclick="window.print()" style="height:30px;padding:0 14px;background:#fff;color:#7c3aed;border:none;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;">Imprimir</button>
         <button onclick="window.close()" style="height:30px;padding:0 14px;background:transparent;color:#fff;border:1px solid rgba(255,255,255,0.5);border-radius:6px;font-size:12px;cursor:pointer;">Cerrar</button>
-        <span style="color:rgba(255,255,255,0.8);font-size:12px;margin-left:auto;">Cuadre — ${s.NombreCaja || 'Caja'} — ${fecha}</span>
+        <span style="color:rgba(255,255,255,0.8);font-size:12px;margin-left:auto;">Cuadre — ${s.NombreCaja || 'Caja'} — ${fecha} (${formato === 'tirilla' ? 'Tirilla' : 'Media carta'})</span>
       </div>${html}</body></html>`);
     win.document.close();
   };

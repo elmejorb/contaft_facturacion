@@ -468,6 +468,126 @@ INNER JOIN tblarticulos a ON l.Items = a.Items
 WHERE l.Estado = 'activo' AND l.Cantidad_Actual > 0;
 
 -- ================================================================
+-- v4.6 — Productos compuestos / Recetas (BOM)
+-- ================================================================
+
+CREATE TABLE IF NOT EXISTS tblproducto_componentes (
+    Id_Componente     INT AUTO_INCREMENT PRIMARY KEY,
+    Items_Padre       INT NOT NULL,
+    Items_Componente  INT NOT NULL,
+    Cantidad          DECIMAL(12,4) NOT NULL DEFAULT 1,
+    Comentario        VARCHAR(150) DEFAULT NULL,
+    Fecha_Creacion    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_padre_componente (Items_Padre, Items_Componente),
+    KEY idx_padre (Items_Padre),
+    KEY idx_componente (Items_Componente)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+SET @col_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tblarticulos' AND COLUMN_NAME = 'tiene_componentes');
+SET @sql = IF(@col_exists = 0,
+    "ALTER TABLE tblarticulos ADD COLUMN tiene_componentes TINYINT(1) DEFAULT 0",
+    'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+DROP VIEW IF EXISTS vw_componentes_detalle;
+CREATE VIEW vw_componentes_detalle AS
+SELECT
+    c.Id_Componente, c.Items_Padre, c.Items_Componente, c.Cantidad, c.Comentario,
+    p.Codigo AS Codigo_Padre, p.Nombres_Articulo AS Nombre_Padre,
+    p.Precio_Costo AS Costo_Padre_Actual, p.Precio_Venta AS Precio_Venta_Padre,
+    h.Codigo AS Codigo_Componente, h.Nombres_Articulo AS Nombre_Componente,
+    h.Existencia AS Stock_Componente, h.Precio_Costo AS Costo_Unit_Componente,
+    (c.Cantidad * h.Precio_Costo) AS Costo_Aporte
+FROM tblproducto_componentes c
+INNER JOIN tblarticulos p ON c.Items_Padre = p.Items
+INNER JOIN tblarticulos h ON c.Items_Componente = h.Items;
+
+DROP VIEW IF EXISTS vw_capacidad_compuestos;
+CREATE VIEW vw_capacidad_compuestos AS
+SELECT
+    c.Items_Padre, p.Codigo, p.Nombres_Articulo AS Producto,
+    MIN(CASE WHEN c.Cantidad > 0 THEN FLOOR(h.Existencia / c.Cantidad) ELSE 0 END) AS Unidades_Posibles,
+    SUM(c.Cantidad * h.Precio_Costo) AS Costo_Total_Receta,
+    p.Precio_Venta, COUNT(*) AS Num_Componentes
+FROM tblproducto_componentes c
+INNER JOIN tblarticulos p ON c.Items_Padre = p.Items
+INNER JOIN tblarticulos h ON c.Items_Componente = h.Items
+GROUP BY c.Items_Padre, p.Codigo, p.Nombres_Articulo, p.Precio_Venta;
+
+-- ================================================================
+-- v4.7 — Etiquetas (clasificación de productos)
+-- ================================================================
+
+-- Compatibilidad: renombrar tabla/columna si vienen del nombre anterior (Bodegas)
+SET @old_exists = (SELECT COUNT(*) FROM information_schema.TABLES
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tblbodegas');
+SET @new_exists = (SELECT COUNT(*) FROM information_schema.TABLES
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tbletiquetas');
+SET @sql = IF(@old_exists = 1 AND @new_exists = 0, 'RENAME TABLE tblbodegas TO tbletiquetas', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- Renombrar PK Id_Bodega → Id_Etiqueta dentro de tbletiquetas si quedó así
+SET @pk_old = (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tbletiquetas' AND COLUMN_NAME = 'Id_Bodega');
+SET @pk_new = (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tbletiquetas' AND COLUMN_NAME = 'Id_Etiqueta');
+SET @sql = IF(@pk_old = 1 AND @pk_new = 0,
+    'ALTER TABLE tbletiquetas CHANGE COLUMN Id_Bodega Id_Etiqueta INT(11) NOT NULL AUTO_INCREMENT',
+    'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @old_col = (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tblarticulos' AND COLUMN_NAME = 'Id_Bodega');
+SET @new_col = (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tblarticulos' AND COLUMN_NAME = 'Id_Etiqueta');
+SET @sql = IF(@old_col = 1 AND @new_col = 0,
+    'ALTER TABLE tblarticulos CHANGE COLUMN Id_Bodega Id_Etiqueta INT DEFAULT NULL',
+    'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+CREATE TABLE IF NOT EXISTS tbletiquetas (
+    Id_Etiqueta     INT AUTO_INCREMENT PRIMARY KEY,
+    Nombre          VARCHAR(80) NOT NULL,
+    Descripcion     VARCHAR(255) DEFAULT NULL,
+    Color           VARCHAR(7) DEFAULT '#7c3aed',
+    Activa          TINYINT(1) DEFAULT 1,
+    Fecha_Creacion  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_nombre (Nombre),
+    KEY idx_activa (Activa)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+SET @uk_exists = (SELECT COUNT(*) FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tbletiquetas' AND INDEX_NAME = 'uk_nombre');
+SET @sql = IF(@uk_exists = 0,
+    "ALTER TABLE tbletiquetas ADD UNIQUE KEY uk_nombre (Nombre)",
+    'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @col_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tblarticulos' AND COLUMN_NAME = 'Id_Etiqueta');
+SET @sql = IF(@col_exists = 0,
+    "ALTER TABLE tblarticulos ADD COLUMN Id_Etiqueta INT DEFAULT NULL, ADD KEY idx_etiqueta (Id_Etiqueta)",
+    'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+INSERT IGNORE INTO tbletiquetas (Nombre, Descripcion, Color) VALUES
+    ('Insumos', 'Materias primas e ingredientes para producción', '#d97706'),
+    ('Producto Terminado', 'Productos elaborados listos para vender', '#16a34a'),
+    ('Reventa', 'Productos que se compran y se venden sin transformación', '#2563eb');
+
+-- ================================================================
+-- v4.8 — FacturaCompra_N a VARCHAR (alfanumérico)
+-- ================================================================
+
+SET @col_type = (SELECT COLUMN_TYPE FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tblpedidos' AND COLUMN_NAME = 'FacturaCompra_N');
+SET @sql = IF(@col_type LIKE 'int%',
+    'ALTER TABLE tblpedidos MODIFY COLUMN FacturaCompra_N VARCHAR(50) DEFAULT NULL',
+    'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- ================================================================
 -- VERIFICACIÓN FINAL
 -- ================================================================
 SELECT '✓ Actualización completa Conta FT aplicada' AS resultado;

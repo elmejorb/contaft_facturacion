@@ -3,6 +3,8 @@ import { AgGridReact } from 'ag-grid-react';
 import { AllCommunityModule, ModuleRegistry, ColDef } from 'ag-grid-community';
 import { CalendarClock, AlertTriangle, RefreshCw, X, Save, Trash2, Plus, Search } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { triggerNotifRefresh } from '../hooks/useNotificaciones';
+import { useAuth } from '../contexts/AuthContext';
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
@@ -180,6 +182,7 @@ export function LotesPorVencer() {
 }
 
 function DarDeBajaModal({ lote, onClose, onOk }: { lote: Lote; onClose: () => void; onOk: () => void }) {
+  const { user } = useAuth();
   const [cantidad, setCantidad] = useState<string>(fmtCant(lote.Cantidad_Actual));
   const [motivo, setMotivo] = useState('Producto vencido');
   const [saving, setSaving] = useState(false);
@@ -191,13 +194,12 @@ function DarDeBajaModal({ lote, onClose, onOk }: { lote: Lote; onClose: () => vo
     if (!motivo.trim()) { toast.error('Indica el motivo'); return; }
     setSaving(true);
     try {
-      const idUsuario = parseInt(localStorage.getItem('id_usuario') || '0');
       const r = await fetch(API + '/index.php', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'dar_de_baja', id_lote: lote.Id_Lote, cantidad: c, motivo, id_usuario: idUsuario })
+        body: JSON.stringify({ action: 'dar_de_baja', id_lote: lote.Id_Lote, cantidad: c, motivo, id_usuario: user?.id || 0 })
       });
       const d = await r.json();
-      if (d.success) { toast.success(d.message); onOk(); }
+      if (d.success) { toast.success(d.message); triggerNotifRefresh(); onOk(); }
       else toast.error(d.message);
     } catch (e) { toast.error('Error al dar de baja'); }
     setSaving(false);
@@ -311,7 +313,7 @@ function CrearLoteModal({ onClose, onOk }: { onClose: () => void; onOk: () => vo
         })
       });
       const d = await r.json();
-      if (d.success) { toast.success('Lote registrado'); onOk(); }
+      if (d.success) { toast.success('Lote registrado'); triggerNotifRefresh(); onOk(); }
       else toast.error(d.message);
     } catch (e) { toast.error('Error al crear lote'); }
     setSaving(false);

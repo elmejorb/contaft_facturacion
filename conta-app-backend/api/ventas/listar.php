@@ -76,7 +76,8 @@ try {
             $where .= " AND v.Tipo = :tipo";
             $params[':tipo'] = $tipo;
         }
-        if ($estado) {
+        // 'Todas' o vacío = sin filtro de estado
+        if ($estado && $estado !== 'Todas') {
             $where .= " AND v.EstadoFact = :estado";
             $params[':estado'] = $estado;
         }
@@ -86,13 +87,13 @@ try {
         }
         $buscar = $_GET['buscar'] ?? null;
         if ($buscar) {
-            $where .= " AND (v.Factura_N = :buscar_exact OR v.A_nombre LIKE :buscar_like)";
+            $where .= " AND (v.Factura_N = :buscar_exact OR v.A_nombre LIKE :buscar_like OR v.Identificacion LIKE :buscar_like)";
             $params[':buscar_exact'] = intval($buscar);
             $params[':buscar_like'] = "%$buscar%";
         }
 
         $stmt = $db->prepare("
-            SELECT v.Factura_N, v.Fecha, v.Tipo, v.CodigoCli, v.A_nombre,
+            SELECT v.Factura_N, v.Fecha, v.Tipo, v.CodigoCli, v.A_nombre, v.Identificacion,
                    v.Total, v.Saldo, v.EstadoFact, v.Descuento, v.Impuesto,
                    v.id_mediopago, v.Hora, v.Id_Usuario, v.enviada_dian, v.cufe,
                    COALESCE(m.nombre_medio, 'Efectivo') as MedioPago,

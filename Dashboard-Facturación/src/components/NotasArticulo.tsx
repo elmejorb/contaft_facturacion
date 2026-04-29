@@ -3,6 +3,7 @@ import { AgGridReact } from 'ag-grid-react';
 import { AllCommunityModule, ModuleRegistry, ColDef } from 'ag-grid-community';
 import { Search, Plus, Save, X, Trash2, ClipboardEdit, RefreshCw } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { triggerNotifRefresh } from '../hooks/useNotificaciones';
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
@@ -36,7 +37,7 @@ export function NotasArticulo() {
       const r = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'eliminar', id_nota: id }) });
       const d = await r.json();
-      if (d.success) { toast.success(d.message); cargar(); }
+      if (d.success) { toast.success(d.message); triggerNotifRefresh(); cargar(); }
       else toast.error(d.message);
     } catch (e) { toast.error('Error'); }
   };
@@ -149,7 +150,7 @@ function CrearNotaModal({ onClose, onSaved }: { onClose: () => void; onSaved: ()
         })
       });
       const d = await r.json();
-      if (d.success) { toast.success(d.message); onSaved(); }
+      if (d.success) { toast.success(d.message); triggerNotifRefresh(); onSaved(); }
       else toast.error(d.message);
     } catch (e) { toast.error('Error'); }
     setGuardando(false);

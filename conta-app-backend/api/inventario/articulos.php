@@ -60,10 +60,14 @@ try {
                 a.Id_Categoria as Id_Categoria,
                 a.CodigoPro as CodigoPro,
                 a.Estante,
-                a.Existencia_minima
+                a.Existencia_minima,
+                a.Id_Etiqueta,
+                COALESCE(e.Nombre, '') as Etiqueta,
+                COALESCE(e.Color, '') as Etiqueta_Color
               FROM tblArticulos a
               LEFT JOIN tblcategoria c ON a.Id_Categoria = c.Id_Categoria
-              LEFT JOIN tblproveedores p ON a.CodigoPro = p.CodigoPro;";
+              LEFT JOIN tblproveedores p ON a.CodigoPro = p.CodigoPro
+              LEFT JOIN tbletiquetas e ON a.Id_Etiqueta = e.Id_Etiqueta;";
 
     // Filtrar por estado si es necesario
     if ($estado === 'Activos') {

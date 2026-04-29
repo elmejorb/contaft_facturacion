@@ -1,6 +1,11 @@
 <?php
 /**
  * Cartera - Clientes con saldos pendientes
+ *
+ * Une 3 fuentes (sin duplicar):
+ *   - vw_facturas_cliente_saldos       (ventas POS / contado-crédito en tblventas)
+ *   - vw_facturas_anteriores_cliente   (saldos migrados pre-sistema)
+ *   - vw_facturas_elec_cliente_saldos  (facturas electrónicas crédito en electronic_documents)
  */
 
 require_once '../config/database.php';
@@ -9,24 +14,24 @@ $database = new Database();
 $db = $database->getConnection();
 
 try {
-    // Ventas con saldo + facturas anteriores con saldo
+    // CTE de todas las facturas pendientes (3 fuentes unidas)
+    $sqlFacturas = "
+        SELECT CodigoCli, Factura_N, Fecha, Dias, Total, Saldo, 'venta' AS Origen FROM vw_facturas_cliente_saldos WHERE Saldo > 0
+        UNION ALL
+        SELECT CodigoCli, FacturaN AS Factura_N, Fecha, Dias, Total, Saldo, 'anterior' FROM vw_facturas_anteriores_cliente WHERE Saldo > 0
+        UNION ALL
+        SELECT CodigoCli, Factura_N, Fecha, Dias, Total, Saldo, 'electronica' FROM vw_facturas_elec_cliente_saldos WHERE Saldo > 0
+    ";
+
     $stmt = $db->query("
-        SELECT CodigoClien, Razon_Social, Nit, Telefonos, CupoAutorizado,
-               Facturas_Pendientes, Saldo_Total, Factura_Mas_Antigua, Dias_Mayor_Vencimiento
-        FROM (
-            SELECT c.CodigoClien, c.Razon_Social, c.Nit, c.Telefonos, c.CupoAutorizado,
-                   COUNT(*) as Facturas_Pendientes,
-                   SUM(saldo) as Saldo_Total,
-                   MIN(fecha) as Factura_Mas_Antigua,
-                   DATEDIFF(CURDATE(), MIN(fecha)) as Dias_Mayor_Vencimiento
-            FROM tblclientes c
-            INNER JOIN (
-                SELECT CodigoCli as cod, Factura_N, Fecha as fecha, Saldo as saldo FROM tblventas WHERE Saldo > 0
-                UNION ALL
-                SELECT CodigoCli as cod, FacturaN, Fecha as fecha, Saldo as saldo FROM tblfacturasanteriores WHERE Saldo > 0
-            ) f ON c.CodigoClien = f.cod
-            GROUP BY c.CodigoClien, c.Razon_Social, c.Nit, c.Telefonos, c.CupoAutorizado
-        ) t
+        SELECT c.CodigoClien, c.Razon_Social, c.Nit, c.Telefonos, c.CupoAutorizado,
+               COUNT(*) as Facturas_Pendientes,
+               SUM(f.Saldo) as Saldo_Total,
+               MIN(f.Fecha) as Factura_Mas_Antigua,
+               DATEDIFF(CURDATE(), MIN(f.Fecha)) as Dias_Mayor_Vencimiento
+        FROM tblclientes c
+        INNER JOIN ($sqlFacturas) f ON c.CodigoClien = f.CodigoCli
+        GROUP BY c.CodigoClien, c.Razon_Social, c.Nit, c.Telefonos, c.CupoAutorizado
         ORDER BY Saldo_Total DESC
     ");
     $clientes = $stmt->fetchAll();
@@ -37,6 +42,7 @@ try {
         $c['Facturas_Pendientes'] = intval($c['Facturas_Pendientes']);
         $c['Dias_Mayor_Vencimiento'] = intval($c['Dias_Mayor_Vencimiento']);
     }
+    unset($c);
 
     $totalSaldo = array_sum(array_column($clientes, 'Saldo_Total'));
     $totalClientes = count($clientes);
@@ -44,19 +50,17 @@ try {
     $totalVencidos = count($vencidos);
     $saldoVencido = array_sum(array_column($vencidos, 'Saldo_Total'));
 
-    // Detallado: incluir facturas individuales por cliente
+    // Detallado: incluir facturas individuales por cliente (de las 3 fuentes)
     $detallado = $_GET['detallado'] ?? null;
-    $facturasPorCliente = [];
-
     if ($detallado) {
         $stmtFact = $db->query("
-            SELECT v.CodigoCli, v.Factura_N, v.Fecha, v.Dias, v.Total, v.Saldo,
-                   DATEDIFF(CURDATE(), v.Fecha) as Dias_Mora
-            FROM tblventas v
-            WHERE v.Saldo > 0
-            ORDER BY v.CodigoCli, v.Fecha
+            SELECT CodigoCli, Factura_N, Fecha, Dias, Total, Saldo, Origen,
+                   DATEDIFF(CURDATE(), Fecha) AS Dias_Mora
+            FROM ($sqlFacturas) f
+            ORDER BY CodigoCli, Fecha
         ");
         $todasFacturas = $stmtFact->fetchAll();
+        $facturasPorCliente = [];
         foreach ($todasFacturas as $f) {
             $cod = $f['CodigoCli'];
             if (!isset($facturasPorCliente[$cod])) $facturasPorCliente[$cod] = [];
@@ -66,13 +70,14 @@ try {
                 'Dias_Plazo' => intval($f['Dias']),
                 'Total' => floatval($f['Total']),
                 'Saldo' => floatval($f['Saldo']),
-                'Dias_Mora' => intval($f['Dias_Mora'])
+                'Dias_Mora' => intval($f['Dias_Mora']),
+                'Origen' => $f['Origen'],
             ];
         }
-
         foreach ($clientes as &$c) {
             $c['Facturas'] = $facturasPorCliente[$c['CodigoClien']] ?? [];
         }
+        unset($c);
     }
 
     echo json_encode([

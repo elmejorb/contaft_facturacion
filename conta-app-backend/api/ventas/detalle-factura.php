@@ -176,7 +176,10 @@ try {
             echo json_encode(['success' => true, 'message' => "Devolución procesada. Valor devuelto: $" . number_format($totalDevuelto, 0, ',', '.')]);
 
         } elseif ($action === 'anular') {
-            $db->beginTransaction();
+            // ===== Validación de autorización =====
+            $usuarioId = intval($data['usuario_id'] ?? 0);
+            $autorizadoPor = intval($data['autorizado_por'] ?? 0);
+            $autorizadoNombre = trim($data['autorizado_por_nombre'] ?? '');
 
             // Get factura
             $stmt = $db->prepare("SELECT * FROM tblventas WHERE Factura_N = ?");
@@ -186,6 +189,68 @@ try {
                 echo json_encode(['success' => false, 'message' => 'Factura ya anulada o no encontrada']);
                 exit;
             }
+
+            // ===== Validación de caja abierta para anulación de venta de contado =====
+            $esContado = ($fac['Tipo'] === 'Contado');
+            $efectivoVenta = floatval($fac['efectivo'] ?? 0);
+            $cajaAbiertaHoy = null;
+            if ($esContado && $efectivoVenta > 0) {
+                $stmt = $db->prepare("
+                    SELECT s.Id_Sesion, s.Id_Caja, c.Nombre AS NombreCaja
+                    FROM tblsesiones_caja s
+                    INNER JOIN tblcajas c ON s.Id_Caja = c.Id_Caja
+                    WHERE s.Estado = 'abierta' AND DATE(s.FechaApertura) = CURDATE()
+                    ORDER BY s.FechaApertura DESC LIMIT 1
+                ");
+                $stmt->execute();
+                $cajaAbiertaHoy = $stmt->fetch();
+                if (!$cajaAbiertaHoy) {
+                    echo json_encode([
+                        'success' => false,
+                        'requiere_caja_abierta' => true,
+                        'message' => 'Para anular esta venta de contado debe haber una caja abierta hoy. El reembolso de $' . number_format($efectivoVenta, 0, ',', '.') . ' debe salir de una caja activa. Abra una caja primero.'
+                    ]);
+                    exit;
+                }
+            }
+
+            // Si NO viene autorizado_por, validamos las reglas para vendedor:
+            //   - Solo puede anular SU propia venta (Id_Usuario coincide)
+            //   - Y solo si tiene una sesión de caja abierta y la venta fue hecha durante esa sesión
+            // Si es admin (Id_TiposUsuario=1) → siempre puede sin autorización (a menos que la config exija)
+            if (!$autorizadoPor && $usuarioId > 0) {
+                $stmt = $db->prepare("SELECT Id_TiposUsuario FROM tblusuarios WHERE Id_Usuario = ?");
+                $stmt->execute([$usuarioId]);
+                $tipoU = intval($stmt->fetch()['Id_TiposUsuario'] ?? 0);
+
+                if ($tipoU !== 1) {
+                    // Es vendedor — verificar que sea SU venta y dentro de SU sesión abierta
+                    if (intval($fac['Id_Usuario']) !== $usuarioId) {
+                        echo json_encode([
+                            'success' => false, 'requiere_autorizacion' => true,
+                            'message' => 'Esta venta fue hecha por otro cajero. Requiere autorización del administrador.'
+                        ]);
+                        exit;
+                    }
+                    $stmt = $db->prepare("
+                        SELECT Id_Sesion FROM tblsesiones_caja
+                        WHERE Id_Usuario = ? AND Estado = 'abierta'
+                          AND ? >= FechaApertura
+                        ORDER BY FechaApertura DESC LIMIT 1
+                    ");
+                    $stmt->execute([$usuarioId, $fac['Fecha']]);
+                    $sesion = $stmt->fetch();
+                    if (!$sesion) {
+                        echo json_encode([
+                            'success' => false, 'requiere_autorizacion' => true,
+                            'message' => 'La caja en la que se hizo la venta ya fue cerrada. Requiere autorización del administrador.'
+                        ]);
+                        exit;
+                    }
+                }
+            }
+
+            $db->beginTransaction();
 
             // Return all stock
             $stmt = $db->prepare("SELECT * FROM tbldetalle_venta WHERE Factura_N = ?");
@@ -214,8 +279,33 @@ try {
             $db->prepare("UPDATE tblventas SET EstadoFact = 'Anulada', Saldo = 0 WHERE Factura_N = ?")
                ->execute([$factN]);
 
+            // ===== Si era venta contado: registrar egreso automático en caja abierta =====
+            $msgExtra = '';
+            if ($esContado && $efectivoVenta > 0 && $cajaAbiertaHoy) {
+                $descripcion = "Reembolso por anulación FV-$factN";
+                if ($autorizadoPor && $autorizadoNombre) $descripcion .= " (autorizado por $autorizadoNombre)";
+
+                $db->prepare("
+                    INSERT INTO tblmov_caja (Id_Sesion, Id_Caja_Origen, Id_Usuario, Valor, Tipo, Descripcion)
+                    VALUES (?, ?, ?, ?, 'gasto', ?)
+                ")->execute([
+                    $cajaAbiertaHoy['Id_Sesion'], $cajaAbiertaHoy['Id_Caja'],
+                    $usuarioId, $efectivoVenta, $descripcion
+                ]);
+                // Acumular en la columna Anulaciones de la sesión (sale en el cuadre)
+                $db->prepare("UPDATE tblsesiones_caja SET Anulaciones = Anulaciones + ? WHERE Id_Sesion = ?")
+                   ->execute([$efectivoVenta, $cajaAbiertaHoy['Id_Sesion']]);
+
+                $msgExtra = ". Egreso de $" . number_format($efectivoVenta, 0, ',', '.') . " registrado en " . $cajaAbiertaHoy['NombreCaja'];
+            }
+
             $db->commit();
-            echo json_encode(['success' => true, 'message' => 'Factura anulada correctamente']);
+            echo json_encode([
+                'success' => true,
+                'message' => "Factura $factN anulada correctamente" . $msgExtra,
+                'egreso_caja' => $efectivoVenta > 0 ? floatval($efectivoVenta) : null,
+                'caja_egreso' => $cajaAbiertaHoy ? $cajaAbiertaHoy['NombreCaja'] : null,
+            ]);
         }
     }
 } catch (Exception $e) {

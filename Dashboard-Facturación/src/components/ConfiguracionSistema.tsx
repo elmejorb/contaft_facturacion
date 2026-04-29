@@ -8,6 +8,7 @@ export interface ConfigImpresion {
   formatoPago: 'media-carta' | 'tirilla';
   formatoCotizacion: 'media-carta' | 'tirilla' | 'carta';
   formatoInforme: 'carta' | 'media-carta';
+  formatoCuadreCaja: 'tirilla' | 'media-carta';
   // Comportamiento
   vistaPrevia: boolean; // true = preview, false = imprime directo
   imprimirAlGuardar: boolean; // imprimir automáticamente al guardar factura
@@ -41,6 +42,10 @@ export interface ConfigImpresion {
   usarCotizaciones: boolean;
   usarConteoInventario: boolean;
   tipoNegocio: string; // Tienda, Farmacia, Boutique, etc.
+  // Seguridad — autorización admin para acciones sensibles
+  autorizarDevoluciones: boolean;     // pide clave admin para devolver
+  autorizarAnulaciones: boolean;      // pide clave admin para anular venta
+  autorizarOverrideCupo: boolean;     // pide clave admin si la venta supera cupo del cliente
 }
 
 const CONFIG_KEY = 'config_sistema';
@@ -50,6 +55,7 @@ const defaultConfig: ConfigImpresion = {
   formatoPago: 'media-carta',
   formatoCotizacion: 'media-carta',
   formatoInforme: 'carta',
+  formatoCuadreCaja: 'tirilla',
   vistaPrevia: true,
   imprimirAlGuardar: true,
   imprimirCotizacion: false,
@@ -75,6 +81,9 @@ const defaultConfig: ConfigImpresion = {
   usarCotizaciones: true,
   usarConteoInventario: true,
   tipoNegocio: '',
+  autorizarDevoluciones: false,
+  autorizarAnulaciones: false,
+  autorizarOverrideCupo: false,
 };
 
 export function getConfigImpresion(): ConfigImpresion {
@@ -204,9 +213,11 @@ export function ConfiguracionSistema() {
     </div>
   );
 
-  const formatoImpresora = (label: string, field: 'formatoFactura' | 'formatoPago' | 'formatoCotizacion' | 'formatoInforme') => {
+  const formatoImpresora = (label: string, field: 'formatoFactura' | 'formatoPago' | 'formatoCotizacion' | 'formatoInforme' | 'formatoCuadreCaja') => {
     const opciones = field === 'formatoInforme'
       ? [{ v: 'carta', l: 'Carta', i: '🖨️', d: 'Hoja completa' }, { v: 'media-carta', l: 'Media carta', i: '📄', d: 'Mitad de hoja' }]
+      : field === 'formatoCuadreCaja'
+      ? [{ v: 'tirilla', l: 'Tirilla (POS)', i: '🧾', d: 'Térmica 80mm' }, { v: 'media-carta', l: 'Media carta', i: '📄', d: 'Mitad de hoja' }]
       : [{ v: 'tirilla', l: 'Tirilla (POS)', i: '🧾', d: 'Térmica 80mm' }, { v: 'media-carta', l: 'Media carta', i: '📄', d: 'Mitad de hoja' }, { v: 'carta', l: 'Carta', i: '🖨️', d: 'Hoja completa' }];
     return (
       <div style={{ marginBottom: 14 }}>
@@ -237,6 +248,7 @@ export function ConfiguracionSistema() {
           {formatoImpresora('Facturas de Venta', 'formatoFactura')}
           {formatoImpresora('Recibos de Pago', 'formatoPago')}
           {formatoImpresora('Cotizaciones', 'formatoCotizacion')}
+          {formatoImpresora('Cuadre de Caja', 'formatoCuadreCaja')}
           {formatoImpresora('Informes y Reportes', 'formatoInforme')}
         </div>
       ))}
@@ -286,6 +298,20 @@ export function ConfiguracionSistema() {
           {config.usarDecimales && selectField('Número de decimales', 'numDecimales', [
             { value: 1, label: '1 decimal' }, { value: 2, label: '2 decimales' }, { value: 3, label: '3 decimales' }
           ])}
+        </div>
+      ))}
+
+      {/* Seguridad — autorización por administrador */}
+      {seccion('Seguridad — Autorización Admin', <Settings size={18} color="#dc2626" />, (
+        <div>
+          <p style={{ fontSize: 11, color: '#6b7280', marginTop: -8, marginBottom: 14 }}>
+            Si activás alguna de estas opciones, el sistema pedirá el usuario y contraseña de un administrador antes de ejecutar la acción. Útil para supermercados y comercios donde los cajeros tienen permisos limitados.
+          </p>
+          {toggle('Pedir clave admin para devoluciones', 'autorizarDevoluciones', 'Cuando un vendedor intente devolver una factura, debe pasar el supervisor a autorizar')}
+          {toggle('Pedir clave admin para anulaciones', 'autorizarAnulaciones', 'Anular una venta requerirá autorización de un administrador')}
+          <div style={{ background: '#fef9c3', border: '1px solid #fde047', borderRadius: 6, padding: '8px 12px', fontSize: 11, color: '#713f12', marginTop: 8 }}>
+            🔒 <b>Override de cupo</b>: las ventas a crédito que superen el cupo del cliente <b>siempre</b> requieren autorización del administrador. Esta protección no es configurable.
+          </div>
         </div>
       ))}
 

@@ -401,11 +401,13 @@ export function NuevaCompra({ pedidoEditar, onClose }: { pedidoEditar?: number; 
                       style={{ width: 40, height: 22, textAlign: 'center', border: '1px solid #d1d5db', borderRadius: 4, fontSize: 11, fontWeight: 600 }} />
                   </td>
                   <td style={{ padding: '2px 3px', textAlign: 'right' }}>
-                    <input type="text" {...moneyInputHandlers(l.CostoSinIva, v => actualizarLinea(l.id, 'CostoSinIva', v), l.CostoAnterior)}
+                    <input type="text" key={`siva-${l.id}-${l.CostoConIva}-${l.IvaPct}`}
+                      {...moneyInputHandlers(l.CostoSinIva, v => actualizarLinea(l.id, 'CostoSinIva', v), l.CostoAnterior)}
                       style={{ width: 70, height: 22, textAlign: 'right', border: '1px solid #d1d5db', borderRadius: 4, fontSize: 11 }} />
                   </td>
                   <td style={{ padding: '2px 3px', textAlign: 'center' }}>
-                    <input type="text" defaultValue={String(l.IvaPct)} onBlur={e => actualizarLinea(l.id, 'IvaPct', parseFloat(e.target.value) || 0)} onFocus={e => e.target.select()} onKeyDown={soloNum}
+                    <input type="text" key={`iva-${l.id}-${l.IvaPct}`}
+                      defaultValue={String(l.IvaPct)} onBlur={e => actualizarLinea(l.id, 'IvaPct', parseFloat(e.target.value) || 0)} onFocus={e => e.target.select()} onKeyDown={soloNum}
                       style={{ width: 32, height: 22, textAlign: 'center', border: '1px solid #d1d5db', borderRadius: 4, fontSize: 11 }} />
                   </td>
                   <td style={{ padding: '2px 3px', textAlign: 'right' }}>

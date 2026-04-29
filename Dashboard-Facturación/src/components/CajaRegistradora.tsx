@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Lock, Unlock, DollarSign, RefreshCw, Clock, ArrowDownRight, Plus, Settings } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../contexts/AuthContext';
+import { getConfigImpresion } from './ConfiguracionSistema';
 
 const API = 'http://localhost:80/conta-app-backend/api/caja/sesion.php';
 const fmtMon = (v: number) => '$ ' + Math.round(v).toLocaleString('es-CO');
@@ -46,10 +47,19 @@ export function CajaRegistradora() {
   useEffect(() => { cargarCajas(); }, []);
   useEffect(() => { cargar(); }, [cajaSeleccionada]);
 
+  // Pre-rellenar la base con el residual del último cierre cuando NO hay sesión abierta
+  useEffect(() => {
+    if (data?.abierta) return; // si ya está abierta, no toca
+    const c = cajas.find(c => c.Id_Caja === cajaSeleccionada);
+    if (c && c.base_sugerida && parseFloat(c.base_sugerida) > 0) {
+      setBase(String(Math.round(parseFloat(c.base_sugerida))));
+    }
+  }, [cajas, cajaSeleccionada, data?.abierta]);
+
   const abrirCaja = async () => {
     try {
       const r = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'abrir', caja_id: cajaSeleccionada, usuario_id: 0, base: parseInt(base) || 0 }) });
+        body: JSON.stringify({ action: 'abrir', caja_id: cajaSeleccionada, usuario_id: user?.id || 0, base: parseInt(base) || 0 }) });
       const d = await r.json();
       if (d.success) { toast.success(d.message); setBase(''); cargar(); cargarCajas(); }
       else toast.error(d.message);
@@ -81,7 +91,7 @@ export function CajaRegistradora() {
     if (val <= 0) return;
     try {
       const r = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'retiro', sesion_id: data.sesion.Id_Sesion, valor: val, descripcion: retiroDesc || 'Retiro parcial', usuario_id: 0 }) });
+        body: JSON.stringify({ action: 'retiro', sesion_id: data.sesion.Id_Sesion, valor: val, descripcion: retiroDesc || 'Retiro parcial', usuario_id: user?.id || 0 }) });
       const d = await r.json();
       if (d.success) { toast.success(d.message); setShowRetiro(false); setRetiroValor(''); setRetiroDesc(''); cargar(); }
       else toast.error(d.message);
@@ -113,68 +123,118 @@ export function CajaRegistradora() {
     const hora = new Date().toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' });
     const diff = resultado.diferencia || 0;
     const trasladado = resultado.trasladado || 0;
+    const formato = getConfigImpresion().formatoCuadreCaja || 'tirilla';
 
-    const linea = (label: string, ef: number, tr?: number) =>
-      `<tr><td style="padding:3px 6px;">${label}</td><td style="padding:3px 6px;text-align:right;font-weight:600;">${fmtMon(ef)}</td>${tr !== undefined ? `<td style="padding:3px 6px;text-align:right;color:#666;">${fmtMon(tr)}</td>` : ''}</tr>`;
+    let html = '', pageStyle = '', winWidth = 500;
 
-    const html = `
-      <div style="font-family:Arial,sans-serif;max-width:400px;margin:0 auto;padding:20px;">
-        <div style="text-align:center;margin-bottom:16px;">
-          <div style="font-size:16px;font-weight:bold;">CUADRE DE CAJA</div>
-          <div style="font-size:12px;color:#666;">${sesion.NombreCaja} — ${sesion.NombreUsuario || 'Admin'}</div>
-          <div style="font-size:12px;color:#666;">Fecha: ${fecha} ${hora}</div>
+    if (formato === 'tirilla') {
+      // ===== Tirilla térmica 80mm =====
+      pageStyle = `@page { size: 80mm auto; margin: 2mm; }`;
+      winWidth = 360;
+      const lineDot = (label: string, value: string) =>
+        `<div style="display:flex;justify-content:space-between;font-family:'Courier New',monospace;font-size:11px;line-height:1.4;"><span>${label}</span><span style="font-weight:bold;">${value}</span></div>`;
+      const sepDouble = `<div style="border-top:1px dashed #000;margin:4px 0;"></div>`;
+      const sepSolid = `<div style="border-top:1px solid #000;margin:5px 0;"></div>`;
+
+      html = `
+        <div style="width:76mm;font-family:'Courier New',monospace;color:#000;padding:4px 2mm;">
+          <div style="text-align:center;font-size:14px;font-weight:bold;letter-spacing:1px;">CUADRE DE CAJA</div>
+          <div style="text-align:center;font-size:10px;">${sesion.NombreCaja}</div>
+          <div style="text-align:center;font-size:10px;">Cajero: ${sesion.NombreUsuario || 'Admin'}</div>
+          <div style="text-align:center;font-size:10px;">${fecha} ${hora}</div>
+          ${sepDouble}
+          ${lineDot('Base', fmtMon(res.base))}
+          ${lineDot(`Vtas Cont (${res.ventas_contado_cantidad}) Ef`, fmtMon(res.ventas_contado_efectivo))}
+          ${res.ventas_contado_transferencia > 0 ? lineDot('  Transferencia', fmtMon(res.ventas_contado_transferencia)) : ''}
+          ${res.ventas_credito > 0 ? lineDot(`Vtas Cred (${res.ventas_credito_cantidad})`, fmtMon(res.ventas_credito)) : ''}
+          ${res.pagos_efectivo > 0 ? lineDot(`Pagos Cli Ef (${res.pagos_cantidad})`, fmtMon(res.pagos_efectivo)) : ''}
+          ${res.pagos_transferencia > 0 ? lineDot('  Transferencia', fmtMon(res.pagos_transferencia)) : ''}
+          ${res.egresos > 0 ? lineDot(`Egresos (${res.egresos_cantidad})`, '-' + fmtMon(res.egresos)) : ''}
+          ${res.anulaciones > 0 ? lineDot(`Anulac. (${res.anulaciones_cantidad})`, '-' + fmtMon(res.anulaciones)) : ''}
+          ${res.retiros_parciales > 0 ? lineDot('Retiros', '-' + fmtMon(res.retiros_parciales)) : ''}
+          ${sepSolid}
+          ${lineDot('TOTAL SISTEMA', fmtMon(res.total_efectivo))}
+          ${lineDot('CONTEO REAL', fmtMon(conteoVal))}
+          ${sepDouble}
+          <div style="text-align:center;font-size:13px;font-weight:bold;padding:4px 0;${diff === 0 ? '' : 'border:1px solid #000;'}">
+            ${diff === 0 ? '*** CUADRA ***' : diff > 0 ? `SOBRANTE: ${fmtMon(diff)}` : `FALTANTE: ${fmtMon(Math.abs(diff))}`}
+          </div>
+          ${sepDouble}
+          ${trasladado > 0 ? lineDot('Trasl. Principal', fmtMon(trasladado)) : ''}
+          ${sepSolid}
+          ${lineDot('VENTA DEL DIA', fmtMon(res.total_venta_dia))}
+          ${sepDouble}
+          <div style="margin-top:18px;text-align:center;font-size:9px;">
+            <div style="border-top:1px solid #000;width:60%;margin:0 auto;padding-top:2px;">Firma Cajero</div>
+          </div>
+          <div style="margin-top:14px;text-align:center;font-size:9px;">
+            <div style="border-top:1px solid #000;width:60%;margin:0 auto;padding-top:2px;">Firma Administrador</div>
+          </div>
+          <div style="text-align:center;font-size:9px;margin-top:8px;color:#666;">- - - Conta FT - - -</div>
         </div>
+      `;
+    } else {
+      // ===== Media carta (formato actual) =====
+      pageStyle = `@page { size: auto; margin: 10mm; }`;
+      winWidth = 500;
+      const linea = (label: string, ef: number, tr?: number) =>
+        `<tr><td style="padding:3px 6px;">${label}</td><td style="padding:3px 6px;text-align:right;font-weight:600;">${fmtMon(ef)}</td>${tr !== undefined ? `<td style="padding:3px 6px;text-align:right;color:#666;">${fmtMon(tr)}</td>` : ''}</tr>`;
 
-        <table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:12px;">
-          <tr style="background:#f0f0f0;font-weight:bold;">
-            <td style="padding:4px 6px;">Concepto</td>
-            <td style="padding:4px 6px;text-align:right;">Efectivo</td>
-            <td style="padding:4px 6px;text-align:right;">Transferencia</td>
-          </tr>
-          ${linea('Base', res.base, 0)}
-          ${linea(`Ventas Contado (${res.ventas_contado_cantidad})`, res.ventas_contado_efectivo, res.ventas_contado_transferencia)}
-          ${linea(`Ventas Crédito (${res.ventas_credito_cantidad})`, 0, res.ventas_credito)}
-          ${linea(`Pagos Clientes (${res.pagos_cantidad})`, res.pagos_efectivo, res.pagos_transferencia)}
-          ${res.egresos > 0 ? linea(`Egresos (${res.egresos_cantidad})`, -res.egresos, 0) : ''}
-          ${res.anulaciones > 0 ? linea(`Anulaciones (${res.anulaciones_cantidad})`, -res.anulaciones, 0) : ''}
-          ${res.retiros_parciales > 0 ? linea('Retiros parciales', -res.retiros_parciales, 0) : ''}
-        </table>
-
-        <div style="border-top:3px solid #000;padding-top:8px;margin-bottom:12px;">
-          <table style="width:100%;font-size:13px;">
-            <tr><td style="font-weight:bold;">Total en Efectivo (Sistema):</td><td style="text-align:right;font-weight:bold;">${fmtMon(res.total_efectivo)}</td></tr>
-            <tr><td style="font-weight:bold;">Conteo de Caja:</td><td style="text-align:right;font-weight:bold;">${fmtMon(conteoVal)}</td></tr>
-            <tr style="font-size:15px;${diff === 0 ? 'color:green;' : diff > 0 ? 'color:blue;' : 'color:red;'}">
-              <td style="font-weight:bold;">Diferencia:</td>
-              <td style="text-align:right;font-weight:bold;">${diff === 0 ? 'CUADRA ✓' : fmtMon(diff) + (diff > 0 ? ' (Sobrante)' : ' (Faltante)')}</td>
+      html = `
+        <div style="font-family:Arial,sans-serif;max-width:400px;margin:0 auto;padding:20px;">
+          <div style="text-align:center;margin-bottom:16px;">
+            <div style="font-size:16px;font-weight:bold;">CUADRE DE CAJA</div>
+            <div style="font-size:12px;color:#666;">${sesion.NombreCaja} — ${sesion.NombreUsuario || 'Admin'}</div>
+            <div style="font-size:12px;color:#666;">Fecha: ${fecha} ${hora}</div>
+          </div>
+          <table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:12px;">
+            <tr style="background:#f0f0f0;font-weight:bold;">
+              <td style="padding:4px 6px;">Concepto</td>
+              <td style="padding:4px 6px;text-align:right;">Efectivo</td>
+              <td style="padding:4px 6px;text-align:right;">Transferencia</td>
             </tr>
-            ${trasladado > 0 ? `<tr><td>Trasladado a Principal:</td><td style="text-align:right;">${fmtMon(trasladado)}</td></tr>` : ''}
+            ${linea('Base', res.base, 0)}
+            ${linea(`Ventas Contado (${res.ventas_contado_cantidad})`, res.ventas_contado_efectivo, res.ventas_contado_transferencia)}
+            ${linea(`Ventas Crédito (${res.ventas_credito_cantidad})`, 0, res.ventas_credito)}
+            ${linea(`Pagos Clientes (${res.pagos_cantidad})`, res.pagos_efectivo, res.pagos_transferencia)}
+            ${res.egresos > 0 ? linea(`Egresos (${res.egresos_cantidad})`, -res.egresos, 0) : ''}
+            ${res.anulaciones > 0 ? linea(`Anulaciones (${res.anulaciones_cantidad})`, -res.anulaciones, 0) : ''}
+            ${res.retiros_parciales > 0 ? linea('Retiros parciales', -res.retiros_parciales, 0) : ''}
           </table>
+          <div style="border-top:3px solid #000;padding-top:8px;margin-bottom:12px;">
+            <table style="width:100%;font-size:13px;">
+              <tr><td style="font-weight:bold;">Total en Efectivo (Sistema):</td><td style="text-align:right;font-weight:bold;">${fmtMon(res.total_efectivo)}</td></tr>
+              <tr><td style="font-weight:bold;">Conteo de Caja:</td><td style="text-align:right;font-weight:bold;">${fmtMon(conteoVal)}</td></tr>
+              <tr style="font-size:15px;${diff === 0 ? 'color:green;' : diff > 0 ? 'color:blue;' : 'color:red;'}">
+                <td style="font-weight:bold;">Diferencia:</td>
+                <td style="text-align:right;font-weight:bold;">${diff === 0 ? 'CUADRA ✓' : fmtMon(diff) + (diff > 0 ? ' (Sobrante)' : ' (Faltante)')}</td>
+              </tr>
+              ${trasladado > 0 ? `<tr><td>Trasladado a Principal:</td><td style="text-align:right;">${fmtMon(trasladado)}</td></tr>` : ''}
+            </table>
+          </div>
+          <div style="border-top:2px solid #000;padding-top:8px;margin-bottom:8px;">
+            <table style="width:100%;font-size:14px;">
+              <tr><td style="font-weight:bold;">Total Venta del Día:</td><td style="text-align:right;font-weight:bold;font-size:16px;">${fmtMon(res.total_venta_dia)}</td></tr>
+            </table>
+          </div>
+          <div style="margin-top:30px;display:flex;justify-content:space-between;">
+            <div style="text-align:center;width:45%;"><div style="border-top:1px solid #000;padding-top:4px;font-size:10px;">Cajero</div></div>
+            <div style="text-align:center;width:45%;"><div style="border-top:1px solid #000;padding-top:4px;font-size:10px;">Administrador</div></div>
+          </div>
         </div>
+      `;
+    }
 
-        <div style="border-top:2px solid #000;padding-top:8px;margin-bottom:8px;">
-          <table style="width:100%;font-size:14px;">
-            <tr><td style="font-weight:bold;">Total Venta del Día:</td><td style="text-align:right;font-weight:bold;font-size:16px;">${fmtMon(res.total_venta_dia)}</td></tr>
-          </table>
-        </div>
-
-        <div style="margin-top:30px;display:flex;justify-content:space-between;">
-          <div style="text-align:center;width:45%;"><div style="border-top:1px solid #000;padding-top:4px;font-size:10px;">Cajero</div></div>
-          <div style="text-align:center;width:45%;"><div style="border-top:1px solid #000;padding-top:4px;font-size:10px;">Administrador</div></div>
-        </div>
-      </div>
-    `;
-
-    const win = window.open('', 'CuadreCaja', 'width=500,height=600,menubar=no,toolbar=no');
+    const win = window.open('', 'CuadreCaja', `width=${winWidth},height=720,menubar=no,toolbar=no`);
     if (!win) return;
     win.document.write(`<!DOCTYPE html><html><head><title>Cuadre de Caja</title>
       <style>
-        @media print { @page { size: auto; margin: 10mm; } body { margin: 0; } .no-print { display: none !important; } }
+        @media print { ${pageStyle} body { margin: 0; } .no-print { display: none !important; } }
       </style></head><body>
       <div class="no-print" style="padding:8px 16px;background:#7c3aed;display:flex;gap:8px;align-items:center;">
         <button onclick="window.print()" style="height:30px;padding:0 14px;background:#fff;color:#7c3aed;border:none;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;">Imprimir</button>
         <button onclick="window.close()" style="height:30px;padding:0 14px;background:transparent;color:#fff;border:1px solid rgba(255,255,255,0.5);border-radius:6px;font-size:12px;cursor:pointer;">Cerrar</button>
-        <span style="color:rgba(255,255,255,0.8);font-size:12px;margin-left:auto;">Cuadre de Caja — ${sesion.NombreCaja}</span>
+        <span style="color:rgba(255,255,255,0.8);font-size:12px;margin-left:auto;">Cuadre de Caja — ${sesion.NombreCaja} (${formato === 'tirilla' ? 'Tirilla' : 'Media carta'})</span>
       </div>
       ${html}</body></html>`);
     win.document.close();
@@ -255,6 +315,13 @@ export function CajaRegistradora() {
           </div>
           <h3 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 4px' }}>{cajaActual?.Nombre || 'Caja'} — Cerrada</h3>
           <p style={{ fontSize: 12, color: '#6b7280', marginBottom: 16 }}>Ingrese la base para abrir</p>
+
+          {cajaActual && cajaActual.base_sugerida > 0 && (
+            <div style={{ background: '#fef9c3', border: '1px solid #fde047', borderRadius: 8, padding: '8px 14px', marginBottom: 14, fontSize: 11, color: '#713f12', maxWidth: 360, margin: '0 auto 14px' }}>
+              💡 <b>Base sugerida {fmtMon(cajaActual.base_sugerida)}</b> — Es lo que quedó físicamente en el cajón después del último cierre. Cuente y confirme antes de abrir.
+            </div>
+          )}
+
           <div style={{ display: 'flex', justifyContent: 'center', gap: 10, alignItems: 'center' }}>
             <input type="text" value={base} onChange={e => setBase(e.target.value.replace(/[^0-9]/g, ''))}
               placeholder="$ 0" autoFocus onKeyDown={e => { if (e.key === 'Enter') abrirCaja(); }}

@@ -33,7 +33,11 @@ import {
   CreditCard,
   Cake,
   Crown,
-  Boxes
+  Boxes,
+  Home,
+  CalendarClock,
+  AlertTriangle,
+  Gift
 } from 'lucide-react';
 import { IncomeOverview } from './IncomeOverview';
 import { ProductsManagement } from './ProductsManagement';
@@ -52,6 +56,7 @@ import { GastosManagement } from './GastosManagement';
 import { BancosManagement } from './BancosManagement';
 import { ConfigCategoriasGasto } from './ConfigCategoriasGasto';
 import { ConfigRetenciones } from './ConfigRetenciones';
+import { ConfigEtiquetas } from './ConfigEtiquetas';
 import { ConfigCajas } from './ConfigCajas';
 import { ConfigServidor } from './ConfigServidor';
 import { ConfigPermisos } from './ConfigPermisos';
@@ -66,6 +71,8 @@ import { DistribuirProductos } from './DistribuirProductos';
 import { StockBajo, useStockBajoCount } from './StockBajo';
 import { NotasArticulo } from './NotasArticulo';
 import { LotesPorVencer } from './LotesPorVencer';
+import { PantallaInicio } from './PantallaInicio';
+import { useNotificaciones } from '../hooks/useNotificaciones';
 import { InformesHub } from './informes/InformesHub';
 import { ConfiguracionSistema } from './ConfiguracionSistema';
 import { DatosEmpresa } from './DatosEmpresa';
@@ -96,7 +103,7 @@ interface DashboardProps {
   user?: UserData | null;
 }
 
-type View = 'overview' | 'products' | 'customers' | 'suppliers' | 'purchases' | 'sales' | 'inventario' | 'diagnostico' | 'auditoria' | 'categorias' | 'conteo' | 'configuracion' | 'cuentas-cobrar' | 'top-clientes' | 'cumpleanos' | 'cuentas-pagar' | 'productos-proveedor' | 'nueva-venta' | 'ventas-tipo-pago' | 'datos-empresa' | 'usuarios' | 'nueva-compra' | 'facturacion-electronica' | 'caja' | 'caja-historial' | 'pagos-clientes' | 'pagos-proveedores' | 'gastos' | 'bancos' | 'config-categorias-gasto' | 'config-cajas' | 'config-servidor' | 'config-permisos' | 'familias' | 'distribuir' | 'stock-bajo' | 'config-retenciones' | 'informes-hub' | 'notas-articulo' | 'lotes-vencer';
+type View = 'overview' | 'products' | 'customers' | 'suppliers' | 'purchases' | 'sales' | 'inventario' | 'diagnostico' | 'auditoria' | 'categorias' | 'conteo' | 'configuracion' | 'cuentas-cobrar' | 'top-clientes' | 'cumpleanos' | 'cuentas-pagar' | 'productos-proveedor' | 'nueva-venta' | 'ventas-tipo-pago' | 'datos-empresa' | 'usuarios' | 'nueva-compra' | 'facturacion-electronica' | 'caja' | 'caja-historial' | 'pagos-clientes' | 'pagos-proveedores' | 'gastos' | 'bancos' | 'config-categorias-gasto' | 'config-cajas' | 'config-servidor' | 'config-permisos' | 'familias' | 'distribuir' | 'stock-bajo' | 'config-retenciones' | 'informes-hub' | 'notas-articulo' | 'lotes-vencer' | 'inicio' | 'config-etiquetas';
 
 interface MenuItem {
   id: string;
@@ -115,7 +122,7 @@ interface SubMenuItem {
 }
 
 export function Dashboard({ onLogout, user }: DashboardProps) {
-  const [currentView, setCurrentView] = useState<View>('overview');
+  const [currentView, setCurrentView] = useState<View>('inicio');
   const [empresa, setEmpresa] = useState<any>(null);
 
   useEffect(() => {
@@ -126,6 +133,9 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
   }, []);
   const cumpleProximos = useCumpleanosHoy();
   const stockBajoCount = useStockBajoCount();
+  const notif = useNotificaciones();
+  const [notifOpen, setNotifOpen] = useState(false);
+  const irA = (v: View) => { setCurrentView(v); setNotifOpen(false); };
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [expandedMenus, setExpandedMenus] = useState<string[]>([]);
 
@@ -137,6 +147,12 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
   const [claveConfirmar, setClaveConfirmar] = useState('');
 
   const allMenuItems: MenuItem[] = [
+    {
+      id: 'inicio',
+      label: 'Inicio',
+      icon: Home,
+      view: 'inicio'
+    },
     {
       id: 'overview',
       label: 'Panel de Ingresos',
@@ -151,6 +167,7 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
       badgeVariant: 'destructive',
       children: [
         { id: 'inventario-list', label: 'Listado de Artículos', view: 'inventario' },
+        { id: 'inventario-etiquetas', label: 'Etiquetas', view: 'config-etiquetas' as View },
         { id: 'inventario-categorias', label: 'Categorías', view: 'categorias' as View },
         { id: 'inventario-familias', label: 'Familias de Productos', view: 'familias' as View },
         { id: 'inventario-distribuir', label: 'Distribuir Productos', view: 'distribuir' as View },
@@ -257,7 +274,7 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
     'inventario-diagnostico': 'inventario_diagnostico', 'inventario-auditoria': 'inventario_diagnostico',
     'inventario-conteo': 'inventario_conteo',
     'inventario-familias': 'inventario', 'inventario-distribuir': 'inventario', 'inventario-stock-bajo': 'inventario',
-    'inventario-notas': 'inventario', 'inventario-lotes': 'inventario',
+    'inventario-notas': 'inventario', 'inventario-lotes': 'inventario', 'inventario-etiquetas': 'inventario',
     'customers-list': 'clientes', 'top-clientes': 'clientes_top', 'cumpleanos': 'clientes',
     'accounts-receivable': 'clientes_cartera', 'accounts-payable': 'proveedores_pagar',
     'suppliers': 'proveedores', 'supplier-list': 'proveedores', 'supplier-products': 'proveedores',
@@ -411,47 +428,156 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
 
       {/* Main Content */}
       <main className="flex-1 overflow-auto">
-        <header className="bg-white border-b border-gray-200 px-4 py-2">
-          <div className="flex items-center justify-between">
+        <header style={{
+          background: 'linear-gradient(135deg, #1e1b4b 0%, oklch(.424 .199 265.638) 60%, oklch(.42 .26 295) 100%)',
+          borderBottom: '1px solid rgba(255,255,255,0.08)',
+          padding: '8px 16px',
+          position: 'relative',
+          overflow: 'hidden',
+        }}>
+          {/* Glow decorativo del top bar */}
+          <div style={{
+            position: 'absolute', top: -40, right: '20%', width: 200, height: 200,
+            background: 'radial-gradient(circle, rgba(168, 85, 247, 0.25) 0%, transparent 70%)',
+            filter: 'blur(40px)', borderRadius: '50%', pointerEvents: 'none',
+          }} />
+
+          <div className="flex items-center justify-between" style={{ position: 'relative', zIndex: 1 }}>
             <div className="flex items-center gap-3">
-              <Button
-                variant="ghost"
-                size="icon"
+              <button
                 onClick={() => setSidebarOpen(!sidebarOpen)}
-                className="hover:bg-gray-100"
-                style={{ width: 32, height: 32 }}
+                style={{
+                  width: 32, height: 32, border: 'none', cursor: 'pointer',
+                  background: 'rgba(255,255,255,0.08)', borderRadius: 8,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  color: '#fff', transition: 'background 0.15s',
+                }}
+                onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.15)')}
+                onMouseLeave={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.08)')}
               >
                 {sidebarOpen ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />}
-              </Button>
+              </button>
               <div>
-                <div style={{ fontSize: 14, fontWeight: 700, color: '#1f2937', lineHeight: 1.2 }}>{empresa?.Empresa || 'Cargando...'}</div>
-                <div style={{ fontSize: 10, color: '#9ca3af' }}>NIT: {empresa?.Nit || '-'} — {empresa?.Regimen || ''}</div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: '#fff', lineHeight: 1.2, letterSpacing: 0.2 }}>
+                  {empresa?.Empresa || 'Cargando...'}
+                </div>
+                <div style={{ fontSize: 10, color: 'rgba(196, 181, 253, 0.85)', fontWeight: 500 }}>
+                  NIT: {empresa?.Nit || '-'} {empresa?.Regimen ? `· ${empresa.Regimen}` : ''}
+                </div>
               </div>
             </div>
 
             <div className="flex items-center gap-2">
-              <Button variant="ghost" size="icon" className="hover:bg-gray-100 relative"
-                onClick={() => setCurrentView('cumpleanos')}
-                title={cumpleProximos.length > 0 ? `${cumpleProximos.length} cumpleaños próximos` : 'Sin cumpleaños próximos'}
-                style={{ width: 32, height: 32 }}
-              >
-                <Bell className="w-4 h-4 text-gray-600" />
-                {cumpleProximos.length > 0 && (
-                  <span className="absolute -top-1 -right-1 bg-orange-500 text-white rounded-full" style={{ fontSize: 9, minWidth: 14, height: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 3px', fontWeight: 700 }}>
-                    {cumpleProximos.length}
-                  </span>
-                )}
-              </Button>
+              <DropdownMenu open={notifOpen} onOpenChange={setNotifOpen}>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    title={notif.total > 0 ? `${notif.total} notificaciones pendientes` : 'Sin notificaciones'}
+                    style={{
+                      width: 32, height: 32, border: 'none', cursor: 'pointer', position: 'relative',
+                      background: 'rgba(255,255,255,0.08)', borderRadius: 8,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      color: '#fff', transition: 'background 0.15s',
+                    }}
+                    onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.15)')}
+                    onMouseLeave={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.08)')}
+                  >
+                    <Bell className={`w-4 h-4 ${notif.vencidos > 0 ? 'animate-pulse' : ''}`} style={{ color: '#fff' }} />
+                    {notif.total > 0 && (
+                      <span style={{
+                        position: 'absolute', top: -2, right: -2,
+                        background: notif.vencidos > 0
+                          ? 'linear-gradient(135deg, #dc2626, #f97316)'
+                          : 'linear-gradient(135deg, #f97316, #ec4899)',
+                        color: '#fff', borderRadius: 10, fontSize: 9, minWidth: 16, height: 16,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 4px',
+                        fontWeight: 700, boxShadow: '0 2px 8px rgba(236, 72, 153, 0.5)',
+                        border: '1.5px solid rgba(30, 27, 75, 1)',
+                      }}>
+                        {notif.total > 99 ? '99+' : notif.total}
+                      </span>
+                    )}
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" style={{ width: 320, padding: 0 }}>
+                  <div style={{ padding: '12px 14px', borderBottom: '1px solid #f3f4f6', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#1f2937' }}>Notificaciones</div>
+                    {notif.total > 0 && (
+                      <span style={{ fontSize: 10, padding: '2px 8px', background: '#7c3aed', color: '#fff', borderRadius: 999, fontWeight: 600 }}>
+                        {notif.total} pendientes
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ maxHeight: 380, overflowY: 'auto' }}>
+                    {notif.total === 0 && !notif.loading && (
+                      <div style={{ padding: '24px 14px', textAlign: 'center', color: '#9ca3af', fontSize: 12 }}>
+                        ✨ Todo al día, sin alertas pendientes
+                      </div>
+                    )}
+                    {notif.vencidos > 0 && (
+                      <NotifItem
+                        icon={AlertTriangle} color="#dc2626" bg="#fee2e2"
+                        title={`${notif.vencidos} producto(s) vencido(s) con stock`}
+                        desc="Revisa y da de baja los lotes vencidos"
+                        urgent
+                        onClick={() => irA('lotes-vencer' as View)}
+                      />
+                    )}
+                    {notif.porVencer30 > 0 && (
+                      <NotifItem
+                        icon={CalendarClock} color="#ea580c" bg="#ffedd5"
+                        title={`${notif.porVencer30} producto(s) por vencer`}
+                        desc="Vencen en los próximos 30 días"
+                        onClick={() => irA('lotes-vencer' as View)}
+                      />
+                    )}
+                    {notif.stockBajo > 0 && (
+                      <NotifItem
+                        icon={AlertTriangle} color="#d97706" bg="#fef3c7"
+                        title={`${notif.stockBajo} producto(s) con stock bajo`}
+                        desc="Por debajo del mínimo configurado"
+                        onClick={() => irA('stock-bajo' as View)}
+                      />
+                    )}
+                    {notif.cumpleanosHoy > 0 && (
+                      <NotifItem
+                        icon={Cake} color="#ec4899" bg="#fce7f3"
+                        title={`${notif.cumpleanosHoy} cliente(s) cumplen años hoy`}
+                        desc="Aprovecha para felicitar y fidelizar"
+                        onClick={() => irA('cumpleanos')}
+                      />
+                    )}
+                    {notif.cumpleanosProx > 0 && (
+                      <NotifItem
+                        icon={Gift} color="#7c3aed" bg="#f3e8ff"
+                        title={`${notif.cumpleanosProx} cumpleaños próximos`}
+                        desc="En los siguientes 7 días"
+                        onClick={() => irA('cumpleanos')}
+                      />
+                    )}
+                  </div>
+                </DropdownMenuContent>
+              </DropdownMenu>
 
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <button className="flex items-center gap-2 hover:bg-gray-50 rounded-lg px-2 py-1 transition-colors">
-                    <Avatar className="w-7 h-7 border-2 border-purple-200">
-                      <AvatarFallback style={{ fontSize: 11 }}>
+                  <button style={{
+                    display: 'flex', alignItems: 'center', gap: 8,
+                    background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.1)',
+                    borderRadius: 999, padding: '3px 12px 3px 3px', cursor: 'pointer',
+                    transition: 'background 0.15s',
+                  }}
+                    onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.15)')}
+                    onMouseLeave={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.08)')}
+                  >
+                    <Avatar className="w-7 h-7" style={{
+                      background: 'linear-gradient(135deg, #c4b5fd, #f0abfc)',
+                      border: '2px solid rgba(255,255,255,0.3)',
+                    }}>
+                      <AvatarFallback style={{ fontSize: 11, fontWeight: 700, color: '#1e1b4b', background: 'transparent' }}>
                         {user?.nombre?.charAt(0).toUpperCase() || user?.username?.charAt(0).toUpperCase() || 'U'}
                       </AvatarFallback>
                     </Avatar>
-                    <span style={{ fontSize: 12 }}>{user?.nombre || user?.username || 'Usuario'}</span>
+                    <span style={{ fontSize: 12, color: '#fff', fontWeight: 500 }}>{user?.nombre || user?.username || 'Usuario'}</span>
                   </button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-56 p-2">
@@ -483,7 +609,8 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
           </div>
         </header>
 
-        <div className="p-6">
+        <div className={currentView === 'inicio' ? '' : 'p-6'}>
+          {currentView === 'inicio' && <PantallaInicio user={user} onNavigate={(v) => setCurrentView(v as View)} esAdmin={esAdmin} esVendedor={esVendedor} />}
           {currentView === 'overview' && (esVendedor ? <DashboardVendedor user={user} /> : <IncomeOverview />)}
           {currentView === 'inventario' && <InventarioManagement />}
           {currentView === 'diagnostico' && <DiagnosticoInventario />}
@@ -495,6 +622,7 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
           {currentView === 'stock-bajo' && <StockBajo />}
           {currentView === 'notas-articulo' && <NotasArticulo />}
           {currentView === 'lotes-vencer' && <LotesPorVencer />}
+          {currentView === 'config-etiquetas' && <ConfigEtiquetas />}
           {currentView === 'configuracion' && <ConfiguracionSistema />}
           {currentView === 'datos-empresa' && <DatosEmpresa />}
           {currentView === 'usuarios' && <UsuariosManagement />}
@@ -576,5 +704,36 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
         </div>
       )}
     </div>
+  );
+}
+
+// ----- Item del panel de notificaciones -----
+function NotifItem({ icon: Icon, color, bg, title, desc, onClick, urgent }: {
+  icon: any; color: string; bg: string; title: string; desc: string;
+  onClick: () => void; urgent?: boolean;
+}) {
+  return (
+    <button onClick={onClick}
+      style={{
+        display: 'flex', gap: 10, padding: '10px 14px', background: 'transparent', border: 'none',
+        borderBottom: '1px solid #f3f4f6', width: '100%', cursor: 'pointer', textAlign: 'left' as const,
+        transition: 'background 0.12s',
+        position: 'relative',
+      }}
+      onMouseEnter={e => (e.currentTarget.style.background = '#f9fafb')}
+      onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+    >
+      {urgent && <span style={{ position: 'absolute', left: 4, top: '50%', transform: 'translateY(-50%)', width: 4, height: 28, background: color, borderRadius: 2 }} />}
+      <div style={{
+        width: 32, height: 32, borderRadius: 8, background: bg, flexShrink: 0,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+      }}>
+        <Icon size={16} color={color} />
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 12, fontWeight: 600, color: '#1f2937', lineHeight: 1.3 }}>{title}</div>
+        <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2, lineHeight: 1.3 }}>{desc}</div>
+      </div>
+    </button>
   );
 }

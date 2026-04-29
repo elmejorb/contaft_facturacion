@@ -149,7 +149,11 @@ try {
     $tipoPedido = $data['tipo'] ?? 'Crédito';
     $dias = intval($data['dias'] ?? 30);
     $codigoPro = intval($data['proveedor_id'] ?? 0);
-    $facturaCompra = $data['factura_compra'] ?? '';
+    $facturaCompra = trim($data['factura_compra'] ?? '');
+    if ($facturaCompra === '') {
+        echo json_encode(['success' => false, 'message' => 'El N° de factura del proveedor es obligatorio']);
+        exit;
+    }
     $flete = floatval($data['flete'] ?? 0);
     $descuento = floatval($data['descuento'] ?? 0);
     $retencion = floatval($data['retencion'] ?? 0);

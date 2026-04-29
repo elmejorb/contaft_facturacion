@@ -4,6 +4,8 @@ import toast from 'react-hot-toast';
 import { getConfigImpresion } from './ConfiguracionSistema';
 import { imprimirFactura, type DatosFactura } from './ImpresionFactura';
 import { confirmar } from './ConfirmDialog';
+import { AutorizacionAdminModal, type AdminAutorizado } from './AutorizacionAdminModal';
+import { useAuth } from '../contexts/AuthContext';
 
 const API = 'http://localhost:80/conta-app-backend/api/ventas/detalle-factura.php';
 const API_CLIENTES = 'http://localhost:80/conta-app-backend/api/clientes/buscar.php';
@@ -12,6 +14,10 @@ const fmtMon = (v: number) => '$ ' + Math.round(v).toLocaleString('es-CO');
 interface Props { factN: number; onClose: () => void; onUpdate?: () => void; }
 
 export function DetalleFacturaModal({ factN, onClose, onUpdate }: Props) {
+  const { user } = useAuth();
+  const esAdmin = user?.tipoUsuario === 1 || user?.tipoUsuario === '1';
+  const [autorizacion, setAutorizacion] = useState<{ tipo: 'devolucion' | 'anulacion'; motivo: string } | null>(null);
+  const [adminAutorizador, setAdminAutorizador] = useState<AdminAutorizado | null>(null);
   const [factura, setFactura] = useState<any>(null);
   const [items, setItems] = useState<any[]>([]);
   const [pagos, setPagos] = useState<any[]>([]);
@@ -90,38 +96,85 @@ export function DetalleFacturaModal({ factN, onClose, onUpdate }: Props) {
     setGuardando(false);
   };
 
-  const procesarDevolucion = async () => {
+  const procesarDevolucion = async (adminAuth?: AdminAutorizado) => {
     const itemsDev = Object.entries(devCantidades)
       .map(([id, cant]) => ({ id_detalle: parseInt(id), cant_devolver: parseFloat(cant) || 0 }))
       .filter(i => i.cant_devolver > 0);
     if (itemsDev.length === 0) { toast.error('No hay cantidades para devolver'); return; }
+
+    // Si la config exige autorización admin y aún no la tenemos → pedir
+    const cfg = getConfigImpresion();
+    if (cfg.autorizarDevoluciones && !adminAuth) {
+      setAutorizacion({ tipo: 'devolucion', motivo: `Devolución de Factura FV-${factN}` });
+      return;
+    }
+
     const ok = await confirmar({ title: 'Confirmar Devolución', message: '¿Confirma la devolución? Los productos se devolverán al inventario. Esta acción no se puede deshacer.', type: 'warning', confirmText: 'Procesar Devolución' });
     if (!ok) return;
     setGuardando(true);
     try {
       const r = await fetch(API, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'devolucion', factura_n: factN, items: itemsDev })
+        body: JSON.stringify({
+          action: 'devolucion', factura_n: factN, items: itemsDev,
+          autorizado_por: adminAuth?.id || null,
+          autorizado_por_nombre: adminAuth?.nombre || null,
+        })
       });
       const d = await r.json();
-      if (d.success) { toast.success(d.message); setModo('ver'); setDevCantidades({}); cargar(); onUpdate?.(); }
-      else toast.error(d.message);
+      if (d.success) {
+        const msg = adminAuth ? `${d.message} (autorizado por ${adminAuth.nombre})` : d.message;
+        toast.success(msg);
+        setModo('ver'); setDevCantidades({}); setAdminAutorizador(null); cargar(); onUpdate?.();
+      } else toast.error(d.message);
     } catch (e) { toast.error('Error al procesar devolución'); }
     setGuardando(false);
   };
 
-  const anularFactura = async () => {
+  const anularFactura = async (adminAuth?: AdminAutorizado) => {
+    const cfg = getConfigImpresion();
+
+    // Reglas para vendedor sin admin auth:
+    // - Solo puede anular SU propia venta + dentro de su sesión de caja abierta
+    // - El backend valida y devuelve { requiere_autorizacion: true } si no cumple
+    // Para admin: si config exige autorización, también pasa por el modal
+    const necesitaAuth = cfg.autorizarAnulaciones && esAdmin && !adminAuth;
+    if (necesitaAuth) {
+      setAutorizacion({ tipo: 'anulacion', motivo: `Anular Factura FV-${factN}` });
+      return;
+    }
+
     const ok = await confirmar({ title: 'Anular Factura', message: '¿Está seguro de ANULAR esta factura? Se devolverá todo el inventario al stock. Esta acción es irreversible.', type: 'danger', confirmText: 'Sí, Anular Factura' });
     if (!ok) return;
     setGuardando(true);
     try {
       const r = await fetch(API, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'anular', factura_n: factN })
+        body: JSON.stringify({
+          action: 'anular', factura_n: factN,
+          usuario_id: user?.id || 0,
+          autorizado_por: adminAuth?.id || null,
+          autorizado_por_nombre: adminAuth?.nombre || null,
+        })
       });
       const d = await r.json();
-      if (d.success) { toast.success(d.message); cargar(); onUpdate?.(); }
-      else toast.error(d.message);
+      // Si el backend devuelve que requiere autorización (vendedor con venta fuera de su sesión)
+      if (!d.success && d.requiere_autorizacion) {
+        setAutorizacion({ tipo: 'anulacion', motivo: `Anular Factura FV-${factN} — ${d.message || 'requiere autorización'}` });
+        setGuardando(false);
+        return;
+      }
+      // Si el backend dice que no hay caja abierta para procesar el reembolso
+      if (!d.success && d.requiere_caja_abierta) {
+        toast.error(d.message, { duration: 8000 });
+        setGuardando(false);
+        return;
+      }
+      if (d.success) {
+        const msg = adminAuth ? `${d.message} (autorizado por ${adminAuth.nombre})` : d.message;
+        toast.success(msg, { duration: 6000 });
+        setAdminAutorizador(null); cargar(); onUpdate?.();
+      } else toast.error(d.message);
     } catch (e) { toast.error('Error al anular'); }
     setGuardando(false);
   };
@@ -419,6 +472,24 @@ export function DetalleFacturaModal({ factN, onClose, onUpdate }: Props) {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Modal de autorización admin (para devolución / anulación) */}
+      {autorizacion && (
+        <AutorizacionAdminModal
+          motivo={autorizacion.motivo}
+          onCancelar={() => setAutorizacion(null)}
+          onAutorizado={(admin) => {
+            setAdminAutorizador(admin);
+            const tipo = autorizacion.tipo;
+            setAutorizacion(null);
+            // Ejecutar la acción correspondiente con el admin autorizado
+            setTimeout(() => {
+              if (tipo === 'devolucion') procesarDevolucion(admin);
+              else if (tipo === 'anulacion') anularFactura(admin);
+            }, 100);
+          }}
+        />
       )}
     </div>
   );

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
-import { Save, X } from 'lucide-react';
+import { Save, X, Layers } from 'lucide-react';
 import api from '../services/api';
+import { ComponentesModal } from './ComponentesModal';
 
 interface Articulo {
   Items: number; Codigo: string; Descripcion: string; Existencia: number;
@@ -8,6 +9,7 @@ interface Articulo {
   Precio3: number; PrecioMinimo: number; Categoria: string; Proveedor: string; Estado: string;
   Id_Categoria?: number; CodigoPro?: number; Estante?: string; Existencia_minima?: number;
   requiere_lote?: number;
+  Id_Etiqueta?: number | null;
 }
 
 interface Props {
@@ -17,6 +19,7 @@ interface Props {
 
 interface CatOpt { Id_Categoria: number; Categoria: string; }
 interface ProvOpt { CodigoPro: number; RazonSocial: string; }
+interface EtiquetaOpt { Id_Etiqueta: number; Nombre: string; Color: string; }
 
 export function EditarArticuloModal({ isOpen, onClose, articulo, onGuardado, modo = 'editar' }: Props) {
   const esNuevo = modo === 'nuevo';
@@ -25,7 +28,7 @@ export function EditarArticuloModal({ isOpen, onClose, articulo, onGuardado, mod
     Items: 0, Codigo: '', Nombres_Articulo: '',
     Precio_Costo: 0, Precio_Venta: 0, Precio_Venta2: 0, Precio_Venta3: 0,
     Precio_Minimo: 0, Iva: 0, Existencia_minima: 0,
-    Id_Categoria: 0, CodigoPro: 0, Estante: '', Estado: 1, requiere_lote: 0,
+    Id_Categoria: 0, CodigoPro: 0, Estante: '', Estado: 1, requiere_lote: 0, Id_Etiqueta: 0,
   };
 
   const formDesdeArticulo = (a: Articulo) => ({
@@ -39,6 +42,7 @@ export function EditarArticuloModal({ isOpen, onClose, articulo, onGuardado, mod
     Estante: a.Estante || '',
     Estado: a.Estado === 'Activo' ? 1 : 0,
     requiere_lote: a.requiere_lote ? 1 : 0,
+    Id_Etiqueta: a.Id_Etiqueta || 0,
   });
 
   // Inicializar form directamente desde props (no useEffect)
@@ -47,8 +51,10 @@ export function EditarArticuloModal({ isOpen, onClose, articulo, onGuardado, mod
   const [form, setForm] = useState(formInicial);
   const [categorias, setCategorias] = useState<CatOpt[]>([]);
   const [proveedores, setProveedores] = useState<ProvOpt[]>([]);
+  const [etiquetasOpt, setEtiquetasOpt] = useState<EtiquetaOpt[]>([]);
   const [guardando, setGuardando] = useState(false);
   const [mensaje, setMensaje] = useState<{ tipo: 'ok' | 'error'; texto: string } | null>(null);
+  const [showComponentes, setShowComponentes] = useState(false);
 
   // Re-sincronizar form cuando cambia el artículo o el modo
   useEffect(() => {
@@ -60,6 +66,9 @@ export function EditarArticuloModal({ isOpen, onClose, articulo, onGuardado, mod
     if (isOpen) {
       api.get('/inventario/opciones.php').then(res => {
         if (res.data.success) { setCategorias(res.data.categorias || []); setProveedores(res.data.proveedores || []); }
+      }).catch(() => {});
+      fetch('http://localhost:80/conta-app-backend/api/etiquetas/index.php').then(r => r.json()).then(d => {
+        if (d.success) setEtiquetasOpt(d.etiquetas || []);
       }).catch(() => {});
     }
   }, [isOpen]);
@@ -199,8 +208,11 @@ export function EditarArticuloModal({ isOpen, onClose, articulo, onGuardado, mod
                 </select>
               </div>
               <div>
-                <label style={s.label}>Unidad de Medida</label>
-                <select style={s.select}><option>Unidad</option><option>Kilogramo</option><option>Litro</option></select>
+                <label style={s.label}>Etiqueta</label>
+                <select value={form.Id_Etiqueta || 0} onChange={e => set('Id_Etiqueta', parseInt(e.target.value))} style={s.select}>
+                  <option value={0}>-- Sin clasificar --</option>
+                  {etiquetasOpt.map(et => <option key={et.Id_Etiqueta} value={et.Id_Etiqueta}>{et.Nombre}</option>)}
+                </select>
               </div>
             </div>
           </fieldset>
@@ -379,6 +391,13 @@ export function EditarArticuloModal({ isOpen, onClose, articulo, onGuardado, mod
 
         {/* Footer */}
         <div style={s.footer}>
+          {!esNuevo && form.Items > 0 && (
+            <button onClick={() => setShowComponentes(true)}
+              style={{ ...s.btn, background: '#fff', color: '#7c3aed', border: '1px solid #c4b5fd', marginRight: 'auto' }}
+              title="Productos que componen este artículo (recetas)">
+              <Layers size={15} /> Componentes
+            </button>
+          )}
           <button onClick={onClose} style={{ ...s.btn, background: '#fff', color: '#374151', border: '1px solid #d1d5db' }}>
             <X size={15} /> Cancelar
           </button>
@@ -388,6 +407,15 @@ export function EditarArticuloModal({ isOpen, onClose, articulo, onGuardado, mod
           </button>
         </div>
       </div>
+
+      {showComponentes && (
+        <ComponentesModal
+          itemsPadre={form.Items}
+          codigoPadre={form.Codigo}
+          nombrePadre={form.Nombres_Articulo}
+          onClose={() => setShowComponentes(false)}
+        />
+      )}
     </div>
   );
 }

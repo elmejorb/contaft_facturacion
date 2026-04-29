@@ -157,23 +157,77 @@ try {
             ':sub' => $lineaSubtotal, ':iva' => $iva, ':desc' => $desc
         ]);
 
-        // Descontar inventario
-        $stmtStock->execute([':cant' => $cant, ':items' => $itemId]);
+        // ¿El producto tiene componentes? Si sí, descontar componentes en vez del padre.
+        $stmtComp = $db->prepare("
+            SELECT a.Codigo AS codigo_padre, a.Nombres_Articulo AS nombre_padre, a.tiene_componentes
+            FROM tblarticulos a WHERE a.Items = ?
+        ");
+        $stmtComp->execute([$itemId]);
+        $artPadre = $stmtComp->fetch();
+        $tieneComp = $artPadre && intval($artPadre['tiene_componentes']) === 1;
 
-        // Get new stock for kardex
-        $stmtExist = $db->prepare("SELECT Existencia, Precio_Costo FROM tblarticulos WHERE Items = :id");
-        $stmtExist->execute([':id' => $itemId]);
-        $artActual = $stmtExist->fetch();
-        $nuevaExist = floatval($artActual['Existencia']);
-        $costoUnit = floatval($artActual['Precio_Costo']);
+        if ($tieneComp) {
+            // Cargar receta
+            $stmtR = $db->prepare("
+                SELECT c.Items_Componente, c.Cantidad, h.Codigo, h.Nombres_Articulo, h.Existencia, h.Precio_Costo
+                FROM tblproducto_componentes c
+                INNER JOIN tblarticulos h ON c.Items_Componente = h.Items
+                WHERE c.Items_Padre = ?
+            ");
+            $stmtR->execute([$itemId]);
+            $componentes = $stmtR->fetchAll();
 
-        $stmtKardex->execute([
-            ':mes' => $mesNombre, ':items' => $itemId,
-            ':det' => "Venta Fra. N° $factN",
-            ':cant' => $cant, ':cost_sal' => $cant * $costoUnit,
-            ':saldo_cant' => floatval($artActual['Existencia']), ':saldo_cost' => floatval($artActual['Existencia']) * $costoUnit,
-            ':cost_unit' => $costoUnit
-        ]);
+            foreach ($componentes as $cmp) {
+                $cantConsumir = $cant * floatval($cmp['Cantidad']);
+                $costoUnitC = floatval($cmp['Precio_Costo']);
+
+                // Descontar existencia del componente
+                $stmtStock->execute([':cant' => $cantConsumir, ':items' => intval($cmp['Items_Componente'])]);
+
+                // Saldo nuevo
+                $stmtExistC = $db->prepare("SELECT Existencia FROM tblarticulos WHERE Items = :id");
+                $stmtExistC->execute([':id' => intval($cmp['Items_Componente'])]);
+                $existC = floatval($stmtExistC->fetch()['Existencia']);
+
+                $stmtKardex->execute([
+                    ':mes' => $mesNombre, ':items' => intval($cmp['Items_Componente']),
+                    ':det' => "Consumo por venta de {$artPadre['codigo_padre']} - Fra. N° $factN",
+                    ':cant' => $cantConsumir, ':cost_sal' => $cantConsumir * $costoUnitC,
+                    ':saldo_cant' => $existC, ':saldo_cost' => $existC * $costoUnitC,
+                    ':cost_unit' => $costoUnitC,
+                ]);
+            }
+
+            // Registrar venta del padre en kardex (informativo, sin tocar existencia del padre)
+            $stmtExistP = $db->prepare("SELECT Existencia, Precio_Costo FROM tblarticulos WHERE Items = :id");
+            $stmtExistP->execute([':id' => $itemId]);
+            $artP = $stmtExistP->fetch();
+            $costoP = floatval($artP['Precio_Costo']);
+            $existP = floatval($artP['Existencia']);
+            $stmtKardex->execute([
+                ':mes' => $mesNombre, ':items' => $itemId,
+                ':det' => "Venta Fra. N° $factN (compuesto - desc. componentes)",
+                ':cant' => 0, ':cost_sal' => 0,
+                ':saldo_cant' => $existP, ':saldo_cost' => $existP * $costoP,
+                ':cost_unit' => $costoP,
+            ]);
+        } else {
+            // Comportamiento normal: descontar existencia del producto vendido
+            $stmtStock->execute([':cant' => $cant, ':items' => $itemId]);
+
+            $stmtExist = $db->prepare("SELECT Existencia, Precio_Costo FROM tblarticulos WHERE Items = :id");
+            $stmtExist->execute([':id' => $itemId]);
+            $artActual = $stmtExist->fetch();
+            $costoUnit = floatval($artActual['Precio_Costo']);
+
+            $stmtKardex->execute([
+                ':mes' => $mesNombre, ':items' => $itemId,
+                ':det' => "Venta Fra. N° $factN",
+                ':cant' => $cant, ':cost_sal' => $cant * $costoUnit,
+                ':saldo_cant' => floatval($artActual['Existencia']), ':saldo_cost' => floatval($artActual['Existencia']) * $costoUnit,
+                ':cost_unit' => $costoUnit
+            ]);
+        }
     }
 
     // Guardar retenciones aplicadas a esta factura (snapshot)

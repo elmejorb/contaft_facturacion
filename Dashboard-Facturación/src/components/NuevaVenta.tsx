@@ -4,6 +4,8 @@ import { EditarArticuloModal } from './EditarArticuloModal';
 import toast from 'react-hot-toast';
 import { getConfigImpresion } from './ConfiguracionSistema';
 import { imprimirFactura, buildDatosFactura } from './ImpresionFactura';
+import { useAuth } from '../contexts/AuthContext';
+import { AutorizacionAdminModal, type AdminAutorizado } from './AutorizacionAdminModal';
 
 const API_VENTA = 'http://localhost:80/conta-app-backend/api/ventas/nueva.php';
 const API_CLIENTES = 'http://localhost:80/conta-app-backend/api/clientes/buscar.php';
@@ -108,6 +110,7 @@ interface NuevaVentaProps {
 const API_CAJA = 'http://localhost:80/conta-app-backend/api/caja/sesion.php';
 
 export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: NuevaVentaProps) {
+  const { user } = useAuth();
   const init = initialState || { tipo: 'Contado', dias: 0, listaPrecio: 1, descuentoGlobal: 0, cliente: { id: 130500, nombre: 'VENTAS AL CONTADO', nit: '0', tel: '0', dir: '-', cupo: 0, esCliente: false, email: '' }, lineas: [] };
   const [tipoDocumento, setTipoDocumento] = useState('pos'); // pos, electronica, soporte
   const [enviarEmailFE, setEnviarEmailFE] = useState(false);
@@ -116,9 +119,12 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
   const [cajaAbierta, setCajaAbierta] = useState<boolean | null>(null); // null=loading, true/false
   const [baseApertura, setBaseApertura] = useState('');
   const [abriendoCaja, setAbriendoCaja] = useState(false);
+  const [baseSugerida, setBaseSugerida] = useState(0);
+  const [infoCredito, setInfoCredito] = useState<any>(null);
+  const [showAuthCupo, setShowAuthCupo] = useState<{ motivo: string } | null>(null);
+  const [authCupoAdmin, setAuthCupoAdmin] = useState<AdminAutorizado | null>(null);
   const [tipo, setTipo] = useState(init.tipo);
   const [dias, setDias] = useState(init.dias);
-  const [medioPago, setMedioPago] = useState(0);
   const [cliente, setCliente] = useState(init.cliente);
   const [clienteBusqueda, setClienteBusqueda] = useState('');
   const [clienteResults, setClienteResults] = useState<any[]>([]);
@@ -187,6 +193,16 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
     setClienteBusqueda('');
     setShowClienteDropdown(false);
     productoInputRef.current?.focus();
+
+    // Cargar info de crédito (solo para clientes reales, no genéricos)
+    if (c.CodigoClien && c.CodigoClien !== 130500) {
+      fetch(`http://localhost:80/conta-app-backend/api/clientes/info-credito.php?id=${c.CodigoClien}`)
+        .then(r => r.json())
+        .then(d => { if (d.success) setInfoCredito(d); else setInfoCredito(null); })
+        .catch(() => setInfoCredito(null));
+    } else {
+      setInfoCredito(null);
+    }
   };
 
   const setClienteField = (field: string, value: string) => {
@@ -234,12 +250,24 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
     }));
   };
 
-  // Verificar caja abierta al montar
+  // Verificar caja abierta al montar + cargar base sugerida
   useEffect(() => {
     fetch(API_CAJA).then(r => r.json()).then(d => {
       if (d.success) setCajaAbierta(d.abierta);
       else setCajaAbierta(false);
     }).catch(() => setCajaAbierta(false));
+
+    // Cargar base sugerida de Caja 1 (residual del último cierre)
+    fetch(API_CAJA + '?cajas=1').then(r => r.json()).then(d => {
+      if (d.success) {
+        const c1 = (d.cajas || []).find((c: any) => c.Id_Caja === 1);
+        const sugerida = c1 ? parseFloat(c1.base_sugerida) || 0 : 0;
+        if (sugerida > 0) {
+          setBaseSugerida(sugerida);
+          setBaseApertura(String(Math.round(sugerida)));
+        }
+      }
+    }).catch(() => {});
   }, []);
 
   const abrirCajaRapida = async () => {
@@ -247,7 +275,7 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
     try {
       const r = await fetch(API_CAJA, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'abrir', caja_id: 1, usuario_id: 0, base: parseInt(baseApertura) || 0 })
+        body: JSON.stringify({ action: 'abrir', caja_id: 1, usuario_id: user?.id || 0, base: parseInt(baseApertura) || 0 })
       });
       const d = await r.json();
       if (d.success) { toast.success(d.message); setCajaAbierta(true); }
@@ -471,6 +499,20 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
   };
 
   const ejecutarVenta = async () => {
+    // Validación de cupo: SIEMPRE requiere autorización admin si supera el cupo
+    if (tipo === 'Crédito' && cliente.id && cliente.id !== 130500 && infoCredito?.credito?.tiene_cupo && !authCupoAdmin) {
+      const cred = infoCredito.credito;
+      const totalVenta = lineas.reduce((s, l) => s + l.Subtotal, 0);
+      const deudaProyectada = cred.deuda_total + totalVenta;
+      if (deudaProyectada > cred.cupo) {
+        const exceso = deudaProyectada - cred.cupo;
+        setShowAuthCupo({
+          motivo: `Venta a ${cliente.nombre} excede el cupo por $ ${Math.round(exceso).toLocaleString('es-CO')}. Cupo: $${Math.round(cred.cupo).toLocaleString('es-CO')} · Deuda: $${Math.round(cred.deuda_total).toLocaleString('es-CO')} · Esta venta: $${Math.round(totalVenta).toLocaleString('es-CO')}`
+        });
+        return;
+      }
+    }
+
     setGuardando(true); setError('');
     const medioFinal = pagoTransfNum > 0 && pagoEfectivoNum === 0 ? pagoMedioTransf : pagoTransfNum > 0 ? pagoMedioTransf : 0;
     try {
@@ -482,7 +524,9 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
         tipo, dias: tipo === 'Contado' ? 0 : dias,
         cliente_id: cliente.id, cliente_nombre: cliente.nombre,
         cliente_identificacion: cliente.nit, cliente_direccion: cliente.dir, cliente_telefono: cliente.tel,
-        medio_pago: medioFinal, vendedor: 0, descuento_global: descuentoGlobal, comentario: nota || '-',
+        medio_pago: medioFinal, vendedor: user?.id || 0, descuento_global: descuentoGlobal, comentario: nota || '-',
+        autorizado_por: authCupoAdmin?.id || null,
+        autorizado_por_nombre: authCupoAdmin?.nombre || null,
         efectivo: pagoEfectivoNum, valor_pagado: pagoTransfNum,
         abono: tipo !== 'Contado' ? pagoAbonoNum : 0,
         items: lineasFinal.map(l => ({
@@ -592,7 +636,14 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
             <Lock size={24} color="#d97706" />
           </div>
           <h3 style={{ fontSize: 17, fontWeight: 700, margin: '0 0 6px' }}>Caja no abierta</h3>
-          <p style={{ fontSize: 13, color: '#6b7280', marginBottom: 20 }}>Debe abrir la caja antes de realizar ventas</p>
+          <p style={{ fontSize: 13, color: '#6b7280', marginBottom: 14 }}>Debe abrir la caja antes de realizar ventas</p>
+
+          {baseSugerida > 0 && (
+            <div style={{ background: '#fef9c3', border: '1px solid #fde047', borderRadius: 8, padding: '8px 12px', marginBottom: 14, fontSize: 11, color: '#713f12', textAlign: 'left' }}>
+              💡 <b>Base sugerida $ {Math.round(baseSugerida).toLocaleString('es-CO')}</b> — Es lo que quedó físicamente del último cierre. Cuente y confirme antes de abrir.
+            </div>
+          )}
+
           <div style={{ display: 'flex', justifyContent: 'center', gap: 8, alignItems: 'center' }}>
             <div>
               <label style={{ fontSize: 10, color: '#6b7280', display: 'block', marginBottom: 4 }}>BASE INICIAL</label>
@@ -661,13 +712,6 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
               style={{ height: 28, width: 40, textAlign: 'center', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 12 }} />
           </div>
         )}
-        <div>
-          <label style={{ fontSize: 9, color: '#6b7280', display: 'block', marginBottom: 2 }}>MEDIO PAGO</label>
-          <select value={medioPago} onChange={e => setMedioPago(parseInt(e.target.value))}
-            style={{ height: 28, border: '1px solid #d1d5db', borderRadius: 6, fontSize: 12, padding: '0 4px', width: 100 }}>
-            {mediosPago.map(m => <option key={m.id} value={m.id}>{m.nombre}</option>)}
-          </select>
-        </div>
         <div>
           <label style={{ fontSize: 9, color: '#6b7280', display: 'block', marginBottom: 2 }}>LISTA PRECIO</label>
           <div style={{ display: 'flex', gap: 2 }}>
@@ -764,6 +808,63 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
         <div style={{ margin: '0 0 6px', padding: '6px 12px', background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 8, fontSize: 11, color: '#dc2626', fontWeight: 600 }}>
           ⚠ Cliente genérico no válido para ventas a crédito. Seleccione un cliente real para que la deuda aparezca en Cuentas por Cobrar.
         </div>
+      )}
+
+      {/* Panel de información de crédito del cliente */}
+      {infoCredito && cliente.id && cliente.id !== 130500 && (
+        (() => {
+          const sev = infoCredito.severidad;
+          const colors: Record<string, { bg: string; border: string; fg: string; barFill: string }> = {
+            ok:        { bg: '#f0fdf4', border: '#86efac', fg: '#166534', barFill: '#16a34a' },
+            amarillo:  { bg: '#fef9c3', border: '#fde047', fg: '#854d0e', barFill: '#ca8a04' },
+            naranja:   { bg: '#ffedd5', border: '#fdba74', fg: '#9a3412', barFill: '#ea580c' },
+            rojo:      { bg: '#fee2e2', border: '#fca5a5', fg: '#991b1b', barFill: '#dc2626' },
+          };
+          const c = colors[sev] || colors.ok;
+          const cred = infoCredito.credito;
+          const venc = infoCredito.vencimientos;
+          const pct = Math.min(cred.porcentaje_usado, 100);
+          return (
+            <div style={{ margin: '0 0 6px', padding: '8px 12px', background: c.bg, border: `1px solid ${c.border}`, borderRadius: 8, fontSize: 11 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                {cred.tiene_cupo ? (
+                  <div style={{ flex: 1, minWidth: 240 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: c.fg, marginBottom: 3, fontWeight: 600 }}>
+                      <span>Cupo: <b>$ {Math.round(cred.cupo).toLocaleString('es-CO')}</b></span>
+                      <span>Deuda: <b>$ {Math.round(cred.deuda_total).toLocaleString('es-CO')}</b></span>
+                      <span>Disponible: <b>$ {Math.round(cred.disponible || 0).toLocaleString('es-CO')}</b></span>
+                    </div>
+                    <div style={{ background: '#fff', borderRadius: 999, height: 6, overflow: 'hidden' }}>
+                      <div style={{ width: `${pct}%`, height: '100%', background: c.barFill, transition: 'width 0.3s' }} />
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ fontSize: 11, color: c.fg, fontWeight: 600 }}>
+                    💰 Sin cupo asignado · Deuda actual: <b>$ {Math.round(cred.deuda_total).toLocaleString('es-CO')}</b>
+                  </div>
+                )}
+
+                {venc.facturas_vencidas > 0 ? (
+                  <div style={{ fontSize: 11, color: c.fg, fontWeight: 700, textAlign: 'right' }}>
+                    ⚠ {venc.facturas_vencidas} factura{venc.facturas_vencidas > 1 ? 's' : ''} vencida{venc.facturas_vencidas > 1 ? 's' : ''}
+                    <div style={{ fontSize: 10, fontWeight: 500, marginTop: 1 }}>
+                      Más antigua: <b>{venc.dias_mas_vieja}d</b> {venc.factura_mas_vieja ? `(FV-${venc.factura_mas_vieja})` : ''} · Total vencido: <b>$ {Math.round(venc.total_vencido).toLocaleString('es-CO')}</b>
+                    </div>
+                  </div>
+                ) : venc.facturas_pendientes > 0 ? (
+                  <div style={{ fontSize: 10, color: c.fg, opacity: 0.85, textAlign: 'right' }}>
+                    📋 {venc.facturas_pendientes} factura{venc.facturas_pendientes > 1 ? 's' : ''} pendiente{venc.facturas_pendientes > 1 ? 's' : ''}
+                    <div style={{ fontSize: 9, marginTop: 1, fontStyle: 'italic' }}>sin vencer todavía</div>
+                  </div>
+                ) : (
+                  <div style={{ fontSize: 10, color: c.fg, opacity: 0.85 }}>
+                    Sin facturas pendientes ✓
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })()
       )}
 
       {/* Modal buscar cliente (componente independiente) */}
@@ -1241,6 +1342,19 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
             </div>
           </div>
         </div>
+      )}
+
+      {/* Modal autorización admin para override de cupo */}
+      {showAuthCupo && (
+        <AutorizacionAdminModal
+          motivo={showAuthCupo.motivo}
+          onCancelar={() => setShowAuthCupo(null)}
+          onAutorizado={(admin) => {
+            setAuthCupoAdmin(admin);
+            setShowAuthCupo(null);
+            setTimeout(() => ejecutarVenta(), 100);
+          }}
+        />
       )}
     </div>
   );

@@ -34,6 +34,9 @@ interface Articulo {
   Categoria: string;
   Proveedor: string;
   Estado: string;
+  Id_Etiqueta?: number | null;
+  Etiqueta?: string;
+  Etiqueta_Color?: string;
 }
 
 const myTheme = themeQuartz.withParams({
@@ -198,6 +201,25 @@ export function InventarioManagement() {
       field: 'Categoria' as keyof Articulo,
       width: 120,
       valueFormatter: (params: { value: string }) => params.value || 'VARIOS',
+    },
+    {
+      headerName: 'Etiqueta',
+      field: 'Etiqueta' as keyof Articulo,
+      width: 130,
+      cellRenderer: (params: { value: string; data: Articulo }) => {
+        if (!params.value) return <span style={{ color: '#d1d5db', fontSize: 11 }}>—</span>;
+        const color = params.data.Etiqueta_Color || '#7c3aed';
+        return (
+          <span style={{
+            display: 'inline-flex', alignItems: 'center', gap: 5, padding: '2px 8px',
+            borderRadius: 999, background: `${color}20`, color: color,
+            fontSize: 10, fontWeight: 600, whiteSpace: 'nowrap',
+          }}>
+            <span style={{ width: 6, height: 6, borderRadius: '50%', background: color }} />
+            {params.value}
+          </span>
+        );
+      },
     },
     {
       headerName: 'Proveedor',
