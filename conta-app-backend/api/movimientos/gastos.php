@@ -70,6 +70,7 @@ try {
             $origen = $data['origen'] ?? 'caja'; // caja o banco
             $cajaId = intval($data['caja_id'] ?? 0);
             $fecha = $data['fecha'] ?? date('Y-m-d');
+            $idUsuario = intval($data['id_usuario'] ?? 0) ?: null;
 
             $categoria = $data['categoria'] ?? 'Otros';
 
@@ -87,10 +88,10 @@ try {
             $db->beginTransaction();
 
             $stmt = $db->prepare("
-                INSERT INTO tblegresos (N_Comprobante, Fecha, Cedula, Orden, Suma, Concepto, Valor, Descuento, Estado, Cuentas, FactN, CodigoPro, NFacturaAnt, ValorFact, Saldoact, TipoPago, categoria_gasto)
-                VALUES (?, ?, ?, ?, ?, ?, ?, 0, 'Valida', ?, '-1', 0, '', 0, 0, 0, ?)
+                INSERT INTO tblegresos (N_Comprobante, Fecha, Cedula, Orden, Suma, Concepto, Valor, Descuento, Estado, Cuentas, FactN, CodigoPro, NFacturaAnt, ValorFact, Saldoact, TipoPago, categoria_gasto, id_usuario)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 0, 'Valida', ?, '-1', 0, '', 0, 0, 0, ?, ?)
             ");
-            $stmt->execute([$nComp, $fecha, $cedula, $beneficiario, $suma, $concepto, $valor, $cuentas, $categoria]);
+            $stmt->execute([$nComp, $fecha, $cedula, $beneficiario, $suma, $concepto, $valor, $cuentas, $categoria, $idUsuario]);
 
             // Register in tblmov_caja if from caja
             if ($origen === 'caja' && $cajaId > 0) {
@@ -99,8 +100,8 @@ try {
                 $stmt->execute([$cajaId]);
                 $sesion = $stmt->fetch();
 
-                $db->prepare("INSERT INTO tblmov_caja (Id_Sesion, Id_Caja_Origen, Id_Usuario, Valor, Tipo, Descripcion) VALUES (?, ?, 0, ?, 'gasto', ?)")
-                   ->execute([$sesion ? $sesion['Id_Sesion'] : null, $cajaId, $valor, "Gasto: $concepto"]);
+                $db->prepare("INSERT INTO tblmov_caja (Id_Sesion, Id_Caja_Origen, Id_Usuario, Valor, Tipo, Descripcion) VALUES (?, ?, ?, ?, 'gasto', ?)")
+                   ->execute([$sesion ? $sesion['Id_Sesion'] : null, $cajaId, $idUsuario ?: 0, $valor, "Gasto: $concepto"]);
 
                 $db->prepare("UPDATE tblcajas SET Saldo = Saldo - ? WHERE Id_Caja = ?")->execute([$valor, $cajaId]);
             }

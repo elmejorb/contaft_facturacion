@@ -588,6 +588,16 @@ SET @sql = IF(@col_type LIKE 'int%',
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 -- ================================================================
+-- v4.9 — Id_Usuario en tblegresos (para cuadre multi-cajero)
+-- ================================================================
+SET @col_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tblegresos' AND COLUMN_NAME = 'id_usuario');
+SET @sql = IF(@col_exists = 0,
+    "ALTER TABLE tblegresos ADD COLUMN id_usuario INT DEFAULT NULL, ADD KEY idx_usuario (id_usuario)",
+    'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- ================================================================
 -- VERIFICACIÓN FINAL
 -- ================================================================
 SELECT '✓ Actualización completa Conta FT aplicada' AS resultado;

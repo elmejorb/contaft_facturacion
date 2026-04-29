@@ -5,6 +5,7 @@ import { X, FileText, ShoppingBag, BarChart3, DollarSign, Receipt, CreditCard, W
 import { ReciboImpresion } from './ReciboImpresion';
 import { getConfigImpresion } from './ConfiguracionSistema';
 import toast from 'react-hot-toast';
+import { useAuth } from '../contexts/AuthContext';
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
@@ -20,6 +21,7 @@ interface Props {
 }
 
 export function ClienteDetalle({ clienteId, onClose, tabInicial = 'ventas' }: Props) {
+  const { user } = useAuth();
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<'ventas' | 'productos' | 'grafico' | 'pagar' | 'historial'>(tabInicial);
@@ -91,7 +93,7 @@ export function ClienteDetalle({ clienteId, onClose, tabInicial = 'ventas' }: Pr
       const r = await fetch(API_PAGOS, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'pagar', cliente: clienteId, pagos: pagosArr, medio_pago: medioPago, fecha: fechaPago })
+        body: JSON.stringify({ action: 'pagar', cliente: clienteId, pagos: pagosArr, medio_pago: medioPago, fecha: fechaPago, id_usuario: user?.id || 0 })
       });
       const d = await r.json();
       if (d.success) {

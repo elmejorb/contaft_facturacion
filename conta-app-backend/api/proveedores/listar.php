@@ -191,6 +191,7 @@ try {
                 $provId = $data->proveedor ?? null;
                 $pagos = $data->pagos ?? [];
                 $tipoPago = $data->tipo_pago ?? 2;
+                $idUsuario = intval($data->id_usuario ?? 0) ?: null;
 
                 if (!$provId || empty($pagos)) {
                     http_response_code(400);
@@ -210,9 +211,9 @@ try {
 
                 $stmtInsert = $db->prepare("
                     INSERT INTO tblegresos (N_Comprobante, Fecha, Orden, Concepto, Valor, Descuento,
-                        Estado, Cuentas, FactN, CodigoPro, NFacturaAnt, ValorFact, Saldoact, Cedula, TipoPago)
+                        Estado, Cuentas, FactN, CodigoPro, NFacturaAnt, ValorFact, Saldoact, Cedula, TipoPago, id_usuario)
                     VALUES (:comp, NOW(), :orden, :concepto, :valor, :desc, 'Valida', '1110', '0',
-                        :prov, :nfact, :valfact, :saldo, :cedula, :tipo)
+                        :prov, :nfact, :valfact, :saldo, :cedula, :tipo, :id_user)
                 ");
 
                 $stmtUpdAnt    = $db->prepare("UPDATE tblfacturasanterioresproveedor SET Saldo = Saldo - :pago WHERE ID_FactAnterioresP = :id");
@@ -258,7 +259,8 @@ try {
                         ':valfact' => floatval($fact['Valor']),
                         ':saldo' => max($nuevoSaldo, 0),
                         ':cedula' => $prov['Nit'],
-                        ':tipo' => $tipoPago
+                        ':tipo' => $tipoPago,
+                        ':id_user' => $idUsuario,
                     ]);
 
                     if ($origen === 'pedido') $stmtUpdPedido->execute([':pago' => $valorTotal, ':id' => $factId]);

@@ -3,6 +3,7 @@ import { AgGridReact } from 'ag-grid-react';
 import { AllCommunityModule, ModuleRegistry, ColDef } from 'ag-grid-community';
 import { Search, RefreshCw, Plus, Ban, X } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { useAuth } from '../contexts/AuthContext';
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
@@ -11,6 +12,7 @@ const API_CAJAS = 'http://localhost:80/conta-app-backend/api/caja/sesion.php';
 const fmtMon = (v: number) => '$ ' + Math.round(v).toLocaleString('es-CO');
 
 export function GastosManagement() {
+  const { user } = useAuth();
   const [gastos, setGastos] = useState<any[]>([]);
   const [resumen, setResumen] = useState<any>({});
   const [anios, setAnios] = useState<any[]>([]);
@@ -65,7 +67,7 @@ export function GastosManagement() {
     try {
       const r = await fetch(API, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'crear', concepto, valor: parseInt(valor), beneficiario, cedula, origen, caja_id: cajaId, fecha, categoria })
+        body: JSON.stringify({ action: 'crear', concepto, valor: parseInt(valor), beneficiario, cedula, origen, caja_id: cajaId, fecha, categoria, id_usuario: user?.id || 0 })
       });
       const d = await r.json();
       if (d.success) {

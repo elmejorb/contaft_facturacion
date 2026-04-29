@@ -86,6 +86,7 @@ try {
             $pagos = $data->pagos ?? []; // array of { factura_n, valor, descuento }
             $medioPago = $data->medio_pago ?? 0;
             $usuario = $data->usuario ?? 'admin';
+            $idUsuario = intval($data->id_usuario ?? 0) ?: null;
 
             if (!$clienteId || empty($pagos)) {
                 http_response_code(400);
@@ -103,9 +104,9 @@ try {
 
             $stmtInsert = $db->prepare("
                 INSERT INTO tblpagos (RecCajaN, Codigo, Fact_N, ValorPago, Fecha, DetallePago,
-                    ValorFact, SaldoAct, Descuento, Retencion, Estado, Afectada, id_mediopago, NFactAnt, Nfact_electronica, FechaMod)
+                    ValorFact, SaldoAct, Descuento, Retencion, Estado, Afectada, id_mediopago, NFactAnt, Nfact_electronica, FechaMod, id_usuario)
                 VALUES (:rec, :codigo, 0, :valor, :fecha, :detalle, :valor_fact, :saldo_act,
-                    :descuento, 0, 'Valida', '1110', :medio, :nfact_ant, '', NOW())
+                    :descuento, 0, 'Valida', '1110', :medio, :nfact_ant, '', NOW(), :id_user)
             ");
 
             $stmtUpdateVenta = $db->prepare("
@@ -152,7 +153,8 @@ try {
                     ':saldo_act' => max($nuevoSaldo, 0),
                     ':descuento' => $descuento,
                     ':medio' => $medioPago,
-                    ':nfact_ant' => $factN
+                    ':nfact_ant' => $factN,
+                    ':id_user' => $idUsuario,
                 ]);
 
                 // Update invoice balance

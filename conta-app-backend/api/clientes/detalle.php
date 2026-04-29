@@ -30,15 +30,23 @@ try {
         exit;
     }
 
-    // Ventas del año
+    // Ventas del año (POS + FE) — unidas como una sola lista
     $stmt = $db->prepare("
         SELECT v.Factura_N, v.Fecha, v.Total, v.Saldo, v.EstadoFact, v.pagada,
-               v.N_Mes, v.Tipo
+               v.N_Mes, v.Tipo, 'venta' AS Origen
         FROM tblventas v
         WHERE v.CodigoCli = :id AND YEAR(v.Fecha) = :anio
-        ORDER BY v.Fecha DESC
+        UNION ALL
+        SELECT Factura_N, Fecha, Total, Saldo, EstadoFact,
+               CASE WHEN Saldo <= 0 THEN '1' ELSE '' END AS pagada,
+               MONTH(Fecha) AS N_Mes,
+               CASE WHEN Tipo = 1 THEN 'Contado' ELSE 'Crédito' END AS Tipo,
+               'electronica' AS Origen
+        FROM vw_facturas_elec_cliente_saldos
+        WHERE CodigoCli = :id2 AND YEAR(Fecha) = :anio2
+        ORDER BY Fecha DESC
     ");
-    $stmt->execute([':id' => $id, ':anio' => $anio]);
+    $stmt->execute([':id' => $id, ':anio' => $anio, ':id2' => $id, ':anio2' => $anio]);
     $ventas = $stmt->fetchAll();
 
     foreach ($ventas as &$v) {
@@ -46,7 +54,7 @@ try {
         $v['Saldo'] = floatval($v['Saldo']);
     }
 
-    // Resumen del año
+    // Resumen del año (tblventas)
     $stmt = $db->prepare("
         SELECT COUNT(*) as total_facturas,
                COALESCE(SUM(Total), 0) as monto_total,
@@ -56,8 +64,32 @@ try {
     ");
     $stmt->execute([':id' => $id, ':anio' => $anio]);
     $resumenAnio = $stmt->fetch();
-    $resumenAnio['monto_total'] = floatval($resumenAnio['monto_total']);
+    $resumenAnio['monto_total']     = floatval($resumenAnio['monto_total']);
     $resumenAnio['saldo_pendiente'] = floatval($resumenAnio['saldo_pendiente']);
+
+    // Sumar saldo pendiente de FE crédito (electronic_documents) que NO esté en tblventas
+    $stmtFe = $db->prepare("
+        SELECT COUNT(*) AS total_fe, COALESCE(SUM(Saldo), 0) AS saldo_fe, COALESCE(SUM(Total), 0) AS monto_fe
+        FROM vw_facturas_elec_cliente_saldos
+        WHERE CodigoCli = :id AND YEAR(Fecha) = :anio
+    ");
+    $stmtFe->execute([':id' => $id, ':anio' => $anio]);
+    $rFe = $stmtFe->fetch();
+    $resumenAnio['monto_total']     += floatval($rFe['monto_fe']);
+    $resumenAnio['saldo_pendiente'] += floatval($rFe['saldo_fe']);
+    $resumenAnio['total_facturas']  += intval($rFe['total_fe']);
+
+    // Sumar saldo de facturas anteriores migradas
+    $stmtAnt = $db->prepare("
+        SELECT COUNT(*) AS total_ant, COALESCE(SUM(Saldo), 0) AS saldo_ant, COALESCE(SUM(Total), 0) AS monto_ant
+        FROM vw_facturas_anteriores_cliente
+        WHERE CodigoCli = :id AND YEAR(Fecha) = :anio
+    ");
+    $stmtAnt->execute([':id' => $id, ':anio' => $anio]);
+    $rAnt = $stmtAnt->fetch();
+    $resumenAnio['monto_total']     += floatval($rAnt['monto_ant']);
+    $resumenAnio['saldo_pendiente'] += floatval($rAnt['saldo_ant']);
+    $resumenAnio['total_facturas']  += intval($rAnt['total_ant']);
 
     // Top productos más comprados (últimos 12 meses)
     $stmt = $db->prepare("

@@ -9,6 +9,7 @@ import {
 const tipoPagoNombre = (id: number) => ({ 0: 'Efectivo', 1: 'Tarjeta', 2: 'Bancolombia', 3: 'Nequi' } as Record<number,string>)[id] || 'Efectivo';
 import { ReciboImpresion } from './ReciboImpresion';
 import { getConfigImpresion } from './ConfiguracionSistema';
+import { useAuth } from '../contexts/AuthContext';
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
@@ -16,6 +17,7 @@ const API = 'http://localhost:80/conta-app-backend/api/proveedores/listar.php';
 const fmtMon = (v: number) => '$ ' + Math.round(v).toLocaleString('es-CO');
 
 export function ProveedoresManagement({ modoCxP = false }: { modoCxP?: boolean } = {}) {
+  const { user } = useAuth();
   const [proveedores, setProveedores] = useState<any[]>([]);
   const [resumen, setResumen] = useState<any>({});
   const [loading, setLoading] = useState(true);
@@ -263,7 +265,7 @@ function ProveedorDetalle({ provId, onClose }: { provId: number; onClose: () => 
     try {
       const r = await fetch(API, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'pagar', proveedor: provId, pagos: pagosArr })
+        body: JSON.stringify({ action: 'pagar', proveedor: provId, pagos: pagosArr, id_usuario: user?.id || 0 })
       });
       const d = await r.json();
       if (d.success) {
