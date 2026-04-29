@@ -16,14 +16,34 @@ $db = $database->getConnection();
 try {
     if ($_SERVER['REQUEST_METHOD'] === 'GET') {
 
-        // Listar cajas
+        // Listar cajas — si se pasa usuario, filtrar por su caja asignada (si la tiene)
         if (isset($_GET['cajas'])) {
-            $stmt = $db->query("
+            $usuarioId = intval($_GET['usuario'] ?? 0);
+            $cajaAsignada = null;
+            if ($usuarioId > 0) {
+                $stmtU = $db->prepare("SELECT Id_Caja, Id_TiposUsuario FROM tblusuarios WHERE Id_Usuario = ?");
+                $stmtU->execute([$usuarioId]);
+                $u = $stmtU->fetch();
+                // Solo filtrar para no-admin (Id_TiposUsuario != 1) que tenga caja asignada
+                if ($u && intval($u['Id_TiposUsuario']) !== 1 && !empty($u['Id_Caja'])) {
+                    $cajaAsignada = intval($u['Id_Caja']);
+                }
+            }
+
+            $where = "c.Activa = 1";
+            $params = [];
+            if ($cajaAsignada) {
+                $where .= " AND c.Id_Caja = ?";
+                $params[] = $cajaAsignada;
+            }
+
+            $stmt = $db->prepare("
                 SELECT c.*,
                     (SELECT COUNT(*) FROM tblsesiones_caja s WHERE s.Id_Caja = c.Id_Caja AND s.Estado = 'abierta') as sesiones_abiertas,
                     (SELECT u.Nombre FROM tblsesiones_caja s LEFT JOIN tblusuarios u ON s.Id_Usuario = u.Id_Usuario WHERE s.Id_Caja = c.Id_Caja AND s.Estado = 'abierta' LIMIT 1) as cajero_actual
-                FROM tblcajas c WHERE c.Activa = 1 ORDER BY c.Id_Caja
+                FROM tblcajas c WHERE $where ORDER BY c.Id_Caja
             ");
+            $stmt->execute($params);
             $cajas = $stmt->fetchAll();
 
             // Calcular base sugerida de cada caja (lo que quedó residual de la última sesión cerrada)
@@ -207,6 +227,20 @@ try {
             $cajaId = intval($data['caja_id'] ?? 1);
             $usuarioId = intval($data['usuario_id'] ?? 0);
             $base = floatval($data['base'] ?? 0);
+
+            // Validar caja asignada del usuario (solo no-admin con asignación)
+            if ($usuarioId > 0) {
+                $stmtU = $db->prepare("SELECT Id_Caja, Id_TiposUsuario FROM tblusuarios WHERE Id_Usuario = ?");
+                $stmtU->execute([$usuarioId]);
+                $u = $stmtU->fetch();
+                if ($u && intval($u['Id_TiposUsuario']) !== 1 && !empty($u['Id_Caja']) && intval($u['Id_Caja']) !== $cajaId) {
+                    $stmtCaja = $db->prepare("SELECT Nombre FROM tblcajas WHERE Id_Caja = ?");
+                    $stmtCaja->execute([intval($u['Id_Caja'])]);
+                    $nombreAsignada = $stmtCaja->fetch()['Nombre'] ?? 'su caja';
+                    echo json_encode(['success' => false, 'message' => "Solo puede abrir su caja asignada: $nombreAsignada"]);
+                    exit;
+                }
+            }
 
             // Verificar que la caja no tenga sesión abierta
             $stmt = $db->prepare("SELECT Id_Sesion, Id_Usuario FROM tblsesiones_caja WHERE Id_Caja = ? AND Estado = 'abierta' LIMIT 1");

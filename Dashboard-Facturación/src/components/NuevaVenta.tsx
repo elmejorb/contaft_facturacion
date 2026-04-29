@@ -120,6 +120,7 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
   const [baseApertura, setBaseApertura] = useState('');
   const [abriendoCaja, setAbriendoCaja] = useState(false);
   const [baseSugerida, setBaseSugerida] = useState(0);
+  const [cajaIdAbrir, setCajaIdAbrir] = useState(1);
   const [infoCredito, setInfoCredito] = useState<any>(null);
   const [showAuthCupo, setShowAuthCupo] = useState<{ motivo: string } | null>(null);
   const [authCupoAdmin, setAuthCupoAdmin] = useState<AdminAutorizado | null>(null);
@@ -257,14 +258,17 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
       else setCajaAbierta(false);
     }).catch(() => setCajaAbierta(false));
 
-    // Cargar base sugerida de Caja 1 (residual del último cierre)
-    fetch(API_CAJA + '?cajas=1').then(r => r.json()).then(d => {
+    // Cargar caja(s) disponible(s) según el usuario y su base sugerida
+    fetch(API_CAJA + `?cajas=1&usuario=${user?.id || 0}`).then(r => r.json()).then(d => {
       if (d.success) {
-        const c1 = (d.cajas || []).find((c: any) => c.Id_Caja === 1);
-        const sugerida = c1 ? parseFloat(c1.base_sugerida) || 0 : 0;
-        if (sugerida > 0) {
-          setBaseSugerida(sugerida);
-          setBaseApertura(String(Math.round(sugerida)));
+        const cajaDelUsuario = (d.cajas || [])[0];  // si tiene asignación, será la única; si no, toma la primera
+        if (cajaDelUsuario) {
+          setCajaIdAbrir(cajaDelUsuario.Id_Caja);
+          const sugerida = parseFloat(cajaDelUsuario.base_sugerida) || 0;
+          if (sugerida > 0) {
+            setBaseSugerida(sugerida);
+            setBaseApertura(String(Math.round(sugerida)));
+          }
         }
       }
     }).catch(() => {});
@@ -275,7 +279,7 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
     try {
       const r = await fetch(API_CAJA, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'abrir', caja_id: 1, usuario_id: user?.id || 0, base: parseInt(baseApertura) || 0 })
+        body: JSON.stringify({ action: 'abrir', caja_id: cajaIdAbrir, usuario_id: user?.id || 0, base: parseInt(baseApertura) || 0 })
       });
       const d = await r.json();
       if (d.success) { toast.success(d.message); setCajaAbierta(true); }

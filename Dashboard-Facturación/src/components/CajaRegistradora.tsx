@@ -28,9 +28,13 @@ export function CajaRegistradora() {
 
   const cargarCajas = async () => {
     try {
-      const r = await fetch(`${API}?cajas=1`);
+      const r = await fetch(`${API}?cajas=1&usuario=${user?.id || 0}`);
       const d = await r.json();
-      if (d.success) setCajas(d.cajas || []);
+      if (d.success) {
+        setCajas(d.cajas || []);
+        // Si solo hay una caja (asignación fija), seleccionarla automáticamente
+        if (d.cajas?.length === 1) setCajaSeleccionada(d.cajas[0].Id_Caja);
+      }
     } catch (e) {}
   };
 

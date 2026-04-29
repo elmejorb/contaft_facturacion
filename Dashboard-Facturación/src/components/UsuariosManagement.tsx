@@ -14,11 +14,12 @@ const tipoIconos: Record<string, { icon: any; bg: string; color: string }> = {
 export function UsuariosManagement() {
   const [usuarios, setUsuarios] = useState<any[]>([]);
   const [tipos, setTipos] = useState<any[]>([]);
+  const [cajas, setCajas] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [showPassModal, setShowPassModal] = useState(false);
   const [editando, setEditando] = useState<any>(null);
-  const [form, setForm] = useState({ Usuario: '', Nombre: '', Indentificacion: '', Id_TiposUsuario: 2, contrasena: '', confirmar: '' });
+  const [form, setForm] = useState({ Usuario: '', Nombre: '', Indentificacion: '', Id_TiposUsuario: 2, Id_Caja: 0, contrasena: '', confirmar: '' });
   const [passForm, setPassForm] = useState({ Id_Usuario: 0, nombre: '', contrasena: '', confirmar: '' });
   const [guardando, setGuardando] = useState(false);
 
@@ -27,7 +28,7 @@ export function UsuariosManagement() {
     try {
       const r = await fetch(API);
       const d = await r.json();
-      if (d.success) { setUsuarios(d.usuarios); setTipos(d.tipos); }
+      if (d.success) { setUsuarios(d.usuarios); setTipos(d.tipos); setCajas(d.cajas || []); }
     } catch (e) {}
     setLoading(false);
   };
@@ -36,13 +37,13 @@ export function UsuariosManagement() {
 
   const abrirNuevo = () => {
     setEditando(null);
-    setForm({ Usuario: '', Nombre: '', Indentificacion: '', Id_TiposUsuario: 2, contrasena: '', confirmar: '' });
+    setForm({ Usuario: '', Nombre: '', Indentificacion: '', Id_TiposUsuario: 2, Id_Caja: 0, contrasena: '', confirmar: '' });
     setShowModal(true);
   };
 
   const abrirEditar = (u: any) => {
     setEditando(u);
-    setForm({ Usuario: u.Usuario, Nombre: u.Nombre, Indentificacion: String(u.Indentificacion || ''), Id_TiposUsuario: u.Id_TiposUsuario, contrasena: '', confirmar: '' });
+    setForm({ Usuario: u.Usuario, Nombre: u.Nombre, Indentificacion: String(u.Indentificacion || ''), Id_TiposUsuario: u.Id_TiposUsuario, Id_Caja: u.Id_Caja || 0, contrasena: '', confirmar: '' });
     setShowModal(true);
   };
 
@@ -56,7 +57,8 @@ export function UsuariosManagement() {
         action: editando ? 'update' : 'create',
         Usuario: form.Usuario, Nombre: form.Nombre,
         Indentificacion: form.Indentificacion,
-        Id_TiposUsuario: form.Id_TiposUsuario
+        Id_TiposUsuario: form.Id_TiposUsuario,
+        Id_Caja: form.Id_Caja || null,
       };
       if (editando) body.Id_Usuario = editando.Id_Usuario;
       if (form.contrasena) body.contrasena = form.contrasena;
@@ -202,6 +204,20 @@ export function UsuariosManagement() {
                   </select>
                 </div>
               </div>
+
+              {/* Caja asignada (solo no-admin) */}
+              {form.Id_TiposUsuario !== 1 && (
+                <div style={{ marginBottom: 12 }}>
+                  <label style={lbl}>Caja asignada</label>
+                  <select value={form.Id_Caja} onChange={e => setForm({ ...form, Id_Caja: parseInt(e.target.value) })} style={inp}>
+                    <option value={0}>-- Sin asignación (puede usar cualquiera) --</option>
+                    {cajas.map((c: any) => <option key={c.Id_Caja} value={c.Id_Caja}>{c.Nombre}</option>)}
+                  </select>
+                  <div style={{ fontSize: 10, color: '#6b7280', marginTop: 3 }}>
+                    Si se asigna, el usuario solo podrá abrir esta caja
+                  </div>
+                </div>
+              )}
               {!editando && (<>
                 <div style={{ marginBottom: 12 }}>
                   <label style={lbl}>Contraseña</label>
