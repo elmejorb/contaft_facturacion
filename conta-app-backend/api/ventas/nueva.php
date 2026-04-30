@@ -15,6 +15,35 @@ $method = $_SERVER['REQUEST_METHOD'];
 
 try {
     if ($method === 'GET') {
+        // Búsqueda EXACTA por código (input de código + Enter, escáner de barras, etc.)
+        // No usa LIKE para evitar falsos positivos como "1" trayendo cualquier producto con "1" en el código.
+        if (isset($_GET['codigo'])) {
+            $cod = trim($_GET['codigo'] ?? '');
+            if ($cod === '') { echo json_encode(["success" => true, "articulos" => []]); exit; }
+            $stmt = $db->prepare("
+                SELECT a.Items, a.Codigo, a.Nombres_Articulo, a.Existencia, a.Precio_Costo,
+                       a.Precio_Venta, a.Precio_Venta2, a.Precio_Venta3, a.Iva, a.Precio_Minimo,
+                       COALESCE(c.Categoria, 'VARIOS') as Categoria
+                FROM tblarticulos a
+                LEFT JOIN tblcategoria c ON a.Id_Categoria = c.Id_Categoria
+                WHERE a.Estado = 1 AND a.Codigo = :cod
+                LIMIT 1
+            ");
+            $stmt->execute([':cod' => $cod]);
+            $articulos = $stmt->fetchAll();
+            foreach ($articulos as &$a) {
+                $a['Existencia']   = floatval($a['Existencia']);
+                $a['Precio_Costo'] = floatval($a['Precio_Costo']);
+                $a['Precio_Venta'] = floatval($a['Precio_Venta']);
+                $a['Precio_Venta2']= floatval($a['Precio_Venta2']);
+                $a['Precio_Venta3']= floatval($a['Precio_Venta3']);
+                $a['Precio_Minimo']= floatval($a['Precio_Minimo']);
+                $a['Iva']          = floatval($a['Iva']);
+            }
+            echo json_encode(["success" => true, "articulos" => $articulos], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
         $buscar = $_GET['buscar'] ?? '';
         if (strlen($buscar) < 1) {
             echo json_encode(["success" => true, "articulos" => []]);

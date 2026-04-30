@@ -253,7 +253,9 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
 
   // Verificar caja abierta al montar + cargar base sugerida
   useEffect(() => {
-    fetch(API_CAJA).then(r => r.json()).then(d => {
+    // Pasar usuario para que la verificación sea por la sesión DE ESTE usuario,
+    // no por cualquier sesión abierta en el sistema (otro cajero puede tener su caja abierta).
+    fetch(API_CAJA + `?usuario=${user?.id || 0}`).then(r => r.json()).then(d => {
       if (d.success) setCajaAbierta(d.abierta);
       else setCajaAbierta(false);
     }).catch(() => setCajaAbierta(false));
@@ -947,11 +949,11 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
                         const code = (e.target as HTMLInputElement).value.trim();
                         if (!code) return;
                         try {
-                          const r = await fetch(`${API_VENTA}?buscar=${encodeURIComponent(code)}`);
+                          // Búsqueda EXACTA por código (sin LIKE) para no agregar un producto incorrecto
+                          const r = await fetch(`${API_VENTA}?codigo=${encodeURIComponent(code)}`);
                           const d = await r.json();
                           if (d.success && d.articulos.length > 0) {
-                            const exact = d.articulos.find((a: any) => a.Codigo === code) || d.articulos[0];
-                            agregarProducto(exact);
+                            agregarProducto(d.articulos[0]);
                             (e.target as HTMLInputElement).value = '';
                             // Focus cantidad of last added line
                             setTimeout(() => {
@@ -959,8 +961,11 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
                               const last = cants[cants.length - 1] as HTMLInputElement;
                               last?.focus(); last?.select();
                             }, 50);
+                          } else {
+                            toast.error(`Código "${code}" no encontrado`);
+                            (e.target as HTMLInputElement).select();
                           }
-                        } catch (err) {}
+                        } catch (err) { toast.error('Error consultando producto'); }
                       }
                     }}
                     style={{ width: 85, height: 26, padding: '0 6px', border: '1px solid #7c3aed', borderRadius: 4, fontSize: 12, outline: 'none', fontWeight: 600 }}
@@ -1079,9 +1084,9 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
           onGuardado={async (nuevoProducto?: any) => {
             setShowCrearProducto(false);
             if (nuevoProducto?.Items) {
-              // Buscar el producto recién creado y agregarlo
+              // Buscar el producto recién creado y agregarlo (búsqueda exacta por código)
               try {
-                const r = await fetch(`${API_VENTA}?buscar=${nuevoProducto.Codigo || nuevoProducto.Items}`);
+                const r = await fetch(`${API_VENTA}?codigo=${encodeURIComponent(nuevoProducto.Codigo || '')}`);
                 const d = await r.json();
                 if (d.success && d.articulos?.length > 0) {
                   agregarProducto(d.articulos[0]);

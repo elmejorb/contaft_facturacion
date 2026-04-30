@@ -98,6 +98,42 @@ export function saveConfigImpresion(config: ConfigImpresion) {
   localStorage.setItem(CONFIG_KEY, JSON.stringify(config));
 }
 
+// ====== Caché de datos de empresa (se llena al cargar Dashboard) ======
+export interface EmpresaCache {
+  nombre: string;
+  nit: string;
+  direccion: string;
+  telefono: string;
+  email?: string;
+  regimen?: string;
+  resolucion?: string;
+}
+
+const EMPRESA_KEY = 'empresa_cache';
+
+export function getEmpresaCache(): EmpresaCache {
+  try {
+    const raw = localStorage.getItem(EMPRESA_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch (e) {}
+  // Fallback genérico si nadie ha cargado la empresa todavía
+  return { nombre: 'Empresa', nit: '', direccion: '', telefono: '' };
+}
+
+export function saveEmpresaCache(emp: any) {
+  if (!emp) return;
+  const cache: EmpresaCache = {
+    nombre: emp.Empresa || emp.nombre || 'Empresa',
+    nit: emp.Nit || emp.nit || '',
+    direccion: emp.Direccion || emp.direccion || '',
+    telefono: emp.Telefono || emp.telefono || '',
+    email: emp.email || '',
+    regimen: emp.Regimen || '',
+    resolucion: emp.Resolucion || '',
+  };
+  localStorage.setItem(EMPRESA_KEY, JSON.stringify(cache));
+}
+
 const API_CAT = 'http://localhost:80/conta-app-backend/api/movimientos/categorias-gasto.php';
 
 export function ConfiguracionSistema() {

@@ -1,5 +1,6 @@
-import { useState, ReactNode, useRef } from 'react';
+import { ReactNode, useRef } from 'react';
 import { Printer, RefreshCw, FileText } from 'lucide-react';
+import { getEmpresaCache, getConfigImpresion } from '../ConfiguracionSistema';
 
 interface Props {
   titulo: string;
@@ -11,16 +12,17 @@ interface Props {
   empresa?: { nombre: string; nit: string; direccion: string; telefono: string; logo?: string };
 }
 
-const empresaDefault = {
-  nombre: 'INNOVACIÓN DIGITAL',
-  nit: '11.105.169-8',
-  direccion: 'Planeta Rica - Córdoba',
-  telefono: '3128478781',
-};
-
 export function InformeLayout({ titulo, subtitulo, filtros, onRefresh, loading, children, empresa }: Props) {
   const printRef = useRef<HTMLDivElement>(null);
-  const empData = empresa || empresaDefault;
+  const empCache = getEmpresaCache();
+  const logo = getConfigImpresion().logo || '';
+  const empData = empresa || {
+    nombre: empCache.nombre,
+    nit: empCache.nit,
+    direccion: empCache.direccion,
+    telefono: empCache.telefono,
+    logo,
+  };
   const fechaImp = new Date().toLocaleDateString('es-CO', { day: '2-digit', month: 'long', year: 'numeric' });
   const horaImp = new Date().toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' });
 

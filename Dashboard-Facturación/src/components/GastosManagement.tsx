@@ -1,9 +1,11 @@
 import { useState, useEffect, useRef } from 'react';
 import { AgGridReact } from 'ag-grid-react';
 import { AllCommunityModule, ModuleRegistry, ColDef } from 'ag-grid-community';
-import { Search, RefreshCw, Plus, Ban, X } from 'lucide-react';
+import { Search, RefreshCw, Plus, Ban, X, Printer } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../contexts/AuthContext';
+import { ReciboEgresoImpresion } from './ReciboEgresoImpresion';
+import { getConfigImpresion } from './ConfiguracionSistema';
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
@@ -33,7 +35,25 @@ export function GastosManagement() {
   const [origen, setOrigen] = useState('caja');
   const [cajaId, setCajaId] = useState(0);
   const [fecha, setFecha] = useState(new Date().toISOString().slice(0, 10));
+  const [reciboImprimir, setReciboImprimir] = useState<{ egreso: any; formato: 'media-carta' | 'tirilla' } | null>(null);
   const gridRef = useRef<AgGridReact>(null);
+
+  const imprimirEgreso = (g: any) => {
+    const cfg = getConfigImpresion();
+    setReciboImprimir({
+      egreso: {
+        N_Comprobante: g.N_Comprobante,
+        Fecha: g.Fecha,
+        Beneficiario: g.Orden || '',
+        Cedula: g.Cedula || '',
+        Concepto: g.Concepto || '',
+        Categoria: g.Categoria || g.categoria_gasto || 'Otros',
+        Valor: parseFloat(g.Valor) || 0,
+        MedioPago: (g.Cuentas || '').includes('51') ? 'Caja' : 'Banco',
+      },
+      formato: cfg.formatoPago,
+    });
+  };
 
   const cargar = async () => {
     setLoading(true);
@@ -72,8 +92,25 @@ export function GastosManagement() {
       const d = await r.json();
       if (d.success) {
         toast.success(d.message);
-        setShowNuevo(false); setConcepto(''); setValor(''); setBeneficiario(''); setCedula('');
+        setShowNuevo(false);
         cargar();
+        if (confirm('Gasto registrado. ¿Desea imprimir el comprobante de egreso?')) {
+          const cfg = getConfigImpresion();
+          setReciboImprimir({
+            egreso: {
+              N_Comprobante: d.comprobante,
+              Fecha: fecha,
+              Beneficiario: beneficiario,
+              Cedula: cedula,
+              Concepto: concepto,
+              Categoria: categoria,
+              Valor: parseInt(valor),
+              MedioPago: origen === 'caja' ? 'Caja' : 'Banco',
+            },
+            formato: cfg.formatoPago,
+          });
+        }
+        setConcepto(''); setValor(''); setBeneficiario(''); setCedula('');
       } else toast.error(d.message);
     } catch (e) { toast.error('Error'); }
   };
@@ -108,12 +145,20 @@ export function GastosManagement() {
       const ok = p.value === 'Valida';
       return <span style={{ fontSize: 10, fontWeight: 600, padding: '2px 6px', borderRadius: 4, background: ok ? '#dcfce7' : '#fee2e2', color: ok ? '#16a34a' : '#dc2626' }}>{p.value}</span>;
     }},
-    { headerName: '', width: 50, sortable: false, cellRenderer: (p: any) => p.data.Estado === 'Valida' ? (
-      <button title="Anular" onClick={() => anularGasto(p.data.Id_Egresos)}
-        style={{ width: 26, height: 24, border: '1px solid #fecaca', borderRadius: 4, cursor: 'pointer', background: '#fef2f2', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <Ban size={13} color="#dc2626" />
-      </button>
-    ) : null },
+    { headerName: '', width: 80, sortable: false, cellRenderer: (p: any) => (
+      <div style={{ display: 'flex', gap: 4, alignItems: 'center', height: '100%' }}>
+        <button title="Imprimir comprobante" onClick={() => imprimirEgreso(p.data)}
+          style={{ width: 26, height: 24, border: '1px solid #e9d5ff', borderRadius: 4, cursor: 'pointer', background: '#faf5ff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <Printer size={13} color="#7c3aed" />
+        </button>
+        {p.data.Estado === 'Valida' && (
+          <button title="Anular" onClick={() => anularGasto(p.data.Id_Egresos)}
+            style={{ width: 26, height: 24, border: '1px solid #fecaca', borderRadius: 4, cursor: 'pointer', background: '#fef2f2', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <Ban size={13} color="#dc2626" />
+          </button>
+        )}
+      </div>
+    )},
   ];
 
   return (
@@ -271,6 +316,15 @@ export function GastosManagement() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Recibo de impresión */}
+      {reciboImprimir && (
+        <ReciboEgresoImpresion
+          egreso={reciboImprimir.egreso}
+          formato={reciboImprimir.formato}
+          onClose={() => setReciboImprimir(null)}
+        />
       )}
     </div>
   );

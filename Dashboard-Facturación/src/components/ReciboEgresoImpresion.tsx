@@ -1,24 +1,22 @@
 import { useRef } from 'react';
 import { Printer, X } from 'lucide-react';
-import { getEmpresaCache } from './ConfiguracionSistema';
+import { getConfigImpresion, getEmpresaCache } from './ConfiguracionSistema';
 
-interface PagoRecibo {
-  RecCajaN: number;
+interface EgresoRecibo {
+  N_Comprobante: number;
   Fecha: string;
-  NFactAnt: string;
-  ValorPago: number;
-  SaldoAct: number;
-  Descuento?: number;
-  MedioPago: string;
-  DetallePago: string;
+  Beneficiario: string;
+  Cedula: string;
+  Concepto: string;
+  Categoria?: string;
+  Valor: number;
+  MedioPago?: string;
 }
 
 interface Props {
-  pago: PagoRecibo;
-  cliente: { CodigoClien: number; Razon_Social: string; Nit: string; Telefonos: string };
+  egreso: EgresoRecibo;
   formato: 'media-carta' | 'tirilla';
   onClose: () => void;
-  tipoTercero?: 'cliente' | 'proveedor';
 }
 
 const getEmpresa = () => {
@@ -79,10 +77,9 @@ function numeroALetras(num: number): string {
   return convertir(n) + ' Pesos';
 }
 
-export function ReciboImpresion({ pago, cliente, formato, onClose, tipoTercero = 'cliente' }: Props) {
-  const labelTercero = tipoTercero === 'proveedor' ? 'Proveedor' : 'Cliente';
-  const tituloRecibo = tipoTercero === 'proveedor' ? 'COMPROBANTE DE EGRESO' : 'RECIBO DE PAGO';
+export function ReciboEgresoImpresion({ egreso, formato, onClose }: Props) {
   const printRef = useRef<HTMLDivElement>(null);
+  const logo = getConfigImpresion().logo || '';
   const empresa = getEmpresa();
 
   const imprimir = () => {
@@ -92,7 +89,7 @@ export function ReciboImpresion({ pago, cliente, formato, onClose, tipoTercero =
     if (!win) return;
     const esTirilla = formato === 'tirilla';
     win.document.write(`
-      <html><head><title>Recibo #${pago.RecCajaN}</title>
+      <html><head><title>Comprobante de Egreso #${egreso.N_Comprobante}</title>
       <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: ${esTirilla ? "'Courier New', monospace" : "Arial, sans-serif"}; }
@@ -106,20 +103,20 @@ export function ReciboImpresion({ pago, cliente, formato, onClose, tipoTercero =
     win.document.close();
   };
 
-  const fecha = new Date(pago.Fecha);
+  const fecha = new Date(egreso.Fecha);
   const fechaStr = fecha.toLocaleDateString('es-CO', { day: '2-digit', month: '2-digit', year: 'numeric' });
-  const horaStr = fecha.toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' });
+  const beneficiarioLine = [egreso.Cedula, egreso.Beneficiario].filter(Boolean).join('  ');
 
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 99999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.5)' }} onClick={onClose} />
-      <div style={{ position: 'relative', background: '#fff', borderRadius: 12, maxWidth: formato === 'tirilla' ? 400 : 700, width: '100%', maxHeight: '90vh', overflow: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+      <div style={{ position: 'relative', background: '#fff', borderRadius: 12, maxWidth: formato === 'tirilla' ? 400 : 750, width: '100%', maxHeight: '90vh', overflow: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
         {/* Toolbar */}
         <div style={{ padding: '10px 16px', borderBottom: '1px solid #e5e7eb', display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'sticky', top: 0, background: '#fff', zIndex: 1 }}>
           <span style={{ fontSize: 14, fontWeight: 700 }}>Vista previa — {formato === 'tirilla' ? 'Tirilla' : 'Media Carta'}</span>
           <div style={{ display: 'flex', gap: 8 }}>
             <button onClick={imprimir} style={{
-              height: 30, padding: '0 14px', background: '#7c3aed', color: '#fff',
+              height: 30, padding: '0 14px', background: '#dc2626', color: '#fff',
               border: 'none', borderRadius: 8, fontSize: 13, cursor: 'pointer',
               display: 'flex', alignItems: 'center', gap: 6
             }}>
@@ -134,63 +131,57 @@ export function ReciboImpresion({ pago, cliente, formato, onClose, tipoTercero =
           <div ref={printRef}>
             {formato === 'media-carta' ? (
               /* ==================== MEDIA CARTA ==================== */
-              <div style={{ fontFamily: 'Arial, sans-serif', fontSize: 13, color: '#000', maxWidth: 650, margin: '0 auto' }}>
-                {/* Header empresa */}
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
+              <div style={{ fontFamily: 'Arial, sans-serif', fontSize: 13, color: '#000', maxWidth: 700, margin: '0 auto' }}>
+                {/* Header logo + empresa + comprobante */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, gap: 10 }}>
+                  {logo && (
+                    <div style={{ width: 110, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <img src={logo} alt="Logo" style={{ maxWidth: '100%', maxHeight: 70, objectFit: 'contain' }} />
+                    </div>
+                  )}
                   <div style={{ textAlign: 'center', flex: 1 }}>
                     <div style={{ fontSize: 18, fontWeight: 700, letterSpacing: 1 }}>{empresa.nombre}</div>
-                    <div style={{ fontSize: 12, marginTop: 2 }}>Nit. {empresa.nit}</div>
+                    <div style={{ fontSize: 12, marginTop: 2, fontStyle: 'italic' }}>Nit. {empresa.nit}</div>
                     <div style={{ fontSize: 11, marginTop: 2 }}>{empresa.direccion}</div>
                     <div style={{ fontSize: 11 }}>Tel: {empresa.telefono}</div>
                   </div>
-                  <div style={{ border: '2px solid #000', padding: '8px 14px', textAlign: 'center', flexShrink: 0 }}>
-                    <div style={{ fontSize: 11, fontWeight: 700 }}>COMPROBANTE</div>
-                    <div style={{ fontSize: 11, fontWeight: 700 }}>{tipoTercero === 'proveedor' ? 'DE EGRESO No.' : 'DE INGRESO No.'}</div>
-                    <div style={{ fontSize: 22, fontWeight: 700, marginTop: 2 }}>{pago.RecCajaN}</div>
+                  <div style={{ border: '1px solid #000', padding: '10px 16px', textAlign: 'left', flexShrink: 0, minWidth: 200 }}>
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, lineHeight: 1.2 }}>
+                        COMPROBANTE<br />DE EGRESO No.
+                      </div>
+                      <div style={{ fontSize: 22, fontWeight: 700, marginLeft: 'auto' }}>{egreso.N_Comprobante}</div>
+                    </div>
                   </div>
                 </div>
 
-                {/* Datos del pago */}
+                {/* Datos del egreso */}
                 <table style={{ width: '100%', borderCollapse: 'collapse', border: '1px solid #000', marginTop: 10 }}>
                   <tbody>
                     <tr>
-                      <td style={{ border: '1px solid #000', padding: '6px 10px', fontWeight: 600, width: 150, fontSize: 12, background: '#f9f9f9' }}>CIUDAD Y FECHA</td>
-                      <td style={{ border: '1px solid #000', padding: '6px 10px' }}>{fechaStr} {horaStr}</td>
-                      <td style={{ border: '1px solid #000', padding: '6px 10px', fontWeight: 600, width: 80, fontSize: 12, background: '#f9f9f9' }}>VALOR</td>
-                      <td style={{ border: '1px solid #000', padding: '6px 10px', fontWeight: 700, fontSize: 16, textAlign: 'right' }}>{fmtMon(pago.ValorPago)}</td>
+                      <td style={{ border: '1px solid #000', padding: '6px 10px', fontWeight: 700, width: 150, fontSize: 11 }}>CIUDAD Y FECHA</td>
+                      <td style={{ border: '1px solid #000', padding: '6px 10px' }}>{fechaStr}</td>
+                      <td style={{ border: '1px solid #000', padding: '6px 10px', fontWeight: 700, width: 80, fontSize: 11 }}>VALOR</td>
+                      <td style={{ border: '1px solid #000', padding: '6px 10px', fontWeight: 700, fontSize: 16, textAlign: 'right', background: '#e5e7eb' }}>{fmtMon(egreso.Valor)}</td>
                     </tr>
                     <tr>
-                      <td style={{ border: '1px solid #000', padding: '6px 10px', fontWeight: 600, fontSize: 12, background: '#f9f9f9' }}>{tipoTercero === 'proveedor' ? 'PAGADO A' : 'RECIBIDO DE'}</td>
-                      <td colSpan={3} style={{ border: '1px solid #000', padding: '6px 10px' }}>{cliente.Razon_Social} — NIT: {cliente.Nit || '-'}</td>
+                      <td style={{ border: '1px solid #000', padding: '6px 10px', fontWeight: 700, fontSize: 11 }}>PAGADO A</td>
+                      <td colSpan={3} style={{ border: '1px solid #000', padding: '6px 10px' }}>{beneficiarioLine || '-'}</td>
                     </tr>
                     <tr>
-                      <td style={{ border: '1px solid #000', padding: '6px 10px', fontWeight: 600, fontSize: 12, background: '#f9f9f9' }}>POR CONCEPTO DE</td>
-                      <td colSpan={3} style={{ border: '1px solid #000', padding: '6px 10px' }}>{pago.DetallePago}</td>
+                      <td style={{ border: '1px solid #000', padding: '6px 10px', fontWeight: 700, fontSize: 11 }}>POR CONCEPTO DE</td>
+                      <td colSpan={3} style={{ border: '1px solid #000', padding: '6px 10px' }}>{egreso.Concepto}</td>
                     </tr>
                     <tr>
-                      <td style={{ border: '1px solid #000', padding: '6px 10px', fontWeight: 600, fontSize: 12, background: '#f9f9f9' }}>MEDIO DE PAGO</td>
-                      <td style={{ border: '1px solid #000', padding: '6px 10px' }}>{pago.MedioPago}</td>
-                      <td style={{ border: '1px solid #000', padding: '6px 10px', fontWeight: 600, fontSize: 12, background: '#f9f9f9' }}>SALDO</td>
-                      <td style={{ border: '1px solid #000', padding: '6px 10px', textAlign: 'right', fontWeight: 600 }}>{fmtMon(pago.SaldoAct)}</td>
+                      <td style={{ border: '1px solid #000', padding: '12px 10px', fontWeight: 700, fontSize: 11, verticalAlign: 'top' }}>LA SUMA DE</td>
+                      <td colSpan={3} style={{ border: '1px solid #000', padding: '12px 10px', fontWeight: 700 }}>{numeroALetras(egreso.Valor)}</td>
+                    </tr>
+                    <tr>
+                      <td style={{ border: '1px solid #000', padding: '40px 10px 10px', fontWeight: 700, fontSize: 11, verticalAlign: 'top' }}>FIRMA Y SELLO DEL BENEFICIARIO</td>
+                      <td colSpan={3} style={{ border: '1px solid #000', padding: '40px 10px 10px' }}></td>
                     </tr>
                   </tbody>
                 </table>
-
-                {/* Suma en letras */}
-                <div style={{ border: '1px solid #000', borderTop: 'none', padding: '8px 10px', display: 'flex', gap: 10 }}>
-                  <span style={{ fontWeight: 600, fontSize: 12, flexShrink: 0, background: '#f9f9f9', padding: '0 4px' }}>LA SUMA DE</span>
-                  <span style={{ fontWeight: 700 }}>{numeroALetras(pago.ValorPago)}</span>
-                </div>
-
-                {/* Firmas */}
-                <div style={{ marginTop: 40, display: 'flex', justifyContent: 'space-between' }}>
-                  <div style={{ textAlign: 'center', width: '45%' }}>
-                    <div style={{ borderTop: '1px solid #000', paddingTop: 4, fontSize: 11 }}>FIRMA Y SELLO DEL BENEFICIARIO</div>
-                  </div>
-                  <div style={{ textAlign: 'center', width: '45%' }}>
-                    <div style={{ borderTop: '1px solid #000', paddingTop: 4, fontSize: 11 }}>FIRMA AUTORIZADA</div>
-                  </div>
-                </div>
               </div>
             ) : (
               /* ==================== TIRILLA ==================== */
@@ -203,54 +194,48 @@ export function ReciboImpresion({ pago, cliente, formato, onClose, tipoTercero =
                 </div>
 
                 <div style={{ borderTop: '1px dashed #000', borderBottom: '1px dashed #000', padding: '6px 0', textAlign: 'center', fontWeight: 700, fontSize: 13, margin: '4px 0' }}>
-                  {tituloRecibo} #{pago.RecCajaN}
+                  COMPROBANTE DE EGRESO #{egreso.N_Comprobante}
                 </div>
 
                 <div style={{ padding: '4px 0' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span>Fecha:</span><span>{fechaStr} {horaStr}</span>
+                    <span>Fecha:</span><span>{fechaStr}</span>
                   </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span>{labelTercero}:</span><span style={{ textAlign: 'right', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis' }}>{cliente.Razon_Social}</span>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span>NIT:</span><span>{cliente.Nit || '-'}</span>
-                  </div>
-                </div>
-
-                <div style={{ borderTop: '1px dashed #000', margin: '4px 0', padding: '4px 0' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span>Factura:</span><span style={{ fontWeight: 700 }}>{pago.NFactAnt}</span>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span>Medio pago:</span><span>{pago.MedioPago}</span>
-                  </div>
-                  {(pago.Descuento || 0) > 0 && (
+                  {egreso.Categoria && (
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                      <span>Descuento:</span><span>{fmtMon(pago.Descuento || 0)}</span>
+                      <span>Categoría:</span><span>{egreso.Categoria}</span>
+                    </div>
+                  )}
+                  {egreso.MedioPago && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span>Medio:</span><span>{egreso.MedioPago}</span>
                     </div>
                   )}
                 </div>
 
+                <div style={{ borderTop: '1px dashed #000', margin: '4px 0', padding: '4px 0' }}>
+                  <div style={{ fontWeight: 700 }}>PAGADO A:</div>
+                  {egreso.Cedula && <div>{egreso.Cedula}</div>}
+                  <div style={{ fontWeight: 600 }}>{egreso.Beneficiario || '-'}</div>
+                </div>
+
+                <div style={{ borderTop: '1px dashed #000', margin: '4px 0', padding: '4px 0' }}>
+                  <div style={{ fontWeight: 700 }}>POR CONCEPTO DE:</div>
+                  <div>{egreso.Concepto}</div>
+                </div>
+
                 <div style={{ borderTop: '1px dashed #000', borderBottom: '1px dashed #000', padding: '6px 0', margin: '4px 0' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, fontWeight: 700 }}>
-                    <span>VALOR PAGADO:</span><span>{fmtMon(pago.ValorPago)}</span>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span>Saldo restante:</span><span>{fmtMon(pago.SaldoAct)}</span>
+                    <span>VALOR:</span><span>{fmtMon(egreso.Valor)}</span>
                   </div>
                 </div>
 
                 <div style={{ padding: '4px 0', fontSize: 10 }}>
-                  <div>Son: {numeroALetras(pago.ValorPago)}</div>
+                  <div>Son: {numeroALetras(egreso.Valor)}</div>
                 </div>
 
-                <div style={{ marginTop: 20, textAlign: 'center', fontSize: 10 }}>
-                  <div style={{ borderTop: '1px dashed #000', paddingTop: 4, width: '70%', margin: '0 auto' }}>Firma</div>
-                </div>
-
-                <div style={{ marginTop: 12, textAlign: 'center', fontSize: 9, color: '#666' }}>
-                  Gracias por su pago
+                <div style={{ marginTop: 30, textAlign: 'center', fontSize: 10 }}>
+                  <div style={{ borderTop: '1px solid #000', paddingTop: 4, width: '80%', margin: '0 auto' }}>FIRMA Y SELLO DEL BENEFICIARIO</div>
                 </div>
               </div>
             )}

@@ -479,15 +479,25 @@ try {
             ]);
             $docElecId = $db->lastInsertId();
 
-            // Guardar detalle en local
+            // Guardar detalle en local — incluye PrecioCosto histórico para que el cierre
+            // de mes pueda calcular costo de mercancía vendida sin tener que aproximar.
             $stmtDet = $db->prepare("
                 INSERT INTO detalle_document_electronic
                 (factura_n, items, unit_measure_id, invoiced_quantity, line_extension_amount,
                  free_of_charge_indicator, description, type_item_identification_id,
-                 price_amount, discount_amount, base_quantity,
+                 price_amount, PrecioCosto, discount_amount, base_quantity,
                  tax_id, tax_amount, taxable_amount, tax_percent)
-                VALUES (?, ?, ?, ?, ?, 0, ?, 3, ?, ?, ?, 1, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, 0, ?, 3, ?, ?, ?, ?, 1, ?, ?, ?)
             ");
+            // Pre-cargar costos de los items en una sola consulta
+            $itemIds = array_column($items, 'Items');
+            $costos = [];
+            if (!empty($itemIds)) {
+                $ph = implode(',', array_fill(0, count($itemIds), '?'));
+                $stmtCost = $db->prepare("SELECT Items, Precio_Costo FROM tblarticulos WHERE Items IN ($ph)");
+                $stmtCost->execute($itemIds);
+                foreach ($stmtCost->fetchAll() as $r) $costos[$r['Items']] = floatval($r['Precio_Costo']);
+            }
             foreach ($items as $item) {
                 $cant = floatval($item['Cantidad']);
                 $precioV = floatval($item['PrecioV']);
@@ -497,11 +507,19 @@ try {
                 $ivaAmount = $iva > 0 ? round($lineAmount * ($iva / (100 + $iva)), 2) : 0;
                 $baseAmount = $lineAmount - $ivaAmount;
                 $unitMeasure = intval($item['unit_measure_id'] ?? 70);
+                // Costo: prioridad al PrecioC histórico (si la venta también está en tbldetalle_venta),
+                // si no usa el actual de tblarticulos. NOTA: Precio_Costo en inventario YA viene con
+                // IVA incluido si el producto lo tiene, no hace falta multiplicar.
+                $precioCosto = isset($item['PrecioC']) && floatval($item['PrecioC']) > 0
+                    ? floatval($item['PrecioC'])
+                    : ($costos[$item['Items']] ?? 0);
                 $stmtDet->execute([
                     $docElecId, $item['Items'], $unitMeasure,
                     number_format($cant, 2, '.', ''), number_format($baseAmount, 2, '.', ''),
                     $item['Nombres_Articulo'] ?? 'Producto',
-                    number_format($precioV, 2, '.', ''), number_format($desc, 2, '.', ''),
+                    number_format($precioV, 2, '.', ''),
+                    number_format($precioCosto, 4, '.', ''),
+                    number_format($desc, 2, '.', ''),
                     number_format($cant, 2, '.', ''), number_format($ivaAmount, 2, '.', ''),
                     number_format($baseAmount, 2, '.', ''), number_format($iva, 2, '.', '')
                 ]);
@@ -706,11 +724,11 @@ try {
                     INSERT INTO detalle_document_electronic
                     (factura_n, items, unit_measure_id, invoiced_quantity, line_extension_amount,
                      free_of_charge_indicator, description, type_item_identification_id,
-                     price_amount, discount_amount, base_quantity,
+                     price_amount, PrecioCosto, discount_amount, base_quantity,
                      tax_id, tax_amount, taxable_amount, tax_percent)
                     SELECT ?, items, unit_measure_id, invoiced_quantity, line_extension_amount,
                            free_of_charge_indicator, description, type_item_identification_id,
-                           price_amount, discount_amount, base_quantity,
+                           price_amount, PrecioCosto, discount_amount, base_quantity,
                            tax_id, tax_amount, taxable_amount, tax_percent
                     FROM detalle_document_electronic
                     WHERE factura_n = (SELECT id FROM electronic_documents WHERE cufe = ? LIMIT 1)

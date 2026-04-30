@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Save, Building2, FileText, Globe, Receipt, Camera, X } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { getConfigImpresion, saveConfigImpresion } from './ConfiguracionSistema';
+import { getConfigImpresion, saveConfigImpresion, saveEmpresaCache } from './ConfiguracionSistema';
 
 const API = 'http://localhost:80/conta-app-backend/api/empresa/datos.php';
 
@@ -16,7 +16,7 @@ export function DatosEmpresa() {
     try {
       const r = await fetch(API);
       const d = await r.json();
-      if (d.success) setForm(d.empresa);
+      if (d.success) { setForm(d.empresa); saveEmpresaCache(d.empresa); }
     } catch (e) {}
     setLoading(false);
   };
@@ -38,6 +38,8 @@ export function DatosEmpresa() {
         const cfg = getConfigImpresion();
         cfg.logo = logo;
         saveConfigImpresion(cfg);
+        // Refrescar caché global de empresa para que recibos/informes lo usen
+        saveEmpresaCache(form);
         toast.success(d.message);
       }
       else toast.error(d.message);

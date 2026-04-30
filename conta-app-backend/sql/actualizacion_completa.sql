@@ -608,6 +608,26 @@ SET @sql = IF(@col_exists = 0,
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 -- ================================================================
+-- v4.11 — PrecioCosto en detalle_document_electronic
+-- (para que cierre_mes / estado_resultados calcule bien la utilidad
+-- cuando hay FE puras que no duplican tblventas)
+-- ================================================================
+SET @col_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'detalle_document_electronic' AND COLUMN_NAME = 'PrecioCosto');
+SET @sql = IF(@col_exists = 0,
+    'ALTER TABLE detalle_document_electronic ADD COLUMN PrecioCosto DECIMAL(19,4) DEFAULT NULL AFTER price_amount',
+    'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- Backfill: prioriza PrecioC histórico de tbldetalle_venta (cuando hay
+-- venta POS espejo), o cae al Precio_Costo actual del artículo.
+UPDATE detalle_document_electronic de
+LEFT JOIN tbldetalle_venta dv ON dv.Factura_N = de.factura_n AND dv.Items = de.items
+LEFT JOIN tblarticulos a ON a.Items = de.items
+SET de.PrecioCosto = COALESCE(dv.PrecioC, a.Precio_Costo, 0)
+WHERE de.PrecioCosto IS NULL;
+
+-- ================================================================
 -- VERIFICACIÓN FINAL
 -- ================================================================
 SELECT '✓ Actualización completa Conta FT aplicada' AS resultado;

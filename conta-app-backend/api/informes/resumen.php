@@ -82,7 +82,7 @@ try {
             FROM tblpagos WHERE YEAR(Fecha)=$anio AND MONTH(Fecha)=$mes AND Estado='Valida'
         ")->fetch();
 
-        // Costo de ventas (suma de costo de los items vendidos)
+        // Costo de ventas POS (tblventas/tbldetalle_venta — costo histórico)
         $rCosto = $db->query("
             SELECT SUM(d.Cantidad * d.PrecioC) AS costo_ventas
             FROM tbldetalle_venta d
@@ -90,8 +90,19 @@ try {
             WHERE YEAR(v.Fecha)=$anio AND MONTH(v.Fecha)=$mes AND v.EstadoFact='Valida'
         ")->fetch();
 
+        // Costo de ventas FE (electronic_documents — solo las que NO duplican tblventas
+        // para evitar contar costo dos veces). Usa PrecioCosto guardado en el detalle.
+        $rCostoFE = $db->query("
+            SELECT SUM(de.invoiced_quantity * de.PrecioCosto) AS costo_fe
+            FROM detalle_document_electronic de
+            INNER JOIN electronic_documents e ON de.factura_n = e.id
+            WHERE YEAR(e.fecha)=$anio AND MONTH(e.fecha)=$mes
+              AND e.status='autorizado' AND e.type_document_id=1
+              AND e.cufe NOT IN (SELECT cufe FROM tblventas WHERE cufe IS NOT NULL AND cufe!='')
+        ")->fetch();
+
         $ventas_total = floatval($r['ventas_total']) + floatval($rEd['fe_total']);
-        $costo = floatval($rCosto['costo_ventas']);
+        $costo = floatval($rCosto['costo_ventas']) + floatval($rCostoFE['costo_fe']);
         $gastos = floatval($rGast['gastos_total']);
         $util_bruta = $ventas_total - $costo;
         $util_neta  = $util_bruta - $gastos;
@@ -149,6 +160,17 @@ try {
         $r->execute([$desde, $hasta]);
         $rVen = $r->fetch();
 
+        // Sumar también FE no duplicadas en tblventas
+        $r = $db->prepare("
+            SELECT SUM(total) AS ventas_fe, COUNT(*) AS num_fe
+            FROM electronic_documents
+            WHERE fecha BETWEEN ? AND CONCAT(?, ' 23:59:59')
+              AND status='autorizado' AND type_document_id=1
+              AND cufe NOT IN (SELECT cufe FROM tblventas WHERE cufe IS NOT NULL AND cufe!='')
+        ");
+        $r->execute([$desde, $hasta]);
+        $rVenFE = $r->fetch();
+
         $r = $db->prepare("
             SELECT SUM(d.Cantidad * d.PrecioC) AS costo
             FROM tbldetalle_venta d INNER JOIN tblventas v ON d.Factura_N = v.Factura_N
@@ -156,6 +178,18 @@ try {
         ");
         $r->execute([$desde, $hasta]);
         $rCos = $r->fetch();
+
+        // Costo de FE no duplicadas
+        $r = $db->prepare("
+            SELECT SUM(de.invoiced_quantity * de.PrecioCosto) AS costo_fe
+            FROM detalle_document_electronic de
+            INNER JOIN electronic_documents e ON de.factura_n = e.id
+            WHERE e.fecha BETWEEN ? AND CONCAT(?, ' 23:59:59')
+              AND e.status='autorizado' AND e.type_document_id=1
+              AND e.cufe NOT IN (SELECT cufe FROM tblventas WHERE cufe IS NOT NULL AND cufe!='')
+        ");
+        $r->execute([$desde, $hasta]);
+        $rCosFE = $r->fetch();
 
         $r = $db->prepare("
             SELECT COALESCE(cg.Nombre, 'Sin categoría') AS Categoria, SUM(e.Valor) AS total
@@ -169,8 +203,8 @@ try {
         $gastosCat = $r->fetchAll();
 
         $totalGastos = array_sum(array_column($gastosCat, 'total'));
-        $ventas = floatval($rVen['ventas']);
-        $costo = floatval($rCos['costo']);
+        $ventas = floatval($rVen['ventas']) + floatval($rVenFE['ventas_fe']);
+        $costo = floatval($rCos['costo']) + floatval($rCosFE['costo_fe']);
         $utilBruta = $ventas - $costo;
         $utilNeta = $utilBruta - $totalGastos;
 

@@ -74,7 +74,7 @@ import { LotesPorVencer } from './LotesPorVencer';
 import { PantallaInicio } from './PantallaInicio';
 import { useNotificaciones } from '../hooks/useNotificaciones';
 import { InformesHub } from './informes/InformesHub';
-import { ConfiguracionSistema } from './ConfiguracionSistema';
+import { ConfiguracionSistema, saveEmpresaCache } from './ConfiguracionSistema';
 import { DatosEmpresa } from './DatosEmpresa';
 import { NuevaCompra } from './NuevaCompra';
 import { UsuariosManagement } from './UsuariosManagement';
@@ -128,7 +128,7 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
   useEffect(() => {
     fetch('http://localhost:80/conta-app-backend/api/empresa/datos.php')
       .then(r => r.json())
-      .then(d => { if (d.success) setEmpresa(d.empresa); })
+      .then(d => { if (d.success) { setEmpresa(d.empresa); saveEmpresaCache(d.empresa); } })
       .catch(() => {});
   }, []);
   const cumpleProximos = useCumpleanosHoy();
