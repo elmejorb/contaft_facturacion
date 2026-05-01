@@ -100,10 +100,8 @@ try {
             $fechaInput = $data->fecha ?? null;
             if (!$fechaInput) {
                 $fechaPago = date('Y-m-d H:i:s');
-            } elseif (preg_match('/^\d{4}-\d{2}-\d{2}$/', $fechaInput)) {
-                $fechaPago = $fechaInput . ' ' . date('H:i:s');
             } else {
-                $fechaPago = $fechaInput;
+                $fechaPago = substr($fechaInput, 0, 10) . ' ' . date('H:i:s');
             }
 
             $db->beginTransaction();

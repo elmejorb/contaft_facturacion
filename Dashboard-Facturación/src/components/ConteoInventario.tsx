@@ -4,8 +4,9 @@ import { AllCommunityModule, ModuleRegistry, ColDef } from 'ag-grid-community';
 import {
   Search, RefreshCw, Plus, ClipboardCheck, X, ArrowLeft,
   CheckCircle, XCircle, AlertTriangle, Clock, Lock, Save,
-  HelpCircle, ChevronDown, ChevronUp
+  HelpCircle, ChevronDown, ChevronUp, Printer
 } from 'lucide-react';
+import { imprimirHojaConteo } from './ImpresionConteo';
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
@@ -669,6 +670,30 @@ export function ConteoInventario() {
             {conteoActual?.Fecha && new Date(conteoActual.Fecha).toLocaleDateString('es-CO')} — {conteoActual?.Usuario}
             {conteoActual?.Observacion && ` — ${conteoActual.Observacion}`}
           </p>
+        </div>
+        <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+          <button
+            onClick={() => imprimirHojaConteo(conteoActual!, detalleFiltrado, { ciego: true })}
+            title="Imprimir formato con casillas en blanco"
+            style={{
+              height: 32, padding: '0 12px', background: '#fff', color: '#4b5563',
+              border: '1px solid #d1d5db', borderRadius: 8, fontSize: 12, cursor: 'pointer',
+              display: 'flex', alignItems: 'center', gap: 6
+            }}
+          >
+            <Printer size={14} /> Ciego
+          </button>
+          <button
+            onClick={() => imprimirHojaConteo(conteoActual!, detalleFiltrado, { ciego: false })}
+            title="Imprimir formato con existencias del sistema"
+            style={{
+              height: 32, padding: '0 12px', background: '#fff', color: '#4b5563',
+              border: '1px solid #d1d5db', borderRadius: 8, fontSize: 12, cursor: 'pointer',
+              display: 'flex', alignItems: 'center', gap: 6
+            }}
+          >
+            <Printer size={14} /> Sistema
+          </button>
         </div>
         {esAbierto && (
           <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>

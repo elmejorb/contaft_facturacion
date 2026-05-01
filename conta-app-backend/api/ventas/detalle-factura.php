@@ -167,19 +167,47 @@ try {
             }
 
             // Recalculate factura total
-            $stmt = $db->prepare("SELECT SUM(Subtotal) as nuevoTotal FROM tbldetalle_venta WHERE Factura_N = ?");
+            $stmt = $db->prepare("SELECT SUM(Subtotal) as nuevoSubtotal, SUM(Impuesto) as nuevoIva FROM tbldetalle_venta WHERE Factura_N = ?");
             $stmt->execute([$factN]);
-            $nuevoTotal = floatval($stmt->fetch()['nuevoTotal']);
+            $totales = $stmt->fetch();
+            $nuevoTotal = floatval($totales['nuevoSubtotal']) + floatval($totales['nuevoIva']);
 
             // Update factura total and saldo
             $stmtFac = $db->prepare("SELECT Total, Saldo, Tipo FROM tblventas WHERE Factura_N = ?");
             $stmtFac->execute([$factN]);
             $fac = $stmtFac->fetch();
 
-            $nuevoSaldo = $fac['Tipo'] !== 'Contado' ? max(floatval($fac['Saldo']) - $totalDevuelto, 0) : 0;
+            $loPagado = floatval($fac['Total']) - floatval($fac['Saldo']);
+            $nuevoSaldo = $fac['Tipo'] !== 'Contado' ? max($nuevoTotal - $loPagado, 0) : 0;
 
             $db->prepare("UPDATE tblventas SET Total = ?, Saldo = ? WHERE Factura_N = ?")
                ->execute([$nuevoTotal, $nuevoSaldo, $factN]);
+
+            // ===== Si era venta contado: registrar egreso automático en caja abierta =====
+            if ($fac['Tipo'] === 'Contado' && $totalDevuelto > 0) {
+                // Buscar caja del usuario
+                $stmtCaja = $db->prepare("SELECT Id_Sesion, Id_Caja FROM tblsesiones_caja WHERE Estado = 'abierta' AND Id_Usuario = ? ORDER BY Id_Sesion DESC LIMIT 1");
+                $stmtCaja->execute([$idUsuario]);
+                $cajaAbierta = $stmtCaja->fetch();
+                
+                if (!$cajaAbierta) {
+                    $db->rollBack();
+                    echo json_encode([
+                        'success' => false,
+                        'message' => 'Para procesar esta devolución en efectivo, debe tener una caja abierta asignada a su usuario.'
+                    ]);
+                    exit;
+                }
+
+                $descripcion = "Reembolso por devolución parcial FV-$factN";
+                $db->prepare("
+                    INSERT INTO tblmov_caja (Id_Sesion, Id_Caja_Origen, Id_Usuario, Valor, Tipo, Descripcion)
+                    VALUES (?, ?, ?, ?, 'gasto', ?)
+                ")->execute([
+                    $cajaAbierta['Id_Sesion'], $cajaAbierta['Id_Caja'],
+                    $idUsuario, $totalDevuelto, $descripcion
+                ]);
+            }
 
             $db->commit();
             echo json_encode(['success' => true, 'message' => "Devolución procesada. Valor devuelto: $" . number_format($totalDevuelto, 0, ',', '.')]);
@@ -208,16 +236,17 @@ try {
                     SELECT s.Id_Sesion, s.Id_Caja, c.Nombre AS NombreCaja
                     FROM tblsesiones_caja s
                     INNER JOIN tblcajas c ON s.Id_Caja = c.Id_Caja
-                    WHERE s.Estado = 'abierta' AND DATE(s.FechaApertura) = CURDATE()
+                    WHERE s.Estado = 'abierta' AND DATE(s.FechaApertura) = CURDATE() AND s.Id_Usuario = ?
                     ORDER BY s.FechaApertura DESC LIMIT 1
                 ");
-                $stmt->execute();
+                $stmt->execute([$usuarioId]);
                 $cajaAbiertaHoy = $stmt->fetch();
+                
                 if (!$cajaAbiertaHoy) {
                     echo json_encode([
                         'success' => false,
                         'requiere_caja_abierta' => true,
-                        'message' => 'Para anular esta venta de contado debe haber una caja abierta hoy. El reembolso de $' . number_format($efectivoVenta, 0, ',', '.') . ' debe salir de una caja activa. Abra una caja primero.'
+                        'message' => 'Para anular esta venta de contado debe tener una caja abierta asignada a su usuario. El reembolso de $' . number_format($efectivoVenta, 0, ',', '.') . ' debe salir de su caja activa. Abra una caja primero.'
                     ]);
                     exit;
                 }

@@ -77,8 +77,8 @@ try {
         $stmt->execute([$fechaCaja]);
         $egresos = $stmt->fetch();
 
-        // Devoluciones / Anulaciones de ventas
-        $stmt = $db->prepare("SELECT COALESCE(SUM(Total), 0) as total, COUNT(*) as cantidad FROM tblventas WHERE DATE(Fecha) = ? AND EstadoFact = 'Anulada'");
+        // Devoluciones / Anulaciones de ventas (reembolsos físicos de caja)
+        $stmt = $db->prepare("SELECT COALESCE(SUM(Valor), 0) as total, COUNT(*) as cantidad FROM tblmov_caja WHERE DATE(Fecha) = ? AND Tipo = 'gasto' AND Descripcion LIKE 'Reembolso por %'");
         $stmt->execute([$fechaCaja]);
         $anulaciones = $stmt->fetch();
 

@@ -119,6 +119,7 @@ export function DetalleFacturaModal({ factN, onClose, onUpdate }: Props) {
           action: 'devolucion', factura_n: factN, items: itemsDev,
           autorizado_por: adminAuth?.id || null,
           autorizado_por_nombre: adminAuth?.nombre || null,
+          id_usuario: user?.id || 0,
         })
       });
       const d = await r.json();

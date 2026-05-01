@@ -15,9 +15,10 @@
 --        Permisos por tipo de usuario
 -- ================================================================
 
--- 1. Corregir tblkardex: AUTO_INCREMENT
+-- 1. Corregir tblkardex: AUTO_INCREMENT y tamaño del Detalle
 DELETE FROM tblkardex WHERE Id_kardex = 0;
 ALTER TABLE tblkardex MODIFY Id_kardex INT(11) NOT NULL AUTO_INCREMENT;
+ALTER TABLE tblkardex MODIFY Detalle VARCHAR(260) NULL DEFAULT NULL;
 
 -- 1b. Corregir tblpedidos: Pedido_N debe ser AUTO_INCREMENT
 SET @next_pedido = IFNULL((SELECT MAX(Pedido_N) FROM tblpedidos WHERE Pedido_N > 0), 0) + 1;

@@ -172,9 +172,9 @@ try {
         $stmt->execute($paramsUsuario);
         $eg = $stmt->fetch();
 
-        // Anulaciones
-        $stmt = $db->prepare("SELECT COALESCE(SUM(Total),0) as t, COUNT(*) as c FROM tblventas WHERE Fecha >= ? AND EstadoFact = 'Anulada'$filtroUsuario");
-        $stmt->execute($paramsUsuario);
+        // Anulaciones (reembolsos en efectivo en esta sesión)
+        $stmt = $db->prepare("SELECT COALESCE(SUM(Valor),0) as t, COUNT(*) as c FROM tblmov_caja WHERE Id_Sesion = ? AND Tipo = 'gasto' AND Descripcion LIKE 'Reembolso por %'");
+        $stmt->execute([$sesion['Id_Sesion']]);
         $an = $stmt->fetch();
 
         // Retiros parciales de esta sesión
@@ -301,8 +301,8 @@ try {
             $stmt = $db->prepare("SELECT COALESCE(SUM(Valor),0) as t FROM tblegresos WHERE Fecha >= ? AND Estado = 'Valida'$filtroUm");
             $stmt->execute($params); $eg = $stmt->fetch();
 
-            $stmt = $db->prepare("SELECT COALESCE(SUM(Total),0) as t FROM tblventas WHERE Fecha >= ? AND EstadoFact = 'Anulada'$filtroU");
-            $stmt->execute($params); $an = $stmt->fetch();
+            $stmt = $db->prepare("SELECT COALESCE(SUM(Valor),0) as t FROM tblmov_caja WHERE Id_Sesion = ? AND Tipo = 'gasto' AND Descripcion LIKE 'Reembolso por %'");
+            $stmt->execute([$sesionId]); $an = $stmt->fetch();
 
             $stmt = $db->prepare("SELECT COALESCE(SUM(Valor),0) as t FROM tblmov_caja WHERE Id_Sesion = ? AND Tipo = 'retiro_parcial'");
             $stmt->execute([$sesionId]); $ret = floatval($stmt->fetch()['t']);
