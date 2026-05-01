@@ -6,6 +6,7 @@ import toast from 'react-hot-toast';
 import { useAuth } from '../contexts/AuthContext';
 import { ReciboEgresoImpresion } from './ReciboEgresoImpresion';
 import { getConfigImpresion } from './ConfiguracionSistema';
+import { hoyLocal, inicioMesLocal } from '../utils/fecha';
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
@@ -34,7 +35,8 @@ export function GastosManagement() {
   const [cedula, setCedula] = useState('');
   const [origen, setOrigen] = useState('caja');
   const [cajaId, setCajaId] = useState(0);
-  const [fecha, setFecha] = useState(new Date().toISOString().slice(0, 10));
+  const [fecha, setFecha] = useState(hoyLocal());
+  const [valorFocus, setValorFocus] = useState(false);
   const [reciboImprimir, setReciboImprimir] = useState<{ egreso: any; formato: 'media-carta' | 'tirilla' } | null>(null);
   const gridRef = useRef<AgGridReact>(null);
 
@@ -246,25 +248,30 @@ export function GastosManagement() {
               </div>
               <div>
                 <label style={{ fontSize: 10, fontWeight: 600, color: '#6b7280', display: 'block', marginBottom: 4 }}>VALOR</label>
-                <input type="text" value={valor} onChange={e => setValor(e.target.value.replace(/[^0-9]/g, ''))}
+                <input type="text"
+                  value={valorFocus
+                    ? valor
+                    : (valor ? '$ ' + parseInt(valor).toLocaleString('es-CO') : '')}
+                  onChange={e => setValor(e.target.value.replace(/[^0-9]/g, ''))}
+                  onFocus={e => { setValorFocus(true); setTimeout(() => e.target.select(), 0); }}
+                  onBlur={() => setValorFocus(false)}
                   placeholder="$ 0" autoFocus
                   style={{ width: '100%', height: 32, border: '2px solid #dc2626', borderRadius: 8, fontSize: 14, fontWeight: 700, padding: '0 10px', boxSizing: 'border-box' }} />
               </div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
-              <div>
-                <label style={{ fontSize: 10, fontWeight: 600, color: '#6b7280', display: 'block', marginBottom: 4 }}>CATEGORÍA</label>
-                <select value={categoria} onChange={e => setCategoria(e.target.value)}
-                  style={{ width: '100%', height: 32, border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, padding: '0 8px' }}>
-                  {categorias.map((c: any) => <option key={c.Id_Categoria} value={c.Nombre}>{c.Nombre}</option>)}
-                </select>
-              </div>
-              <div>
-                <label style={{ fontSize: 10, fontWeight: 600, color: '#6b7280', display: 'block', marginBottom: 4 }}>CONCEPTO</label>
-                <input type="text" value={concepto} onChange={e => setConcepto(e.target.value)} placeholder="Detalle del gasto"
-                  style={{ width: '100%', height: 32, border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, padding: '0 10px', boxSizing: 'border-box' }} />
-              </div>
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ fontSize: 10, fontWeight: 600, color: '#6b7280', display: 'block', marginBottom: 4 }}>CATEGORÍA</label>
+              <select value={categoria} onChange={e => setCategoria(e.target.value)}
+                style={{ width: '100%', height: 32, border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, padding: '0 8px' }}>
+                {categorias.map((c: any) => <option key={c.Id_Categoria} value={c.Nombre}>{c.Nombre}</option>)}
+              </select>
+            </div>
+
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ fontSize: 10, fontWeight: 600, color: '#6b7280', display: 'block', marginBottom: 4 }}>CONCEPTO</label>
+              <textarea value={concepto} onChange={e => setConcepto(e.target.value)} placeholder="Detalle del gasto" rows={3}
+                style={{ width: '100%', minHeight: 60, border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, padding: '6px 10px', boxSizing: 'border-box', resize: 'vertical', fontFamily: 'inherit', outline: 'none' }} />
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>

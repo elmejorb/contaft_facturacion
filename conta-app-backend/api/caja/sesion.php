@@ -126,8 +126,8 @@ try {
         $filtroUsuarioPagos = $idUsuarioSesion > 0 ? ' AND id_usuario = ?' : ''; // tblpagos / tblegresos en minúscula
         $paramsUsuario = $idUsuarioSesion > 0 ? [$fechaApertura, $idUsuarioSesion] : [$fechaApertura];
 
-        // Ventas contado (tblventas)
-        $stmt = $db->prepare("SELECT COALESCE(SUM(efectivo),0) as ef, COALESCE(SUM(valorpagado1),0) as tr, COALESCE(SUM(Total),0) as t, COUNT(*) as c FROM tblventas WHERE Fecha >= ? AND EstadoFact = 'Valida' AND Tipo = 'Contado'$filtroUsuario");
+        // Ventas contado (tblventas) — efectivo NETO = efectivo recibido menos cambio devuelto
+        $stmt = $db->prepare("SELECT COALESCE(SUM(efectivo - COALESCE(Cambio,0)),0) as ef, COALESCE(SUM(valorpagado1),0) as tr, COALESCE(SUM(Total),0) as t, COUNT(*) as c FROM tblventas WHERE Fecha >= ? AND EstadoFact = 'Valida' AND Tipo = 'Contado'$filtroUsuario");
         $stmt->execute($paramsUsuario);
         $vc = $stmt->fetch();
 
@@ -158,7 +158,7 @@ try {
 
         // Ventas por medio de pago
         $filtroUsuarioV = $idUsuarioSesion > 0 ? ' AND v.Id_Usuario = ?' : '';
-        $stmt = $db->prepare("SELECT COALESCE(m.nombre_medio,'Efectivo') as medio, v.id_mediopago, COALESCE(SUM(v.Total),0) as total, COALESCE(SUM(v.efectivo),0) as efectivo, COALESCE(SUM(v.valorpagado1),0) as transferencia FROM tblventas v LEFT JOIN tblmedios_pago m ON v.id_mediopago = m.id_mediopago WHERE v.Fecha >= ? AND v.EstadoFact = 'Valida' AND v.Tipo = 'Contado'$filtroUsuarioV GROUP BY v.id_mediopago, m.nombre_medio");
+        $stmt = $db->prepare("SELECT COALESCE(m.nombre_medio,'Efectivo') as medio, v.id_mediopago, COALESCE(SUM(v.Total),0) as total, COALESCE(SUM(v.efectivo - COALESCE(v.Cambio,0)),0) as efectivo, COALESCE(SUM(v.valorpagado1),0) as transferencia FROM tblventas v LEFT JOIN tblmedios_pago m ON v.id_mediopago = m.id_mediopago WHERE v.Fecha >= ? AND v.EstadoFact = 'Valida' AND v.Tipo = 'Contado'$filtroUsuarioV GROUP BY v.id_mediopago, m.nombre_medio");
         $stmt->execute($paramsUsuario);
         $ventasMedio = $stmt->fetchAll();
 
@@ -281,7 +281,7 @@ try {
             $filtroUm = $idUsuarioSesion > 0 ? ' AND id_usuario = ?' : '';
             $params = $idUsuarioSesion > 0 ? [$fa, $idUsuarioSesion] : [$fa];
 
-            $stmt = $db->prepare("SELECT COALESCE(SUM(efectivo),0) as ef, COALESCE(SUM(valorpagado1),0) as tr, COALESCE(SUM(Total),0) as t FROM tblventas WHERE Fecha >= ? AND EstadoFact = 'Valida' AND Tipo = 'Contado'$filtroU");
+            $stmt = $db->prepare("SELECT COALESCE(SUM(efectivo - COALESCE(Cambio,0)),0) as ef, COALESCE(SUM(valorpagado1),0) as tr, COALESCE(SUM(Total),0) as t FROM tblventas WHERE Fecha >= ? AND EstadoFact = 'Valida' AND Tipo = 'Contado'$filtroU");
             $stmt->execute($params); $vc = $stmt->fetch();
             // + FE Contado
             $stmt = $db->prepare("SELECT COALESCE(SUM(efectivo),0) as ef, COALESCE(SUM(valorpagado1),0) as tr, COALESCE(SUM(total),0) as t FROM electronic_documents WHERE created_at >= ? AND type_document_id = 1 AND payment_form_id = 1 AND status IN ('autorizado','pendiente')$filtroUm");

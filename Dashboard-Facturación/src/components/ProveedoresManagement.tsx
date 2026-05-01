@@ -225,6 +225,7 @@ export function ProveedoresManagement({ modoCxP = false }: { modoCxP?: boolean }
 
 // ==================== DETALLE PROVEEDOR ====================
 function ProveedorDetalle({ provId, onClose }: { provId: number; onClose: () => void }) {
+  const { user } = useAuth();
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<'compras' | 'pagar' | 'historial'>('compras');
@@ -233,6 +234,10 @@ function ProveedorDetalle({ provId, onClose }: { provId: number; onClose: () => 
   const [msg, setMsg] = useState({ type: '', text: '' });
   const [reciboImprimir, setReciboImprimir] = useState<any>(null);
   const [formVersion, setFormVersion] = useState(0);
+  const [medioPago, setMedioPago] = useState(0); // 0=efectivo por defecto
+  const [mediosPago, setMediosPago] = useState<any[]>([]);
+  const [cajas, setCajas] = useState<any[]>([]);
+  const [cajaId, setCajaId] = useState(0);
 
   const cargar = async () => {
     setLoading(true);
@@ -243,6 +248,28 @@ function ProveedorDetalle({ provId, onClose }: { provId: number; onClose: () => 
     } catch (e) { console.error(e); }
     setLoading(false);
   };
+
+  // Cargar medios de pago y cajas disponibles
+  useEffect(() => {
+    fetch('http://localhost:80/conta-app-backend/api/medios-pago/listar.php')
+      .then(r => r.json()).then(d => { if (d.success) setMediosPago(d.medios || []); })
+      .catch(() => setMediosPago([
+        { id_mediopago: 0, nombre_medio: 'Efectivo' },
+        { id_mediopago: 1, nombre_medio: 'Tarjeta' },
+        { id_mediopago: 2, nombre_medio: 'Bancolombia' },
+        { id_mediopago: 3, nombre_medio: 'Nequi' },
+      ]));
+    fetch(`http://localhost:80/conta-app-backend/api/caja/sesion.php?cajas=1&usuario=${user?.id || 0}`)
+      .then(r => r.json()).then(d => {
+        if (d.success) {
+          setCajas(d.cajas || []);
+          // Auto-seleccionar la caja con sesión abierta del usuario, o la primera
+          const conSesion = (d.cajas || []).find((c: any) => c.sesiones_abiertas > 0);
+          if (conSesion) setCajaId(conSesion.Id_Caja);
+          else if (d.cajas?.length > 0) setCajaId(d.cajas[0].Id_Caja);
+        }
+      }).catch(() => {});
+  }, [user?.id]);
 
   useEffect(() => { cargar(); }, [provId]);
 
@@ -257,17 +284,27 @@ function ProveedorDetalle({ provId, onClose }: { provId: number; onClose: () => 
 
   const guardarPagos = async () => {
     const pagosArr = Array.from(abonos.entries()).filter(([_, v]) => v > 0).map(([id, v]) => {
-      const pen = pendientes.find((p: any) => p.ID_FactAnterioresP === id);
-      return { fact_id: id, origen: pen?.Origen || 'anterior', valor: v, descuento: 0 };
+      // ID_FactAnterioresP puede venir como string desde JSON; comparar suelto
+      const pen = pendientes.find((p: any) => Number(p.ID_FactAnterioresP) === Number(id));
+      return { fact_id: Number(id), origen: pen?.Origen || 'anterior', valor: v, descuento: 0 };
     });
     if (!pagosArr.length) return;
+    if (medioPago === 0 && !cajaId) {
+      setMsg({ type: 'err', text: 'Selecciona una caja para el pago en efectivo' });
+      return;
+    }
     setGuardando(true);
     try {
       const r = await fetch(API, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'pagar', proveedor: provId, pagos: pagosArr, id_usuario: user?.id || 0 })
+        body: JSON.stringify({
+          action: 'pagar', proveedor: provId, pagos: pagosArr,
+          id_usuario: user?.id || 0,
+          tipo_pago: medioPago,
+          caja_id: medioPago === 0 ? cajaId : 0,
+        })
       });
-      const d = await r.json();
+      const d = await r.json().catch(() => ({ success: false, message: 'Respuesta inválida del servidor' }));
       if (d.success) {
         setMsg({ type: 'ok', text: d.message });
         setTimeout(() => setMsg({ type: '', text: '' }), 5000);
@@ -276,6 +313,7 @@ function ProveedorDetalle({ provId, onClose }: { provId: number; onClose: () => 
         // Preguntar si imprimir recibo
         if (confirm('Pago registrado. ¿Desea imprimir el comprobante de egreso?')) {
           const cfg = getConfigImpresion();
+          const medio = mediosPago.find((m: any) => m.id_mediopago === medioPago);
           const pagoData = {
             RecCajaN: d.comprobante,
             Fecha: new Date().toLocaleString('es-CO'),
@@ -283,13 +321,15 @@ function ProveedorDetalle({ provId, onClose }: { provId: number; onClose: () => 
             ValorPago: d.total_pagado,
             SaldoAct: 0,
             Descuento: 0,
-            MedioPago: 'Efectivo',
+            MedioPago: medio?.nombre_medio || tipoPagoNombre(medioPago),
             DetallePago: `Pago de ${d.facturas_afectadas} factura(s) a ${prov?.RazonSocial || ''}`
           };
           setReciboImprimir({ pago: pagoData, formato: cfg.formatoPago });
         }
-      } else setMsg({ type: 'err', text: d.message });
-    } catch (e) { setMsg({ type: 'err', text: 'Error' }); }
+      } else setMsg({ type: 'err', text: d.message || 'No se pudo registrar el pago' });
+    } catch (e: any) {
+      setMsg({ type: 'err', text: 'Error de conexión: ' + (e?.message || 'desconocido') });
+    }
     setGuardando(false);
   };
 
@@ -359,9 +399,26 @@ function ProveedorDetalle({ provId, onClose }: { provId: number; onClose: () => 
 
           {tab === 'pagar' && (
             <div>
-              <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, marginBottom: 10, whiteSpace: 'nowrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
                 <button onClick={() => { const m = new Map<number, number>(); pendientes.forEach((f: any) => m.set(f.ID_FactAnterioresP, f.Saldo)); setAbonos(m); }}
                   style={{ height: 28, padding: '0 10px', background: '#16a34a', color: '#fff', border: 'none', borderRadius: 6, fontSize: 11, cursor: 'pointer' }}>Pagar Todo</button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <label style={{ fontSize: 10, color: '#6b7280', fontWeight: 600 }}>MEDIO:</label>
+                  <select value={medioPago} onChange={e => setMedioPago(parseInt(e.target.value))}
+                    style={{ height: 28, border: '1px solid #d1d5db', borderRadius: 6, fontSize: 12, padding: '0 6px' }}>
+                    {mediosPago.map((m: any) => <option key={m.id_mediopago} value={m.id_mediopago}>{m.nombre_medio}</option>)}
+                  </select>
+                </div>
+                {medioPago === 0 && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <label style={{ fontSize: 10, color: '#6b7280', fontWeight: 600 }}>CAJA:</label>
+                    <select value={cajaId} onChange={e => setCajaId(parseInt(e.target.value))}
+                      style={{ height: 28, border: '1px solid #d97706', borderRadius: 6, fontSize: 12, padding: '0 6px', background: '#fffbeb' }}>
+                      <option value={0}>Selecciona...</option>
+                      {cajas.map((c: any) => <option key={c.Id_Caja} value={c.Id_Caja}>{c.Nombre} {c.sesiones_abiertas > 0 ? '(Abierta)' : ''}</option>)}
+                    </select>
+                  </div>
+                )}
                 <div style={{ flex: 1 }} />
                 {totalAbonos > 0 && <div style={{ textAlign: 'right' }}><div style={{ fontSize: 9, color: '#6b7280' }}>TOTAL</div><div style={{ fontSize: 16, fontWeight: 700, color: '#7c3aed' }}>{fmtMon(totalAbonos)}</div></div>}
                 <button onClick={guardarPagos} disabled={guardando || totalAbonos <= 0}

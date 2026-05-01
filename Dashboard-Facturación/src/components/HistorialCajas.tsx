@@ -5,6 +5,7 @@ import { RefreshCw, Eye, Plus, ArrowUpRight, ArrowDownRight, FileText, DollarSig
 import toast from 'react-hot-toast';
 import { useAuth } from '../contexts/AuthContext';
 import { getConfigImpresion } from './ConfiguracionSistema';
+import { hoyLocal, inicioMesLocal } from '../utils/fecha';
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
@@ -19,8 +20,8 @@ export function HistorialCajas() {
   const [resumen, setResumen] = useState<any>({});
   const [loading, setLoading] = useState(true);
   const [filtroCaja, setFiltroCaja] = useState('');
-  const [desde, setDesde] = useState(new Date().toISOString().slice(0, 7) + '-01');
-  const [hasta, setHasta] = useState(new Date().toISOString().slice(0, 10));
+  const [desde, setDesde] = useState(inicioMesLocal());
+  const [hasta, setHasta] = useState(hoyLocal());
   const [detalleSesion, setDetalleSesion] = useState<any>(null);
   const [showNuevoMov, setShowNuevoMov] = useState<'ingreso' | 'egreso' | null>(null);
   const [movValor, setMovValor] = useState('');

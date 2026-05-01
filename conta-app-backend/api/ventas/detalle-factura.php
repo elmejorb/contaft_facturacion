@@ -106,6 +106,8 @@ try {
             $items = $data['items'] ?? []; // [{id_detalle, cant_devolver}]
             if (empty($items)) { echo json_encode(['success' => false, 'message' => 'No hay items para devolver']); exit; }
 
+            $idUsuario = intval($data['id_usuario'] ?? 0);
+
             $db->beginTransaction();
             $totalDevuelto = 0;
 
@@ -130,19 +132,26 @@ try {
                 $nuevoDev = $det['Dev'] + $cantDev;
                 $nuevoSubtotal = $nuevaCant * $det['PrecioV'] - $det['Descuento'];
                 if ($nuevoSubtotal < 0) $nuevoSubtotal = 0;
-                $valorDev = $cantDev * $det['PrecioV'];
 
-                // Update detalle_venta
-                $db->prepare("UPDATE tbldetalle_venta SET Cantidad = ?, Dev = ?, Subtotal = ? WHERE Id_DetalleVenta = ?")
-                   ->execute([$nuevaCant, $nuevoDev, $nuevoSubtotal, $idDetalle]);
+                // valorDev includes IVA to match how tblventas.Total was calculated
+                $ivaRate = floatval($det['IVA'] ?? 0);
+                $subtotalDev = $cantDev * floatval($det['PrecioV']);
+                $valorDev = $subtotalDev * (1 + $ivaRate / 100);
+
+                // Also recalculate Impuesto for the remaining quantity
+                $nuevaImpuesto = $nuevoSubtotal * ($ivaRate / 100);
+
+                // Update detalle_venta (including Impuesto so nuevoTotal calculation is accurate)
+                $db->prepare("UPDATE tbldetalle_venta SET Cantidad = ?, Dev = ?, Subtotal = ?, Impuesto = ? WHERE Id_DetalleVenta = ?")
+                   ->execute([$nuevaCant, $nuevoDev, $nuevoSubtotal, $nuevaImpuesto, $idDetalle]);
 
                 // Return stock
                 $db->prepare("UPDATE tblarticulos SET Existencia = Existencia + ? WHERE Items = ?")
                    ->execute([$cantDev, $det['Items']]);
 
                 // Insert devolucion record
-                $db->prepare("INSERT INTO tbldevolucion_ventas (Id_DetalleVenta, valor_dev, caja, fecha_fact, fecha_mod, id_usuario) VALUES (?, ?, '1', CURDATE(), NOW(), 0)")
-                   ->execute([$idDetalle, $valorDev]);
+                $db->prepare("INSERT INTO tbldevolucion_ventas (Id_DetalleVenta, valor_dev, caja, fecha_fact, fecha_mod, id_usuario) VALUES (?, ?, '1', CURDATE(), NOW(), ?)")
+                   ->execute([$idDetalle, $valorDev, $idUsuario]);
 
                 // Kardex entry
                 $stmtExist = $db->prepare("SELECT Existencia, Precio_Costo FROM tblarticulos WHERE Items = ?");

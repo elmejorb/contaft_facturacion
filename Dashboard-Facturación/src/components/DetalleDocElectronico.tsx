@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { X, CheckCircle, XCircle, Clock, Send, Copy, FileText, AlertTriangle, Printer } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { getConfigImpresion } from './ConfiguracionSistema';
+import { AutorizacionAdminModal, AdminAutorizado } from './AutorizacionAdminModal';
 
 const API = 'http://localhost:80/conta-app-backend/api/facturacion-electronica';
 const fmtMon = (v: number) => '$ ' + v.toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -20,6 +22,8 @@ export function DetalleDocElectronico({ docId, onClose, onUpdate }: Props) {
   const [ndMotivo, setNdMotivo] = useState('Cobro de intereses');
   const [ndValor, setNdValor] = useState('');
   const [ndDescripcion, setNdDescripcion] = useState('');
+  const [autDevolucion, setAutDevolucion] = useState<{ motivo: string } | null>(null);
+  const [autAnulacion, setAutAnulacion] = useState<{ motivo: string } | null>(null);
 
   // Calculate total a devolver en NC parcial
   const ncTotalDev = Object.entries(ncItems).reduce((s, [idx, val]) => {
@@ -44,10 +48,24 @@ export function DetalleDocElectronico({ docId, onClose, onUpdate }: Props) {
 
   useEffect(() => { cargar(); }, [docId]);
 
-  const enviarNC = async () => {
+  const enviarNC = async (adminAuth?: AdminAutorizado) => {
+    // Verificar autorización admin antes de procesar — el motivo determina qué casilla aplica
+    const cfg = getConfigImpresion();
+    const esDevolucion = ncMotivo === 'Devolución parcial de mercancía' || ncMotivo === 'Devolución de mercancía';
+    const esAnulacion  = ncMotivo === 'Anulación de factura electrónica';
+    if (esDevolucion && cfg.autorizarDevoluciones && !adminAuth) {
+      setAutDevolucion({ motivo: `${ncMotivo} de FE-${doc.number}` });
+      return;
+    }
+    if (esAnulacion && cfg.autorizarAnulaciones && !adminAuth) {
+      setAutAnulacion({ motivo: `Anulación de FE-${doc.number}` });
+      return;
+    }
+
     toast.loading('Enviando Nota Crédito...', { id: 'nc' });
     try {
       const body: any = { action: 'nota_credito', factura_n: doc.number, motivo: ncMotivo };
+      if (adminAuth) { body.admin_auth = { id: adminAuth.id, username: adminAuth.username }; }
 
       if (ncMotivo === 'Devolución parcial de mercancía') {
         // Solo enviar items con cantidad > 0
@@ -365,6 +383,21 @@ export function DetalleDocElectronico({ docId, onClose, onUpdate }: Props) {
           </button>
         </div>
       </div>
+
+      {autDevolucion && (
+        <AutorizacionAdminModal
+          motivo={autDevolucion.motivo}
+          onAutorizado={(admin) => { setAutDevolucion(null); enviarNC(admin); }}
+          onCancelar={() => setAutDevolucion(null)}
+        />
+      )}
+      {autAnulacion && (
+        <AutorizacionAdminModal
+          motivo={autAnulacion.motivo}
+          onAutorizado={(admin) => { setAutAnulacion(null); enviarNC(admin); }}
+          onCancelar={() => setAutAnulacion(null)}
+        />
+      )}
     </div>
   );
 }

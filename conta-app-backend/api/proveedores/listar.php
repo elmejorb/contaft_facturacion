@@ -190,12 +190,19 @@ try {
             if (isset($data->action) && $data->action === 'pagar') {
                 $provId = $data->proveedor ?? null;
                 $pagos = $data->pagos ?? [];
-                $tipoPago = $data->tipo_pago ?? 2;
+                $tipoPago = isset($data->tipo_pago) ? intval($data->tipo_pago) : 2;
                 $idUsuario = intval($data->id_usuario ?? 0) ?: null;
+                $cajaIdPago = intval($data->caja_id ?? 0); // requerida si tipo_pago == 0 (efectivo)
 
                 if (!$provId || empty($pagos)) {
                     http_response_code(400);
                     echo json_encode(["success" => false, "message" => "Proveedor y pagos requeridos"]);
+                    exit;
+                }
+
+                // Si es efectivo, debe haber caja seleccionada
+                if ($tipoPago === 0 && !$cajaIdPago) {
+                    echo json_encode(["success" => false, "message" => "Pago en efectivo requiere caja activa"]);
                     exit;
                 }
 
@@ -209,10 +216,14 @@ try {
                 $stmt->execute([':id' => $provId]);
                 $prov = $stmt->fetch();
 
+                // Cuentas: '51 1305' caja, '1110' banco. La columna identifica la naturaleza
+                // del egreso para informes (efectivo vs banco).
+                $cuentasEgreso = $tipoPago === 0 ? '51 1305' : '1110';
+
                 $stmtInsert = $db->prepare("
                     INSERT INTO tblegresos (N_Comprobante, Fecha, Orden, Concepto, Valor, Descuento,
                         Estado, Cuentas, FactN, CodigoPro, NFacturaAnt, ValorFact, Saldoact, Cedula, TipoPago, id_usuario)
-                    VALUES (:comp, NOW(), :orden, :concepto, :valor, :desc, 'Valida', '1110', '0',
+                    VALUES (:comp, NOW(), :orden, :concepto, :valor, :desc, 'Valida', :cuentas, '0',
                         :prov, :nfact, :valfact, :saldo, :cedula, :tipo, :id_user)
                 ");
 
@@ -254,6 +265,7 @@ try {
                         ':concepto' => $concepto,
                         ':valor' => $valor,
                         ':desc' => $descuento,
+                        ':cuentas' => $cuentasEgreso,
                         ':prov' => $provId,
                         ':nfact' => $fact['FacturaN'],
                         ':valfact' => floatval($fact['Valor']),
@@ -269,6 +281,26 @@ try {
                     $totalPagado += $valor;
                     $facturasAfectadas++;
                     $facturasNums[] = $fact['FacturaN'];
+                }
+
+                // Si fue pago en efectivo, descontar de caja activa
+                $totalConDescuento = 0;
+                foreach ($pagos as $pg) { $totalConDescuento += floatval($pg->valor) + floatval($pg->descuento ?? 0); }
+                if ($tipoPago === 0 && $cajaIdPago && $totalConDescuento > 0) {
+                    // Buscar sesión abierta de la caja seleccionada
+                    $stmtS = $db->prepare("SELECT Id_Sesion FROM tblsesiones_caja WHERE Id_Caja = ? AND Estado = 'abierta' LIMIT 1");
+                    $stmtS->execute([$cajaIdPago]);
+                    $sesionId = intval($stmtS->fetch()['Id_Sesion'] ?? 0) ?: null;
+
+                    $db->prepare("
+                        INSERT INTO tblmov_caja (Id_Sesion, Id_Caja_Origen, Id_Usuario, Valor, Tipo, Descripcion)
+                        VALUES (?, ?, ?, ?, 'pago_proveedor', ?)
+                    ")->execute([
+                        $sesionId, $cajaIdPago, $idUsuario ?: 0, $totalPagado,
+                        "Pago a {$prov['RazonSocial']} - Comprobante #$nComprobante"
+                    ]);
+                    $db->prepare("UPDATE tblcajas SET Saldo = Saldo - ? WHERE Id_Caja = ?")
+                       ->execute([$totalPagado, $cajaIdPago]);
                 }
 
                 $db->commit();

@@ -628,6 +628,24 @@ SET de.PrecioCosto = COALESCE(dv.PrecioC, a.Precio_Costo, 0)
 WHERE de.PrecioCosto IS NULL;
 
 -- ================================================================
+-- v4.12 — id_usuario en tblpagos (cobros de cliente filtrados por cajero)
+-- Necesario para el cuadre multi-cajero
+-- ================================================================
+SET @col_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tblpagos' AND COLUMN_NAME = 'id_usuario');
+SET @sql = IF(@col_exists = 0,
+    "ALTER TABLE tblpagos ADD COLUMN id_usuario INT DEFAULT NULL, ADD KEY idx_usuario (id_usuario)",
+    'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- ================================================================
+-- v4.13 — Extender ENUM tblmov_caja.Tipo para soportar compras y pagos
+-- a proveedores (necesario para que esos movimientos descuenten caja)
+-- ================================================================
+ALTER TABLE tblmov_caja MODIFY COLUMN Tipo
+    ENUM('retiro_parcial','traslado','deposito','gasto','compra','pago_proveedor','cobro_cliente') NOT NULL;
+
+-- ================================================================
 -- VERIFICACIÓN FINAL
 -- ================================================================
 SELECT '✓ Actualización completa Conta FT aplicada' AS resultado;

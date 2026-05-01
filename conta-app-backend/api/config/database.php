@@ -3,6 +3,10 @@
  * Configuración de la base de datos
  */
 
+// Zona horaria — debe coincidir con la de Colombia para que las fechas
+// generadas en PHP (date(), strtotime(), etc.) cuadren con NOW() de MySQL.
+date_default_timezone_set('America/Bogota');
+
 header("Access-Control-Allow-Origin: *");
 header("Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS");
 header("Access-Control-Allow-Headers: Content-Type, Authorization");
@@ -16,7 +20,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 
 class Database {
     private $host = "localhost";
-    private $db_name = "conta_distrisalsas";
+    private $db_name = "conta_test_negocio";
     private $username = "root";
     private $password = "root";
     public $conn;

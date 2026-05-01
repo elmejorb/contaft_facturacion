@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, Fragment } from 'react';
 import { Search, Trash2, Plus, Save, X, Package } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { EditarArticuloModal } from './EditarArticuloModal';
+import { useAuth } from '../contexts/AuthContext';
 
 const API = 'http://localhost:80/conta-app-backend/api/compras/nueva.php';
 const fmtMon = (v: number) => {
@@ -36,6 +37,7 @@ function loadSaved() {
 }
 
 export function NuevaCompra({ pedidoEditar, onClose }: { pedidoEditar?: number; onClose?: () => void } = {}) {
+  const { user } = useAuth();
   const saved = pedidoEditar ? null : loadSaved();
   const [pedidoN, setPedidoN] = useState(pedidoEditar || 0);
   const [modoEdicion, setModoEdicion] = useState(!!pedidoEditar);
@@ -227,6 +229,7 @@ export function NuevaCompra({ pedidoEditar, onClose }: { pedidoEditar?: number; 
       const body: any = {
         tipo, dias, proveedor_id: proveedor.id, factura_compra: facturaCompra,
         flete, descuento, retencion, opcion_factura: opcionIva,
+        id_usuario: user?.id || 0, // para egreso automático en compra contado
         items: lineas.map(l => ({
           id_detalle: l.IdDetalle || 0,
           items: l.Items, cantidad: l.Cantidad, costo_sin_iva: l.CostoSinIva,

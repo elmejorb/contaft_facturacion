@@ -4,6 +4,7 @@ import { AllCommunityModule, ModuleRegistry, ColDef } from 'ag-grid-community';
 import { Search, RefreshCw, Users, DollarSign, AlertTriangle, Clock, Wallet, Eye, Printer, Plus, X } from 'lucide-react';
 import { ClienteDetalle } from './ClienteDetalle';
 import toast from 'react-hot-toast';
+import { hoyLocal, inicioMesLocal } from '../utils/fecha';
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
@@ -36,7 +37,7 @@ export function CuentasPorCobrar() {
   const [faClienteId, setFaClienteId] = useState(0);
   const [faClienteNombre, setFaClienteNombre] = useState('');
   const [faFacturaN, setFaFacturaN] = useState('');
-  const [faFecha, setFaFecha] = useState(new Date().toISOString().slice(0, 10));
+  const [faFecha, setFaFecha] = useState(hoyLocal());
   const [faValor, setFaValor] = useState('');
   const [faSaldo, setFaSaldo] = useState('');
   const [faDias, setFaDias] = useState('30');

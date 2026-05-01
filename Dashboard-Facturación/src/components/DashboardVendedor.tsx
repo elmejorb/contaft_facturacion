@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { ShoppingCart, DollarSign, Receipt, TrendingUp, Clock } from 'lucide-react';
+import { hoyLocal, inicioMesLocal } from '../utils/fecha';
 
 const API = 'http://localhost:80/conta-app-backend/api/ventas/listar.php';
 const fmtMon = (v: number) => '$ ' + Math.round(v).toLocaleString('es-CO');
@@ -23,7 +24,7 @@ export function DashboardVendedor({ user }: Props) {
 
   useEffect(() => { cargar(); }, []);
 
-  const hoy = new Date().toISOString().slice(0, 10);
+  const hoy = hoyLocal();
   const ventasHoy = ventas.filter(v => v.Fecha && v.Fecha.startsWith(hoy));
   const totalHoy = ventasHoy.reduce((s, v) => s + (parseFloat(v.Total) || 0), 0);
   const contadoHoy = ventasHoy.filter(v => v.Tipo === 'Contado').reduce((s, v) => s + (parseFloat(v.Total) || 0), 0);

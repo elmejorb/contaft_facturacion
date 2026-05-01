@@ -94,7 +94,17 @@ try {
                 exit;
             }
 
-            $fechaPago = $data->fecha ?? date('Y-m-d');
+            // Fecha del pago — siempre con hora completa para que el cuadre por
+            // sesión filtre correctamente. Si el frontend envía solo YYYY-MM-DD,
+            // se le concatena la hora actual.
+            $fechaInput = $data->fecha ?? null;
+            if (!$fechaInput) {
+                $fechaPago = date('Y-m-d H:i:s');
+            } elseif (preg_match('/^\d{4}-\d{2}-\d{2}$/', $fechaInput)) {
+                $fechaPago = $fechaInput . ' ' . date('H:i:s');
+            } else {
+                $fechaPago = $fechaInput;
+            }
 
             $db->beginTransaction();
 

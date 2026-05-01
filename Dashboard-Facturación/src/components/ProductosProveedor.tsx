@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { AgGridReact } from 'ag-grid-react';
 import { AllCommunityModule, ModuleRegistry, ColDef } from 'ag-grid-community';
 import { Search, RefreshCw, Package, TrendingUp, AlertTriangle, ShoppingCart } from 'lucide-react';
+import { hoyLocal, fechaLocal } from '../utils/fecha';
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
@@ -11,8 +12,8 @@ const fmtMon = (v: number) => '$ ' + Math.round(v).toLocaleString('es-CO');
 export function ProductosProveedor() {
   const [proveedores, setProveedores] = useState<any[]>([]);
   const [provId, setProvId] = useState<string>('');
-  const [desde, setDesde] = useState(() => { const d = new Date(); d.setMonth(d.getMonth() - 1); return d.toISOString().split('T')[0]; });
-  const [hasta, setHasta] = useState(() => new Date().toISOString().split('T')[0]);
+  const [desde, setDesde] = useState(() => { const d = new Date(); d.setMonth(d.getMonth() - 1); return fechaLocal(d); });
+  const [hasta, setHasta] = useState(() => hoyLocal());
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [busqueda, setBusqueda] = useState('');

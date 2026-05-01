@@ -150,6 +150,8 @@ try {
     $dias = intval($data['dias'] ?? 30);
     $codigoPro = intval($data['proveedor_id'] ?? 0);
     $facturaCompra = trim($data['factura_compra'] ?? '');
+    $idUsuario = intval($data['id_usuario'] ?? 0) ?: null;
+    $cajaIdCompra = intval($data['caja_id'] ?? 0); // de qué caja sale el dinero (compra contado)
     if ($facturaCompra === '') {
         echo json_encode(['success' => false, 'message' => 'El N° de factura del proveedor es obligatorio']);
         exit;
@@ -454,12 +456,72 @@ try {
             ]);
         }
 
+        // Si la compra es CONTADO, generar egreso automático para que quede
+        // registrado el pago en la caja y en el histórico de egresos a proveedores.
+        $nCompEgreso = null;
+        if ($tipoPedido === 'Contado' && $totalCompra > 0) {
+            // Datos del proveedor para el comprobante
+            $stmtProv = $db->prepare("SELECT RazonSocial, Nit FROM tblproveedores WHERE CodigoPro = ?");
+            $stmtProv->execute([$codigoPro]);
+            $prov = $stmtProv->fetch();
+            $provNombre = $prov['RazonSocial'] ?? 'Proveedor';
+            $provNit = $prov['Nit'] ?? '';
+
+            // Determinar de qué caja sale el dinero
+            $cajaSeleccionada = $cajaIdCompra;
+            $sesionId = null;
+            if ($idUsuario && !$cajaSeleccionada) {
+                // Buscar sesión abierta del usuario
+                $stmtS = $db->prepare("SELECT Id_Sesion, Id_Caja FROM tblsesiones_caja WHERE Id_Usuario = ? AND Estado = 'abierta' LIMIT 1");
+                $stmtS->execute([$idUsuario]);
+                $s = $stmtS->fetch();
+                if ($s) { $sesionId = intval($s['Id_Sesion']); $cajaSeleccionada = intval($s['Id_Caja']); }
+            }
+            if ($cajaSeleccionada && !$sesionId) {
+                $stmtS = $db->prepare("SELECT Id_Sesion FROM tblsesiones_caja WHERE Id_Caja = ? AND Estado = 'abierta' LIMIT 1");
+                $stmtS->execute([$cajaSeleccionada]);
+                $sesionId = intval($stmtS->fetch()['Id_Sesion'] ?? 0) ?: null;
+            }
+
+            // Próximo N_Comprobante
+            $nCompEgreso = intval($db->query("SELECT COALESCE(MAX(N_Comprobante), 0) + 1 FROM tblegresos")->fetchColumn());
+
+            $concepto = "Pago compra #$pedidoN - Factura proveedor: $facturaCompra";
+            $cuentas = '51 1305'; // egreso de caja
+
+            $db->prepare("
+                INSERT INTO tblegresos
+                  (N_Comprobante, Fecha, Cedula, Orden, Suma, Concepto, Valor, Descuento, Estado,
+                   Cuentas, FactN, CodigoPro, NFacturaAnt, ValorFact, Saldoact, TipoPago, id_usuario)
+                VALUES (?, ?, ?, ?, '-', ?, ?, 0, 'Valida', ?, ?, ?, ?, ?, 0, 0, ?)
+            ")->execute([
+                $nCompEgreso, $fecha, $provNit, $provNombre,
+                $concepto, $totalCompra,
+                $cuentas, strval($facturaCompra), $codigoPro,
+                strval($facturaCompra), $totalCompra,
+                $idUsuario
+            ]);
+
+            // Movimiento de caja para descontar el efectivo
+            if ($cajaSeleccionada) {
+                $db->prepare("
+                    INSERT INTO tblmov_caja (Id_Sesion, Id_Caja_Origen, Id_Usuario, Valor, Tipo, Descripcion)
+                    VALUES (?, ?, ?, ?, 'compra', ?)
+                ")->execute([$sesionId, $cajaSeleccionada, $idUsuario ?: 0, $totalCompra, $concepto]);
+
+                $db->prepare("UPDATE tblcajas SET Saldo = Saldo - ? WHERE Id_Caja = ?")
+                   ->execute([$totalCompra, $cajaSeleccionada]);
+            }
+        }
+
         $db->commit();
         echo json_encode([
             'success' => true,
-            'message' => "Compra #$pedidoN registrada. Factura: $facturaCompra",
+            'message' => "Compra #$pedidoN registrada. Factura: $facturaCompra" .
+                ($nCompEgreso ? " · Comprobante de egreso #$nCompEgreso" : ''),
             'Pedido_N' => $pedidoN,
-            'Total' => $totalCompra
+            'Total' => $totalCompra,
+            'comprobante_egreso' => $nCompEgreso
         ], JSON_UNESCAPED_UNICODE);
     }
 

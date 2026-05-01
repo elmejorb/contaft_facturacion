@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
 import { InformeLayout, fmt } from './InformeLayout';
+import { hoyLocal, inicioMesLocal } from '../../utils/fecha';
 
 const API = 'http://localhost:80/conta-app-backend/api/informes/resumen.php';
 
 export function InformeVentasDiario() {
-  const [desde, setDesde] = useState(new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0]);
-  const [hasta, setHasta] = useState(new Date().toISOString().split('T')[0]);
+  const [desde, setDesde] = useState(inicioMesLocal());
+  const [hasta, setHasta] = useState(hoyLocal());
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(false);
 

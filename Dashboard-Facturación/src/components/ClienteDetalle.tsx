@@ -6,6 +6,7 @@ import { ReciboImpresion } from './ReciboImpresion';
 import { getConfigImpresion } from './ConfiguracionSistema';
 import toast from 'react-hot-toast';
 import { useAuth } from '../contexts/AuthContext';
+import { hoyLocal, inicioMesLocal, fechaLocal } from '../utils/fecha';
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
@@ -33,7 +34,7 @@ export function ClienteDetalle({ clienteId, onClose, tabInicial = 'ventas' }: Pr
   const [pagosData, setPagosData] = useState<any>(null);
   const [abonos, setAbonos] = useState<Map<number, number>>(new Map());
   const [medioPago, setMedioPago] = useState(0);
-  const [fechaPago, setFechaPago] = useState(new Date().toISOString().split('T')[0]);
+  const [fechaPago, setFechaPago] = useState(hoyLocal());
   const [reciboImprimir, setReciboImprimir] = useState<any>(null);
   const [pagoGlobal, setPagoGlobal] = useState('');
   const [descuentoGlobal, setDescuentoGlobal] = useState('');
@@ -667,8 +668,8 @@ export function ClienteDetalle({ clienteId, onClose, tabInicial = 'ventas' }: Pr
                     </thead>
                     <tbody>
                       {historialFiltrado.map((h: any) => {
-                        const fechaPago = new Date(h.Fecha).toISOString().split('T')[0];
-                        const hoy = new Date().toISOString().split('T')[0];
+                        const fechaPago = fechaLocal(new Date(h.Fecha));
+                        const hoy = hoyLocal();
                         const esHoy = fechaPago === hoy;
                         const editando = editandoPago === h.Id_Pagos;
 

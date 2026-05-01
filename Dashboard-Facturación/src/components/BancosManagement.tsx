@@ -3,6 +3,7 @@ import { AgGridReact } from 'ag-grid-react';
 import { AllCommunityModule, ModuleRegistry, ColDef } from 'ag-grid-community';
 import { RefreshCw, Plus, ArrowUpRight, ArrowDownRight, ArrowLeftRight, Eye, X, DollarSign, Building2 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { hoyLocal, inicioMesLocal } from '../utils/fecha';
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
@@ -17,8 +18,8 @@ export function BancosManagement() {
   const [cuentaSel, setCuentaSel] = useState<any>(null);
   const [movimientos, setMovimientos] = useState<any[]>([]);
   const [resumenMov, setResumenMov] = useState<any>({});
-  const [desde, setDesde] = useState(new Date().toISOString().slice(0, 7) + '-01');
-  const [hasta, setHasta] = useState(new Date().toISOString().slice(0, 10));
+  const [desde, setDesde] = useState(inicioMesLocal());
+  const [hasta, setHasta] = useState(hoyLocal());
   const [showMov, setShowMov] = useState<'ingreso' | 'egreso' | 'traslado' | null>(null);
   const [movValor, setMovValor] = useState('');
   const [movDesc, setMovDesc] = useState('');
