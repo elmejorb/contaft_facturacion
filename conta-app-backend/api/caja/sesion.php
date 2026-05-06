@@ -228,6 +228,16 @@ try {
             $usuarioId = intval($data['usuario_id'] ?? 0);
             $base = floatval($data['base'] ?? 0);
 
+            // --- CAMBIO: bloquear apertura de sesión en caja principal ---
+            $tipo_caja_check = $db->prepare("SELECT Tipo FROM tblcajas WHERE Id_Caja = ?");
+            $tipo_caja_check->execute([$cajaId]);
+            $tipo_row = $tipo_caja_check->fetch(PDO::FETCH_ASSOC);
+            if ($tipo_row && $tipo_row['Tipo'] === 'principal') {
+                http_response_code(400);
+                echo json_encode(['success' => false, 'message' => 'La caja principal no admite apertura de sesión. Use movimientos administrativos.']);
+                exit;
+            }
+
             // Validar caja asignada del usuario (solo no-admin con asignación)
             if ($usuarioId > 0) {
                 $stmtU = $db->prepare("SELECT Id_Caja, Id_TiposUsuario FROM tblusuarios WHERE Id_Usuario = ?");
@@ -267,6 +277,20 @@ try {
             $sesionId = intval($data['sesion_id'] ?? 0);
             $conteo = floatval($data['conteo'] ?? 0);
             $observacion = $data['observacion'] ?? '';
+
+            // --- CAMBIO: bloquear cierre de sesión en caja principal ---
+            $tipo_sesion_check = $db->prepare(
+                "SELECT c.Tipo FROM tblsesiones_caja s 
+                 JOIN tblcajas c ON s.Id_Caja = c.Id_Caja 
+                 WHERE s.Id_Sesion = ?"
+            );
+            $tipo_sesion_check->execute([$sesionId]);
+            $tipo_sesion_row = $tipo_sesion_check->fetch(PDO::FETCH_ASSOC);
+            if ($tipo_sesion_row && $tipo_sesion_row['Tipo'] === 'principal') {
+                http_response_code(400);
+                echo json_encode(['success' => false, 'message' => 'La caja principal no tiene sesiones operativas.']);
+                exit;
+            }
 
             $stmt = $db->prepare("SELECT * FROM tblsesiones_caja WHERE Id_Sesion = ? AND Estado = 'abierta'");
             $stmt->execute([$sesionId]);

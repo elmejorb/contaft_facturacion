@@ -647,6 +647,18 @@ ALTER TABLE tblmov_caja MODIFY COLUMN Tipo
     ENUM('retiro_parcial','traslado','deposito','gasto','compra','pago_proveedor','cobro_cliente') NOT NULL;
 
 -- ================================================================
+-- v4.14 — AUTO_INCREMENT en tblbancos.idBancos
+-- (permite crear cuentas bancarias sin especificar ID manual)
+-- ================================================================
+SET @is_autoinc_bancos = (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tblbancos'
+      AND COLUMN_NAME = 'idBancos' AND EXTRA LIKE '%auto_increment%');
+SET @sql = IF(@is_autoinc_bancos = 0,
+    "ALTER TABLE tblbancos MODIFY COLUMN idBancos INT NOT NULL AUTO_INCREMENT",
+    'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- ================================================================
 -- VERIFICACIÓN FINAL
 -- ================================================================
 SELECT '✓ Actualización completa Conta FT aplicada' AS resultado;

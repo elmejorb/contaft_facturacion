@@ -1,10 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Lock, Unlock, DollarSign, RefreshCw, Clock, ArrowDownRight, Plus, Settings } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../contexts/AuthContext';
 import { getConfigImpresion } from './ConfiguracionSistema';
 
 const API = 'http://localhost:80/conta-app-backend/api/caja/sesion.php';
+const API_MOV = 'http://localhost:80/conta-app-backend/api/caja/movimientos.php';
 const fmtMon = (v: number) => '$ ' + Math.round(v).toLocaleString('es-CO');
 
 export function CajaRegistradora() {
@@ -26,6 +27,19 @@ export function CajaRegistradora() {
   const [showAdminCajas, setShowAdminCajas] = useState(false);
   const [nuevaCajaNombre, setNuevaCajaNombre] = useState('');
 
+  // Estados para movimientos directos de caja principal
+  const [movsPrincipal, setMovsPrincipal] = useState<any[]>([]);
+  const [showIngresoPrincipal, setShowIngresoPrincipal] = useState(false);
+  const [showEgresoPrincipal, setShowEgresoPrincipal] = useState(false);
+  const [montoMov, setMontoMov] = useState('');
+  const [descMov, setDescMov] = useState('');
+  const [loadingMov, setLoadingMov] = useState(false);
+
+  const esCajaPrincipal = useMemo(() => {
+    const caja = cajas.find((c: any) => c.Id_Caja === cajaSeleccionada);
+    return caja?.Tipo === 'principal';
+  }, [cajas, cajaSeleccionada]);
+
   const cargarCajas = async () => {
     try {
       const r = await fetch(`${API}?cajas=1&usuario=${user?.id || 0}`);
@@ -38,7 +52,22 @@ export function CajaRegistradora() {
     } catch (e) {}
   };
 
+  const cargarMovsPrincipal = async () => {
+    try {
+      const res = await fetch(`${API_MOV}?caja_principal=1`);
+      const d = await res.json();
+      if (d.success) setMovsPrincipal(d.movimientos ?? []);
+    } catch { /* silencioso */ }
+  };
+
   const cargar = async () => {
+    if (esCajaPrincipal) {
+      // No cargar sesión, cargar movimientos en su lugar
+      setLoading(true);
+      await cargarMovsPrincipal();
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
       const r = await fetch(`${API}?caja=${cajaSeleccionada}`);
@@ -111,6 +140,40 @@ export function CajaRegistradora() {
       if (d.success) { toast.success(d.message); setNuevaCajaNombre(''); cargarCajas(); }
       else toast.error(d.message);
     } catch (e) { toast.error('Error'); }
+  };
+
+  const registrarIngresoPrincipal = async () => {
+    const valor = parseFloat(montoMov.replace(/\./g, '').replace(',', '.'));
+    if (!valor || valor <= 0 || !descMov.trim()) return;
+    setLoadingMov(true);
+    try {
+      const r = await fetch(API_MOV, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'ingreso', caja_id: cajaSeleccionada, valor, descripcion: descMov, usuario_id: user?.id || 0 }) });
+      const d = await r.json();
+      if (d.success) {
+        toast.success(d.message);
+        setShowIngresoPrincipal(false); setMontoMov(''); setDescMov('');
+        cargarMovsPrincipal(); cargarCajas();
+      } else toast.error(d.message);
+    } catch (e) { toast.error('Error'); }
+    finally { setLoadingMov(false); }
+  };
+
+  const registrarEgresoPrincipal = async () => {
+    const valor = parseFloat(montoMov.replace(/\./g, '').replace(',', '.'));
+    if (!valor || valor <= 0 || !descMov.trim()) return;
+    setLoadingMov(true);
+    try {
+      const r = await fetch(API_MOV, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'egreso', caja_id: cajaSeleccionada, valor, descripcion: descMov, usuario_id: user?.id || 0 }) });
+      const d = await r.json();
+      if (d.success) {
+        toast.success(d.message);
+        setShowEgresoPrincipal(false); setMontoMov(''); setDescMov('');
+        cargarMovsPrincipal(); cargarCajas();
+      } else toast.error(d.message);
+    } catch (e) { toast.error('Error'); }
+    finally { setLoadingMov(false); }
   };
 
   const cargarHistorial = async () => {
@@ -311,183 +374,311 @@ export function CajaRegistradora() {
         </div>
       ))}
 
-      {!abierta ? (
-        /* CAJA CERRADA */
-        <div style={{ background: '#fff', borderRadius: 14, padding: 30, boxShadow: '0 1px 3px rgba(0,0,0,0.08)', textAlign: 'center' }}>
-          <div style={{ width: 56, height: 56, borderRadius: 14, background: '#fee2e2', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 14px' }}>
-            <Lock size={24} color="#dc2626" />
-          </div>
-          <h3 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 4px' }}>{cajaActual?.Nombre || 'Caja'} — Cerrada</h3>
-          <p style={{ fontSize: 12, color: '#6b7280', marginBottom: 16 }}>Ingrese la base para abrir</p>
-
-          {cajaActual && cajaActual.base_sugerida > 0 && (
-            <div style={{ background: '#fef9c3', border: '1px solid #fde047', borderRadius: 8, padding: '8px 14px', marginBottom: 14, fontSize: 11, color: '#713f12', maxWidth: 360, margin: '0 auto 14px' }}>
-              💡 <b>Base sugerida {fmtMon(cajaActual.base_sugerida)}</b> — Es lo que quedó físicamente en el cajón después del último cierre. Cuente y confirme antes de abrir.
-            </div>
-          )}
-
-          <div style={{ display: 'flex', justifyContent: 'center', gap: 10, alignItems: 'center' }}>
-            <input type="text" value={base} onChange={e => setBase(e.target.value.replace(/[^0-9]/g, ''))}
-              placeholder="$ 0" autoFocus onKeyDown={e => { if (e.key === 'Enter') abrirCaja(); }}
-              style={{ width: 150, height: 38, textAlign: 'center', border: '2px solid #d1d5db', borderRadius: 10, fontSize: 16, fontWeight: 700, outline: 'none' }} />
-            <button onClick={abrirCaja}
-              style={{ height: 38, padding: '0 20px', background: '#16a34a', color: '#fff', border: 'none', borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
-              <Unlock size={16} /> Abrir Caja
-            </button>
-          </div>
-        </div>
-      ) : (
-        /* CAJA ABIERTA */
-        <div>
-          <div style={{ background: '#f0fdf4', border: '2px solid #86efac', borderRadius: 10, padding: '8px 14px', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
-            <Unlock size={18} color="#16a34a" />
-            <span style={{ fontSize: 13, fontWeight: 700, color: '#16a34a', flex: 1 }}>
-              {sesion.NombreCaja} — Abierta
-              <span style={{ fontWeight: 400, color: '#6b7280', marginLeft: 8, fontSize: 11 }}>
-                Base: {fmtMon(res.base)} | Desde: {new Date(res.fecha_apertura).toLocaleString('es-CO')}
-              </span>
+      {esCajaPrincipal ? (
+        /* ===================== UI CAJA PRINCIPAL ===================== */
+        <div style={{ maxWidth: 700, margin: '0 auto' }}>
+          {/* Badge administrativo */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+            <span style={{ background: '#1e40af', color: '#fff', borderRadius: 6, padding: '4px 12px', fontSize: 12, fontWeight: 600 }}>
+              ADMINISTRATIVA
             </span>
-            <button onClick={() => setShowRetiro(true)}
-              style={{ height: 28, padding: '0 10px', background: '#fef3c7', color: '#d97706', border: '1px solid #d97706', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
-              <ArrowDownRight size={13} /> Retiro
-            </button>
-            <button onClick={() => setShowCerrar(!showCerrar)}
-              style={{ height: 28, padding: '0 10px', background: '#dc2626', color: '#fff', border: 'none', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
-              <Lock size={13} /> Cerrar
-            </button>
+            <span style={{ fontSize: 13, color: '#6b7280' }}>
+              No tiene sesiones operativas · Solo recibe traslados y movimientos directos
+            </span>
           </div>
 
-          {/* Resumen */}
-          <div style={{ background: '#fff', borderRadius: 12, padding: 16, boxShadow: '0 1px 3px rgba(0,0,0,0.08)', marginBottom: 12 }}>
-            <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 10 }}>Resumen de Sesión</div>
-            <div style={{ display: 'flex', padding: '4px 0', borderBottom: '2px solid #e5e7eb', fontSize: 10, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase' }}>
-              <span style={{ flex: 1 }}>Concepto</span>
-              <span style={{ width: 110, textAlign: 'right' }}>Efectivo</span>
-              <span style={{ width: 110, textAlign: 'right' }}>Transferencia</span>
-            </div>
-            {linea('Base', res.base, 0)}
-            {linea(`Ventas Contado (${res.ventas_contado_cantidad})`, res.ventas_contado_efectivo, res.ventas_contado_transferencia)}
-            {linea(`Ventas Crédito (${res.ventas_credito_cantidad})`, 0, res.ventas_credito, '#6b7280')}
-            {linea(`Pagos Clientes (${res.pagos_cantidad})`, res.pagos_efectivo, res.pagos_transferencia, '#16a34a')}
-            {res.egresos > 0 && linea(`Egresos (${res.egresos_cantidad})`, -res.egresos, 0, '#dc2626')}
-            {res.anulaciones > 0 && linea(`Anulaciones (${res.anulaciones_cantidad})`, -res.anulaciones, 0, '#dc2626')}
-            {res.retiros_parciales > 0 && linea('Retiros parciales', -res.retiros_parciales, 0, '#d97706')}
-            <div style={{ display: 'flex', padding: '8px 0', borderTop: '3px solid #1f2937', marginTop: 6 }}>
-              <span style={{ flex: 1, fontSize: 14, fontWeight: 800 }}>Total en Efectivo</span>
-              <span style={{ width: 110, textAlign: 'right', fontSize: 18, fontWeight: 800, color: '#16a34a' }}>{fmtMon(res.total_efectivo)}</span>
-              <span style={{ width: 110 }} />
-            </div>
-            <div style={{ display: 'flex', padding: '6px 0', borderTop: '1px solid #e5e7eb' }}>
-              <span style={{ flex: 1, fontSize: 12, color: '#6b7280' }}>Total Venta del Día</span>
-              <span style={{ fontSize: 13, fontWeight: 700, color: '#7c3aed' }}>{fmtMon(res.total_venta_dia)}</span>
+          {/* Saldo actual */}
+          <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, padding: '20px 24px', marginBottom: 20, textAlign: 'center' }}>
+            <div style={{ fontSize: 13, color: '#3b82f6', marginBottom: 4 }}>Saldo acumulado</div>
+            <div style={{ fontSize: 32, fontWeight: 700, color: '#1e40af' }}>
+              {fmtMon(parseFloat(cajaActual?.Saldo) || 0)}
             </div>
           </div>
 
-          {/* Movimientos de la sesión */}
-          {res.movimientos && res.movimientos.length > 0 && (
-            <div style={{ background: '#fff', borderRadius: 12, padding: 16, boxShadow: '0 1px 3px rgba(0,0,0,0.08)', marginBottom: 12 }}>
-              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Movimientos de Caja</div>
-              {res.movimientos.map((m: any) => (
-                <div key={m.Id_Mov} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', borderBottom: '1px solid #f3f4f6', fontSize: 12 }}>
-                  <ArrowDownRight size={13} color="#d97706" />
-                  <span style={{ flex: 1, color: '#6b7280' }}>{m.Descripcion}</span>
-                  <span style={{ fontWeight: 700, color: '#d97706' }}>-{fmtMon(parseFloat(m.Valor))}</span>
-                  <span style={{ fontSize: 10, color: '#9ca3af' }}>{new Date(m.Fecha).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })}</span>
+          {/* Botones de acción */}
+          <div style={{ display: 'flex', gap: 10, marginBottom: 20 }}>
+            <button onClick={() => { setShowIngresoPrincipal(true); setMontoMov(''); setDescMov(''); }}
+              style={{ background: '#16a34a', color: '#fff', border: 'none', borderRadius: 6, padding: '8px 18px', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
+              + Ingreso administrativo
+            </button>
+            <button onClick={() => { setShowEgresoPrincipal(true); setMontoMov(''); setDescMov(''); }}
+              style={{ background: '#dc2626', color: '#fff', border: 'none', borderRadius: 6, padding: '8px 18px', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
+              − Egreso administrativo
+            </button>
+          </div>
+
+          {/* Historial de movimientos */}
+          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, color: '#374151' }}>Movimientos recientes</div>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+            <thead>
+              <tr style={{ background: '#f3f4f6', color: '#6b7280' }}>
+                <th style={{ padding: '6px 8px', textAlign: 'left' }}>Fecha</th>
+                <th style={{ padding: '6px 8px', textAlign: 'left' }}>Tipo</th>
+                <th style={{ padding: '6px 8px', textAlign: 'left' }}>Descripción / Origen</th>
+                <th style={{ padding: '6px 8px', textAlign: 'right' }}>Valor</th>
+              </tr>
+            </thead>
+            <tbody>
+              {movsPrincipal.length === 0 && (
+                <tr>
+                  <td colSpan={4} style={{ textAlign: 'center', padding: 16, color: '#9ca3af' }}>Sin movimientos registrados</td>
+                </tr>
+              )}
+              {movsPrincipal.map((m: any) => {
+                const esIngreso = ['traslado', 'deposito'].includes(m.Tipo);
+                const etiqueta: Record<string, string> = {
+                  traslado: 'Traslado recibido',
+                  deposito: 'Ingreso admin',
+                  gasto: 'Egreso admin',
+                  retiro_parcial: 'Retiro',
+                };
+                const origen = m.caja_origen ?? m.cajero ?? '';
+                const desc = m.Descripcion ? m.Descripcion : origen;
+                return (
+                  <tr key={m.Id_Mov} style={{ borderBottom: '1px solid #e5e7eb' }}>
+                    <td style={{ padding: '5px 8px', color: '#6b7280' }}>{new Date(m.Fecha).toLocaleDateString('es-CO')}</td>
+                    <td style={{ padding: '5px 8px' }}>
+                      <span style={{ background: esIngreso ? '#dcfce7' : '#fee2e2', color: esIngreso ? '#16a34a' : '#dc2626', borderRadius: 4, padding: '2px 6px', fontSize: 11, fontWeight: 600 }}>
+                        {etiqueta[m.Tipo as string] ?? m.Tipo}
+                      </span>
+                    </td>
+                    <td style={{ padding: '5px 8px', color: '#374151' }}>{desc}</td>
+                    <td style={{ padding: '5px 8px', textAlign: 'right', fontWeight: 600, color: esIngreso ? '#16a34a' : '#dc2626' }}>
+                      {esIngreso ? '+' : '−'} {fmtMon(Math.abs(parseFloat(m.Valor) || 0))}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+
+          {/* Modal Ingreso */}
+          {showIngresoPrincipal && (
+            <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+              <div style={{ background: '#fff', borderRadius: 10, padding: 24, width: 360, boxShadow: '0 8px 32px rgba(0,0,0,0.2)' }}>
+                <h3 style={{ margin: '0 0 16px', fontSize: 16 }}>Ingreso administrativo</h3>
+                <label style={{ fontSize: 12, color: '#6b7280' }}>Descripción</label>
+                <input value={descMov} onChange={e => setDescMov(e.target.value)} placeholder="Ej: Aporte de capital, préstamo..."
+                  style={{ width: '100%', padding: '7px 10px', border: '1px solid #d1d5db', borderRadius: 6, marginBottom: 12, fontSize: 13, boxSizing: 'border-box' }} />
+                <label style={{ fontSize: 12, color: '#6b7280' }}>Monto</label>
+                <input value={montoMov} onChange={e => setMontoMov(e.target.value)} placeholder="0"
+                  style={{ width: '100%', padding: '7px 10px', border: '1px solid #d1d5db', borderRadius: 6, marginBottom: 16, fontSize: 13, boxSizing: 'border-box' }} />
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button onClick={() => setShowIngresoPrincipal(false)} style={{ flex: 1, padding: '8px', border: '1px solid #d1d5db', borderRadius: 6, background: '#fff', cursor: 'pointer' }}>Cancelar</button>
+                  <button onClick={registrarIngresoPrincipal} disabled={loadingMov}
+                    style={{ flex: 1, padding: '8px', border: 'none', borderRadius: 6, background: '#16a34a', color: '#fff', fontWeight: 600, cursor: 'pointer' }}>
+                    {loadingMov ? 'Guardando...' : 'Registrar'}
+                  </button>
                 </div>
-              ))}
+              </div>
             </div>
           )}
 
-          {/* Cerrar caja */}
-          {showCerrar && (
-            <div style={{ background: '#fff', borderRadius: 12, padding: 16, boxShadow: '0 1px 3px rgba(0,0,0,0.08)', border: '2px solid #dc2626' }}>
-              <div style={{ fontSize: 14, fontWeight: 700, color: '#dc2626', marginBottom: 10 }}>Cierre de Caja</div>
-              <p style={{ fontSize: 12, color: '#6b7280', marginBottom: 10 }}>Cuente el efectivo y escriba el total:</p>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
-                <div>
-                  <label style={{ fontSize: 10, color: '#6b7280', display: 'block', marginBottom: 4 }}>CONTEO EFECTIVO</label>
-                  <input type="text" value={conteo} onChange={e => setConteo(e.target.value.replace(/[^0-9]/g, ''))}
-                    placeholder="$ 0" autoFocus
-                    style={{ width: 160, height: 38, textAlign: 'center', border: '2px solid #dc2626', borderRadius: 10, fontSize: 16, fontWeight: 700, outline: 'none' }} />
+          {/* Modal Egreso */}
+          {showEgresoPrincipal && (
+            <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+              <div style={{ background: '#fff', borderRadius: 10, padding: 24, width: 360, boxShadow: '0 8px 32px rgba(0,0,0,0.2)' }}>
+                <h3 style={{ margin: '0 0 16px', fontSize: 16 }}>Egreso administrativo</h3>
+                <label style={{ fontSize: 12, color: '#6b7280' }}>Descripción</label>
+                <input value={descMov} onChange={e => setDescMov(e.target.value)} placeholder="Ej: Pago servicios, gastos administrativos..."
+                  style={{ width: '100%', padding: '7px 10px', border: '1px solid #d1d5db', borderRadius: 6, marginBottom: 12, fontSize: 13, boxSizing: 'border-box' }} />
+                <label style={{ fontSize: 12, color: '#6b7280' }}>Monto</label>
+                <input value={montoMov} onChange={e => setMontoMov(e.target.value)} placeholder="0"
+                  style={{ width: '100%', padding: '7px 10px', border: '1px solid #d1d5db', borderRadius: 6, marginBottom: 16, fontSize: 13, boxSizing: 'border-box' }} />
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button onClick={() => setShowEgresoPrincipal(false)} style={{ flex: 1, padding: '8px', border: '1px solid #d1d5db', borderRadius: 6, background: '#fff', cursor: 'pointer' }}>Cancelar</button>
+                  <button onClick={registrarEgresoPrincipal} disabled={loadingMov}
+                    style={{ flex: 1, padding: '8px', border: 'none', borderRadius: 6, background: '#dc2626', color: '#fff', fontWeight: 600, cursor: 'pointer' }}>
+                    {loadingMov ? 'Guardando...' : 'Registrar'}
+                  </button>
                 </div>
-                <div style={{ textAlign: 'center' }}>
-                  <div style={{ fontSize: 10, color: '#6b7280' }}>SISTEMA</div>
-                  <div style={{ fontSize: 15, fontWeight: 700, color: '#16a34a' }}>{fmtMon(res.total_efectivo)}</div>
-                </div>
-                {conteo && (() => {
-                  const d = (parseInt(conteo) || 0) - res.total_efectivo;
-                  return (
-                    <div style={{ textAlign: 'center' }}>
-                      <div style={{ fontSize: 10, color: '#6b7280' }}>DIFERENCIA</div>
-                      <div style={{ fontSize: 15, fontWeight: 700, color: d === 0 ? '#16a34a' : d > 0 ? '#2563eb' : '#dc2626' }}>
-                        {d === 0 ? 'Cuadra' : d > 0 ? `Sobrante ${fmtMon(d)}` : `Faltante ${fmtMon(Math.abs(d))}`}
-                      </div>
-                    </div>
-                  );
-                })()}
               </div>
-              {/* Opción de traslado */}
-              <div style={{ marginBottom: 12 }}>
-                <label style={{ fontSize: 11, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 6 }}>¿Qué hacer con el efectivo?</label>
-                <div style={{ display: 'flex', gap: 6 }}>
-                  {[
-                    { id: 'ganancias' as const, label: 'Dejar base, pasar ganancias', desc: `Base ${fmtMon(res.base)} queda en caja`, color: '#16a34a' },
-                    { id: 'todo' as const, label: 'Pasar todo a Principal', desc: 'La caja queda en $0', color: '#2563eb' },
-                    { id: 'nada' as const, label: 'No trasladar', desc: 'Solo cerrar sesión', color: '#6b7280' },
-                  ].map(opt => (
-                    <div key={opt.id} onClick={() => setOpcionTraslado(opt.id)}
-                      style={{
-                        flex: 1, padding: '8px 10px', borderRadius: 8, cursor: 'pointer',
-                        border: opcionTraslado === opt.id ? `2px solid ${opt.color}` : '2px solid #e5e7eb',
-                        background: opcionTraslado === opt.id ? opt.color + '10' : '#fff',
-                      }}>
-                      <div style={{ fontSize: 11, fontWeight: 600, color: opcionTraslado === opt.id ? opt.color : '#374151' }}>{opt.label}</div>
-                      <div style={{ fontSize: 9, color: '#9ca3af' }}>{opt.desc}</div>
+            </div>
+          )}
+        </div>
+        /* ===================== FIN UI CAJA PRINCIPAL ===================== */
+      ) : (
+        /* ===================== UI CAJA OPERATIVA ===================== */
+        <div>
+          {!abierta ? (
+            /* CAJA CERRADA */
+            <div style={{ background: '#fff', borderRadius: 14, padding: 30, boxShadow: '0 1px 3px rgba(0,0,0,0.08)', textAlign: 'center' }}>
+              <div style={{ width: 56, height: 56, borderRadius: 14, background: '#fee2e2', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 14px' }}>
+                <Lock size={24} color="#dc2626" />
+              </div>
+              <h3 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 4px' }}>{cajaActual?.Nombre || 'Caja'} — Cerrada</h3>
+              <p style={{ fontSize: 12, color: '#6b7280', marginBottom: 16 }}>Ingrese la base para abrir</p>
+
+              {cajaActual && cajaActual.base_sugerida > 0 && (
+                <div style={{ background: '#fef9c3', border: '1px solid #fde047', borderRadius: 8, padding: '8px 14px', marginBottom: 14, fontSize: 11, color: '#713f12', maxWidth: 360, margin: '0 auto 14px' }}>
+                  💡 <b>Base sugerida {fmtMon(cajaActual.base_sugerida)}</b> — Es lo que quedó físicamente en el cajón después del último cierre. Cuente y confirme antes de abrir.
+                </div>
+              )}
+
+              <div style={{ display: 'flex', justifyContent: 'center', gap: 10, alignItems: 'center' }}>
+                <input type="text" value={base} onChange={e => setBase(e.target.value.replace(/[^0-9]/g, ''))}
+                  placeholder="$ 0" autoFocus onKeyDown={e => { if (e.key === 'Enter') abrirCaja(); }}
+                  style={{ width: 150, height: 38, textAlign: 'center', border: '2px solid #d1d5db', borderRadius: 10, fontSize: 16, fontWeight: 700, outline: 'none' }} />
+                <button onClick={abrirCaja}
+                  style={{ height: 38, padding: '0 20px', background: '#16a34a', color: '#fff', border: 'none', borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <Unlock size={16} /> Abrir Caja
+                </button>
+              </div>
+            </div>
+          ) : (
+            /* CAJA ABIERTA */
+            <div>
+              <div style={{ background: '#f0fdf4', border: '2px solid #86efac', borderRadius: 10, padding: '8px 14px', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Unlock size={18} color="#16a34a" />
+                <span style={{ fontSize: 13, fontWeight: 700, color: '#16a34a', flex: 1 }}>
+                  {sesion.NombreCaja} — Abierta
+                  <span style={{ fontWeight: 400, color: '#6b7280', marginLeft: 8, fontSize: 11 }}>
+                    Base: {fmtMon(res.base)} | Desde: {new Date(res.fecha_apertura).toLocaleString('es-CO')}
+                  </span>
+                </span>
+                <button onClick={() => setShowRetiro(true)}
+                  style={{ height: 28, padding: '0 10px', background: '#fef3c7', color: '#d97706', border: '1px solid #d97706', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <ArrowDownRight size={13} /> Retiro
+                </button>
+                <button onClick={() => setShowCerrar(!showCerrar)}
+                  style={{ height: 28, padding: '0 10px', background: '#dc2626', color: '#fff', border: 'none', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <Lock size={13} /> Cerrar
+                </button>
+              </div>
+
+              {/* Resumen */}
+              <div style={{ background: '#fff', borderRadius: 12, padding: 16, boxShadow: '0 1px 3px rgba(0,0,0,0.08)', marginBottom: 12 }}>
+                <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 10 }}>Resumen de Sesión</div>
+                <div style={{ display: 'flex', padding: '4px 0', borderBottom: '2px solid #e5e7eb', fontSize: 10, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase' }}>
+                  <span style={{ flex: 1 }}>Concepto</span>
+                  <span style={{ width: 110, textAlign: 'right' }}>Efectivo</span>
+                  <span style={{ width: 110, textAlign: 'right' }}>Transferencia</span>
+                </div>
+                {linea('Base', res.base, 0)}
+                {linea(`Ventas Contado (${res.ventas_contado_cantidad})`, res.ventas_contado_efectivo, res.ventas_contado_transferencia)}
+                {linea(`Ventas Crédito (${res.ventas_credito_cantidad})`, 0, res.ventas_credito, '#6b7280')}
+                {linea(`Pagos Clientes (${res.pagos_cantidad})`, res.pagos_efectivo, res.pagos_transferencia, '#16a34a')}
+                {res.egresos > 0 && linea(`Egresos (${res.egresos_cantidad})`, -res.egresos, 0, '#dc2626')}
+                {res.anulaciones > 0 && linea(`Anulaciones (${res.anulaciones_cantidad})`, -res.anulaciones, 0, '#dc2626')}
+                {res.retiros_parciales > 0 && linea('Retiros parciales', -res.retiros_parciales, 0, '#d97706')}
+                <div style={{ display: 'flex', padding: '8px 0', borderTop: '3px solid #1f2937', marginTop: 6 }}>
+                  <span style={{ flex: 1, fontSize: 14, fontWeight: 800 }}>Total en Efectivo</span>
+                  <span style={{ width: 110, textAlign: 'right', fontSize: 18, fontWeight: 800, color: '#16a34a' }}>{fmtMon(res.total_efectivo)}</span>
+                  <span style={{ width: 110 }} />
+                </div>
+                <div style={{ display: 'flex', padding: '6px 0', borderTop: '1px solid #e5e7eb' }}>
+                  <span style={{ flex: 1, fontSize: 12, color: '#6b7280' }}>Total Venta del Día</span>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: '#7c3aed' }}>{fmtMon(res.total_venta_dia)}</span>
+                </div>
+              </div>
+
+              {/* Movimientos de la sesión */}
+              {res.movimientos && res.movimientos.length > 0 && (
+                <div style={{ background: '#fff', borderRadius: 12, padding: 16, boxShadow: '0 1px 3px rgba(0,0,0,0.08)', marginBottom: 12 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Movimientos de Caja</div>
+                  {res.movimientos.map((m: any) => (
+                    <div key={m.Id_Mov} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', borderBottom: '1px solid #f3f4f6', fontSize: 12 }}>
+                      <ArrowDownRight size={13} color="#d97706" />
+                      <span style={{ flex: 1, color: '#6b7280' }}>{m.Descripcion}</span>
+                      <span style={{ fontWeight: 700, color: '#d97706' }}>-{fmtMon(parseFloat(m.Valor))}</span>
+                      <span style={{ fontSize: 10, color: '#9ca3af' }}>{new Date(m.Fecha).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })}</span>
                     </div>
                   ))}
                 </div>
-                {conteo && opcionTraslado !== 'nada' && (
-                  <div style={{ marginTop: 6, fontSize: 12, color: '#6b7280' }}>
-                    Trasladar a Caja Principal: <b style={{ color: '#16a34a' }}>
-                      {fmtMon(opcionTraslado === 'todo' ? (parseInt(conteo) || 0) : Math.max((parseInt(conteo) || 0) - res.base, 0))}
-                    </b>
+              )}
+
+              {/* Cerrar caja */}
+              {showCerrar && (
+                <div style={{ background: '#fff', borderRadius: 12, padding: 16, boxShadow: '0 1px 3px rgba(0,0,0,0.08)', border: '2px solid #dc2626' }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: '#dc2626', marginBottom: 10 }}>Cierre de Caja</div>
+                  <p style={{ fontSize: 12, color: '#6b7280', marginBottom: 10 }}>Cuente el efectivo y escriba el total:</p>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+                    <div>
+                      <label style={{ fontSize: 10, color: '#6b7280', display: 'block', marginBottom: 4 }}>CONTEO EFECTIVO</label>
+                      <input type="text" value={conteo} onChange={e => setConteo(e.target.value.replace(/[^0-9]/g, ''))}
+                        placeholder="$ 0" autoFocus
+                        style={{ width: 160, height: 38, textAlign: 'center', border: '2px solid #dc2626', borderRadius: 10, fontSize: 16, fontWeight: 700, outline: 'none' }} />
+                    </div>
+                    <div style={{ textAlign: 'center' }}>
+                      <div style={{ fontSize: 10, color: '#6b7280' }}>SISTEMA</div>
+                      <div style={{ fontSize: 15, fontWeight: 700, color: '#16a34a' }}>{fmtMon(res.total_efectivo)}</div>
+                    </div>
+                    {conteo && (() => {
+                      const d = (parseInt(conteo) || 0) - res.total_efectivo;
+                      return (
+                        <div style={{ textAlign: 'center' }}>
+                          <div style={{ fontSize: 10, color: '#6b7280' }}>DIFERENCIA</div>
+                          <div style={{ fontSize: 15, fontWeight: 700, color: d === 0 ? '#16a34a' : d > 0 ? '#2563eb' : '#dc2626' }}>
+                            {d === 0 ? 'Cuadra' : d > 0 ? `Sobrante ${fmtMon(d)}` : `Faltante ${fmtMon(Math.abs(d))}`}
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
-                )}
-              </div>
+                  {/* Opción de traslado */}
+                  <div style={{ marginBottom: 12 }}>
+                    <label style={{ fontSize: 11, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 6 }}>¿Qué hacer con el efectivo?</label>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      {[
+                        { id: 'ganancias' as const, label: 'Dejar base, pasar ganancias', desc: `Base ${fmtMon(res.base)} queda en caja`, color: '#16a34a' },
+                        { id: 'todo' as const, label: 'Pasar todo a Principal', desc: 'La caja queda en $0', color: '#2563eb' },
+                        { id: 'nada' as const, label: 'No trasladar', desc: 'Solo cerrar sesión', color: '#6b7280' },
+                      ].map(opt => (
+                        <div key={opt.id} onClick={() => setOpcionTraslado(opt.id)}
+                          style={{
+                            flex: 1, padding: '8px 10px', borderRadius: 8, cursor: 'pointer',
+                            border: opcionTraslado === opt.id ? `2px solid ${opt.color}` : '2px solid #e5e7eb',
+                            background: opcionTraslado === opt.id ? opt.color + '10' : '#fff',
+                          }}>
+                          <div style={{ fontSize: 11, fontWeight: 600, color: opcionTraslado === opt.id ? opt.color : '#374151' }}>{opt.label}</div>
+                          <div style={{ fontSize: 9, color: '#9ca3af' }}>{opt.desc}</div>
+                        </div>
+                      ))}
+                    </div>
+                    {conteo && opcionTraslado !== 'nada' && (
+                      <div style={{ marginTop: 6, fontSize: 12, color: '#6b7280' }}>
+                        Trasladar a Caja Principal: <b style={{ color: '#16a34a' }}>
+                          {fmtMon(opcionTraslado === 'todo' ? (parseInt(conteo) || 0) : Math.max((parseInt(conteo) || 0) - res.base, 0))}
+                        </b>
+                      </div>
+                    )}
+                  </div>
 
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-                <button onClick={() => setShowCerrar(false)} style={{ height: 32, padding: '0 14px', background: '#f3f4f6', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 12, cursor: 'pointer' }}>Cancelar</button>
-                <button onClick={cerrarCaja} style={{ height: 32, padding: '0 16px', background: '#dc2626', color: '#fff', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
-                  <Lock size={14} /> Cerrar Caja
-                </button>
-              </div>
-            </div>
-          )}
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                    <button onClick={() => setShowCerrar(false)} style={{ height: 32, padding: '0 14px', background: '#f3f4f6', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 12, cursor: 'pointer' }}>Cancelar</button>
+                    <button onClick={cerrarCaja} style={{ height: 32, padding: '0 16px', background: '#dc2626', color: '#fff', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
+                      <Lock size={14} /> Cerrar Caja
+                    </button>
+                  </div>
+                </div>
+              )}
 
-          {/* Retiro parcial */}
-          {showRetiro && (
-            <div style={{ background: '#fff', borderRadius: 12, padding: 16, boxShadow: '0 1px 3px rgba(0,0,0,0.08)', border: '2px solid #d97706', marginTop: 12 }}>
-              <div style={{ fontSize: 14, fontWeight: 700, color: '#d97706', marginBottom: 10 }}>Retiro Parcial</div>
-              <div style={{ display: 'flex', gap: 10, marginBottom: 10 }}>
-                <div style={{ flex: 1 }}>
-                  <label style={{ fontSize: 10, color: '#6b7280', display: 'block', marginBottom: 4 }}>DESCRIPCIÓN</label>
-                  <input type="text" value={retiroDesc} onChange={e => setRetiroDesc(e.target.value)} placeholder="Retiro para caja principal"
-                    style={{ width: '100%', height: 32, border: '1px solid #d1d5db', borderRadius: 8, fontSize: 12, padding: '0 10px', boxSizing: 'border-box' }} />
+              {/* Retiro parcial */}
+              {showRetiro && (
+                <div style={{ background: '#fff', borderRadius: 12, padding: 16, boxShadow: '0 1px 3px rgba(0,0,0,0.08)', border: '2px solid #d97706', marginTop: 12 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: '#d97706', marginBottom: 10 }}>Retiro Parcial</div>
+                  <div style={{ display: 'flex', gap: 10, marginBottom: 10 }}>
+                    <div style={{ flex: 1 }}>
+                      <label style={{ fontSize: 10, color: '#6b7280', display: 'block', marginBottom: 4 }}>DESCRIPCIÓN</label>
+                      <input type="text" value={retiroDesc} onChange={e => setRetiroDesc(e.target.value)} placeholder="Retiro para caja principal"
+                        style={{ width: '100%', height: 32, border: '1px solid #d1d5db', borderRadius: 8, fontSize: 12, padding: '0 10px', boxSizing: 'border-box' }} />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 10, color: '#6b7280', display: 'block', marginBottom: 4 }}>VALOR</label>
+                      <input type="text" value={retiroValor} onChange={e => setRetiroValor(e.target.value.replace(/[^0-9]/g, ''))}
+                        placeholder="$ 0" autoFocus
+                        style={{ width: 130, height: 32, textAlign: 'right', border: '2px solid #d97706', borderRadius: 8, fontSize: 13, fontWeight: 700, padding: '0 10px' }} />
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                    <button onClick={() => setShowRetiro(false)} style={{ height: 30, padding: '0 12px', background: '#f3f4f6', border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 12, cursor: 'pointer' }}>Cancelar</button>
+                    <button onClick={hacerRetiro} disabled={!retiroValor || parseInt(retiroValor) <= 0}
+                      style={{ height: 30, padding: '0 14px', background: parseInt(retiroValor) > 0 ? '#d97706' : '#d1d5db', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: parseInt(retiroValor) > 0 ? 'pointer' : 'default' }}>
+                      Registrar Retiro
+                    </button>
+                  </div>
                 </div>
-                <div>
-                  <label style={{ fontSize: 10, color: '#6b7280', display: 'block', marginBottom: 4 }}>VALOR</label>
-                  <input type="text" value={retiroValor} onChange={e => setRetiroValor(e.target.value.replace(/[^0-9]/g, ''))}
-                    placeholder="$ 0" autoFocus
-                    style={{ width: 130, height: 32, textAlign: 'right', border: '2px solid #d97706', borderRadius: 8, fontSize: 13, fontWeight: 700, padding: '0 10px' }} />
-                </div>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-                <button onClick={() => setShowRetiro(false)} style={{ height: 30, padding: '0 12px', background: '#f3f4f6', border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 12, cursor: 'pointer' }}>Cancelar</button>
-                <button onClick={hacerRetiro} disabled={!retiroValor || parseInt(retiroValor) <= 0}
-                  style={{ height: 30, padding: '0 14px', background: parseInt(retiroValor) > 0 ? '#d97706' : '#d1d5db', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: parseInt(retiroValor) > 0 ? 'pointer' : 'default' }}>
-                  Registrar Retiro
-                </button>
-              </div>
+              )}
             </div>
           )}
         </div>

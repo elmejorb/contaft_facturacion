@@ -21,6 +21,16 @@ export function ConfigCajas() {
 
   const crear = async () => {
     if (!nuevaNombre.trim()) return;
+
+    // Bloquear segunda caja principal
+    if (nuevoTipo === 'principal') {
+      const yaExiste = cajas.some((c: any) => c.Tipo === 'principal');
+      if (yaExiste) {
+        toast.error('Ya existe una Caja Principal. Solo puede haber una.');
+        return;
+      }
+    }
+
     const r = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'crear_caja', nombre: nuevaNombre.trim(), tipo: nuevoTipo }) });
     const d = await r.json();

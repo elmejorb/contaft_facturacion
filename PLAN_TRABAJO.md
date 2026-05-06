@@ -15,10 +15,10 @@ La migración de VB6 a Electron+React está ~90% completa. El core comercial (ve
 | # | Descripción | Archivo(s) | Prioridad |
 |---|---|---|---|
 | B-1 | ~~`tblpagos.Fecha` guardaba `00:00:00`, rompía cuadre de sesión~~ | `api/clientes/pagos.php` | ✅ Resuelto |
-| B-2 | Anulación de venta de sesión anterior no aparece en ningún cuadre (fecha de la factura es de la sesión vieja, no de hoy) | `api/caja/sesion.php` | 🔴 Pendiente |
+| B-2 | ~~Anulación de venta de sesión anterior no aparece en ningún cuadre~~ | `api/caja/sesion.php` | ✅ Resuelto |
 | B-3 | ~~`tbldevolucion_ventas.id_usuario` se guardaba como `0`~~ | `api/ventas/detalle-factura.php` | ✅ Resuelto |
 | B-4 | ~~`tblventas.Saldo` e `Impuesto` no se recalculaban bien tras devolución parcial (IVA ignorado)~~ | `api/ventas/detalle-factura.php` | ✅ Resuelto |
-| B-5 | Cierre de mes: el COGS no descuenta las devoluciones (sobre-informa costo de ventas) | `api/informes/cierre-mes.php` o `InformeCierreMes.tsx` | 🔴 Pendiente |
+| B-5 | ~~Cierre de mes: el COGS no descuenta las devoluciones~~ | `api/informes/cierre-mes.php` | ✅ Resuelto (Cantidad se reduce en devolución) |
 | B-6 | `database.php` apunta a `conta_test_negocio` (BD de prueba). Debe volver a `conta_innovacion` antes de usar en producción | `api/config/database.php` | 🔴 Pendiente |
 
 ---

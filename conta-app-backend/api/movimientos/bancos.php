@@ -28,7 +28,7 @@ try {
                 SELECT m.*, u.Nombre as NombreUsuario
                 FROM tblmov_banco m
                 LEFT JOIN tblusuarios u ON m.Id_Usuario = u.Id_Usuario
-                WHERE m.idBancos = ? AND DATE(m.Fecha) BETWEEN ? AND ?
+                WHERE m.Id_Cuenta = ? AND DATE(m.Fecha) BETWEEN ? AND ?
                 ORDER BY m.Fecha DESC
             ");
             $stmt2->execute([$cuentaId, $desde, $hasta]);
@@ -87,9 +87,10 @@ try {
             $ref = $data['referencia'] ?? '';
             if (!$cuentaId || $valor <= 0) { echo json_encode(['success' => false, 'message' => 'Cuenta y valor requeridos']); exit; }
 
+            $usuarioId = intval($data['usuario_id'] ?? 0);
             $db->beginTransaction();
-            $db->prepare("INSERT INTO tblmov_banco (idBancos, Tipo, Valor, Descripcion, Referencia) VALUES (?, ?, ?, ?, ?)")
-               ->execute([$cuentaId, $action, $valor, $desc, $ref]);
+            $db->prepare("INSERT INTO tblmov_banco (Id_Cuenta, Tipo, Valor, Descripcion, Referencia, Id_Usuario) VALUES (?, ?, ?, ?, ?, ?)")
+               ->execute([$cuentaId, $action, $valor, $desc, $ref, $usuarioId]);
 
             $signo = $action === 'ingreso' ? '+' : '-';
             $db->prepare("UPDATE tblbancos SET Saldo = Saldo $signo ? WHERE idBancos = ?")->execute([$valor, $cuentaId]);
@@ -119,7 +120,7 @@ try {
                    ->execute([$s ? $s['Id_Sesion'] : null, $origen_id, $valor, $desc]);
             } else {
                 $db->prepare("UPDATE tblbancos SET Saldo = Saldo - ? WHERE idBancos = ?")->execute([$valor, $origen_id]);
-                $db->prepare("INSERT INTO tblmov_banco (idBancos, Tipo, Valor, Descripcion) VALUES (?, 'traslado_salida', ?, ?)")
+                $db->prepare("INSERT INTO tblmov_banco (Id_Cuenta, Tipo, Valor, Descripcion, Id_Usuario) VALUES (?, 'traslado_salida', ?, ?, 0)")
                    ->execute([$origen_id, $valor, $desc]);
             }
 
@@ -130,7 +131,7 @@ try {
                    ->execute([$destino_id, $valor, $desc]);
             } else {
                 $db->prepare("UPDATE tblbancos SET Saldo = Saldo + ? WHERE idBancos = ?")->execute([$valor, $destino_id]);
-                $db->prepare("INSERT INTO tblmov_banco (idBancos, Tipo, Valor, Descripcion) VALUES (?, 'traslado_entrada', ?, ?)")
+                $db->prepare("INSERT INTO tblmov_banco (Id_Cuenta, Tipo, Valor, Descripcion, Id_Usuario) VALUES (?, 'traslado_entrada', ?, ?, 0)")
                    ->execute([$destino_id, $valor, $desc]);
             }
 

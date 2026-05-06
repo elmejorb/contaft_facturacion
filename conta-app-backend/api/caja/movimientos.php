@@ -15,6 +15,27 @@ $db = $database->getConnection();
 try {
     if ($_SERVER['REQUEST_METHOD'] === 'GET') {
 
+        // GET ?caja_principal=1 → devuelve historial de movimientos de la caja principal
+        if (isset($_GET['caja_principal'])) {
+            $stmt = $db->prepare(
+                "SELECT m.Id_Mov, m.Fecha, m.Tipo, m.Valor, m.Descripcion,
+                        u.Nombre AS cajero,
+                        c_ori.Nombre AS caja_origen,
+                        c_des.Nombre AS caja_destino
+                 FROM tblmov_caja m
+                 LEFT JOIN tblusuarios u ON m.Id_Usuario = u.Id_Usuario
+                 LEFT JOIN tblcajas c_ori ON m.Id_Caja_Origen = c_ori.Id_Caja
+                 LEFT JOIN tblcajas c_des ON m.Id_Caja_Destino = c_des.Id_Caja
+                 JOIN tblcajas cp ON (m.Id_Caja_Origen = cp.Id_Caja OR m.Id_Caja_Destino = cp.Id_Caja)
+                                 AND cp.Tipo = 'principal'
+                 ORDER BY m.Fecha DESC
+                 LIMIT 100"
+            );
+            $stmt->execute();
+            echo json_encode(['success' => true, 'movimientos' => $stmt->fetchAll(PDO::FETCH_ASSOC)], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
         // Detalle de sesión
         if (isset($_GET['sesion'])) {
             $id = intval($_GET['sesion']);
