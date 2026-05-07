@@ -659,6 +659,71 @@ SET @sql = IF(@is_autoinc_bancos = 0,
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 -- ================================================================
+-- v5.1 — Módulo Vendedores Móviles
+-- ================================================================
+
+CREATE TABLE IF NOT EXISTS tbl_config_vendedores (
+    id INT PRIMARY KEY DEFAULT 1,
+    habilitado TINYINT(1) DEFAULT 0,
+    api_url VARCHAR(300) DEFAULT 'https://conta-basic.innovacion-digital.com/api-conta/public',
+    api_email VARCHAR(150) DEFAULT '',
+    api_token_empresa VARCHAR(255) DEFAULT '',
+    sync_intervalo_pull_min INT DEFAULT 15,
+    ultimo_pull_ventas DATETIME NULL,
+    ultimo_pull_id INT DEFAULT 0,
+    fecha_mod DATETIME DEFAULT NOW()
+);
+INSERT IGNORE INTO tbl_config_vendedores (id) VALUES (1);
+
+CREATE TABLE IF NOT EXISTS tbl_vendedores_movil (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    id_remoto INT NULL,
+    codigo VARCHAR(20) NOT NULL,
+    nombre VARCHAR(150) NOT NULL,
+    email VARCHAR(150) NOT NULL,
+    password_hash VARCHAR(255) NOT NULL,
+    telefono VARCHAR(30),
+    cedula VARCHAR(30),
+    zona VARCHAR(100),
+    can_edit_clients TINYINT(1) DEFAULT 1,
+    activo TINYINT(1) DEFAULT 1,
+    sincronizado TINYINT(1) DEFAULT 0,
+    fecha_mod DATETIME DEFAULT NOW(),
+    UNIQUE KEY uk_codigo (codigo),
+    UNIQUE KEY uk_email (email)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS tbl_pedidos_vendedor (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    id_remoto INT NOT NULL,
+    numero_pedido VARCHAR(30),
+    id_cliente_remoto INT,
+    nombre_cliente VARCHAR(200),
+    nit_cliente VARCHAR(30),
+    id_vendedor_remoto INT,
+    nombre_vendedor VARCHAR(150),
+    fecha DATE,
+    subtotal DECIMAL(14,2) DEFAULT 0,
+    impuestos DECIMAL(14,2) DEFAULT 0,
+    total DECIMAL(14,2) DEFAULT 0,
+    forma_pago VARCHAR(30),
+    observaciones TEXT,
+    estado VARCHAR(30) DEFAULT 'pendiente',
+    items_json LONGTEXT,
+    convertido_factura_n INT NULL,
+    fecha_descarga DATETIME DEFAULT NOW(),
+    fecha_mod DATETIME DEFAULT NOW(),
+    UNIQUE KEY uk_remoto (id_remoto)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+SET @col_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'electronic_documents' AND COLUMN_NAME = 'origen');
+SET @sql = IF(@col_exists = 0,
+    "ALTER TABLE electronic_documents ADD COLUMN origen VARCHAR(20) DEFAULT 'local' AFTER id, ADD COLUMN id_vendedor_remoto INT NULL AFTER origen, ADD COLUMN nombre_vendedor VARCHAR(150) NULL AFTER id_vendedor_remoto",
+    'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- ================================================================
 -- VERIFICACIÓN FINAL
 -- ================================================================
 SELECT '✓ Actualización completa Conta FT aplicada' AS resultado;

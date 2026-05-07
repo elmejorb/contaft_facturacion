@@ -115,6 +115,7 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
   const [tipoDocumento, setTipoDocumento] = useState('pos'); // pos, electronica, soporte
   const [enviarEmailFE, setEnviarEmailFE] = useState(false);
   const [nota, setNota] = useState('');
+  const [pedidoOrigenId, setPedidoOrigenId] = useState(0);
   const [showCrearProducto, setShowCrearProducto] = useState(false);
   const [cajaAbierta, setCajaAbierta] = useState<boolean | null>(null); // null=loading, true/false
   const [baseApertura, setBaseApertura] = useState('');
@@ -274,6 +275,88 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
         }
       }
     }).catch(() => {});
+  }, []);
+
+  // Cargar pedido de vendedor si viene de "Convertir" en Pedidos de Campo
+  useEffect(() => {
+    const pedidoIdRaw = localStorage.getItem('pedido_para_venta_id');
+    if (!pedidoIdRaw) return;
+    const pedidoId = parseInt(pedidoIdRaw, 10);
+    if (!pedidoId || isNaN(pedidoId)) return;
+    localStorage.removeItem('pedido_para_venta_id');
+
+    toast.loading('Cargando pedido...', { id: 'cargar-pedido' });
+    fetch(`http://localhost:80/conta-app-backend/api/vendedores/pedidos.php?cargar_venta=1&id=${pedidoId}`)
+      .then(r => r.json())
+      .then(d => {
+        toast.dismiss('cargar-pedido');
+        if (!d.success) { toast.error(d.message || 'Error cargando pedido'); return; }
+
+        setPedidoOrigenId(pedidoId);
+
+        // Cliente
+        if (d.cliente) {
+          const c = d.cliente;
+          const email = c.Email || '';
+          setCliente({
+            id: c.CodigoClien, nombre: c.Nombre_Cliente, nit: c.Identificacion || '0',
+            tel: c.Telefono || '0', dir: c.Direccion || '-',
+            cupo: parseFloat(c.Cupo) || 0, esCliente: true, email
+          });
+          // Info crédito
+          if (c.CodigoClien && c.CodigoClien !== 130500) {
+            fetch(`http://localhost:80/conta-app-backend/api/clientes/info-credito.php?id=${c.CodigoClien}`)
+              .then(r => r.json()).then(d2 => { if (d2.success) setInfoCredito(d2); })
+              .catch(() => {});
+          }
+        } else if (d.nombre_cliente) {
+          setCliente({
+            id: 0, nombre: d.nombre_cliente, nit: d.nit_cliente || '0',
+            tel: '0', dir: '-', cupo: 0, esCliente: false, email: ''
+          });
+          toast('Cliente no encontrado localmente. Seleccione el cliente correcto.', { icon: '⚠️' });
+        }
+
+        // Forma de pago
+        const fp = (d.forma_pago || 'contado').toLowerCase();
+        setTipo(fp === 'contado' ? 'Contado' : 'Credito');
+
+        // Observaciones
+        if (d.observaciones) {
+          setNota(`Pedido ${d.numero_pedido}: ${d.observaciones}`);
+        }
+
+        // Productos
+        if (d.items && d.items.length > 0) {
+          const nuevasLineas: LineaVenta[] = [];
+          let currentId = lineaId;
+          for (const it of d.items) {
+            currentId++;
+            const precio = it.precio_unitario_pedido > 0 ? it.precio_unitario_pedido : it.Precio_Venta;
+            nuevasLineas.push({
+              id: currentId,
+              Items: it.Items,
+              Codigo: it.Codigo,
+              Nombre: it.Nombres_Articulo,
+              Existencia: it.Existencia,
+              Cantidad: it.cantidad_pedido,
+              PrecioCosto: it.Precio_Costo,
+              PrecioVenta: precio,
+              Iva: it.Iva || 0,
+              Descuento: 0,
+              Subtotal: it.cantidad_pedido * precio,
+            });
+          }
+          lineaId = currentId;
+          setLineas(nuevasLineas);
+        }
+
+        toast.success(`Pedido ${d.numero_pedido} cargado. Ajuste cantidades y guarde.`);
+      })
+      .catch(() => {
+        toast.dismiss('cargar-pedido');
+        toast.error('Error de conexión cargando pedido');
+      });
   }, []);
 
   const abrirCajaRapida = async () => {
@@ -455,6 +538,16 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
       : `Factura #${factN} guardada exitosamente`;
     toast.success(cambioPago > 0 ? `${baseMsg} — Cambio: ${fmtMon(cambioPago)}` : baseMsg,
       { duration: enContingencia ? 8000 : (cambioPago > 0 ? 8000 : 4000) });
+    // Si venía de un pedido de vendedor, marcarlo como procesado
+    if (pedidoOrigenId > 0) {
+      fetch('http://localhost:80/conta-app-backend/api/vendedores/pedidos.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'marcar_procesado', id: pedidoOrigenId, factura_n: factN }),
+      }).catch(() => {});
+      setPedidoOrigenId(0);
+    }
+
     setLineas([]); setDescuentoGlobal(0); setEfectivo(''); setNota('');
     setCliente({ id: 130500, nombre: 'VENTAS AL CONTADO', nit: '0', tel: '0', dir: '-', cupo: 0, esCliente: false, email: '' });
     setTipoDocumento('pos');

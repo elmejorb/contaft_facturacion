@@ -21,6 +21,7 @@ export function FacturacionElectronica() {
   const [anio, setAnio] = useState(new Date().getFullYear());
   const [mes, setMes] = useState(0);
   const [filtroTipo, setFiltroTipo] = useState('todos');
+  const [filtroOrigen, setFiltroOrigen] = useState('todos');
   const [busqueda, setBusqueda] = useState('');
   const [loading, setLoading] = useState(true);
   const [resoluciones, setResoluciones] = useState<any[]>([]);
@@ -230,6 +231,7 @@ export function FacturacionElectronica() {
 
   const docsFiltrados = docs.filter(d => {
     if (filtroTipo !== 'todos' && d.status !== filtroTipo) return false;
+    if (filtroOrigen !== 'todos' && (d.origen || 'local') !== filtroOrigen) return false;
     if (busqueda) {
       const q = busqueda.toLowerCase();
       return (d.cliente_nombre || '').toLowerCase().includes(q)
@@ -266,6 +268,10 @@ export function FacturacionElectronica() {
     },
     { headerName: 'Cliente', field: 'cliente_nombre', flex: 1, minWidth: 180, sortable: true,
       cellRenderer: (p: any) => <span style={{ fontWeight: 500 }}>{p.value || '-'}</span>
+    },
+    {
+      headerName: 'Vendedor', field: 'nombre_vendedor', width: 140, sortable: true,
+      cellRenderer: (p: any) => p.value ? <span style={{ fontSize: 11, color: '#7c3aed', fontWeight: 600 }}>{p.value}</span> : <span style={{ color: '#d1d5db' }}>-</span>
     },
     { headerName: 'NIT', field: 'customer_identification', width: 110, sortable: true },
     { headerName: 'Total', field: 'total', width: 120, sortable: true,
@@ -454,6 +460,18 @@ export function FacturacionElectronica() {
           ].map(f => (
             <button key={f.id} onClick={() => setFiltroTipo(f.id)}
               style={{ height: 26, padding: '0 10px', fontSize: 11, fontWeight: 600, border: 'none', borderRadius: 6, cursor: 'pointer', background: filtroTipo === f.id ? '#7c3aed' : '#f3f4f6', color: filtroTipo === f.id ? '#fff' : '#6b7280' }}>
+              {f.label}
+            </button>
+          ))}
+        </div>
+        <div style={{ display: 'flex', gap: 4 }}>
+          {[
+            { id: 'todos', label: 'Todas' },
+            { id: 'local', label: 'Emitidas aquí' },
+            { id: 'movil', label: 'De vendedores' },
+          ].map(f => (
+            <button key={f.id} onClick={() => setFiltroOrigen(f.id)}
+              style={{ height: 26, padding: '0 10px', fontSize: 11, fontWeight: 600, border: 'none', borderRadius: 6, cursor: 'pointer', background: filtroOrigen === f.id ? '#2563eb' : '#f3f4f6', color: filtroOrigen === f.id ? '#fff' : '#6b7280' }}>
               {f.label}
             </button>
           ))}

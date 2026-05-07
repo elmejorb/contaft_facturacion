@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Save, Printer, CheckCircle, Settings, FileText, ShoppingCart, Tag, Plus, Trash2, RotateCcw } from 'lucide-react';
+import { Save, Printer, CheckCircle, Settings, FileText, ShoppingCart, Tag, Plus, Trash2, RotateCcw, Smartphone, Link2, RefreshCw } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 export interface ConfigImpresion {
@@ -191,6 +191,55 @@ export function ConfiguracionSistema() {
   const guardar = () => {
     saveConfigImpresion(config);
     toast.success('Configuración guardada');
+  };
+
+  // ====== Config Vendedores Móviles ======
+  const [vendConfig, setVendConfig] = useState({ habilitado: 0, api_url: '', api_email: '', api_token_empresa: '', sync_intervalo_pull_min: 15 });
+  const [vendLoading, setVendLoading] = useState(false);
+
+  useEffect(() => {
+    fetch('http://localhost:80/conta-app-backend/api/vendedores/config.php')
+      .then(r => r.json())
+      .then(d => {
+        if (d.success && d.config) {
+          setVendConfig({
+            habilitado: d.config.habilitado ?? 0,
+            api_url: d.config.api_url ?? '',
+            api_email: d.config.api_email ?? '',
+            api_token_empresa: d.config.api_token_empresa ?? '',
+            sync_intervalo_pull_min: d.config.sync_intervalo_pull_min ?? 15,
+          });
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const guardarVendedores = async () => {
+    try {
+      const r = await fetch('http://localhost:80/conta-app-backend/api/vendedores/config.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'guardar', ...vendConfig }),
+      });
+      const d = await r.json();
+      if (d.success) toast.success('Configuración de vendedores guardada');
+      else toast.error(d.message);
+    } catch (e) { toast.error('Error de conexión'); }
+  };
+
+  const probarConexionVendedores = async () => {
+    setVendLoading(true);
+    try {
+      const r = await fetch('http://localhost:80/conta-app-backend/api/vendedores/config.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'probar', api_url: vendConfig.api_url, api_email: vendConfig.api_email, api_token_empresa: vendConfig.api_token_empresa }),
+      });
+      const d = await r.json();
+      if (d.success) toast.success(d.message);
+      else toast.error(d.message);
+    } catch (e) { toast.error('Error de conexión'); }
+    setVendLoading(false);
   };
 
   const seccion = (titulo: string, icon: React.ReactNode, children: React.ReactNode) => (
@@ -396,6 +445,68 @@ export function ConfiguracionSistema() {
               </div>
             </label>
           ))}
+        </div>
+      </div>
+
+      {/* Vendedores Móviles */}
+      <div style={{ background: '#fff', borderRadius: 12, padding: 20, boxShadow: '0 1px 3px rgba(0,0,0,0.08)', marginTop: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+          <Smartphone size={20} color="#7c3aed" />
+          <span style={{ fontSize: 16, fontWeight: 700, color: '#1f2937' }}>Vendedores Móviles</span>
+        </div>
+        <p style={{ fontSize: 12, color: '#6b7280', marginBottom: 16 }}>Conecte vendedores de campo con la app móvil</p>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 8, cursor: 'pointer', border: `2px solid ${vendConfig.habilitado ? '#7c3aed' : '#e5e7eb'}`, background: vendConfig.habilitado ? '#f5f3ff' : '#fff' }}
+            onClick={() => setVendConfig(c => ({ ...c, habilitado: c.habilitado ? 0 : 1 }))}>
+            <div style={{ width: 20, height: 20, borderRadius: 4, border: `2px solid ${vendConfig.habilitado ? '#7c3aed' : '#d1d5db'}`, background: vendConfig.habilitado ? '#7c3aed' : '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              {vendConfig.habilitado && <span style={{ color: '#fff', fontSize: 14, fontWeight: 700 }}>✓</span>}
+            </div>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: vendConfig.habilitado ? '#7c3aed' : '#374151' }}>Habilitar módulo de vendedores móviles</div>
+              <div style={{ fontSize: 11, color: '#6b7280' }}>Aparece la sección Vendedores en el menú y se activa la sincronización</div>
+            </div>
+          </label>
+
+          {vendConfig.habilitado === 1 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 8, padding: 14, background: '#f9fafb', borderRadius: 10 }}>
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>URL de la API remota</label>
+                <input value={vendConfig.api_url} onChange={e => setVendConfig(c => ({ ...c, api_url: e.target.value }))}
+                  placeholder="https://conta-basic.innovacion-digital.com/api-conta/public"
+                  style={{ width: '100%', height: 32, border: '1px solid #d1d5db', borderRadius: 6, padding: '0 10px', fontSize: 13 }} />
+              </div>
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>Email de la empresa en la API</label>
+                <input value={vendConfig.api_email} onChange={e => setVendConfig(c => ({ ...c, api_email: e.target.value }))}
+                  placeholder="empresa@ejemplo.com"
+                  style={{ width: '100%', height: 32, border: '1px solid #d1d5db', borderRadius: 6, padding: '0 10px', fontSize: 13 }} />
+              </div>
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>Token API</label>
+                <input type="password" value={vendConfig.api_token_empresa} onChange={e => setVendConfig(c => ({ ...c, api_token_empresa: e.target.value }))}
+                  placeholder="Token de la tabla empresas en la API remota"
+                  style={{ width: '100%', height: 32, border: '1px solid #d1d5db', borderRadius: 6, padding: '0 10px', fontSize: 13 }} />
+              </div>
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>Intervalo de descarga automática (minutos)</label>
+                <select value={vendConfig.sync_intervalo_pull_min} onChange={e => setVendConfig(c => ({ ...c, sync_intervalo_pull_min: Number(e.target.value) }))}
+                  style={{ height: 32, border: '1px solid #d1d5db', borderRadius: 6, padding: '0 8px', fontSize: 13 }}>
+                  {[5, 10, 15, 30, 60].map(m => <option key={m} value={m}>{m} min</option>)}
+                </select>
+              </div>
+              <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                <button onClick={probarConexionVendedores} disabled={vendLoading}
+                  style={{ height: 32, padding: '0 14px', background: '#f3f4f6', border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <Link2 size={13} /> {vendLoading ? 'Probando...' : 'Probar conexión'}
+                </button>
+                <button onClick={guardarVendedores}
+                  style={{ height: 32, padding: '0 14px', background: '#7c3aed', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, cursor: 'pointer', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <Save size={13} /> Guardar
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

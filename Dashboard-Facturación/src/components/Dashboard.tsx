@@ -37,7 +37,8 @@ import {
   Home,
   CalendarClock,
   AlertTriangle,
-  Gift
+  Gift,
+  Smartphone
 } from 'lucide-react';
 import { IncomeOverview } from './IncomeOverview';
 import { ProductsManagement } from './ProductsManagement';
@@ -78,6 +79,9 @@ import { ConfiguracionSistema, saveEmpresaCache } from './ConfiguracionSistema';
 import { DatosEmpresa } from './DatosEmpresa';
 import { NuevaCompra } from './NuevaCompra';
 import { UsuariosManagement } from './UsuariosManagement';
+import { VendedoresMovil } from './VendedoresMovil';
+import { VendedoresPedidos } from './VendedoresPedidos';
+import { useVendedoresConfig } from '../hooks/useVendedoresConfig';
 import { CuentasPorCobrar } from './CuentasPorCobrar';
 import { TopClientes } from './TopClientes';
 import { CumpleanosClientes, useCumpleanosHoy } from './CumpleanosClientes';
@@ -103,7 +107,7 @@ interface DashboardProps {
   user?: UserData | null;
 }
 
-type View = 'overview' | 'products' | 'customers' | 'suppliers' | 'purchases' | 'sales' | 'inventario' | 'diagnostico' | 'auditoria' | 'categorias' | 'conteo' | 'configuracion' | 'cuentas-cobrar' | 'top-clientes' | 'cumpleanos' | 'cuentas-pagar' | 'productos-proveedor' | 'nueva-venta' | 'ventas-tipo-pago' | 'datos-empresa' | 'usuarios' | 'nueva-compra' | 'facturacion-electronica' | 'caja' | 'caja-historial' | 'pagos-clientes' | 'pagos-proveedores' | 'gastos' | 'bancos' | 'config-categorias-gasto' | 'config-cajas' | 'config-servidor' | 'config-permisos' | 'familias' | 'distribuir' | 'stock-bajo' | 'config-retenciones' | 'informes-hub' | 'notas-articulo' | 'lotes-vencer' | 'inicio' | 'config-etiquetas';
+type View = 'overview' | 'products' | 'customers' | 'suppliers' | 'purchases' | 'sales' | 'inventario' | 'diagnostico' | 'auditoria' | 'categorias' | 'conteo' | 'configuracion' | 'cuentas-cobrar' | 'top-clientes' | 'cumpleanos' | 'cuentas-pagar' | 'productos-proveedor' | 'nueva-venta' | 'ventas-tipo-pago' | 'datos-empresa' | 'usuarios' | 'nueva-compra' | 'facturacion-electronica' | 'caja' | 'caja-historial' | 'pagos-clientes' | 'pagos-proveedores' | 'gastos' | 'bancos' | 'config-categorias-gasto' | 'config-cajas' | 'config-servidor' | 'config-permisos' | 'familias' | 'distribuir' | 'stock-bajo' | 'config-retenciones' | 'informes-hub' | 'notas-articulo' | 'lotes-vencer' | 'inicio' | 'config-etiquetas' | 'vendedores-gestion' | 'vendedores-pedidos';
 
 interface MenuItem {
   id: string;
@@ -141,6 +145,7 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
 
   const esAdmin = user?.tipoUsuario === 1 || user?.tipoUsuario === '1';
   const esVendedor = user?.tipoUsuario === 2 || user?.tipoUsuario === '2';
+  const { habilitado: vendedoresHabilitado, pedidosPendientes } = useVendedoresConfig();
   const [showCambiarClave, setShowCambiarClave] = useState(false);
   const [claveActual, setClaveActual] = useState('');
   const [claveNueva, setClaveNueva] = useState('');
@@ -247,6 +252,17 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
       view: 'informes-hub' as View,
     },
     {
+      id: 'vendedores',
+      label: 'Vendedores',
+      icon: Smartphone,
+      badge: pedidosPendientes > 0 ? String(pedidosPendientes) : undefined,
+      badgeVariant: 'secondary' as any,
+      children: [
+        { id: 'vendedores-gestion', label: 'Gestión de Vendedores', view: 'vendedores-gestion' as View },
+        { id: 'vendedores-pedidos', label: 'Pedidos de Campo', view: 'vendedores-pedidos' as View },
+      ]
+    },
+    {
       id: 'configuracion',
       label: 'Configuración',
       icon: Settings,
@@ -290,8 +306,9 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
     'informes': 'informes',
   };
 
-  // Filtrar menú por permisos
-  const menuItems = esAdmin ? allMenuItems : allMenuItems
+  // Filtrar menú por permisos y habilitación de módulos
+  const baseMenuItems = allMenuItems.filter(item => item.id !== 'vendedores' || vendedoresHabilitado);
+  const menuItems = esAdmin ? baseMenuItems : baseMenuItems
     .map(item => {
       if (item.children) {
         const hijos = item.children.filter(c => {
@@ -626,6 +643,8 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
           {currentView === 'configuracion' && <ConfiguracionSistema />}
           {currentView === 'datos-empresa' && <DatosEmpresa />}
           {currentView === 'usuarios' && <UsuariosManagement />}
+          {currentView === 'vendedores-gestion' && <VendedoresMovil />}
+          {currentView === 'vendedores-pedidos' && <VendedoresPedidos onNavigate={(v) => setCurrentView(v as View)} />}
           {currentView === 'cuentas-cobrar' && <CuentasPorCobrar />}
           {currentView === 'top-clientes' && <TopClientes />}
           {currentView === 'cumpleanos' && <CumpleanosClientes />}

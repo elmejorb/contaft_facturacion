@@ -1,10 +1,11 @@
 import { useEffect, useState, useMemo } from 'react';
 import {
   ShoppingCart, Wallet, Package, Receipt, FileText, Truck,
-  Users, BarChart3, Plus, ArrowRight, AlertTriangle, CalendarClock, Cake,
+  Users, BarChart3, Plus, ArrowRight, AlertTriangle, CalendarClock, Cake, Smartphone,
 } from 'lucide-react';
 import appIcon from '../assets/icon.png';
 import { useNotificaciones } from '../hooks/useNotificaciones';
+import { useVendedoresConfig } from '../hooks/useVendedoresConfig';
 
 interface Props {
   user?: { username?: string; nombre?: string; tipoUsuario?: any } | null;
@@ -16,6 +17,7 @@ interface Props {
 export function PantallaInicio({ user, onNavigate, esAdmin = true }: Props) {
   const [hora, setHora] = useState(new Date());
   const notif = useNotificaciones();
+  const { habilitado: vendedoresHab, pedidosPendientes } = useVendedoresConfig();
 
   useEffect(() => {
     const t = setInterval(() => setHora(new Date()), 1000);
@@ -56,6 +58,7 @@ export function PantallaInicio({ user, onNavigate, esAdmin = true }: Props) {
     { id: 'cuentas-cobrar', label: 'Cartera', desc: 'Cobros pendientes', icon: Users, color: '#ef4444', bg: 'rgba(239, 68, 68, 0.18)', show: esAdmin },
     { id: 'informes-hub', label: 'Informes', desc: '22+ reportes', icon: BarChart3, color: '#ec4899', bg: 'rgba(236, 72, 153, 0.18)', show: esAdmin },
     { id: 'purchases', label: 'Compras', desc: 'Pedidos a proveedores', icon: Truck, color: '#14b8a6', bg: 'rgba(20, 184, 166, 0.18)', show: esAdmin },
+    { id: 'vendedores-pedidos', label: 'Pedidos de campo', desc: `${pedidosPendientes} pendientes`, icon: Smartphone, color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.18)', show: esAdmin && vendedoresHab && pedidosPendientes > 0 },
   ].filter(a => a.show);
 
   return (
