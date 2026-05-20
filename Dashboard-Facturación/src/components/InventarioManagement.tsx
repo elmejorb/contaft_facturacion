@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import toast from 'react-hot-toast';
-import { Edit2, BarChart3, Info, Copy, Trash2, FileText } from 'lucide-react';
+import { Edit2, BarChart3, Info, Copy, Trash2, FileText, Download } from 'lucide-react';
+import { confirmar } from './ConfirmDialog';
 import { Card, CardContent } from './ui/card';
 import { Button } from './ui/button';
 import {
@@ -13,6 +14,7 @@ import {
 } from 'lucide-react';
 import { AgGridReact } from 'ag-grid-react';
 import { AllCommunityModule, ModuleRegistry, themeQuartz } from 'ag-grid-community';
+import * as XLSX from 'xlsx';
 import api from '../services/api';
 import { Kardex } from './Kardex';
 import { DetalleProductoModal } from './DetalleProductoModal';
@@ -90,6 +92,50 @@ export function InventarioManagement() {
     try { await navigator.clipboard.writeText(texto); toast.success(`${etiqueta} copiado`); }
     catch { toast.error('No se pudo copiar'); }
     setContextMenu(null);
+  };
+
+  const eliminarProducto = async (articulo: any) => {
+    setContextMenu(null);
+    const ok = await confirmar({
+      title: 'Eliminar producto',
+      message: `¿Seguro que quieres eliminar "${articulo.Descripcion}" (${articulo.Codigo})?\n\nSolo se podrá si no tiene ventas, compras ni movimientos en el kárdex. De lo contrario, te ofreceré desactivarlo.`,
+      type: 'danger',
+      confirmText: 'Sí, eliminar',
+      cancelText: 'Cancelar',
+    });
+    if (!ok) return;
+
+    try {
+      const r = await api.delete(`/inventario/eliminar-articulo.php?items=${articulo.Items}`);
+      const d = r.data;
+      if (d.success) {
+        toast.success(d.message || 'Producto eliminado');
+        cargarArticulos();
+        return;
+      }
+      // Tiene dependencias → ofrecer desactivar
+      if (d.sugerencia === 'desactivar') {
+        const ok2 = await confirmar({
+          title: 'No se puede eliminar',
+          message: `${d.message}\n\n¿Desactivar el producto en su lugar? Conserva el historial pero no aparecerá en ventas nuevas.`,
+          type: 'warning',
+          confirmText: 'Sí, desactivar',
+          cancelText: 'Cancelar',
+        });
+        if (!ok2) return;
+        const r2 = await api.post('/inventario/eliminar-articulo.php', { action: 'desactivar', items: articulo.Items });
+        if (r2.data.success) {
+          toast.success(r2.data.message || 'Producto desactivado');
+          cargarArticulos();
+        } else {
+          toast.error(r2.data.message || 'No se pudo desactivar');
+        }
+        return;
+      }
+      toast.error(d.message || 'No se pudo eliminar');
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || e?.message || 'Error de red');
+    }
   };
 
   useEffect(() => {
@@ -281,7 +327,7 @@ export function InventarioManagement() {
             </svg>
           </button>
           <button title="Eliminar producto" data-c="#ef4444" data-hc="#ef4444"
-            onClick={() => console.log('Eliminar', params.data.Codigo)}
+            onClick={() => eliminarProducto(params.data)}
             style={btn('#ef4444', '#ef4444')}>
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/>
@@ -304,6 +350,87 @@ export function InventarioManagement() {
     setBusqueda(e.target.value);
   }, []);
 
+  // Exporta el inventario filtrado a un archivo .xlsx real (no CSV).
+  // Las columnas numéricas quedan como números (no strings) — Excel les aplica
+  // formato de moneda/porcentaje al abrirse y permite SUMA, filtros, etc.
+  const exportarExcel = () => {
+    const term = (busqueda || '').toLowerCase().trim();
+    const filtrados = !term
+      ? articulos
+      : articulos.filter(a =>
+          (a.Codigo || '').toLowerCase().includes(term) ||
+          (a.Descripcion || '').toLowerCase().includes(term) ||
+          (a.Categoria || '').toLowerCase().includes(term) ||
+          (a.Proveedor || '').toLowerCase().includes(term)
+        );
+
+    if (filtrados.length === 0) {
+      toast.error('No hay productos para exportar');
+      return;
+    }
+
+    // Datos como array de objetos (XLSX detecta números automáticamente)
+    const data = filtrados.map(a => ({
+      'Código': a.Codigo || '',
+      'Descripción': a.Descripcion || '',
+      'Categoría': a.Categoria || '',
+      'Proveedor': a.Proveedor || '',
+      'Existencia': Number(a.Existencia || 0),
+      'IVA %': Number(a.Iva || 0),
+      'Costo (con IVA)': Number(a.Costo || 0),
+      'Precio 1': Number(a.Precio1 || 0),
+      'Precio 2': Number(a.Precio2 || 0),
+      'Precio 3': Number(a.Precio3 || 0),
+      'Precio Mínimo': Number(a.PrecioMinimo || 0),
+      'Utilidad % P1': Math.round(calcularUtilidad(a.Precio1, a.Costo) * 10) / 10,
+      'Valor en Costo': Math.round((a.Existencia || 0) * (a.Costo || 0)),
+      'Etiqueta': a.Etiqueta || '',
+      'Estado': a.Estado || '',
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(data);
+
+    // Anchos de columna (en caracteres aproximados)
+    ws['!cols'] = [
+      { wch: 12 }, // Código
+      { wch: 35 }, // Descripción
+      { wch: 18 }, // Categoría
+      { wch: 22 }, // Proveedor
+      { wch: 11 }, // Existencia
+      { wch: 7 },  // IVA %
+      { wch: 14 }, // Costo
+      { wch: 12 }, // Precio 1
+      { wch: 12 }, // Precio 2
+      { wch: 12 }, // Precio 3
+      { wch: 13 }, // Precio Mínimo
+      { wch: 12 }, // Utilidad
+      { wch: 14 }, // Valor en Costo
+      { wch: 18 }, // Etiqueta
+      { wch: 10 }, // Estado
+    ];
+
+    // Aplicar formato de moneda a las columnas de precio/costo
+    // El formato $ #,##0 lo aplica Excel cuando ve el patrón
+    const range = XLSX.utils.decode_range(ws['!ref'] || 'A1');
+    const moneyCols = [6, 7, 8, 9, 10, 12]; // 0-indexed: Costo, P1, P2, P3, P. Min, Valor Costo
+    for (let R = range.s.r + 1; R <= range.e.r; R++) {
+      for (const C of moneyCols) {
+        const cellRef = XLSX.utils.encode_cell({ r: R, c: C });
+        if (ws[cellRef]) ws[cellRef].z = '"$"#,##0';
+      }
+      // Utilidad % con un decimal
+      const utilRef = XLSX.utils.encode_cell({ r: R, c: 11 });
+      if (ws[utilRef]) ws[utilRef].z = '0.0"%"';
+    }
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Inventario');
+
+    const fecha = new Date().toISOString().slice(0, 10);
+    XLSX.writeFile(wb, `inventario_${fecha}.xlsx`);
+    toast.success(`Exportados ${filtrados.length} productos a Excel`);
+  };
+
   // Stats
   const totalInventario = articulos.reduce((sum: number, art: Articulo) => sum + (art.Existencia * art.Costo || 0), 0);
   const sinStock = articulos.filter((a: Articulo) => a.Existencia <= 0).length;
@@ -320,65 +447,28 @@ export function InventarioManagement() {
         <p className="text-sm text-gray-500 mt-1">Gestiona el inventario de productos</p>
       </div>
 
-      {/* Stats Cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
-        <Card className="border-0 shadow-sm">
-          <CardContent className="p-5">
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 rounded-xl bg-purple-100 flex items-center justify-center">
-                <Package className="w-6 h-6 text-purple-600" />
+      {/* Stats Cards (estilo compacto, igual que CustomersManagement) */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 16 }}>
+        {[
+          { label: 'Total Artículos', value: articulos.length, sub: `${conStock} con stock`, icon: Package, bg: '#f3e8ff', color: '#7c3aed' },
+          { label: 'Valor Inventario', value: formatearMoneda(totalInventario), icon: DollarSign, bg: '#cffafe', color: '#0891b2', isText: true },
+          { label: 'Utilidad Promedio', value: `${promedioUtilidad}%`, icon: TrendingUp, bg: '#dcfce7', color: '#16a34a' },
+          { label: 'Sin Stock', value: sinStock, sub: `${articulos.length > 0 ? ((sinStock / articulos.length) * 100).toFixed(0) : 0}% del total`, icon: AlertTriangle, bg: '#fee2e2', color: '#dc2626', danger: true },
+        ].map((s, i) => {
+          const Icon = s.icon;
+          return (
+            <div key={i} style={{ background: '#fff', borderRadius: 12, padding: '16px 20px', boxShadow: '0 1px 3px rgba(0,0,0,0.08)', display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{ width: 40, height: 40, borderRadius: 10, background: s.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <Icon size={20} color={s.color} />
               </div>
-              <div>
-                <p className="text-sm text-gray-500">Total Artículos</p>
-                <p className="text-2xl font-semibold text-gray-900">{articulos.length}</p>
-                <p className="text-[10px] text-gray-400">{conStock} con stock</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="border-0 shadow-sm">
-          <CardContent className="p-5">
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 rounded-xl bg-cyan-100 flex items-center justify-center">
-                <DollarSign className="w-6 h-6 text-cyan-600" />
-              </div>
-              <div>
-                <p className="text-sm text-gray-500">Valor Inventario</p>
-                <p className="text-xl font-semibold text-gray-900">{formatearMoneda(totalInventario)}</p>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 11, color: '#6b7280' }}>{s.label}</div>
+                <div style={{ fontSize: (s as any).isText ? 16 : 20, fontWeight: 700, color: (s as any).danger ? '#dc2626' : '#111827', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.value}</div>
+                {s.sub && <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 2 }}>{s.sub}</div>}
               </div>
             </div>
-          </CardContent>
-        </Card>
-
-        <Card className="border-0 shadow-sm">
-          <CardContent className="p-5">
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 rounded-xl bg-green-100 flex items-center justify-center">
-                <TrendingUp className="w-6 h-6 text-green-600" />
-              </div>
-              <div>
-                <p className="text-sm text-gray-500">Utilidad Promedio</p>
-                <p className="text-2xl font-semibold text-gray-900">{promedioUtilidad}%</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="border-0 shadow-sm">
-          <CardContent className="p-5">
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 rounded-xl bg-red-100 flex items-center justify-center">
-                <AlertTriangle className="w-6 h-6 text-red-600" />
-              </div>
-              <div>
-                <p className="text-sm text-gray-500">Sin Stock</p>
-                <p className="text-2xl font-semibold text-red-600">{sinStock}</p>
-                <p className="text-[10px] text-gray-400">{articulos.length > 0 ? ((sinStock / articulos.length) * 100).toFixed(0) : 0}% del total</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+          );
+        })}
       </div>
 
       {/* Filtros */}
@@ -411,6 +501,15 @@ export function InventarioManagement() {
             Refrescar
           </Button>
           <button
+            onClick={exportarExcel}
+            disabled={loading || articulos.length === 0}
+            title="Exporta los productos del inventario (respeta el filtro de búsqueda actual) a un archivo CSV que Excel abre directamente"
+            style={{ height: 36, padding: '0 16px', background: '#0891b2', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: loading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 6, opacity: loading ? 0.6 : 1 }}
+          >
+            <Download size={16} />
+            Exportar a Excel
+          </button>
+          <button
             onClick={() => setEditarModal({ isOpen: true, producto: null })}
             style={{ height: 36, padding: '0 16px', background: '#16a34a', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
           >
@@ -432,7 +531,7 @@ export function InventarioManagement() {
           <Button onClick={cargarArticulos} variant="outline">Reintentar</Button>
         </div>
       ) : (
-        <div className="bg-white rounded-xl shadow-sm overflow-hidden" style={{ height: 'calc(100vh - 420px)', minHeight: '400px' }}>
+        <div className="bg-white rounded-xl shadow-sm overflow-hidden" style={{ height: 'calc(100vh - 480px)', minHeight: '380px' }}>
           <AgGridReact
             theme={myTheme}
             rowData={articulos}
@@ -529,7 +628,7 @@ export function InventarioManagement() {
                 onClick={() => copiar(contextMenu.articulo.Descripcion, 'Nombre')} />
               {sep}
               <Item icon={Trash2} label="Eliminar producto" danger
-                onClick={() => { console.log('Eliminar', contextMenu.articulo.Codigo); setContextMenu(null); }} />
+                onClick={() => eliminarProducto(contextMenu.articulo)} />
             </div>
           </>
         );

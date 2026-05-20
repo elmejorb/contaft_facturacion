@@ -63,7 +63,7 @@ export function PantallaInicio({ user, onNavigate, esAdmin = true }: Props) {
 
   return (
     <div style={{
-      position: 'relative', width: '100%', minHeight: '100%',
+      position: 'relative', width: '100%', height: '100%',
       background: 'linear-gradient(135deg, #1e1b4b 0%, oklch(.424 .199 265.638) 35%, oklch(.42 .26 295) 100%)',
       overflow: 'hidden',
     }}>
@@ -115,7 +115,7 @@ export function PantallaInicio({ user, onNavigate, esAdmin = true }: Props) {
 
       {/* Contenido */}
       <div style={{
-        position: 'relative', zIndex: 10, minHeight: 'calc(100vh - 64px)',
+        position: 'relative', zIndex: 10, height: '100%',
         display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
         padding: '20px 18px 36px',
       }}>

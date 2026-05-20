@@ -20,6 +20,10 @@ interface LineaCompra {
   CostoConIva: number; FleteUnit: number; CostoFinal: number;
   CostoAnterior: number; CostoPromedio: number;
   PrecioVenta: number; Subtotal: number;
+  // Si true, el usuario editó manualmente FleteUnit (ej. flete por peso).
+  // El recálculo automático de prorrateo respeta este valor y solo distribuye
+  // el flete restante entre las líneas no marcadas.
+  FleteManual?: boolean;
   RequiereLote?: number;
   FechaVencimiento?: string;
   NumeroLote?: string;
@@ -121,14 +125,30 @@ export function NuevaCompra({ pedidoEditar, onClose }: { pedidoEditar?: number; 
       setBuscarProd(''); setShowProdDrop(false);
       return;
     }
-    const costoAnt = art.Precio_Costo || 0;
+    // art.Precio_Costo ahora viene CON IVA. Calculamos sin IVA dividiendo.
+    const costoAntConIva = art.Precio_Costo || 0;
+    // IVA por defecto: el de la última compra de este producto (si existe),
+    // si no, el del catálogo. Útil para clientes Régimen Simple que ponen
+    // Iva=0 en catálogo pero deben digitar el IVA real del proveedor.
+    const ivaPct = (art.last_iva_compra !== null && art.last_iva_compra !== undefined)
+      ? art.last_iva_compra
+      : (art.Iva || 0);
+    const costoAntSinIva = ivaPct > 0 ? costoAntConIva / (1 + ivaPct / 100) : costoAntConIva;
+    const ivaVal = costoAntConIva - costoAntSinIva;
     const nueva: LineaCompra = {
       id: ++lid, IdDetalle: 0, Items: art.Items, Codigo: art.Codigo, Nombre: art.Nombres_Articulo,
       Existencia: art.Existencia, Cantidad: 1,
-      CostoSinIva: costoAnt, IvaPct: art.Iva || 0, IvaVal: costoAnt * ((art.Iva || 0) / 100),
-      CostoConIva: costoAnt * (1 + (art.Iva || 0) / 100), FleteUnit: 0,
-      CostoFinal: costoAnt, CostoAnterior: costoAnt, CostoPromedio: costoAnt,
-      PrecioVenta: art.Precio_Venta || 0, Subtotal: costoAnt * (1 + (art.Iva || 0) / 100),
+      CostoSinIva: Math.round(costoAntSinIva * 100) / 100,
+      IvaPct: ivaPct,
+      IvaVal: Math.round(ivaVal * 100) / 100,
+      CostoConIva: costoAntConIva,
+      FleteUnit: 0,
+      // CostoFinal/Anterior/Promedio se manejan en base CON IVA (coinciden con Precio_Costo)
+      CostoFinal: costoAntConIva,
+      CostoAnterior: costoAntConIva,
+      CostoPromedio: costoAntConIva,
+      PrecioVenta: art.Precio_Venta || 0,
+      Subtotal: costoAntConIva,
       RequiereLote: art.requiere_lote ? 1 : 0,
       FechaVencimiento: '',
       NumeroLote: '',
@@ -150,6 +170,10 @@ export function NuevaCompra({ pedidoEditar, onClose }: { pedidoEditar?: number; 
         } else if (field === 'IvaPct' || field === 'CostoSinIva') {
           u.IvaVal = u.CostoSinIva * (u.IvaPct / 100);
           u.CostoConIva = u.CostoSinIva + u.IvaVal;
+        } else if (field === 'FleteUnit') {
+          // Edición manual del flete (ej. flete por peso). Marca la línea
+          // como FleteManual para que el recálculo automático la respete.
+          u.FleteManual = true;
         } else {
           u.IvaVal = u.CostoSinIva * (u.IvaPct / 100);
           u.CostoConIva = u.CostoSinIva + u.IvaVal;
@@ -158,15 +182,25 @@ export function NuevaCompra({ pedidoEditar, onClose }: { pedidoEditar?: number; 
         return u;
       });
 
-      // Second pass: redistribute flete across all lines
-      const totalSub = updated.reduce((s, l) => s + l.Subtotal, 0);
+      // Second pass: redistribute flete. Las líneas con FleteManual=true
+      // conservan su FleteUnit; solo se distribuye el flete restante entre
+      // las demás según proporción de subtotal.
+      // CostoFinal y CostoPromedio se calculan en base CON IVA + flete.
+      const fleteManualTotal = updated.reduce((s, l) =>
+        s + (l.FleteManual ? (l.FleteUnit || 0) * (l.Cantidad || 0) : 0), 0);
+      const fleteAuto = Math.max(0, flete - fleteManualTotal);
+      const totalSubAuto = updated.reduce((s, l) =>
+        s + (l.FleteManual ? 0 : l.Subtotal), 0);
       updated = updated.map(l => {
-        let fleteU = 0;
-        if (flete > 0 && totalSub > 0 && l.Cantidad > 0) {
-          const prop = l.Subtotal / totalSub;
-          fleteU = Math.round(((flete * prop) / l.Cantidad) * 100) / 100;
+        let fleteU = l.FleteUnit || 0;
+        if (!l.FleteManual) {
+          fleteU = 0;
+          if (fleteAuto > 0 && totalSubAuto > 0 && l.Cantidad > 0) {
+            const prop = l.Subtotal / totalSubAuto;
+            fleteU = Math.round(((fleteAuto * prop) / l.Cantidad) * 100) / 100;
+          }
         }
-        const cf = Math.round((l.CostoSinIva + fleteU) * 100) / 100;
+        const cf = Math.round((l.CostoConIva + fleteU) * 100) / 100;
         const nuevaExist = l.Existencia + l.Cantidad;
         const prom = nuevaExist > 0
           ? Math.round(((l.Existencia * l.CostoAnterior + l.Cantidad * cf) / nuevaExist) * 100) / 100
@@ -178,30 +212,150 @@ export function NuevaCompra({ pedidoEditar, onClose }: { pedidoEditar?: number; 
     });
   };
 
-  // Recalcular flete cuando cambia
+  // Reinterpretar precios al cambiar Modo IVA — evita re-digitar cada precio.
+  //   0 → 1 (sin → con IVA): lo que estaba en "Costo s/IVA" pasa a "Costo c/IVA"
+  //                          y "Costo s/IVA" se recalcula dividiendo por (1+IVA%)
+  //   1 → 0 (con → sin IVA): inverso simétrico, así un doble toggle restaura
+  // Solo se dispara cuando el usuario cambia el select (no al montar el componente).
+  const prevOpcionIvaRef = useRef(opcionIva);
+  useEffect(() => {
+    const prev = prevOpcionIvaRef.current;
+    if (prev === opcionIva) return;
+    prevOpcionIvaRef.current = opcionIva;
+    setLineas(prevLineas => prevLineas.map(l => {
+      const factor = 1 + (l.IvaPct || 0) / 100;
+      if (factor <= 0) return l;
+      let nuevoSinIva: number, nuevoConIva: number;
+      if (opcionIva === 1) {
+        // Cambia a "con IVA incluido": el valor s/IVA actual se interpreta ahora como c/IVA
+        nuevoConIva = l.CostoSinIva;
+        nuevoSinIva = Math.round((nuevoConIva / factor) * 100) / 100;
+      } else {
+        // Cambia a "sin IVA": el valor c/IVA actual se interpreta ahora como s/IVA
+        nuevoSinIva = l.CostoConIva;
+        nuevoConIva = Math.round((nuevoSinIva * factor) * 100) / 100;
+      }
+      const nuevoIvaVal = Math.round((nuevoConIva - nuevoSinIva) * 100) / 100;
+      // CostoFinal en base CON IVA + flete (consistente con Precio_Costo)
+      const cf = Math.round((nuevoConIva + (l.FleteUnit || 0)) * 100) / 100;
+      const nuevaExist = l.Existencia + l.Cantidad;
+      const prom = nuevaExist > 0
+        ? Math.round(((l.Existencia * l.CostoAnterior + l.Cantidad * cf) / nuevaExist) * 100) / 100
+        : cf;
+      return {
+        ...l,
+        CostoSinIva: nuevoSinIva,
+        CostoConIva: nuevoConIva,
+        IvaVal: nuevoIvaVal,
+        CostoFinal: cf,
+        CostoPromedio: prom,
+        Subtotal: l.Cantidad * nuevoConIva,
+      };
+    }));
+  }, [opcionIva]);
+
+  // Recalcular flete cuando cambia. CostoFinal/CostoPromedio en base CON IVA + flete.
   useEffect(() => {
     setLineas(prev => {
       if (prev.length === 0) return prev;
       if (flete <= 0) {
+        // Si quitan el flete total, también limpia las marcas manuales
         return prev.map(l => {
-          const cf = l.CostoSinIva;
+          const cf = l.CostoConIva;
           const nuevaExist = l.Existencia + l.Cantidad;
-          return { ...l, FleteUnit: 0, CostoFinal: cf, CostoPromedio: nuevaExist > 0 ? Math.round((l.Existencia * l.CostoAnterior + l.Cantidad * cf) / nuevaExist * 100) / 100 : cf };
+          return { ...l, FleteUnit: 0, FleteManual: false, CostoFinal: cf, CostoPromedio: nuevaExist > 0 ? Math.round((l.Existencia * l.CostoAnterior + l.Cantidad * cf) / nuevaExist * 100) / 100 : cf };
         });
       }
-      const totalItems = prev.reduce((s, l) => s + l.Subtotal, 0);
+      // Respetar líneas con FleteManual=true; distribuir el resto proporcional
+      const fleteManualTotal = prev.reduce((s, l) =>
+        s + (l.FleteManual ? (l.FleteUnit || 0) * (l.Cantidad || 0) : 0), 0);
+      const fleteAuto = Math.max(0, flete - fleteManualTotal);
+      const totalSubAuto = prev.reduce((s, l) =>
+        s + (l.FleteManual ? 0 : l.Subtotal), 0);
       return prev.map(l => {
-        const prop = totalItems > 0 ? l.Subtotal / totalItems : 0;
-        const fleteU = l.Cantidad > 0 ? (flete * prop) / l.Cantidad : 0;
-        const cf = l.CostoSinIva + fleteU;
+        let fleteU = l.FleteUnit || 0;
+        if (!l.FleteManual) {
+          const prop = totalSubAuto > 0 ? l.Subtotal / totalSubAuto : 0;
+          fleteU = l.Cantidad > 0 ? (fleteAuto * prop) / l.Cantidad : 0;
+          fleteU = Math.round(fleteU * 100) / 100;
+        }
+        const cf = l.CostoConIva + fleteU;
         const nuevaExist = l.Existencia + l.Cantidad;
         const prom = nuevaExist > 0 ? (l.Existencia * l.CostoAnterior + l.Cantidad * cf) / nuevaExist : cf;
-        return { ...l, FleteUnit: Math.round(fleteU * 100) / 100, CostoFinal: Math.round(cf * 100) / 100, CostoPromedio: Math.round(prom * 100) / 100 };
+        return { ...l, FleteUnit: fleteU, CostoFinal: Math.round(cf * 100) / 100, CostoPromedio: Math.round(prom * 100) / 100 };
       });
     });
   }, [flete, lineas.length]);
 
   const eliminarLinea = (id: number) => setLineas(prev => prev.filter(l => l.id !== id));
+
+  // Vuelve la línea al prorrateo automático del flete (quita la marca manual)
+  // y re-distribuye el flete total entre todas las líneas no manuales.
+  const resetFleteAuto = (id: number) => {
+    setLineas(prev => {
+      const next = prev.map(l => l.id === id ? { ...l, FleteManual: false } : l);
+      // Re-prorratear con la nueva configuración
+      const fleteManualTotal = next.reduce((s, l) =>
+        s + (l.FleteManual ? (l.FleteUnit || 0) * (l.Cantidad || 0) : 0), 0);
+      const fleteAuto = Math.max(0, flete - fleteManualTotal);
+      const totalSubAuto = next.reduce((s, l) =>
+        s + (l.FleteManual ? 0 : l.Subtotal), 0);
+      return next.map(l => {
+        let fleteU = l.FleteUnit || 0;
+        if (!l.FleteManual) {
+          fleteU = 0;
+          if (fleteAuto > 0 && totalSubAuto > 0 && l.Cantidad > 0) {
+            const prop = l.Subtotal / totalSubAuto;
+            fleteU = Math.round(((fleteAuto * prop) / l.Cantidad) * 100) / 100;
+          }
+        }
+        const cf = Math.round((l.CostoConIva + fleteU) * 100) / 100;
+        const nuevaExist = l.Existencia + l.Cantidad;
+        const prom = nuevaExist > 0
+          ? Math.round(((l.Existencia * l.CostoAnterior + l.Cantidad * cf) / nuevaExist) * 100) / 100
+          : cf;
+        return { ...l, FleteUnit: fleteU, CostoFinal: cf, CostoPromedio: prom };
+      });
+    });
+  };
+
+  // Recarga la línea desde el catálogo cuando el usuario borró el precio sin querer.
+  // Mantiene la cantidad y el lote actuales — solo refresca precios, IVA y existencia.
+  const recargarLinea = async (id: number) => {
+    const linea = lineas.find(l => l.id === id);
+    if (!linea) return;
+    try {
+      const r = await fetch(`${API}?buscar=${encodeURIComponent(linea.Codigo)}`);
+      const d = await r.json();
+      const art = (d.articulos || []).find((a: any) => a.Items === linea.Items);
+      if (!art) {
+        toast.error(`No se encontró ${linea.Codigo} en el catálogo`);
+        return;
+      }
+      const costoAntConIva = art.Precio_Costo || 0;
+      const ivaPct = (art.last_iva_compra !== null && art.last_iva_compra !== undefined)
+        ? art.last_iva_compra
+        : (art.Iva || 0);
+      const costoAntSinIva = ivaPct > 0 ? costoAntConIva / (1 + ivaPct / 100) : costoAntConIva;
+      const ivaVal = costoAntConIva - costoAntSinIva;
+      setLineas(prev => prev.map(l => l.id === id ? {
+        ...l,
+        Existencia: art.Existencia,
+        CostoSinIva: Math.round(costoAntSinIva * 100) / 100,
+        IvaPct: ivaPct,
+        IvaVal: Math.round(ivaVal * 100) / 100,
+        CostoConIva: costoAntConIva,
+        CostoFinal: costoAntConIva + (l.FleteUnit || 0),
+        CostoAnterior: costoAntConIva,
+        CostoPromedio: costoAntConIva,
+        PrecioVenta: art.Precio_Venta || l.PrecioVenta,
+        Subtotal: l.Cantidad * costoAntConIva,
+      } : l));
+      toast.success(`${linea.Codigo} recargado`);
+    } catch (e) {
+      toast.error('Error al recargar producto');
+    }
+  };
 
   const actualizarLote = (id: number, field: 'FechaVencimiento' | 'NumeroLote', value: string) => {
     setLineas(prev => prev.map(l => l.id === id ? { ...l, [field]: value } : l));
@@ -337,6 +491,36 @@ export function NuevaCompra({ pedidoEditar, onClose }: { pedidoEditar?: number; 
               <option value={1}>Precio con IVA incluido</option>
             </select>
           </div>
+          {lineas.length > 0 && (
+            <div title="Asigna el IVA seleccionado a TODAS las líneas (útil cuando toda la factura del proveedor está al mismo IVA)">
+              <label style={lbl}>APLICAR IVA A TODOS</label>
+              <div style={{ display: 'flex', gap: 2 }}>
+                {[0, 5, 19].map(pct => (
+                  <button key={pct} type="button"
+                    onClick={() => {
+                      setLineas(prev => prev.map(l => {
+                        const ivaVal = l.CostoSinIva * (pct / 100);
+                        return {
+                          ...l,
+                          IvaPct: pct,
+                          IvaVal: Math.round(ivaVal * 100) / 100,
+                          CostoConIva: Math.round((l.CostoSinIva + ivaVal) * 100) / 100,
+                          Subtotal: Math.round(l.Cantidad * (l.CostoSinIva + ivaVal) * 100) / 100,
+                        };
+                      }));
+                    }}
+                    style={{
+                      height: 28, padding: '0 10px', border: '1px solid #d1d5db', borderRadius: 6,
+                      fontSize: 11, fontWeight: 700, cursor: 'pointer',
+                      background: pct === 0 ? '#f3f4f6' : pct === 5 ? '#fef3c7' : '#fee2e2',
+                      color: pct === 0 ? '#6b7280' : pct === 5 ? '#92400e' : '#991b1b',
+                    }}>
+                    {pct}%
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           <div style={{ flex: 1 }} />
           <div style={{ textAlign: 'right' }}>
             <div style={{ fontSize: 9, color: '#6b7280' }}>TOTAL COMPRA</div>
@@ -376,17 +560,17 @@ export function NuevaCompra({ pedidoEditar, onClose }: { pedidoEditar?: number; 
             <thead>
               <tr style={{ background: '#fff', borderBottom: '3px solid #dc2626', position: 'sticky', top: 0, zIndex: 1 }}>
                 <th style={{ padding: '6px 6px', textAlign: 'left', width: 90 }}>Código</th>
-                <th style={{ padding: '6px 6px', textAlign: 'left' }}>Artículo</th>
+                <th style={{ padding: '6px 6px', textAlign: 'left', width: 200 }}>Artículo</th>
                 <th style={{ padding: '6px 6px', textAlign: 'center', width: 50 }}>Cant.</th>
                 <th style={{ padding: '6px 6px', textAlign: 'right', width: 80 }}>Costo s/IVA</th>
                 <th style={{ padding: '6px 6px', textAlign: 'center', width: 40 }}>IVA%</th>
                 <th style={{ padding: '6px 6px', textAlign: 'right', width: 80 }}>Costo c/IVA</th>
-                <th style={{ padding: '6px 6px', textAlign: 'right', width: 65 }}>Flete/u</th>
-                <th style={{ padding: '6px 6px', textAlign: 'right', width: 80, color: '#16a34a' }}>C. Final</th>
-                <th style={{ padding: '6px 6px', textAlign: 'right', width: 75, color: '#6b7280' }}>C. Anterior</th>
-                <th style={{ padding: '6px 6px', textAlign: 'right', width: 80, color: '#2563eb' }}>C. Promedio</th>
+                <th style={{ padding: '6px 6px', textAlign: 'right', width: 80 }} title="Editable: si tu proveedor cobra flete por peso, puedes ajustar el flete por unidad de cada producto.">Flete/u</th>
+                <th style={{ padding: '6px 6px', textAlign: 'right', width: 80, color: '#16a34a' }} title="Costo final por unidad (con IVA + flete prorrateado). Es lo que entra al promedio ponderado del catálogo.">C. Final<br/><span style={{ fontSize: 8, fontWeight: 400, color: '#6b7280' }}>(c/IVA)</span></th>
+                <th style={{ padding: '6px 6px', textAlign: 'right', width: 75, color: '#6b7280' }} title="Precio_Costo actual del catálogo (con IVA)">C. Anterior</th>
+                <th style={{ padding: '6px 6px', textAlign: 'right', width: 80, color: '#2563eb' }} title="Promedio ponderado tras esta compra. Se guarda como Precio_Costo del artículo.">C. Promedio<br/><span style={{ fontSize: 8, fontWeight: 400, color: '#6b7280' }}>(c/IVA)</span></th>
                 <th style={{ padding: '6px 6px', textAlign: 'right', width: 80, color: '#7c3aed' }}>P. Venta</th>
-                <th style={{ padding: '6px 6px', textAlign: 'right', width: 85 }}>Subtotal</th>
+                <th style={{ padding: '6px 6px', textAlign: 'right', width: 115 }}>Subtotal</th>
                 <th style={{ width: 28 }}></th>
               </tr>
             </thead>
@@ -394,7 +578,13 @@ export function NuevaCompra({ pedidoEditar, onClose }: { pedidoEditar?: number; 
               {lineas.map(l => (
                 <Fragment key={l.id}>
                 <tr style={{ borderBottom: l.RequiereLote ? 'none' : '1px solid #f3f4f6' }}>
-                  <td style={{ padding: '3px 6px', color: '#6b7280', fontSize: 10 }}>{l.Codigo}</td>
+                  <td style={{ padding: '3px 6px', fontSize: 10 }}>
+                    <button type="button" onClick={() => recargarLinea(l.id)}
+                      title="Clic para recargar precios del catálogo (útil si borraste el costo sin querer)"
+                      style={{ background: 'transparent', border: 'none', color: '#6b7280', cursor: 'pointer', padding: 0, fontSize: 10, fontFamily: 'inherit', textDecoration: 'underline dotted', textUnderlineOffset: 2 }}>
+                      {l.Codigo}
+                    </button>
+                  </td>
                   <td style={{ padding: '3px 6px', fontWeight: 500, fontSize: 11 }}>
                     {l.Nombre}
                     {l.RequiereLote ? <span style={{ marginLeft: 6, padding: '1px 6px', background: '#fef3c7', color: '#92400e', fontSize: 9, borderRadius: 3, fontWeight: 700 }}>PERECEDERO</span> : null}
@@ -418,7 +608,25 @@ export function NuevaCompra({ pedidoEditar, onClose }: { pedidoEditar?: number; 
                       {...moneyInputHandlers(Math.round(l.CostoConIva * 100) / 100, v => actualizarLinea(l.id, 'CostoConIva', v))}
                       style={{ width: 80, height: 22, textAlign: 'right', border: '1px solid #d1d5db', borderRadius: 4, fontSize: 11 }} />
                   </td>
-                  <td style={{ padding: '3px 6px', textAlign: 'right', fontSize: 10, color: flete > 0 ? '#d97706' : '#d1d5db' }}>{l.FleteUnit > 0 ? fmtMon(l.FleteUnit) : '-'}</td>
+                  <td style={{ padding: '2px 3px', textAlign: 'right' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 2 }}>
+                      {l.FleteManual && (
+                        <button type="button" title="Flete editado manualmente. Click para volver al prorrateo automático."
+                          onClick={() => resetFleteAuto(l.id)}
+                          style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#d97706', padding: 0, fontSize: 10 }}>📌</button>
+                      )}
+                      <input type="text" key={`flu-${l.id}-${l.FleteUnit}-${l.FleteManual ? 'm' : 'a'}`}
+                        {...moneyInputHandlers(l.FleteUnit, v => actualizarLinea(l.id, 'FleteUnit', v))}
+                        disabled={flete <= 0}
+                        style={{
+                          width: 60, height: 22, textAlign: 'right',
+                          border: l.FleteManual ? '1px solid #d97706' : '1px solid #d1d5db',
+                          background: l.FleteManual ? '#fffbeb' : (flete > 0 ? '#fff' : '#f9fafb'),
+                          color: flete > 0 ? (l.FleteManual ? '#92400e' : '#d97706') : '#d1d5db',
+                          borderRadius: 4, fontSize: 10, fontWeight: l.FleteManual ? 700 : 400,
+                        }} />
+                    </div>
+                  </td>
                   <td style={{ padding: '3px 6px', textAlign: 'right', fontWeight: 700, color: '#16a34a', fontSize: 11 }}>{fmtMon(l.CostoFinal)}</td>
                   <td style={{ padding: '3px 6px', textAlign: 'right', color: '#9ca3af', fontSize: 10 }}>{fmtMon(l.CostoAnterior)}</td>
                   <td style={{ padding: '3px 6px', textAlign: 'right', fontWeight: 700, color: '#2563eb', fontSize: 11 }}>{fmtMon(l.CostoPromedio)}</td>
@@ -426,7 +634,7 @@ export function NuevaCompra({ pedidoEditar, onClose }: { pedidoEditar?: number; 
                     <input type="text" {...moneyInputHandlers(l.PrecioVenta, v => actualizarLinea(l.id, 'PrecioVenta', v))}
                       style={{ width: 70, height: 22, textAlign: 'right', border: '1px solid #d1d5db', borderRadius: 4, fontSize: 11, color: '#7c3aed', fontWeight: 600 }} />
                   </td>
-                  <td style={{ padding: '3px 6px', textAlign: 'right', fontWeight: 700 }}>{fmtMon(l.Subtotal)}</td>
+                  <td style={{ padding: '3px 6px', textAlign: 'right', fontWeight: 700, whiteSpace: 'nowrap' }}>{fmtMon(l.Subtotal)}</td>
                   <td style={{ padding: '2px' }}><button onClick={() => eliminarLinea(l.id)} style={{ background: 'none', border: 'none', cursor: 'pointer' }}><Trash2 size={12} color="#dc2626" /></button></td>
                 </tr>
                 {l.RequiereLote ? (

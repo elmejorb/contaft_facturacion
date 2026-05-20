@@ -1,6 +1,9 @@
 import { useState, useEffect } from 'react';
 import { Button } from './ui/button';
+import toast from 'react-hot-toast';
 import appIcon from '../assets/icon.png';
+import pkg from '../../package.json';
+const APP_VERSION = pkg.version;
 import {
   LayoutDashboard,
   Package,
@@ -348,6 +351,33 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
             <div>
               <div style={{ fontSize: 16, fontWeight: 800, color: '#fff', lineHeight: 1.1 }}>Conta FT</div>
               <div style={{ fontSize: 11, color: '#a5b4fc', fontWeight: 500, letterSpacing: 1 }}>Facturación</div>
+              <div
+                onClick={async () => {
+                  try {
+                    // @ts-ignore
+                    const ipc = (window as any).require?.('electron')?.ipcRenderer;
+                    if (!ipc) { toast('Modo desarrollo — sin actualización', { icon: '🛠️' }); return; }
+                    toast.loading('Buscando actualización...', { id: 'upd-check' });
+                    const r = await ipc.invoke('updater:check');
+                    toast.dismiss('upd-check');
+                    if (r?.ok) {
+                      if (r.version) toast.success(`Buscando v${r.version}...`);
+                      else toast('Estás en la última versión', { icon: '✅' });
+                    } else {
+                      const motivo = r?.reason || 'desconocido';
+                      const msg = r?.message ? ` — ${r.message}` : '';
+                      toast.error(`No se pudo verificar (${motivo})${msg}`, { duration: 6000 });
+                    }
+                  } catch (e: any) {
+                    toast.dismiss('upd-check');
+                    toast.error(`Error: ${e?.message || e}`);
+                  }
+                }}
+                title="Click para buscar actualizaciones"
+                style={{ fontSize: 10, color: '#cbd5e1', fontWeight: 600, marginTop: 2, cursor: 'pointer' }}
+              >
+                v{APP_VERSION}
+              </div>
             </div>
           </h1>
         </div>
@@ -444,7 +474,7 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 overflow-auto">
+      <main className="flex-1 overflow-auto flex flex-col">
         <header style={{
           background: 'linear-gradient(135deg, #1e1b4b 0%, oklch(.424 .199 265.638) 60%, oklch(.42 .26 295) 100%)',
           borderBottom: '1px solid rgba(255,255,255,0.08)',
@@ -626,7 +656,7 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
           </div>
         </header>
 
-        <div className={currentView === 'inicio' ? '' : 'p-6'}>
+        <div className={currentView === 'inicio' ? 'flex-1 min-h-0' : 'p-6 flex-1 min-h-0 overflow-auto'}>
           {currentView === 'inicio' && <PantallaInicio user={user} onNavigate={(v) => setCurrentView(v as View)} esAdmin={esAdmin} esVendedor={esVendedor} />}
           {currentView === 'overview' && (esVendedor ? <DashboardVendedor user={user} /> : <IncomeOverview />)}
           {currentView === 'inventario' && <InventarioManagement />}
@@ -658,7 +688,7 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
           {currentView === 'sales' && <SalesManagement />}
           {currentView === 'ventas-tipo-pago' && <VentasPorTipoPago />}
           {currentView === 'nueva-venta' && <VentasTabs />}
-          {currentView === 'facturacion-electronica' && <FacturacionElectronica />}
+          {currentView === 'facturacion-electronica' && <FacturacionElectronica onNavigate={(v) => setCurrentView(v as View)} />}
           {currentView === 'caja' && <CajaRegistradora />}
           {currentView === 'caja-historial' && <HistorialCajas />}
           {currentView === 'informes-hub' && <InformesHub />}

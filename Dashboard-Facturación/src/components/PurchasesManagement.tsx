@@ -43,12 +43,15 @@ export function PurchasesManagement() {
     return <NuevaCompra pedidoEditar={editarPedido} onClose={() => { setEditarPedido(null); cargar(); }} />;
   }
 
+  // Anchos calibrados para que ningún header/valor se trunque:
+  // - Los headers con filtro+sort de AG Grid consumen ~30-40px extra de iconos
+  // - Los importes pueden llegar a 9 dígitos ($999.999.999) → ~135px con padding
   const colDefs: any[] = [
-    { field: 'Pedido_N', headerName: 'Pedido', width: 80, cellStyle: { color: '#7c3aed', fontWeight: 600 } },
-    { field: 'FacturaCompra_N', headerName: 'Fact. Compra', width: 120 },
-    { field: 'Fecha', headerName: 'Fecha', width: 100, valueFormatter: (p: any) => p.value ? new Date(p.value).toLocaleDateString('es-CO') : '' },
-    { field: 'Proveedor', headerName: 'Proveedor', flex: 1, minWidth: 180 },
-    { field: 'TipoPedido', headerName: 'Tipo', width: 80,
+    { field: 'Pedido_N', headerName: 'Pedido', width: 95, cellStyle: { color: '#7c3aed', fontWeight: 600, textAlign: 'center' } },
+    { field: 'FacturaCompra_N', headerName: 'Factura', width: 130 },
+    { field: 'Fecha', headerName: 'Fecha', width: 110, valueFormatter: (p: any) => p.value ? new Date(p.value).toLocaleDateString('es-CO') : '' },
+    { field: 'Proveedor', headerName: 'Proveedor', flex: 1, minWidth: 200 },
+    { field: 'TipoPedido', headerName: 'Tipo', width: 105,
       cellRenderer: (p: any) => {
         const t = p.value;
         const bg = t === 'Contado' ? '#dcfce7' : '#fef3c7';
@@ -56,17 +59,17 @@ export function PurchasesManagement() {
         return <span style={{ padding: '2px 8px', borderRadius: 10, fontSize: 11, fontWeight: 600, background: bg, color }}>{t}</span>;
       }
     },
-    { field: 'Items', headerName: 'Items', width: 60, cellStyle: { textAlign: 'center' } },
-    { field: 'Total', headerName: 'Total', width: 120, cellStyle: { textAlign: 'right', fontWeight: 700 },
+    { field: 'Items', headerName: 'Ítems', width: 80, cellStyle: { textAlign: 'center' } },
+    { field: 'Total', headerName: 'Total', width: 135, cellStyle: { textAlign: 'right', fontWeight: 700 },
       valueFormatter: (p: any) => fmtMon(p.value || 0) },
-    { field: 'Saldo', headerName: 'Saldo', width: 100, cellStyle: (p: any) => ({ textAlign: 'right', fontWeight: 600, color: p.value > 0 ? '#dc2626' : '#16a34a' }),
+    { field: 'Saldo', headerName: 'Saldo', width: 135, cellStyle: (p: any) => ({ textAlign: 'right', fontWeight: 600, color: p.value > 0 ? '#dc2626' : '#16a34a' }),
       valueFormatter: (p: any) => fmtMon(p.value || 0) },
-    { field: 'Flete', headerName: 'Flete', width: 80, cellStyle: { textAlign: 'right' },
+    { field: 'Flete', headerName: 'Flete', width: 100, cellStyle: { textAlign: 'right' },
       valueFormatter: (p: any) => p.value > 0 ? fmtMon(p.value) : '-' },
     {
-      headerName: '', width: 70, sortable: false, filter: false,
+      headerName: '', width: 50, sortable: false, filter: false,
       cellRenderer: (p: any) => (
-        <div style={{ display: 'flex', gap: 4, alignItems: 'center', height: '100%' }}>
+        <div style={{ display: 'flex', gap: 4, alignItems: 'center', justifyContent: 'center', height: '100%' }}>
           <button onClick={() => setEditarPedido(p.data.Pedido_N)} title="Editar compra"
             style={{ background: 'none', border: 'none', cursor: 'pointer' }}>
             <Edit2 size={14} color="#7c3aed" />
@@ -116,15 +119,15 @@ export function PurchasesManagement() {
       </div>
 
       {/* AG Grid */}
-      <div className="ag-theme-alpine" style={{ height: 'calc(100vh - 240px)', width: '100%' }}>
+      <div className="ag-theme-alpine" style={{ height: 'calc(100vh - 240px)', width: '100%', fontSize: 12, ['--ag-font-size' as any]: '12px' }}>
         <AgGridReact
           ref={gridRef}
           rowData={filtradas}
           columnDefs={colDefs}
           defaultColDef={{ sortable: true, filter: true, resizable: true }}
           animateRows
-          rowHeight={34}
-          headerHeight={32}
+          rowHeight={32}
+          headerHeight={30}
           getRowId={(p: any) => String(p.data.Pedido_N)}
           overlayNoRowsTemplate="<span style='font-size:13px;color:#6b7280'>No hay compras para mostrar</span>"
         />

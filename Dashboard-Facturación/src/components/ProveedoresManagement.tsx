@@ -244,7 +244,12 @@ function ProveedorDetalle({ provId, onClose }: { provId: number; onClose: () => 
     try {
       const r = await fetch(`${API}?id=${provId}`);
       const d = await r.json();
-      if (d.success) { setData(d); setAbonos(new Map()); }
+      if (d.success) {
+        setData(d);
+        setAbonos(new Map());
+        // Forzar remount de inputs para evitar reciclaje de DOM nodes con el proveedor anterior
+        setFormVersion(v => v + 1);
+      }
     } catch (e) { console.error(e); }
     setLoading(false);
   };
@@ -450,7 +455,7 @@ function ProveedorDetalle({ provId, onClose }: { provId: number; onClose: () => 
                           <td style={{ padding: '5px 8px', textAlign: 'center', color: f.Dias_Mora > 30 ? '#dc2626' : '#6b7280' }}>{f.Dias_Mora}d</td>
                           <td style={{ padding: '4px 8px', textAlign: 'center' }}>
                             <input type="text" data-prov-input="true"
-                              key={`abono-${f.ID_FactAnterioresP}-${formVersion}`}
+                              key={`abono-${provId}-${f.ID_FactAnterioresP}-${formVersion}`}
                               defaultValue={abono > 0 ? abono.toLocaleString('es-CO') : ''}
                               onFocus={e => { e.target.value = abonos.get(f.ID_FactAnterioresP) ? String(abonos.get(f.ID_FactAnterioresP)) : ''; e.target.select(); }}
                               onBlur={e => {

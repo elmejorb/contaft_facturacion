@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { AgGridReact } from 'ag-grid-react';
 import { AllCommunityModule, ModuleRegistry, ColDef } from 'ag-grid-community';
-import { Search, RefreshCw, Users, DollarSign, AlertTriangle, Clock, Wallet, Eye, Printer, Plus, X } from 'lucide-react';
+import { Search, RefreshCw, Users, DollarSign, AlertTriangle, Clock, Wallet, Eye, Printer, Plus, X, Ban, RotateCcw, Award } from 'lucide-react';
+import { confirmar } from './ConfirmDialog';
 import { ClienteDetalle } from './ClienteDetalle';
 import toast from 'react-hot-toast';
 import { hoyLocal, inicioMesLocal } from '../utils/fecha';
@@ -9,6 +10,26 @@ import { hoyLocal, inicioMesLocal } from '../utils/fecha';
 ModuleRegistry.registerModules([AllCommunityModule]);
 
 const API = 'http://localhost:80/conta-app-backend/api/clientes/cartera.php';
+const API_COMP = 'http://localhost:80/conta-app-backend/api/clientes/comportamiento.php';
+
+type Comportamiento = 'sin_datos' | 'excelente' | 'puntual' | 'regular' | 'moroso' | 'critico';
+
+const COMP_CONFIG: Record<Comportamiento, { label: string; bg: string; color: string }> = {
+  excelente: { label: 'Excelente', bg: '#d1fae5', color: '#059669' },
+  puntual:   { label: 'Puntual',   bg: '#dbeafe', color: '#2563eb' },
+  regular:   { label: 'Regular',   bg: '#fef3c7', color: '#d97706' },
+  moroso:    { label: 'Moroso',    bg: '#fed7aa', color: '#ea580c' },
+  critico:   { label: 'Crítico',   bg: '#fee2e2', color: '#dc2626' },
+  sin_datos: { label: 'Sin datos', bg: '#f3f4f6', color: '#6b7280' },
+};
+
+const MOTIVOS_CASTIGO = [
+  { id: 'cliente_perdido',   label: 'Cliente perdido' },
+  { id: 'empresa_cerrada',   label: 'Empresa cerrada / liquidada' },
+  { id: 'no_localizable',    label: 'No localizable' },
+  { id: 'acuerdo_fallido',   label: 'Acuerdo de pago fallido' },
+  { id: 'otro',              label: 'Otro motivo' },
+];
 
 const fmtMon = (v: number) => '$ ' + Math.round(v).toLocaleString('es-CO');
 
@@ -22,6 +43,11 @@ interface ClienteCartera {
   Factura_Mas_Antigua: string;
   Dias_Mayor_Vencimiento: number;
   CupoAutorizado: number;
+  comportamiento?: Comportamiento;
+  cartera_castigada?: number;
+  motivo_castigo?: string;
+  fecha_castigo?: string;
+  dias_mora_promedio?: number | null;
 }
 
 export function CuentasPorCobrar() {
@@ -43,6 +69,10 @@ export function CuentasPorCobrar() {
   const [faDias, setFaDias] = useState('30');
   const faTimer = useRef<any>(null);
   const gridRef = useRef<AgGridReact>(null);
+
+  // Modal de castigo de cartera
+  const [castigoModal, setCastigoModal] = useState<{ cliente: ClienteCartera | null; motivo: string; detalle: string }>({ cliente: null, motivo: 'cliente_perdido', detalle: '' });
+  const [castigando, setCastigando] = useState(false);
 
   const generarReportePDF = () => {
     const fmtM = (v: number) => '$ ' + Math.round(v).toLocaleString('es-CO');
@@ -286,14 +316,98 @@ export function CuentasPorCobrar() {
   const cargar = async () => {
     setLoading(true);
     try {
+      // Desde v5.5: cartera.php ya devuelve comportamiento y castigo en el mismo objeto
       const r = await fetch(API);
       const d = await r.json();
       if (d.success) {
-        setClientes(d.clientes);
+        const clientes = (d.clientes || []).map((c: any) => ({
+          ...c,
+          comportamiento: (c.comportamiento as Comportamiento) ?? 'sin_datos',
+          cartera_castigada: Number(c.cartera_castigada ?? 0),
+        }));
+        setClientes(clientes);
         setResumen(d.resumen);
       }
     } catch (e) { console.error(e); }
     setLoading(false);
+  };
+
+  const castigarCartera = (cliente: ClienteCartera) => {
+    // Abre el modal en vez de prompts feos
+    setCastigoModal({ cliente, motivo: 'cliente_perdido', detalle: '' });
+  };
+
+  const confirmarCastigo = async () => {
+    const cliente = castigoModal.cliente;
+    if (!cliente) return;
+    if (castigoModal.motivo === 'otro' && !castigoModal.detalle.trim()) {
+      toast.error('Describe el motivo "otro"');
+      return;
+    }
+    setCastigando(true);
+    try {
+      const r = await fetch(API_COMP, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'castigar',
+          id: cliente.CodigoClien,
+          motivo: castigoModal.motivo,
+          motivo_detalle: castigoModal.detalle.trim() || null,
+          id_usuario: 0,
+        }),
+      });
+      const d = await r.json();
+      if (d.success) {
+        toast.success(`Cartera de "${cliente.Razon_Social}" castigada`);
+        setCastigoModal({ cliente: null, motivo: 'cliente_perdido', detalle: '' });
+        cargar();
+      } else {
+        toast.error(d.message || 'Error al castigar');
+      }
+    } catch (e: any) {
+      toast.error(e?.message || 'Error de red');
+    }
+    setCastigando(false);
+  };
+
+  const restaurarCartera = async (cliente: ClienteCartera) => {
+    const ok = await confirmar({
+      title: 'Restaurar cartera',
+      message: `¿Restaurar la cartera de "${cliente.Razon_Social}"? Volverá a aparecer en el listado principal.`,
+      type: 'question',
+      confirmText: 'Sí, restaurar',
+    });
+    if (!ok) return;
+    try {
+      const r = await fetch(API_COMP, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'restaurar', id: cliente.CodigoClien }),
+      });
+      const d = await r.json();
+      if (d.success) { toast.success('Cartera restaurada'); cargar(); }
+      else toast.error(d.message || 'Error');
+    } catch (e: any) { toast.error(e?.message || 'Error de red'); }
+  };
+
+  const recalcularComportamiento = async () => {
+    const ok = await confirmar({
+      title: 'Recalcular comportamiento',
+      message: 'Esto analiza el historial de pagos de los últimos 12 meses de TODOS los clientes y actualiza su categoría. Puede tomar unos segundos.',
+      type: 'info',
+      confirmText: 'Recalcular',
+    });
+    if (!ok) return;
+    toast.loading('Recalculando...', { id: 'recalc' });
+    try {
+      const r = await fetch(API_COMP, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'recalcular' }),
+      });
+      const d = await r.json();
+      toast.dismiss('recalc');
+      if (d.success) { toast.success(`Procesados: ${d.procesados} clientes`); cargar(); }
+      else toast.error(d.message || 'Error');
+    } catch (e: any) { toast.dismiss('recalc'); toast.error(e?.message || 'Error de red'); }
   };
 
   const buscarClienteFA = (q: string) => {
@@ -331,6 +445,13 @@ export function CuentasPorCobrar() {
       c.Nit?.includes(busqueda) ||
       c.Telefonos?.includes(busqueda);
     if (!matchBusqueda) return false;
+
+    // Filtros por estado de cartera (castigada vs activa)
+    const castigada = (c.cartera_castigada ?? 0) === 1;
+    if (filtro === 'castigadas') return castigada;
+    if (filtro === 'todos_incluyendo_castigadas') return true;
+    if (castigada) return false;  // demás filtros excluyen castigadas por default
+
     const d = c.Dias_Mayor_Vencimiento;
     switch (filtro) {
       case 'sin_vencer': return d <= 0;
@@ -338,6 +459,8 @@ export function CuentasPorCobrar() {
       case '31a60': return d >= 31 && d <= 60;
       case 'mas60': return d > 60;
       case 'alto': return c.Saldo_Total >= 500000;
+      case 'mejores': return c.comportamiento === 'excelente' || c.comportamiento === 'puntual';
+      case 'morosos': return c.comportamiento === 'moroso' || c.comportamiento === 'critico';
       default: return true;
     }
   });
@@ -388,24 +511,70 @@ export function CuentasPorCobrar() {
       }
     },
     {
-      headerName: '', width: 50, sortable: false,
-      cellStyle: { display: 'flex', alignItems: 'center', justifyContent: 'center' },
-      cellRenderer: (p: any) => (
-        <button
-          onClick={() => setDetalleId(p.data.CodigoClien)}
-          title="Ver facturas y pagar"
-          style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 3 }}
-        >
-          <Eye size={16} color="#7c3aed" />
-        </button>
-      )
+      headerName: 'Comportamiento', field: 'comportamiento', width: 130, sortable: true,
+      cellStyle: { display: 'flex', alignItems: 'center' },
+      cellRenderer: (p: any) => {
+        const c = (p.value || 'sin_datos') as Comportamiento;
+        const cfg = COMP_CONFIG[c];
+        const castigada = p.data.cartera_castigada === 1;
+        if (castigada) {
+          return <span style={{ background: '#1f2937', color: '#fca5a5', padding: '2px 8px', borderRadius: 4, fontSize: 10, fontWeight: 700 }}>⛔ CASTIGADA</span>;
+        }
+        return (
+          <span title={p.data.dias_mora_promedio !== null && p.data.dias_mora_promedio !== undefined ? `Mora promedio: ${p.data.dias_mora_promedio} días` : 'Sin pagos suficientes'}
+            style={{ background: cfg.bg, color: cfg.color, padding: '2px 8px', borderRadius: 4, fontSize: 10, fontWeight: 700 }}>
+            {cfg.label}
+          </span>
+        );
+      }
+    },
+    {
+      headerName: '', width: 90, sortable: false,
+      cellStyle: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 },
+      cellRenderer: (p: any) => {
+        const castigada = p.data.cartera_castigada === 1;
+        return (
+          <div style={{ display: 'flex', gap: 4 }} onClick={(e) => e.stopPropagation()}>
+            <button
+              onClick={(e) => { e.stopPropagation(); setDetalleId(p.data.CodigoClien); }}
+              title="Ver facturas y pagar"
+              style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 3 }}
+            >
+              <Eye size={16} color="#7c3aed" />
+            </button>
+            {castigada ? (
+              <button
+                onClick={(e) => { e.stopPropagation(); restaurarCartera(p.data); }}
+                title="Restaurar cartera (volver a activa)"
+                style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 3 }}
+              >
+                <RotateCcw size={16} color="#16a34a" />
+              </button>
+            ) : (
+              <button
+                onClick={(e) => { e.stopPropagation(); castigarCartera(p.data); }}
+                title="Castigar cartera (marcar incobrable)"
+                style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 3 }}
+              >
+                <Ban size={16} color="#dc2626" />
+              </button>
+            )}
+          </div>
+        );
+      }
     }
   ];
 
-  const totalSaldo = resumen.total_saldo || 0;
-  const totalClientes = resumen.total_clientes || 0;
-  const totalVencidos = resumen.total_vencidos || 0;
-  const saldoVencido = resumen.saldo_vencido || 0;
+  // Cards: separamos cartera activa de castigada.
+  // Cartera activa = todos los clientes NO castigados.
+  // Cartera castigada = solo los castigados (saldo "incobrable").
+  const clientesActivos = clientes.filter(c => (c.cartera_castigada ?? 0) === 0);
+  const clientesCastigados = clientes.filter(c => (c.cartera_castigada ?? 0) === 1);
+  const totalSaldo = clientesActivos.reduce((s, c) => s + (c.Saldo_Total || 0), 0);
+  const totalClientes = clientesActivos.length;
+  const totalVencidos = clientesActivos.filter(c => c.Dias_Mayor_Vencimiento > 30).length;
+  const saldoVencido = clientesActivos.filter(c => c.Dias_Mayor_Vencimiento > 30).reduce((s, c) => s + (c.Saldo_Total || 0), 0);
+  const totalSaldoCastigado = clientesCastigados.reduce((s, c) => s + (c.Saldo_Total || 0), 0);
 
   return (
     <div>
@@ -439,23 +608,43 @@ export function CuentasPorCobrar() {
         </div>
       </div>
 
-      {/* Stats */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 16 }}>
+      {/* Stats — separamos cartera activa de castigada */}
+      <div style={{ display: 'grid', gridTemplateColumns: clientesCastigados.length > 0 ? 'repeat(5, 1fr)' : 'repeat(4, 1fr)', gap: 12, marginBottom: 16 }}>
         {[
-          { label: 'Clientes con Saldo', value: totalClientes, icon: Users, bg: '#f3e8ff', color: '#7c3aed' },
-          { label: 'Total Cartera', value: fmtMon(totalSaldo), icon: DollarSign, bg: '#fee2e2', color: '#dc2626', isText: true },
+          { label: 'Clientes con Saldo', value: totalClientes, icon: Users, bg: '#f3e8ff', color: '#7c3aed', sub: 'cartera activa' },
+          { label: 'Total Cartera', value: fmtMon(totalSaldo), icon: DollarSign, bg: '#fee2e2', color: '#dc2626', isText: true, sub: 'sin castigados' },
           { label: 'Clientes Vencidos (>30d)', value: totalVencidos, icon: AlertTriangle, bg: '#fef3c7', color: '#d97706' },
           { label: 'Saldo Vencido', value: fmtMon(saldoVencido), icon: Clock, bg: '#fef3c7', color: '#d97706', isText: true },
-        ].map((s, i) => {
+          ...(clientesCastigados.length > 0 ? [{
+            label: 'Cartera Castigada',
+            value: fmtMon(totalSaldoCastigado),
+            icon: Ban,
+            bg: '#1f2937',
+            color: '#fca5a5',
+            isText: true,
+            sub: `${clientesCastigados.length} cliente${clientesCastigados.length === 1 ? '' : 's'} (no recuperable)`,
+            isDark: true,
+          }] : []),
+        ].map((s: any, i) => {
           const Icon = s.icon;
+          const dark = (s as any).isDark;
           return (
-            <div key={i} style={{ background: '#fff', borderRadius: 12, padding: '16px 20px', boxShadow: '0 1px 3px rgba(0,0,0,0.08)', display: 'flex', alignItems: 'center', gap: 12 }}>
-              <div style={{ width: 40, height: 40, borderRadius: 10, background: s.bg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <div key={i} style={{
+              background: dark ? '#1f2937' : '#fff',
+              borderRadius: 12,
+              padding: '14px 18px',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 12,
+            }}>
+              <div style={{ width: 40, height: 40, borderRadius: 10, background: dark ? 'rgba(252,165,165,0.15)' : s.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                 <Icon size={20} color={s.color} />
               </div>
-              <div>
-                <div style={{ fontSize: 11, color: '#6b7280' }}>{s.label}</div>
-                <div style={{ fontSize: (s as any).isText ? 16 : 20, fontWeight: 700 }}>{s.value}</div>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 11, color: dark ? '#9ca3af' : '#6b7280' }}>{s.label}</div>
+                <div style={{ fontSize: s.isText ? 16 : 20, fontWeight: 700, color: dark ? s.color : '#111827', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.value}</div>
+                {s.sub && <div style={{ fontSize: 10, color: dark ? '#6b7280' : '#9ca3af', marginTop: 1 }}>{s.sub}</div>}
               </div>
             </div>
           );
@@ -478,12 +667,16 @@ export function CuentasPorCobrar() {
         </div>
 
         {[
-          { id: 'todos', label: 'Todos' },
+          { id: 'todos', label: 'Activos' },
           { id: 'sin_vencer', label: 'Sin Vencer' },
           { id: '1a30', label: 'De 1 a 30' },
           { id: '31a60', label: 'De 31 a 60' },
           { id: 'mas60', label: 'Más de 60' },
           { id: 'alto', label: 'Saldo >$500k' },
+          { id: 'mejores', label: '⭐ Mejores' },
+          { id: 'morosos', label: '⚠ Morosos' },
+          { id: 'castigadas', label: '⛔ Castigadas' },
+          { id: 'todos_incluyendo_castigadas', label: 'Todas' },
         ].map(f => (
           <button key={f.id} onClick={() => setFiltro(f.id)} style={{
             height: 28, padding: '0 10px', fontSize: 12, borderRadius: 6, cursor: 'pointer',
@@ -497,6 +690,13 @@ export function CuentasPorCobrar() {
         ))}
 
         <div style={{ flex: 1 }} />
+        <button onClick={recalcularComportamiento} title="Recalcula categorías de puntualidad de todos los clientes" style={{
+          height: 32, padding: '0 12px', background: '#fff', color: '#16a34a',
+          border: '1px solid #16a34a', borderRadius: 8, fontSize: 12, cursor: 'pointer',
+          display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600
+        }}>
+          <Award size={13} /> Recalcular
+        </button>
         <button onClick={cargar} style={{
           height: 32, padding: '0 14px', background: '#7c3aed', color: '#fff',
           border: 'none', borderRadius: 8, fontSize: 13, cursor: 'pointer',
@@ -609,6 +809,75 @@ export function CuentasPorCobrar() {
               <button onClick={guardarFactAnt}
                 style={{ height: 34, padding: '0 20px', background: '#d97706', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
                 Agregar Factura
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Castigar Cartera */}
+      {castigoModal.cliente && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div style={{ background: '#fff', borderRadius: 12, width: '100%', maxWidth: 440, boxShadow: '0 25px 60px rgba(0,0,0,0.3)' }}>
+            {/* Header */}
+            <div style={{ padding: '16px 20px', borderBottom: '1px solid #e5e7eb', display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{ width: 44, height: 44, borderRadius: 12, background: '#fee2e2', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <Ban size={22} color="#dc2626" />
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 16, fontWeight: 700, color: '#111827' }}>Castigar cartera</div>
+                <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>
+                  {castigoModal.cliente.Razon_Social} · Saldo {fmtMon(castigoModal.cliente.Saldo_Total)}
+                </div>
+              </div>
+            </div>
+
+            {/* Body */}
+            <div style={{ padding: '16px 20px' }}>
+              <div style={{ background: '#fef3c7', border: '1px solid #fde68a', borderRadius: 8, padding: '10px 12px', fontSize: 12, color: '#78350f', marginBottom: 14, lineHeight: 1.5 }}>
+                ⚠ El cliente desaparecerá del listado principal de cartera. <strong>El saldo y las facturas NO se borran</strong> — quedan disponibles en el filtro "Castigadas" y se pueden restaurar después.
+              </div>
+
+              <label style={{ fontSize: 11, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 6, letterSpacing: 0.5 }}>MOTIVO DEL CASTIGO</label>
+              <select
+                value={castigoModal.motivo}
+                onChange={(e) => setCastigoModal({ ...castigoModal, motivo: e.target.value })}
+                style={{ width: '100%', height: 36, border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, padding: '0 10px', background: '#fff', outline: 'none', marginBottom: 12 }}
+              >
+                {MOTIVOS_CASTIGO.map(m => (
+                  <option key={m.id} value={m.id}>{m.label}</option>
+                ))}
+              </select>
+
+              {castigoModal.motivo === 'otro' && (
+                <>
+                  <label style={{ fontSize: 11, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 6, letterSpacing: 0.5 }}>DESCRIBE EL MOTIVO</label>
+                  <textarea
+                    value={castigoModal.detalle}
+                    onChange={(e) => setCastigoModal({ ...castigoModal, detalle: e.target.value })}
+                    placeholder="Aclaración libre..."
+                    rows={3}
+                    style={{ width: '100%', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 12, padding: 10, resize: 'vertical', boxSizing: 'border-box', outline: 'none' }}
+                  />
+                </>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div style={{ padding: '12px 20px', borderTop: '1px solid #e5e7eb', display: 'flex', gap: 8, justifyContent: 'flex-end', background: '#f9fafb', borderRadius: '0 0 12px 12px' }}>
+              <button
+                onClick={() => setCastigoModal({ cliente: null, motivo: 'cliente_perdido', detalle: '' })}
+                disabled={castigando}
+                style={{ height: 36, padding: '0 16px', background: '#fff', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, cursor: 'pointer', color: '#374151' }}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={confirmarCastigo}
+                disabled={castigando}
+                style={{ height: 36, padding: '0 18px', background: '#dc2626', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: castigando ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
+              >
+                <Ban size={14} /> {castigando ? 'Castigando...' : 'Sí, castigar cartera'}
               </button>
             </div>
           </div>

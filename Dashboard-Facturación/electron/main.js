@@ -1,9 +1,25 @@
-const { app, BrowserWindow, globalShortcut, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, globalShortcut, ipcMain, dialog, Menu } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 const http = require('http');
 const https = require('https');
+const crypto = require('crypto');
 const { URL } = require('url');
+
+// machine_id estable por equipo: hash de hostname + user + plataforma + CPU.
+// Cambia solo si reinstalan el SO o cambian hardware mayor.
+function getMachineInfo() {
+  const hostname = os.hostname() || 'unknown';
+  const username = (os.userInfo() && os.userInfo().username) || 'unknown';
+  const platform = os.platform();
+  const cpuModel = (os.cpus() && os.cpus()[0] && os.cpus()[0].model) || 'unknown';
+  const machineId = crypto.createHash('sha256')
+    .update(`${hostname}|${username}|${platform}|${cpuModel}`)
+    .digest('hex')
+    .substring(0, 32);
+  return { machineId, machineName: hostname, username, platform };
+}
 
 // Hot reload en desarrollo
 if (process.env.NODE_ENV === 'development') {
@@ -18,13 +34,18 @@ if (process.env.NODE_ENV === 'development') {
 }
 
 // ============================================================
-// Auto-updater (solo producción). Falla silenciosa si no hay red.
-// Valida suscripción activa contra API de Innovación Digital antes
-// de permitir la descarga.
+// Auto-updater + Subscription Gate
+// Reglas:
+//  - validateForUsage  → permisivo: cache vale hasta fecha_fin de la
+//    suscripción; si no hay red usa cache; tolera "código offline" HMAC
+//  - validateForUpdate → estricto: requiere CRM en línea para descargar
+//    actualización (es el flujo actual)
 // ============================================================
 const SUBS_API_BASE = 'https://crm.innovacion-digital.com/api/public/api/v1';
-const SUBS_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 días de gracia offline
 const ESTADOS_PERMITIDOS = ['activa', 'prueba', 'por_vencer'];
+// Secreto compartido con el CRM para firmar/verificar códigos offline.
+// Si se rota, el CRM debe generarlo igual y los códigos antiguos quedan inválidos.
+const OFFLINE_SECRET = 'CONTA_FT_OFFLINE_2026_INV_DIGITAL';
 
 function httpGetJson(url, timeoutMs = 10000) {
   return new Promise((resolve, reject) => {
@@ -60,63 +81,142 @@ async function getApiTokenFromBackend() {
   }
 }
 
-async function validateSubscription() {
-  if (process.env.NODE_ENV === 'development') {
-    return { allowed: false, reason: 'dev', message: 'Modo desarrollo — sin validación' };
+// Verifica un código offline firmado con HMAC. Formato:
+//   <BASE64URL(JSON{empresa, fecha_fin, nit?})>.<HMAC_SHA256_HEX>
+function verifyOfflineCode(code) {
+  if (!code || typeof code !== 'string') return null;
+  const parts = code.split('.');
+  if (parts.length !== 2) return null;
+  const [payloadB64, sig] = parts;
+  const expected = crypto.createHmac('sha256', OFFLINE_SECRET).update(payloadB64).digest('hex');
+  if (sig !== expected) return { valid: false, reason: 'firma-invalida' };
+  try {
+    const json = Buffer.from(payloadB64, 'base64').toString('utf8');
+    const payload = JSON.parse(json);
+    if (!payload.fecha_fin) return { valid: false, reason: 'sin-fecha-fin' };
+    const now = Date.now();
+    const fin = new Date(payload.fecha_fin).getTime();
+    if (isNaN(fin)) return { valid: false, reason: 'fecha-invalida' };
+    if (now > fin) return { valid: false, reason: 'expirado', payload };
+    return { valid: true, payload };
+  } catch {
+    return { valid: false, reason: 'payload-corrupto' };
   }
-  const cfg = readConfig();
+}
 
+// Llama el CRM con el api_token y devuelve la respuesta cruda.
+async function consultarCRM() {
   const tokenResult = await getApiTokenFromBackend();
-  if (!tokenResult.ok) {
-    // Sin backend local → usar caché si es reciente
-    const cache = cfg._subscription_cache;
-    if (cache && typeof cache.checked_at === 'number' && (Date.now() - cache.checked_at) < SUBS_CACHE_TTL_MS) {
-      return { allowed: !!cache.allowed, estado: cache.estado, cached: true };
-    }
-    return { allowed: false, reason: tokenResult.reason, message: tokenResult.message || 'No se pudo obtener el api_token del backend' };
+  if (!tokenResult.ok) return { ok: false, reason: tokenResult.reason, message: tokenResult.message };
+  if (String(tokenResult.token).length < 10) {
+    return { ok: false, reason: 'token-invalido', message: 'api_token inválido en tbldatosempresa' };
   }
-  const token = tokenResult.token;
-  if (String(token).length < 10) {
-    return { allowed: false, reason: 'token-invalido', message: 'api_token inválido en tbldatosempresa' };
-  }
-
-  const url = `${SUBS_API_BASE}/consulta-plan/${encodeURIComponent(token)}`;
-
+  // Enviar versión instalada + datos de la máquina para el heartbeat del CRM
+  const appVersion = encodeURIComponent(app.getVersion());
+  const m = getMachineInfo();
+  const params = `version=${appVersion}` +
+    `&machine_id=${encodeURIComponent(m.machineId)}` +
+    `&machine_name=${encodeURIComponent(m.machineName)}` +
+    `&username=${encodeURIComponent(m.username)}` +
+    `&platform=${encodeURIComponent(m.platform)}`;
+  const url = `${SUBS_API_BASE}/consulta-plan/${encodeURIComponent(tokenResult.token)}?${params}`;
   try {
     const { body } = await httpGetJson(url);
     if (body?.code === 'OK' && body?.data?.suscripcion) {
       const estado = body.data.suscripcion.estado;
       const allowed = ESTADOS_PERMITIDOS.includes(estado);
-      writeConfig({
-        _subscription_cache: {
-          allowed,
-          estado,
-          checked_at: Date.now(),
-          empresa: body.data.cliente?.empresa,
-          fecha_fin: body.data.suscripcion?.fecha_fin,
-          dias_restantes: body.data.suscripcion?.dias_restantes,
-          plan_nombre: body.data.plan?.nombre,
-        },
-      });
-      return { allowed, estado, data: body.data };
+      return { ok: true, allowed, estado, data: body.data, fecha_fin: body.data.suscripcion?.fecha_fin };
     }
-    if (body?.code === 'SIN_PLAN') {
-      writeConfig({ _subscription_cache: { allowed: false, estado: 'sin_plan', checked_at: Date.now() } });
-      return { allowed: false, reason: 'sin-plan', message: 'El cliente no tiene suscripción activa' };
-    }
+    if (body?.code === 'SIN_PLAN') return { ok: true, allowed: false, reason: 'sin-plan' };
     if (body?.code === 'TOKEN_NO_ENCONTRADO' || body?.code === 'TOKEN_INVALIDO') {
-      return { allowed: false, reason: 'token-invalido', message: 'Token de consulta inválido' };
+      return { ok: false, reason: 'token-invalido', message: 'Token no reconocido por el CRM' };
     }
-    return { allowed: false, reason: 'respuesta-inesperada', message: body?.message || 'Respuesta no reconocida' };
+    return { ok: false, reason: 'respuesta-inesperada', message: body?.message };
   } catch (e) {
-    // Sin red → usar caché si es reciente (tolerancia offline)
-    const cache = cfg._subscription_cache;
-    if (cache && typeof cache.checked_at === 'number' && (Date.now() - cache.checked_at) < SUBS_CACHE_TTL_MS) {
-      return { allowed: !!cache.allowed, estado: cache.estado, cached: true };
-    }
-    return { allowed: false, reason: 'sin-red', message: e?.message || 'No se pudo contactar el servidor de suscripciones' };
+    return { ok: false, reason: 'sin-red', message: e?.message };
   }
 }
+
+// PERMISIVO — para abrir y usar el sistema.
+// Prioridad: (1) CRM en línea, (2) cache mientras fecha_fin no expire, (3) código offline HMAC.
+async function validateForUsage() {
+  if (process.env.NODE_ENV === 'development') {
+    return { allowed: true, source: 'dev', estado: 'dev' };
+  }
+  const cfg = readConfig();
+
+  // 1. Intentar CRM
+  const live = await consultarCRM();
+  if (live.ok) {
+    if (live.allowed) {
+      writeConfig({
+        _subscription_cache: {
+          allowed: true,
+          estado: live.estado,
+          fecha_fin: live.fecha_fin,
+          checked_at: Date.now(),
+          empresa: live.data.cliente?.empresa,
+          dias_restantes: live.data.suscripcion?.dias_restantes,
+          plan_nombre: live.data.plan?.nombre,
+        },
+      });
+      return {
+        allowed: true,
+        source: 'online',
+        estado: live.estado,
+        fecha_fin: live.fecha_fin,
+        empresa: live.data.cliente?.empresa,
+        dias_restantes: live.data.suscripcion?.dias_restantes,
+        plan_nombre: live.data.plan?.nombre,
+      };
+    }
+    // CRM respondió pero la suscripción NO está vigente (vencida / sin_plan)
+    return { allowed: false, source: 'online', estado: live.estado, reason: live.reason || 'no-activa' };
+  }
+
+  // 2. Cache vigente hasta fecha_fin
+  const cache = cfg._subscription_cache;
+  if (cache?.allowed && cache.fecha_fin) {
+    const fin = new Date(cache.fecha_fin).getTime();
+    if (!isNaN(fin) && Date.now() < fin) {
+      return {
+        allowed: true,
+        source: 'cache',
+        estado: cache.estado,
+        fecha_fin: cache.fecha_fin,
+        empresa: cache.empresa,
+        plan_nombre: cache.plan_nombre,
+      };
+    }
+  }
+
+  // 3. Código de activación offline
+  if (cfg.offline_activation) {
+    const r = verifyOfflineCode(cfg.offline_activation);
+    if (r?.valid) {
+      return {
+        allowed: true,
+        source: 'offline-code',
+        estado: 'offline',
+        fecha_fin: r.payload.fecha_fin,
+        empresa: r.payload.empresa,
+      };
+    }
+  }
+
+  return { allowed: false, source: 'none', reason: live.reason || 'sin-validacion', message: live.message };
+}
+
+// ESTRICTO — para descargar actualización. Requiere CRM en línea.
+async function validateForUpdate() {
+  if (process.env.NODE_ENV === 'development') return { allowed: false, reason: 'dev' };
+  const live = await consultarCRM();
+  if (live.ok && live.allowed) return { allowed: true, estado: live.estado };
+  return { allowed: false, reason: live.reason || 'no-activa', message: live.message };
+}
+
+// Compatibilidad con código existente
+async function validateSubscription() { return validateForUsage(); }
 
 let autoUpdater = null;
 if (process.env.NODE_ENV !== 'development') {
@@ -151,7 +251,7 @@ if (process.env.NODE_ENV !== 'development') {
 async function checkUpdatesGuarded() {
   if (!autoUpdater) return { ok: false, reason: 'dev-or-unavailable' };
 
-  const sub = await validateSubscription();
+  const sub = await validateForUpdate();
   if (mainWindow) mainWindow.webContents.send('subscription:status', sub);
 
   if (!sub.allowed) {
@@ -171,7 +271,57 @@ ipcMain.handle('updater:check', () => checkUpdatesGuarded());
 ipcMain.handle('updater:install', () => {
   if (autoUpdater) autoUpdater.quitAndInstall();
 });
-ipcMain.handle('subscription:check', () => validateSubscription());
+ipcMain.handle('subscription:check', () => validateForUsage());
+ipcMain.handle('subscription:checkUpdate', () => validateForUpdate());
+ipcMain.handle('subscription:setOfflineCode', (_, code) => {
+  const r = verifyOfflineCode(code);
+  if (r?.valid) {
+    writeConfig({ offline_activation: code });
+    return { ok: true, payload: r.payload };
+  }
+  return { ok: false, reason: r?.reason || 'invalido' };
+});
+ipcMain.handle('subscription:clearOfflineCode', () => {
+  writeConfig({ offline_activation: null });
+  return { ok: true };
+});
+
+// Configurar el api_token de la empresa (instalación inicial).
+// Llama al backend local para guardar el token en tbldatosempresa.api_token.
+ipcMain.handle('subscription:setApiToken', async (_, token) => {
+  const cfg = readConfig();
+  const apiUrl = cfg.apiUrl;
+  if (!apiUrl) return { ok: false, reason: 'no-api-url', message: 'apiUrl no configurada en config.json' };
+  if (!token || String(token).trim().length < 32) {
+    return { ok: false, reason: 'token-corto', message: 'El token debe tener al menos 32 caracteres' };
+  }
+
+  return new Promise((resolve) => {
+    const url = `${apiUrl.replace(/\/$/, '')}/empresa/configurar-token.php`;
+    const body = JSON.stringify({ api_token: String(token).trim() });
+    const u = new URL(url);
+    const client = u.protocol === 'https:' ? https : http;
+    const req = client.request(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+    }, (res) => {
+      let data = '';
+      res.on('data', (c) => { data += c; });
+      res.on('end', () => {
+        try {
+          const parsed = JSON.parse(data || '{}');
+          resolve(parsed.success ? { ok: true } : { ok: false, reason: 'rechazado', message: parsed.message || 'Backend rechazó el token' });
+        } catch {
+          resolve({ ok: false, reason: 'parse-error', message: 'Respuesta inválida del backend' });
+        }
+      });
+    });
+    req.on('error', (e) => resolve({ ok: false, reason: 'sin-red', message: e?.message }));
+    req.setTimeout(8000, () => req.destroy(new Error('Timeout')));
+    req.write(body);
+    req.end();
+  });
+});
 
 // ============================================================
 // Config file: config.json en la carpeta de instalación
@@ -209,6 +359,82 @@ function writeConfig(data) {
   }
 }
 
+// Crea config.json con valores por defecto si no existe (típicamente
+// tras una instalación nueva o reinstalación). Sin esto, getApiTokenFromBackend
+// falla con 'no-api-url' y la suscripción nunca puede validarse.
+function ensureConfigExists() {
+  try {
+    const configPath = getConfigPath();
+    if (!fs.existsSync(configPath)) {
+      const defaults = {
+        apiUrl: 'http://localhost/conta-app-backend/api',
+        backendPath: 'C:\\xampp\\htdocs\\conta-app-backend',
+      };
+      fs.writeFileSync(configPath, JSON.stringify(defaults, null, 2), 'utf8');
+      console.log('[config] config.json creado con defaults en:', configPath);
+    }
+  } catch (e) {
+    console.error('[config] no se pudo crear config.json:', e);
+  }
+}
+
+// ============================================================
+// Auto-deploy del backend PHP a htdocs del Apache local.
+// Incluido como `extraResources` en el build → process.resourcesPath/backend.
+// En cada inicio se copia al htdocs del cliente, preservando database.php
+// (la config de BD del cliente nunca se sobreescribe).
+// ============================================================
+function copyDirRecursive(src, dest, opts = {}) {
+  const { skipPaths = [], baseSrc = src, stats = { copiados: 0, omitidos: 0 } } = opts;
+  if (!fs.existsSync(dest)) fs.mkdirSync(dest, { recursive: true });
+  for (const item of fs.readdirSync(src)) {
+    const srcPath = path.join(src, item);
+    const destPath = path.join(dest, item);
+    const relPath = path.relative(baseSrc, srcPath).replace(/\\/g, '/');
+    if (skipPaths.includes(relPath)) { stats.omitidos++; continue; }
+    const stat = fs.statSync(srcPath);
+    if (stat.isDirectory()) {
+      copyDirRecursive(srcPath, destPath, { skipPaths, baseSrc, stats });
+    } else {
+      try { fs.copyFileSync(srcPath, destPath); stats.copiados++; }
+      catch (e) { console.warn('[backend] no se pudo copiar', relPath, '-', e.message); }
+    }
+  }
+  return stats;
+}
+
+function syncBackend() {
+  if (process.env.NODE_ENV === 'development') {
+    console.log('[backend] dev mode — sync omitido');
+    return;
+  }
+  try {
+    const cfg = readConfig();
+    const targetRoot = cfg.backendPath || 'C:\\xampp\\htdocs\\conta-app-backend';
+    const sourceRoot = path.join(process.resourcesPath, 'backend');
+
+    if (!fs.existsSync(sourceRoot)) {
+      console.warn('[backend] no hay backend bundled en resources, sync saltado');
+      return;
+    }
+
+    // Asegurar que la carpeta de destino existe (Apache debe estar instalado)
+    const htdocsParent = path.dirname(targetRoot);
+    if (!fs.existsSync(htdocsParent)) {
+      console.warn('[backend] htdocs no existe en', htdocsParent, '— Apache no instalado o ruta incorrecta. Configura backendPath en config.json');
+      return;
+    }
+
+    // Preservar database.php del cliente (config específica de su BD)
+    const stats = copyDirRecursive(sourceRoot, targetRoot, {
+      skipPaths: ['api/config/database.php'],
+    });
+    console.log(`[backend] sync OK → ${targetRoot} | copiados: ${stats.copiados}, preservados: ${stats.omitidos}`);
+  } catch (e) {
+    console.error('[backend] error en sync:', e?.message || e);
+  }
+}
+
 // ============================================================
 // IPC handlers para config
 // ============================================================
@@ -222,13 +448,15 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
-    title: 'Conta FT 4.1',
+    title: 'Conta FT 4.3',
+    autoHideMenuBar: true,
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false,
     },
     icon: path.join(__dirname, '../icon.png'),
   });
+  mainWindow.setMenuBarVisibility(false);
 
   // En desarrollo, carga desde Vite dev server
   if (process.env.NODE_ENV === 'development') {
@@ -269,6 +497,9 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  Menu.setApplicationMenu(null);
+  ensureConfigExists();
+  syncBackend();
   createWindow();
 
   app.on('activate', () => {

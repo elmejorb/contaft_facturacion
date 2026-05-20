@@ -52,3 +52,12 @@ Dashboard-Facturación/build/
 /Dashboard-Facturación.zip
 .claude/
 Dashboard-Facturación/.env
+
+# Backups de bases de datos (datos sensibles de clientes)
+backup_*.sql
+
+# Scripts SQL one-off generados para clientes específicos
+fix_precio_costo_remoto.sql
+
+# Credenciales/datos sensibles
+datos.txt

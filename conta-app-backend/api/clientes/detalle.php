@@ -30,12 +30,20 @@ try {
         exit;
     }
 
-    // Ventas del año (POS + FE) — unidas como una sola lista
+    // Ventas del año (POS + FE) — usando la vista para saldo dinámico (no el cacheado).
+    // La vista ya filtra EstadoFact='Valida' y excluye anuladas.
     $stmt = $db->prepare("
-        SELECT v.Factura_N, v.Fecha, v.Total, v.Saldo, v.EstadoFact, v.pagada,
-               v.N_Mes, v.Tipo, 'venta' AS Origen
-        FROM tblventas v
+        SELECT v.Factura_N, v.Fecha, v.Total, v.Saldo, v.EstadoFact,
+               CASE WHEN v.Saldo <= 0 THEN '1' ELSE '' END AS pagada,
+               MONTH(v.Fecha) AS N_Mes, v.Tipo, 'venta' AS Origen
+        FROM vw_facturas_cliente_saldos v
         WHERE v.CodigoCli = :id AND YEAR(v.Fecha) = :anio
+        UNION ALL
+        SELECT v.Factura_N, v.Fecha, v.Total, 0 AS Saldo, v.EstadoFact,
+               '1' AS pagada, MONTH(v.Fecha) AS N_Mes, v.Tipo, 'venta_contado' AS Origen
+        FROM tblventas v
+        WHERE v.CodigoCli = :id_c AND YEAR(v.Fecha) = :anio_c
+          AND v.Tipo = 'Contado' AND v.EstadoFact = 'Valida'
         UNION ALL
         SELECT Factura_N, Fecha, Total, Saldo, EstadoFact,
                CASE WHEN Saldo <= 0 THEN '1' ELSE '' END AS pagada,
@@ -46,7 +54,7 @@ try {
         WHERE CodigoCli = :id2 AND YEAR(Fecha) = :anio2
         ORDER BY Fecha DESC
     ");
-    $stmt->execute([':id' => $id, ':anio' => $anio, ':id2' => $id, ':anio2' => $anio]);
+    $stmt->execute([':id' => $id, ':anio' => $anio, ':id_c' => $id, ':anio_c' => $anio, ':id2' => $id, ':anio2' => $anio]);
     $ventas = $stmt->fetchAll();
 
     foreach ($ventas as &$v) {

@@ -612,21 +612,23 @@ PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 -- v4.11 — PrecioCosto en detalle_document_electronic
 -- (para que cierre_mes / estado_resultados calcule bien la utilidad
 -- cuando hay FE puras que no duplican tblventas)
+-- Solo si la tabla de FE existe (clientes sin módulo FE la omiten).
 -- ================================================================
-SET @col_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS
-    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'detalle_document_electronic' AND COLUMN_NAME = 'PrecioCosto');
-SET @sql = IF(@col_exists = 0,
+SET @tbl_exists = (SELECT COUNT(*) FROM information_schema.TABLES
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'detalle_document_electronic');
+SET @col_exists = IF(@tbl_exists = 0, 1, (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'detalle_document_electronic' AND COLUMN_NAME = 'PrecioCosto'));
+SET @sql = IF(@tbl_exists = 1 AND @col_exists = 0,
     'ALTER TABLE detalle_document_electronic ADD COLUMN PrecioCosto DECIMAL(19,4) DEFAULT NULL AFTER price_amount',
     'SELECT 1');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 -- Backfill: prioriza PrecioC histórico de tbldetalle_venta (cuando hay
 -- venta POS espejo), o cae al Precio_Costo actual del artículo.
-UPDATE detalle_document_electronic de
-LEFT JOIN tbldetalle_venta dv ON dv.Factura_N = de.factura_n AND dv.Items = de.items
-LEFT JOIN tblarticulos a ON a.Items = de.items
-SET de.PrecioCosto = COALESCE(dv.PrecioC, a.Precio_Costo, 0)
-WHERE de.PrecioCosto IS NULL;
+SET @sql = IF(@tbl_exists = 1,
+    'UPDATE detalle_document_electronic de LEFT JOIN tbldetalle_venta dv ON dv.Factura_N = de.factura_n AND dv.Items = de.items LEFT JOIN tblarticulos a ON a.Items = de.items SET de.PrecioCosto = COALESCE(dv.PrecioC, a.Precio_Costo, 0) WHERE de.PrecioCosto IS NULL',
+    'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 -- ================================================================
 -- v4.12 — id_usuario en tblpagos (cobros de cliente filtrados por cajero)
@@ -716,12 +718,223 @@ CREATE TABLE IF NOT EXISTS tbl_pedidos_vendedor (
     UNIQUE KEY uk_remoto (id_remoto)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-SET @col_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS
-    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'electronic_documents' AND COLUMN_NAME = 'origen');
-SET @sql = IF(@col_exists = 0,
+SET @tbl_exists = (SELECT COUNT(*) FROM information_schema.TABLES
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'electronic_documents');
+SET @col_exists = IF(@tbl_exists = 0, 1, (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'electronic_documents' AND COLUMN_NAME = 'origen'));
+SET @sql = IF(@tbl_exists = 1 AND @col_exists = 0,
     "ALTER TABLE electronic_documents ADD COLUMN origen VARCHAR(20) DEFAULT 'local' AFTER id, ADD COLUMN id_vendedor_remoto INT NULL AFTER origen, ADD COLUMN nombre_vendedor VARCHAR(150) NULL AFTER id_vendedor_remoto",
     'SELECT 1');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- ================================================================
+-- v5.3 — Comportamiento de cartera del cliente
+-- Tabla aparte (no toca tblclientes) para clasificar puntualidad
+-- y castigar carteras incobrables sin perder historial.
+-- ================================================================
+CREATE TABLE IF NOT EXISTS tbl_clientes_comportamiento (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    CodigoClien INT NOT NULL UNIQUE,
+    comportamiento ENUM('sin_datos','excelente','puntual','regular','moroso','critico') DEFAULT 'sin_datos',
+    dias_mora_promedio INT NULL,
+    facturas_evaluadas INT DEFAULT 0,
+    comportamiento_calculado_at DATETIME NULL,
+    cartera_castigada TINYINT(1) DEFAULT 0,
+    fecha_castigo DATETIME NULL,
+    motivo_castigo ENUM('cliente_perdido','empresa_cerrada','no_localizable','acuerdo_fallido','otro') NULL,
+    motivo_detalle VARCHAR(255) NULL,
+    id_usuario_castigo INT NULL,
+    nota_cobranza TEXT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    KEY idx_comportamiento (comportamiento),
+    KEY idx_castigada (cartera_castigada),
+    KEY idx_fecha_castigo (fecha_castigo)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ================================================================
+-- v5.4 — Fix vistas de saldos + data fix de pagos legacy
+-- Bugs detectados:
+--   (a) pagos.php guardaba Fact_N=0 y el numero real en NFactAnt
+--       → vw_facturas_cliente_saldos (busca por Fact_N) no detectaba pagos
+--   (b) vw_facturas_anteriores_cliente solo buscaba por NFactAnt
+--       → ignora pagos legacy que tienen el numero en Fact_N
+--
+-- Fix v5.4:
+--   1. Data-fix retroactivo: mover NFactAnt → Fact_N donde aplique
+--   2. Recrear ambas vistas con detección dual (Fact_N OR NFactAnt)
+-- ================================================================
+
+-- 1. Data fix: pagos con Fact_N=0 y NFactAnt numérico apuntando a tblventas
+UPDATE tblpagos
+SET Fact_N = CAST(NFactAnt AS UNSIGNED), NFactAnt = ''
+WHERE COALESCE(Fact_N, 0) = 0
+  AND NFactAnt IS NOT NULL
+  AND NFactAnt <> ''
+  AND NFactAnt REGEXP '^[0-9]+$'
+  AND CAST(NFactAnt AS UNSIGNED) IN (SELECT Factura_N FROM tblventas);
+
+-- 2a. Recrear vw_facturas_cliente_saldos (módulo nuevo, tblventas)
+-- IMPORTANTE: en BDs legacy la columna Tipo tiene encoding latin1 ("Cr_dito"
+-- con bytes raros). Usamos Tipo != 'Contado' para ser robustos al encoding.
+DROP VIEW IF EXISTS vw_facturas_cliente_saldos;
+CREATE VIEW vw_facturas_cliente_saldos AS
+SELECT
+    v.Factura_N, v.CodigoCli, c.Razon_Social AS A_Nombre,
+    v.Fecha, v.Dias, v.Fecha + INTERVAL v.Dias DAY AS Fechav,
+    v.Total,
+    COALESCE(p.TotalPagos, 0) AS TotalPagos,
+    GREATEST(v.Total - COALESCE(p.TotalPagos, 0), 0) AS Saldo,
+    v.Tipo, v.EstadoFact, v.FechaMod,
+    CASE WHEN CURDATE() >= v.Fecha + INTERVAL v.Dias DAY
+         THEN TO_DAYS(CURDATE()) - TO_DAYS(v.Fecha + INTERVAL v.Dias DAY)
+         ELSE 0 END AS DiasVenc,
+    CURDATE() > v.Fecha + INTERVAL v.Dias DAY AS Vencida
+FROM tblventas v
+JOIN tblclientes c ON c.CodigoClien = v.CodigoCli
+LEFT JOIN (
+    SELECT
+        COALESCE(NULLIF(tp.Fact_N, 0),
+                 CASE WHEN tp.NFactAnt REGEXP '^[0-9]+$' THEN CAST(tp.NFactAnt AS UNSIGNED) END) AS Fact_N,
+        SUM(tp.ValorPago) AS TotalPagos
+    FROM tblpagos tp
+    WHERE COALESCE(tp.Estado, 'Valida') = 'Valida'
+    GROUP BY COALESCE(NULLIF(tp.Fact_N, 0),
+             CASE WHEN tp.NFactAnt REGEXP '^[0-9]+$' THEN CAST(tp.NFactAnt AS UNSIGNED) END)
+) p ON p.Fact_N = v.Factura_N
+WHERE v.Tipo IS NOT NULL AND v.Tipo <> 'Contado' AND v.EstadoFact = 'Valida';
+
+-- 2b. Recrear vw_facturas_anteriores_cliente (módulo VB6 legacy)
+SET @t = (SELECT COUNT(*) FROM information_schema.TABLES
+          WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tblfacturasanteriores');
+
+SET @sql = IF(@t = 1, "DROP VIEW IF EXISTS vw_facturas_anteriores_cliente", 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @sql = IF(@t = 1, "
+CREATE VIEW vw_facturas_anteriores_cliente AS
+SELECT
+    fa.CodigoCli, fa.FacturaN, fa.Fecha, fa.Dias,
+    fa.Fecha + INTERVAL fa.Dias DAY AS Fechav,
+    fa.Valor AS Total,
+    COALESCE(p.TotalPagos, 0) AS TotalPagos,
+    GREATEST(fa.Valor - COALESCE(p.TotalPagos, 0), 0) AS Saldo,
+    CASE WHEN CURDATE() >= fa.Fecha + INTERVAL fa.Dias DAY
+         THEN TO_DAYS(CURDATE()) - TO_DAYS(fa.Fecha + INTERVAL fa.Dias DAY)
+         ELSE 0 END AS DiasVenc,
+    CURDATE() > fa.Fecha + INTERVAL fa.Dias DAY AS Vencida
+FROM tblfacturasanteriores fa
+LEFT JOIN (
+    SELECT tp.Codigo AS CodigoCli,
+           COALESCE(NULLIF(tp.NFactAnt, ''), CAST(tp.Fact_N AS CHAR)) AS FacturaN,
+           SUM(tp.ValorPago) AS TotalPagos
+    FROM tblpagos tp
+    WHERE COALESCE(tp.Estado, 'Valida') = 'Valida'
+      AND ((tp.NFactAnt IS NOT NULL AND tp.NFactAnt <> '') OR tp.Fact_N IS NOT NULL)
+    GROUP BY tp.Codigo, COALESCE(NULLIF(tp.NFactAnt, ''), CAST(tp.Fact_N AS CHAR))
+) p ON p.CodigoCli = fa.CodigoCli AND p.FacturaN = fa.FacturaN
+", 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- ================================================================
+-- v5.5 — Comportamiento + castigo en tblclientes (refactor)
+-- Antes vivía en tbl_clientes_comportamiento, ahora directo en
+-- tblclientes para simplificar: 1 fetch, sin merge, filtro SQL nativo.
+-- La tabla vieja se conserva como histórico.
+-- ================================================================
+SET @col = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='tblclientes' AND COLUMN_NAME='comportamiento');
+SET @sql = IF(@col=0, "ALTER TABLE tblclientes ADD COLUMN comportamiento ENUM('sin_datos','excelente','puntual','regular','moroso','critico') DEFAULT 'sin_datos'", 'SELECT 1');
+PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
+
+SET @col = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='tblclientes' AND COLUMN_NAME='dias_mora_promedio');
+SET @sql = IF(@col=0, "ALTER TABLE tblclientes ADD COLUMN dias_mora_promedio INT NULL", 'SELECT 1');
+PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
+
+SET @col = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='tblclientes' AND COLUMN_NAME='cartera_castigada');
+SET @sql = IF(@col=0, "ALTER TABLE tblclientes ADD COLUMN cartera_castigada TINYINT(1) DEFAULT 0", 'SELECT 1');
+PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
+
+SET @col = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='tblclientes' AND COLUMN_NAME='fecha_castigo');
+SET @sql = IF(@col=0, "ALTER TABLE tblclientes ADD COLUMN fecha_castigo DATETIME NULL", 'SELECT 1');
+PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
+
+SET @col = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='tblclientes' AND COLUMN_NAME='motivo_castigo');
+SET @sql = IF(@col=0, "ALTER TABLE tblclientes ADD COLUMN motivo_castigo ENUM('cliente_perdido','empresa_cerrada','no_localizable','acuerdo_fallido','otro') NULL", 'SELECT 1');
+PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
+
+SET @col = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='tblclientes' AND COLUMN_NAME='motivo_detalle');
+SET @sql = IF(@col=0, "ALTER TABLE tblclientes ADD COLUMN motivo_detalle VARCHAR(255) NULL", 'SELECT 1');
+PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
+
+SET @col = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='tblclientes' AND COLUMN_NAME='id_usuario_castigo');
+SET @sql = IF(@col=0, "ALTER TABLE tblclientes ADD COLUMN id_usuario_castigo INT NULL", 'SELECT 1');
+PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
+
+SET @col = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='tblclientes' AND COLUMN_NAME='nota_cobranza');
+SET @sql = IF(@col=0, "ALTER TABLE tblclientes ADD COLUMN nota_cobranza TEXT NULL", 'SELECT 1');
+PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
+
+-- Migrar datos desde tbl_clientes_comportamiento si existe (idempotente)
+SET @t = (SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='tbl_clientes_comportamiento');
+SET @sql = IF(@t=1, "
+UPDATE tblclientes c
+INNER JOIN tbl_clientes_comportamiento cc ON cc.CodigoClien = c.CodigoClien
+SET
+  c.comportamiento = COALESCE(cc.comportamiento, c.comportamiento),
+  c.dias_mora_promedio = COALESCE(cc.dias_mora_promedio, c.dias_mora_promedio),
+  c.cartera_castigada = COALESCE(cc.cartera_castigada, c.cartera_castigada),
+  c.fecha_castigo = COALESCE(cc.fecha_castigo, c.fecha_castigo),
+  c.motivo_castigo = COALESCE(cc.motivo_castigo, c.motivo_castigo),
+  c.motivo_detalle = COALESCE(cc.motivo_detalle, c.motivo_detalle),
+  c.id_usuario_castigo = COALESCE(cc.id_usuario_castigo, c.id_usuario_castigo),
+  c.nota_cobranza = COALESCE(cc.nota_cobranza, c.nota_cobranza)
+", 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @idx = (SELECT COUNT(*) FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='tblclientes' AND INDEX_NAME='idx_cartera_castigada');
+SET @sql = IF(@idx=0, "ALTER TABLE tblclientes ADD INDEX idx_cartera_castigada (cartera_castigada)", 'SELECT 1');
+PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
+
+-- ================================================================
+-- v5.6 — Vistas de proveedores (saldos, aging, facturas anteriores,
+--        pedidos crédito). Antes solo se creaban en algunas BDs;
+--        ahora se versionan en el SQL consolidado.
+--
+-- Nota técnica: la expresión `Fecha + INTERVAL Dias DAY` se mantiene
+-- en el SELECT pero NO en el GROUP BY (es funcionalmente dependiente
+-- de Fecha y Dias). Esto evita un bug del dumper MariaDB→MySQL
+-- (XAMPP) que serializa `INTERVAL n DAY` como `INTERVAL n AS \`day\``
+-- y rompe la importación en el destino.
+-- ================================================================
+
+-- email_recipient: lista de correos a los que se envió la FE (separados por coma).
+-- Necesario para que el envío múltiple guarde el detalle completo.
+SET @col = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='electronic_documents' AND COLUMN_NAME='email_recipient');
+SET @sql = IF(@col=0, "ALTER TABLE electronic_documents ADD COLUMN email_recipient VARCHAR(500) NULL", 'SELECT 1');
+PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
+
+DROP VIEW IF EXISTS vw_prov_facturas_anteriores_saldos;
+CREATE VIEW vw_prov_facturas_anteriores_saldos AS
+SELECT
+  f.FacturaN                                              AS FacturaN,
+  f.CodigoProv                                            AS CodigoPro,
+  p.RazonSocial                                           AS RazonSocial,
+  f.Fecha                                                 AS Fecha,
+  f.Dias                                                  AS Dias,
+  f.Fecha + INTERVAL f.Dias DAY                           AS Fechav,
+  SUM(f.Valor)                                            AS Total,
+  COALESCE(pag.TotalPagos, 0)                             AS TotalPagos,
+  GREATEST(SUM(f.Valor) - COALESCE(pag.TotalPagos, 0), 0) AS Saldo
+FROM tblfacturasanterioresproveedor f
+INNER JOIN tblproveedores p ON p.CodigoPro = f.CodigoProv
+LEFT JOIN (
+  SELECT t.CodigoPro, t.NFacturaAnt, SUM(t.Valor) AS TotalPagos
+  FROM tblegresos t
+  WHERE t.Estado = 'Valida' AND t.NFacturaAnt IS NOT NULL
+  GROUP BY t.CodigoPro, t.NFacturaAnt
+) pag ON pag.CodigoPro = f.CodigoProv
+       AND pag.NFacturaAnt = f.FacturaN
+GROUP BY f.FacturaN, f.CodigoProv, p.RazonSocial, f.Fecha, f.Dias;
 
 -- ================================================================
 -- VERIFICACIÓN FINAL

@@ -118,6 +118,7 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
   const [pedidoOrigenId, setPedidoOrigenId] = useState(0);
   const [showCrearProducto, setShowCrearProducto] = useState(false);
   const [cajaAbierta, setCajaAbierta] = useState<boolean | null>(null); // null=loading, true/false
+  const [sinCajaAsignada, setSinCajaAsignada] = useState(false); // user (típicamente admin) sin Id_Caja → no puede vender
   const [baseApertura, setBaseApertura] = useState('');
   const [abriendoCaja, setAbriendoCaja] = useState(false);
   const [baseSugerida, setBaseSugerida] = useState(0);
@@ -264,8 +265,17 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
     // Cargar caja(s) disponible(s) según el usuario y su base sugerida
     fetch(API_CAJA + `?cajas=1&usuario=${user?.id || 0}`).then(r => r.json()).then(d => {
       if (d.success) {
-        const cajaDelUsuario = (d.cajas || [])[0];  // si tiene asignación, será la única; si no, toma la primera
-        if (cajaDelUsuario) {
+        const cajas = (d.cajas || []).filter((c: any) => c.Tipo !== 'principal');
+        // Si recibe más de una caja, significa que NO tiene una caja asignada
+        // (el backend filtra por Id_Caja cuando el usuario tiene asignación → siempre devuelve 1).
+        // Para vender se requiere asignación específica.
+        if (cajas.length === 0) {
+          setSinCajaAsignada(true);
+        } else if (cajas.length > 1) {
+          setSinCajaAsignada(true);
+        } else {
+          setSinCajaAsignada(false);
+          const cajaDelUsuario = cajas[0];
           setCajaIdAbrir(cajaDelUsuario.Id_Caja);
           const sugerida = parseFloat(cajaDelUsuario.base_sugerida) || 0;
           if (sugerida > 0) {
@@ -277,22 +287,41 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
     }).catch(() => {});
   }, []);
 
-  // Cargar pedido de vendedor si viene de "Convertir" en Pedidos de Campo
+  // Cargar pedido de vendedor (desde "Convertir" en Pedidos de Campo)
+  // o copia de FE (desde "Copiar" en Listado de Facturas Electrónicas).
+  // Ambos flujos comparten el mismo shape de respuesta, así que se manejan iguales.
   useEffect(() => {
     const pedidoIdRaw = localStorage.getItem('pedido_para_venta_id');
-    if (!pedidoIdRaw) return;
-    const pedidoId = parseInt(pedidoIdRaw, 10);
-    if (!pedidoId || isNaN(pedidoId)) return;
-    localStorage.removeItem('pedido_para_venta_id');
+    const feCopiaIdRaw = localStorage.getItem('fe_para_copiar_id');
+    let urlCargar: string | null = null;
+    let etiqueta = 'pedido';
+    let pedidoOrigenIdLocal: number | null = null;
+    if (pedidoIdRaw) {
+      const id = parseInt(pedidoIdRaw, 10);
+      if (id && !isNaN(id)) {
+        localStorage.removeItem('pedido_para_venta_id');
+        urlCargar = `http://localhost:80/conta-app-backend/api/vendedores/pedidos.php?cargar_venta=1&id=${id}`;
+        pedidoOrigenIdLocal = id;
+      }
+    } else if (feCopiaIdRaw) {
+      const id = parseInt(feCopiaIdRaw, 10);
+      if (id && !isNaN(id)) {
+        localStorage.removeItem('fe_para_copiar_id');
+        urlCargar = `http://localhost:80/conta-app-backend/api/facturacion-electronica/copiar.php?id=${id}`;
+        etiqueta = 'factura';
+        // No seteamos pedidoOrigenId — la FE copiada genera una venta independiente
+      }
+    }
+    if (!urlCargar) return;
 
-    toast.loading('Cargando pedido...', { id: 'cargar-pedido' });
-    fetch(`http://localhost:80/conta-app-backend/api/vendedores/pedidos.php?cargar_venta=1&id=${pedidoId}`)
+    toast.loading(`Cargando ${etiqueta}...`, { id: 'cargar-pedido' });
+    fetch(urlCargar)
       .then(r => r.json())
       .then(d => {
         toast.dismiss('cargar-pedido');
         if (!d.success) { toast.error(d.message || 'Error cargando pedido'); return; }
 
-        setPedidoOrigenId(pedidoId);
+        if (pedidoOrigenIdLocal) setPedidoOrigenId(pedidoOrigenIdLocal);
 
         // Cliente
         if (d.cliente) {
@@ -320,6 +349,13 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
         // Forma de pago
         const fp = (d.forma_pago || 'contado').toLowerCase();
         setTipo(fp === 'contado' ? 'Contado' : 'Credito');
+
+        // Tipo de documento — el backend lo envía si la copia viene de FE,
+        // en cuyo caso preseleccionamos "Factura Electrónica". Para pedidos
+        // de vendedor no viene, se queda en el default ('pos').
+        if (d.tipo_documento) {
+          setTipoDocumento(d.tipo_documento);
+        }
 
         // Observaciones
         if (d.observaciones) {
@@ -351,11 +387,11 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
           setLineas(nuevasLineas);
         }
 
-        toast.success(`Pedido ${d.numero_pedido} cargado. Ajuste cantidades y guarde.`);
+        toast.success(`${d.numero_pedido} cargado. Ajuste cantidades y guarde.`);
       })
       .catch(() => {
         toast.dismiss('cargar-pedido');
-        toast.error('Error de conexión cargando pedido');
+        toast.error(`Error de conexión cargando ${etiqueta}`);
       });
   }, []);
 
@@ -727,6 +763,35 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
   // Si no hay caja abierta, mostrar pantalla de apertura
   if (cajaAbierta === null) return <div style={{ padding: 40, textAlign: 'center', color: '#9ca3af' }}>Verificando caja...</div>;
 
+  // Admin (u otro usuario) sin caja asignada → no puede operar venta
+  if (cajaAbierta === false && sinCajaAsignada) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 'calc(100vh - 150px)' }}>
+        <div style={{ background: '#fff', borderRadius: 16, padding: 30, boxShadow: '0 4px 20px rgba(0,0,0,0.08)', textAlign: 'center', width: 440 }}>
+          <div style={{ width: 56, height: 56, borderRadius: 14, background: '#fef3c7', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 14px' }}>
+            <Lock size={24} color="#d97706" />
+          </div>
+          <h3 style={{ fontSize: 17, fontWeight: 700, margin: '0 0 8px' }}>No tienes caja asignada</h3>
+          <p style={{ fontSize: 13, color: '#6b7280', marginBottom: 14, lineHeight: 1.5 }}>
+            Para registrar ventas necesitas tener una caja asignada. Los administradores que también venden deben asignarse una caja específica.
+          </p>
+          <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, padding: '12px 14px', textAlign: 'left', fontSize: 12, color: '#1e40af', marginBottom: 14 }}>
+            <strong>Pasos para configurarla:</strong>
+            <ol style={{ margin: '6px 0 0 16px', padding: 0, lineHeight: 1.7 }}>
+              <li>Ve a <strong>Configuración → Usuarios</strong></li>
+              <li>Edita tu usuario</li>
+              <li>En <strong>"Caja asignada"</strong>, elige la caja con la que vas a vender</li>
+              <li>Guarda y vuelve a entrar a Ventas</li>
+            </ol>
+          </div>
+          <div style={{ fontSize: 11, color: '#9ca3af' }}>
+            ¿Solo administras y no vendes? Entonces no necesitas caja asignada (no debes entrar aquí).
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (cajaAbierta === false) {
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 'calc(100vh - 150px)' }}>
@@ -821,21 +886,52 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
           </div>
         </div>
         {tipoDocumento === 'electronica' && (() => {
-          const tieneEmail = cliente.email && cliente.email.includes('@');
+          // Parsear y validar cada email del cliente. Soporta varios separados
+          // por coma o punto y coma. Cada uno se muestra como un badge.
+          const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+          const tokens = (cliente.email || '')
+            .split(/[;,]+/)
+            .map(s => s.trim())
+            .filter(s => s.length > 0);
+          const validos = tokens.filter(t => emailRegex.test(t));
+          const invalidos = tokens.filter(t => !emailRegex.test(t));
+          const tieneEmail = validos.length > 0;
+          const tooltip = tieneEmail
+            ? `Se enviará a:\n${validos.join('\n')}${invalidos.length ? '\n\n(ignorados por formato inválido):\n' + invalidos.join('\n') : ''}`
+            : 'El cliente no tiene correo registrado';
           return (
-            <label style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: tieneEmail ? 'pointer' : 'not-allowed', padding: '0 8px', opacity: tieneEmail ? 1 : 0.5 }}
-              title={tieneEmail ? `Enviar a: ${cliente.email}` : 'El cliente no tiene correo registrado'}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '0 8px', opacity: tieneEmail ? 1 : 0.5, maxWidth: 380 }} title={tooltip}>
               <input type="checkbox" checked={enviarEmailFE}
                 disabled={!tieneEmail}
                 onChange={e => {
                   if (!tieneEmail) { toast.error('El cliente no tiene correo. Edite el cliente para agregar un email.'); return; }
                   setEnviarEmailFE(e.target.checked);
                 }}
-                style={{ accentColor: '#2563eb', width: 16, height: 16 }} />
-              <span style={{ fontSize: 11, color: tieneEmail ? '#2563eb' : '#9ca3af', fontWeight: 500 }}>
-                {tieneEmail ? `Email (${cliente.email})` : 'Sin email'}
-              </span>
-            </label>
+                style={{ accentColor: '#2563eb', width: 16, height: 16, cursor: tieneEmail ? 'pointer' : 'not-allowed', flexShrink: 0 }} />
+              {!tieneEmail ? (
+                <span style={{ fontSize: 11, color: '#9ca3af', fontWeight: 500 }}>Sin email</span>
+              ) : (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, alignItems: 'center' }}>
+                  {validos.slice(0, 3).map((em, i) => (
+                    <span key={i} title={em} style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 3,
+                      padding: '2px 7px', borderRadius: 10, fontSize: 10, fontWeight: 600,
+                      background: '#dbeafe', color: '#1d4ed8', maxWidth: 160,
+                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                    }}>📧 {em}</span>
+                  ))}
+                  {validos.length > 3 && (
+                    <span style={{ fontSize: 10, color: '#2563eb', fontWeight: 700 }}>+{validos.length - 3} más</span>
+                  )}
+                  {invalidos.length > 0 && (
+                    <span title={`Inválidos:\n${invalidos.join('\n')}`} style={{
+                      padding: '2px 6px', borderRadius: 10, fontSize: 10, fontWeight: 600,
+                      background: '#fee2e2', color: '#dc2626',
+                    }}>⚠ {invalidos.length} inválido{invalidos.length > 1 ? 's' : ''}</span>
+                  )}
+                </div>
+              )}
+            </div>
           );
         })()}
         <div style={{ flex: 1 }} />

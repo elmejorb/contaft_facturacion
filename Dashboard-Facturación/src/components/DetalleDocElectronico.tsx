@@ -7,9 +7,15 @@ import { AutorizacionAdminModal, AdminAutorizado } from './AutorizacionAdminModa
 const API = 'http://localhost:80/conta-app-backend/api/facturacion-electronica';
 const fmtMon = (v: number) => '$ ' + v.toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-interface Props { docId: number; onClose: () => void; onUpdate?: () => void; }
+interface Props {
+  docId: number;
+  onClose: () => void;
+  onUpdate?: () => void;
+  /** Callback opcional para copiar este doc a Nueva Venta. Lo proporciona el listado FE. */
+  onCopiar?: (id: number, label: string) => void;
+}
 
-export function DetalleDocElectronico({ docId, onClose, onUpdate }: Props) {
+export function DetalleDocElectronico({ docId, onClose, onUpdate, onCopiar }: Props) {
   const [doc, setDoc] = useState<any>(null);
   const [items, setItems] = useState<any[]>([]);
   const [notas, setNotas] = useState<any[]>([]);
@@ -148,6 +154,12 @@ export function DetalleDocElectronico({ docId, onClose, onUpdate }: Props) {
               style={{ height: 28, padding: '0 10px', background: '#7c3aed', color: '#fff', border: 'none', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
               <Printer size={13} /> PDF
             </button>
+            {onCopiar && (
+              <button onClick={() => onCopiar(docId, `FE-${doc.prefix || ''}${doc.number}`)} title="Copiar a Nueva Venta"
+                style={{ height: 28, padding: '0 10px', background: '#16a34a', color: '#fff', border: 'none', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
+                <Copy size={13} /> Copiar
+              </button>
+            )}
             <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer' }}><X size={20} /></button>
           </div>
         </div>

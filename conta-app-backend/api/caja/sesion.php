@@ -24,8 +24,10 @@ try {
                 $stmtU = $db->prepare("SELECT Id_Caja, Id_TiposUsuario FROM tblusuarios WHERE Id_Usuario = ?");
                 $stmtU->execute([$usuarioId]);
                 $u = $stmtU->fetch();
-                // Solo filtrar para no-admin (Id_TiposUsuario != 1) que tenga caja asignada
-                if ($u && intval($u['Id_TiposUsuario']) !== 1 && !empty($u['Id_Caja'])) {
+                // Filtrar por caja asignada para CUALQUIER usuario (admin o cajero) que la tenga.
+                // Admins sin caja asignada → ven todas (mantienen flexibilidad de supervisar).
+                // Admins CON caja asignada → solo ven la suya (regla de venta exclusiva).
+                if ($u && !empty($u['Id_Caja'])) {
                     $cajaAsignada = intval($u['Id_Caja']);
                 }
             }

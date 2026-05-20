@@ -205,19 +205,23 @@ export function UsuariosManagement() {
                 </div>
               </div>
 
-              {/* Caja asignada (solo no-admin) */}
-              {form.Id_TiposUsuario !== 1 && (
-                <div style={{ marginBottom: 12 }}>
-                  <label style={lbl}>Caja asignada</label>
-                  <select value={form.Id_Caja} onChange={e => setForm({ ...form, Id_Caja: parseInt(e.target.value) })} style={inp}>
-                    <option value={0}>-- Sin asignación (puede usar cualquiera) --</option>
-                    {cajas.map((c: any) => <option key={c.Id_Caja} value={c.Id_Caja}>{c.Nombre}</option>)}
-                  </select>
-                  <div style={{ fontSize: 10, color: '#6b7280', marginTop: 3 }}>
-                    Si se asigna, el usuario solo podrá abrir esta caja
-                  </div>
+              {/* Caja asignada (admin o cajero — opcional para admin) */}
+              <div style={{ marginBottom: 12 }}>
+                <label style={lbl}>Caja asignada {form.Id_TiposUsuario === 1 && <span style={{ color: '#6b7280', fontWeight: 400 }}>(opcional)</span>}</label>
+                <select value={form.Id_Caja} onChange={e => setForm({ ...form, Id_Caja: parseInt(e.target.value) })} style={inp}>
+                  <option value={0}>
+                    {form.Id_TiposUsuario === 1 ? '-- Sin asignación (ve todas las cajas) --' : '-- Sin asignación (puede usar cualquiera) --'}
+                  </option>
+                  {cajas.filter((c: any) => c.Tipo !== 'principal').map((c: any) => (
+                    <option key={c.Id_Caja} value={c.Id_Caja}>{c.Nombre}</option>
+                  ))}
+                </select>
+                <div style={{ fontSize: 10, color: '#6b7280', marginTop: 3 }}>
+                  {form.Id_TiposUsuario === 1
+                    ? 'Si el admin va a vender, asígnale una caja de punto de venta. La Caja Principal es solo para movimientos administrativos.'
+                    : 'Si se asigna, el usuario solo podrá abrir esta caja'}
                 </div>
-              )}
+              </div>
               {!editando && (<>
                 <div style={{ marginBottom: 12 }}>
                   <label style={lbl}>Contraseña</label>

@@ -23,24 +23,50 @@ try {
         SELECT CodigoCli, Factura_N, Fecha, Dias, Total, Saldo, 'electronica' FROM vw_facturas_elec_cliente_saldos WHERE Saldo > 0
     ";
 
+    // Detectar si tblclientes tiene las columnas de comportamiento (migración v5.5)
+    $tieneCols = (int) $db->query("
+        SELECT COUNT(*) FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tblclientes' AND COLUMN_NAME = 'cartera_castigada'
+    ")->fetchColumn();
+
+    $selectCols = $tieneCols
+        ? "c.CodigoClien, c.Razon_Social, c.Nit, c.Telefonos, c.CupoAutorizado,
+           COALESCE(c.comportamiento, 'sin_datos') AS comportamiento,
+           COALESCE(c.cartera_castigada, 0)        AS cartera_castigada,
+           c.fecha_castigo, c.motivo_castigo, c.motivo_detalle,
+           c.dias_mora_promedio, c.nota_cobranza"
+        : "c.CodigoClien, c.Razon_Social, c.Nit, c.Telefonos, c.CupoAutorizado,
+           'sin_datos' AS comportamiento, 0 AS cartera_castigada,
+           NULL AS fecha_castigo, NULL AS motivo_castigo, NULL AS motivo_detalle,
+           NULL AS dias_mora_promedio, NULL AS nota_cobranza";
+
+    $groupBy = $tieneCols
+        ? "c.CodigoClien, c.Razon_Social, c.Nit, c.Telefonos, c.CupoAutorizado,
+           c.comportamiento, c.cartera_castigada, c.fecha_castigo, c.motivo_castigo,
+           c.motivo_detalle, c.dias_mora_promedio, c.nota_cobranza"
+        : "c.CodigoClien, c.Razon_Social, c.Nit, c.Telefonos, c.CupoAutorizado";
+
     $stmt = $db->query("
-        SELECT c.CodigoClien, c.Razon_Social, c.Nit, c.Telefonos, c.CupoAutorizado,
+        SELECT $selectCols,
                COUNT(*) as Facturas_Pendientes,
                SUM(f.Saldo) as Saldo_Total,
                MIN(f.Fecha) as Factura_Mas_Antigua,
                DATEDIFF(CURDATE(), MIN(f.Fecha)) as Dias_Mayor_Vencimiento
         FROM tblclientes c
         INNER JOIN ($sqlFacturas) f ON c.CodigoClien = f.CodigoCli
-        GROUP BY c.CodigoClien, c.Razon_Social, c.Nit, c.Telefonos, c.CupoAutorizado
+        GROUP BY $groupBy
         ORDER BY Saldo_Total DESC
     ");
     $clientes = $stmt->fetchAll();
 
     foreach ($clientes as &$c) {
+        $c['CodigoClien'] = intval($c['CodigoClien']);
         $c['Saldo_Total'] = floatval($c['Saldo_Total']);
         $c['CupoAutorizado'] = floatval($c['CupoAutorizado']);
         $c['Facturas_Pendientes'] = intval($c['Facturas_Pendientes']);
         $c['Dias_Mayor_Vencimiento'] = intval($c['Dias_Mayor_Vencimiento']);
+        $c['cartera_castigada'] = intval($c['cartera_castigada'] ?? 0);
+        $c['dias_mora_promedio'] = $c['dias_mora_promedio'] !== null ? intval($c['dias_mora_promedio']) : null;
     }
     unset($c);
 

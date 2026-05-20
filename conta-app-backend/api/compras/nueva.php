@@ -13,14 +13,22 @@ $db = $database->getConnection();
 
 try {
     if ($_SERVER['REQUEST_METHOD'] === 'GET') {
-        // Buscar artículos
+        // Buscar artículos.
+        // Devuelve `last_iva_compra`: el IvaPct de la última compra de cada producto.
+        // El frontend lo usa como default al agregar el producto a la grilla, para
+        // que clientes en Régimen Simple (catálogo Iva=0) no tengan que recordar
+        // qué IVA tenía en la factura anterior.
         if (isset($_GET['buscar'])) {
             $q = $_GET['buscar'];
             $stmt = $db->prepare("
                 SELECT a.Items, a.Codigo, a.Nombres_Articulo, a.Existencia, a.Precio_Costo,
                        a.Precio_CostoComp, a.Precio_Venta, a.Iva, a.Flete,
                        COALESCE(a.requiere_lote, 0) AS requiere_lote,
-                       COALESCE(c.Categoria, 'VARIOS') as Categoria
+                       COALESCE(c.Categoria, 'VARIOS') as Categoria,
+                       (SELECT d.IvaPct
+                        FROM tbldetalle_pedido d
+                        WHERE d.Items = a.Items
+                        ORDER BY d.Id_DetallePedido DESC LIMIT 1) AS last_iva_compra
                 FROM tblarticulos a
                 LEFT JOIN tblcategoria c ON a.Id_Categoria = c.Id_Categoria
                 WHERE a.Estado = 1 AND (a.Codigo LIKE :cod OR a.Nombres_Articulo LIKE :nom)
@@ -36,6 +44,7 @@ try {
                 $a['Precio_Venta'] = floatval($a['Precio_Venta']);
                 $a['Iva'] = floatval($a['Iva']);
                 $a['Flete'] = floatval($a['Flete']);
+                $a['last_iva_compra'] = $a['last_iva_compra'] !== null ? floatval($a['last_iva_compra']) : null;
             }
             echo json_encode(['success' => true, 'articulos' => $arts], JSON_UNESCAPED_UNICODE);
             exit;
@@ -228,41 +237,55 @@ try {
             $ivaPct = floatval($item['iva_pct'] ?? 0);
             $ivaVal = $costoSinIva * ($ivaPct / 100);
             $costoConIva = $costoSinIva + $ivaVal;
+            $costoConIvaBase = $factor > 1 ? $costoConIva / $factor : $costoConIva;
             $fleteUnit = $fleteMap[$i] ?? 0;
+            // costoFinal: SIN IVA + flete. Lo usa el kardex (regla contable: COGS sin IVA).
             $costoFinal = $costoSinIvaBase + ($factor > 1 ? $fleteUnit / $factor : $fleteUnit);
+            // costoFinalConIva: CON IVA + flete. Es lo que se guarda en tblarticulos.Precio_Costo
+            // (el campo de la app que muestra el costo en la misma base que el precio de venta).
+            $costoFinalConIva = $costoConIvaBase + ($factor > 1 ? $fleteUnit / $factor : $fleteUnit);
             $precioVenta = floatval($item['precio_venta'] ?? 0);
             $subtotal = $cant * $costoConIva;
             $idDetalle = intval($item['id_detalle'] ?? 0);
 
-            // Get current article state
+            // Get current article state — Precio_Costo se guarda con IVA, así que
+            // el promedio ponderado también se calcula en base CON IVA.
             $stmtArt = $db->prepare("SELECT Existencia, Precio_Costo FROM tblarticulos WHERE Items = ?");
             $stmtArt->execute([$itemId]);
             $artActual = $stmtArt->fetch();
             $existActual = floatval($artActual['Existencia']);
-            $costoActual = floatval($artActual['Precio_Costo']);
+            $costoActual = floatval($artActual['Precio_Costo']); // ya con IVA
 
             if ($idDetalle === 0) {
                 // ---- PRODUCTO NUEVO (no existía en la compra original) ----
                 $nuevaExist = $existActual + $cantReal;
+                // Promedio para Precio_Costo (CON IVA + flete): ponderado entre el costo
+                // anterior (ya con IVA) y la nueva compra (también con IVA + flete).
+                $costoPromedioConIva = $nuevaExist > 0
+                    ? round(($existActual * $costoActual + $cant * $costoFinalConIva) / $nuevaExist, 4)
+                    : $costoFinalConIva;
+                // Promedio sin IVA: para kardex (regla contable: COGS sin IVA).
+                // costoActualSinIva: revertimos el con-IVA dividiendo (ivaPct actual del artículo).
+                $costoActualSinIva = $ivaPct > 0 ? round($costoActual / (1 + $ivaPct / 100), 4) : $costoActual;
                 $costoPromedio = $nuevaExist > 0
-                    ? round(($existActual * $costoActual + $cant * $costoFinal) / $nuevaExist, 4)
+                    ? round(($existActual * $costoActualSinIva + $cant * $costoFinal) / $nuevaExist, 4)
                     : $costoFinal;
 
-                // Insert detail
+                // Insert detail — PrecioC en tbldetalle_pedido también CON IVA (ver memoria feedback_costo_inventario)
                 $db->prepare("
                     INSERT INTO tbldetalle_pedido (Pedido_N, Items, Cantidad, PrecioC, PrecioV, Impuesto, Subtotal,
                         IvaPct, CostoSinIva, CostoConIva, FleteUnit, CostoFinal, CostoAnterior, CostoPromedio)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ")->execute([
-                    $pedidoN, $itemId, $cant, $costoFinal, $precioVenta, $ivaVal * $cant, $subtotal,
-                    $ivaPct, $costoSinIva, $costoConIva, $fleteUnit, $costoFinal, $costoActual, $costoPromedio
+                    $pedidoN, $itemId, $cant, $costoFinalConIva, $precioVenta, $ivaVal * $cant, $subtotal,
+                    $ivaPct, $costoSinIva, $costoConIva, $fleteUnit, $costoFinalConIva, $costoActual, $costoPromedioConIva
                 ]);
 
-                // Update stock
+                // Update stock — Precio_Costo y Precio_CostoComp ambos con IVA
                 $db->prepare("UPDATE tblarticulos SET Existencia = ?, Precio_Costo = ?, Precio_CostoComp = ? WHERE Items = ?")
-                   ->execute([$nuevaExist, $costoPromedio, $costoConIva, $itemId]);
+                   ->execute([$nuevaExist, $costoPromedioConIva, $costoConIva, $itemId]);
 
-                // Kardex: entrada
+                // Kardex: entrada (SIN IVA — contable)
                 $db->prepare("
                     INSERT INTO tblkardex (Fecha, Mes, Items, Detalle, C_D, Cant_Ent, Cost_Ent, Cant_Sal, Cost_Sal, Cant_Saldo, Cost_Saldo, Cost_Unit)
                     VALUES (?, ?, ?, ?, 1, ?, ?, 0, 0, ?, ?, ?)
@@ -283,15 +306,19 @@ try {
                     if ($diferencia != 0) {
                         // Cantidad cambió → ajustar inventario
                         $nuevaExist = $existActual + $diferencia;
+                        $costoActualSinIva = $ivaPct > 0 ? round($costoActual / (1 + $ivaPct / 100), 4) : $costoActual;
+                        $costoPromedioConIva = $nuevaExist > 0
+                            ? round(($existActual * $costoActual + $diferencia * $costoFinalConIva) / $nuevaExist, 4)
+                            : $costoFinalConIva;
                         $costoPromedio = $nuevaExist > 0
-                            ? round(($existActual * $costoActual + $diferencia * $costoFinal) / $nuevaExist, 4)
+                            ? round(($existActual * $costoActualSinIva + $diferencia * $costoFinal) / $nuevaExist, 4)
                             : $costoFinal;
 
                         $db->prepare("UPDATE tblarticulos SET Existencia = ?, Precio_Costo = ?, Precio_CostoComp = ? WHERE Items = ?")
-                           ->execute([$nuevaExist, $costoPromedio, $costoConIva, $itemId]);
+                           ->execute([$nuevaExist, $costoPromedioConIva, $costoConIva, $itemId]);
 
                         if ($diferencia > 0) {
-                            // Entrada adicional
+                            // Entrada adicional (kardex sin IVA)
                             $db->prepare("
                                 INSERT INTO tblkardex (Fecha, Mes, Items, Detalle, C_D, Cant_Ent, Cost_Ent, Cant_Sal, Cost_Sal, Cant_Saldo, Cost_Saldo, Cost_Unit)
                                 VALUES (?, ?, ?, ?, 1, ?, ?, 0, 0, ?, ?, ?)
@@ -300,7 +327,7 @@ try {
                                 abs($diferencia), abs($diferencia) * $costoFinal, $nuevaExist, $nuevaExist * $costoPromedio, $costoPromedio
                             ]);
                         } else {
-                            // Salida por reducción
+                            // Salida por reducción (kardex sin IVA)
                             $db->prepare("
                                 INSERT INTO tblkardex (Fecha, Mes, Items, Detalle, C_D, Cant_Ent, Cost_Ent, Cant_Sal, Cost_Sal, Cant_Saldo, Cost_Saldo, Cost_Unit)
                                 VALUES (?, ?, ?, ?, 2, 0, 0, ?, ?, ?, ?, ?)
@@ -310,20 +337,20 @@ try {
                             ]);
                         }
                     } else {
-                        // Solo actualizar precios si cambiaron
+                        // Solo actualizar precios si cambiaron — Precio_Costo CON IVA
                         $db->prepare("UPDATE tblarticulos SET Precio_Costo = ?, Precio_CostoComp = ?, Precio_Venta = ? WHERE Items = ?")
-                           ->execute([$costoFinal, $costoConIva, $precioVenta > 0 ? $precioVenta : $artActual['Precio_Venta'], $itemId]);
+                           ->execute([$costoFinalConIva, $costoConIva, $precioVenta > 0 ? $precioVenta : $artActual['Precio_Venta'], $itemId]);
                     }
 
-                    // Update detail record
+                    // Update detail record — PrecioC/CostoFinal/CostoPromedio CON IVA
                     $db->prepare("
                         UPDATE tbldetalle_pedido SET Cantidad = ?, PrecioC = ?, PrecioV = ?, Impuesto = ?, Subtotal = ?,
                             IvaPct = ?, CostoSinIva = ?, CostoConIva = ?, FleteUnit = ?, CostoFinal = ?, CostoPromedio = ?
                         WHERE Id_DetallePedido = ?
                     ")->execute([
-                        $cant, $costoFinal, $precioVenta, $ivaVal * $cant, $subtotal,
-                        $ivaPct, $costoSinIva, $costoConIva, $fleteUnit, $costoFinal,
-                        round(($existActual * $costoActual + $diferencia * $costoFinal) / max($existActual + $diferencia, 1), 4),
+                        $cant, $costoFinalConIva, $precioVenta, $ivaVal * $cant, $subtotal,
+                        $ivaPct, $costoSinIva, $costoConIva, $fleteUnit, $costoFinalConIva,
+                        round(($existActual * $costoActual + $diferencia * $costoFinalConIva) / max($existActual + $diferencia, 1), 4),
                         $idDetalle
                     ]);
                 }
@@ -408,36 +435,42 @@ try {
             $ivaVal = $costoSinIva * ($ivaPct / 100);
             $costoConIva = $costoSinIva + $ivaVal;
             $fleteUnit = $fleteMap[$i] ?? 0;
-            $costoFinal = $costoSinIva + $fleteUnit;
+            $costoFinal = $costoSinIva + $fleteUnit;             // sin IVA + flete (para kardex)
+            $costoFinalConIva = $costoConIva + $fleteUnit;       // con IVA + flete (para Precio_Costo)
             $precioVenta = floatval($item['precio_venta'] ?? 0);
             $subtotal = $cant * $costoConIva;
 
-            // Get current stock and cost
+            // Get current stock and cost — Precio_Costo está con IVA
             $stmtArt = $db->prepare("SELECT Existencia, Precio_Costo FROM tblarticulos WHERE Items = ?");
             $stmtArt->execute([$itemId]);
             $artActual = $stmtArt->fetch();
             $existAnt = floatval($artActual['Existencia']);
-            $costoAnt = floatval($artActual['Precio_Costo']);
+            $costoAnt = floatval($artActual['Precio_Costo']); // con IVA
+            $costoAntSinIva = $ivaPct > 0 ? round($costoAnt / (1 + $ivaPct / 100), 4) : $costoAnt;
 
-            // Weighted average cost
+            // Promedio CON IVA → Precio_Costo
             $nuevaExist = $existAnt + $cant;
+            $costoPromedioConIva = $nuevaExist > 0
+                ? round(($existAnt * $costoAnt + $cant * $costoFinalConIva) / $nuevaExist, 4)
+                : $costoFinalConIva;
+            // Promedio SIN IVA → kardex (regla contable)
             $costoPromedio = $nuevaExist > 0
-                ? round(($existAnt * $costoAnt + $cant * $costoFinal) / $nuevaExist, 4)
+                ? round(($existAnt * $costoAntSinIva + $cant * $costoFinal) / $nuevaExist, 4)
                 : $costoFinal;
 
-            // Insert detail
+            // Insert detail — PrecioC en tbldetalle_pedido también CON IVA
             $db->prepare("
                 INSERT INTO tbldetalle_pedido (Pedido_N, Items, Cantidad, PrecioC, PrecioV, Impuesto, Subtotal,
                     IvaPct, CostoSinIva, CostoConIva, FleteUnit, CostoFinal, CostoAnterior, CostoPromedio)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ")->execute([
-                $pedidoN, $itemId, $cant, $costoFinal, $precioVenta, $ivaVal * $cant, $subtotal,
-                $ivaPct, $costoSinIva, $costoConIva, $fleteUnit, $costoFinal, $costoAnt, $costoPromedio
+                $pedidoN, $itemId, $cant, $costoFinalConIva, $precioVenta, $ivaVal * $cant, $subtotal,
+                $ivaPct, $costoSinIva, $costoConIva, $fleteUnit, $costoFinalConIva, $costoAnt, $costoPromedioConIva
             ]);
 
-            // Update stock and cost
+            // Update stock and cost — Precio_Costo con IVA
             $updateFields = "Existencia = ?, Precio_Costo = ?, Precio_CostoComp = ?, CodigoPro = ?, Flete = ?";
-            $updateParams = [$nuevaExist, $costoPromedio, $costoConIva, $codigoPro, $fleteUnit];
+            $updateParams = [$nuevaExist, $costoPromedioConIva, $costoConIva, $codigoPro, $fleteUnit];
             // Update sale price only if provided and > 0
             if ($precioVenta > 0) {
                 $updateFields .= ", Precio_Venta = ?";
@@ -446,7 +479,7 @@ try {
             $updateParams[] = $itemId;
             $db->prepare("UPDATE tblarticulos SET $updateFields WHERE Items = ?")->execute($updateParams);
 
-            // Kardex entry
+            // Kardex entry — SIN IVA (regla contable)
             $db->prepare("
                 INSERT INTO tblkardex (Fecha, Mes, Items, Detalle, C_D, Cant_Ent, Cost_Ent, Cant_Sal, Cost_Sal, Cant_Saldo, Cost_Saldo, Cost_Unit)
                 VALUES (?, ?, ?, ?, 1, ?, ?, 0, 0, ?, ?, ?)

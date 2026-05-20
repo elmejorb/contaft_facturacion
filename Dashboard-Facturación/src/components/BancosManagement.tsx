@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { AgGridReact } from 'ag-grid-react';
 import { AllCommunityModule, ModuleRegistry, ColDef } from 'ag-grid-community';
-import { RefreshCw, Plus, ArrowUpRight, ArrowDownRight, ArrowLeftRight, Eye, X, DollarSign, Building2 } from 'lucide-react';
+import { RefreshCw, Plus, ArrowLeftRight, Building2, Printer, FileDown } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { hoyLocal, inicioMesLocal } from '../utils/fecha';
 
@@ -93,6 +93,75 @@ export function BancosManagement() {
     } catch (e) { toast.error('Error'); }
   };
 
+  const tipoLabel: Record<string, string> = {
+    ingreso: 'Ingreso', egreso: 'Egreso',
+    traslado_entrada: 'Entrada traslado', traslado_salida: 'Salida traslado',
+  };
+
+  const exportarCSV = () => {
+    if (!movimientos.length) { toast.error('No hay movimientos para exportar'); return; }
+    const cols = ['Fecha', 'Tipo', 'Descripcion', 'Referencia', 'Valor'];
+    const rows = movimientos.map(m => [
+      new Date(m.Fecha).toLocaleString('es-CO'),
+      tipoLabel[m.Tipo] ?? m.Tipo,
+      `"${(m.Descripcion ?? '').replace(/"/g, '""')}"`,
+      m.Referencia ?? '',
+      m.Valor,
+    ]);
+    const csv = [cols.join(','), ...rows.map(r => r.join(','))].join('\n');
+    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `movimientos_${cuentaSel?.NomCuenta ?? 'banco'}_${desde}_${hasta}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const imprimirHistorial = () => {
+    if (!movimientos.length) { toast.error('No hay movimientos para imprimir'); return; }
+    const esIngreso = (tipo: string) => ['ingreso', 'traslado_entrada'].includes(tipo);
+    const filas = movimientos.map(m => `
+      <tr>
+        <td>${new Date(m.Fecha).toLocaleString('es-CO', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</td>
+        <td>${tipoLabel[m.Tipo] ?? m.Tipo}</td>
+        <td>${m.Descripcion ?? ''}</td>
+        <td>${m.Referencia ?? ''}</td>
+        <td style="text-align:right;font-weight:700;color:${esIngreso(m.Tipo) ? '#16a34a' : '#dc2626'}">
+          ${esIngreso(m.Tipo) ? '+' : '-'}${fmtMon(parseFloat(m.Valor))}
+        </td>
+      </tr>`).join('');
+    const html = `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8">
+      <title>Historial Movimientos — ${cuentaSel?.NomCuenta}</title>
+      <style>
+        body{font-family:Arial,sans-serif;font-size:12px;color:#111;margin:24px}
+        h2{font-size:16px;margin:0 0 2px}
+        .sub{font-size:11px;color:#555;margin:0 0 12px}
+        table{width:100%;border-collapse:collapse;margin-top:8px}
+        th{background:#1e3a8a;color:#fff;padding:6px 8px;text-align:left;font-size:11px}
+        td{padding:5px 8px;border-bottom:1px solid #e5e7eb;font-size:11px}
+        tr:nth-child(even) td{background:#f8fafc}
+        .resumen{display:flex;gap:24px;margin-top:14px;font-size:12px}
+        .res-item strong{display:block;font-size:14px}
+        @media print{body{margin:12px}}
+      </style></head><body>
+      <h2>Historial de Movimientos Bancarios</h2>
+      <p class="sub">Cuenta: <strong>${cuentaSel?.NomCuenta}</strong> — ${cuentaSel?.Banco} &nbsp;|&nbsp; Período: ${desde} al ${hasta}</p>
+      <table>
+        <thead><tr><th>Fecha</th><th>Tipo</th><th>Descripción</th><th>Referencia</th><th style="text-align:right">Valor</th></tr></thead>
+        <tbody>${filas}</tbody>
+      </table>
+      <div class="resumen">
+        <div class="res-item"><strong style="color:#16a34a">${fmtMon(resumenMov.ingresos ?? 0)}</strong>Total ingresos</div>
+        <div class="res-item"><strong style="color:#dc2626">${fmtMon(resumenMov.egresos ?? 0)}</strong>Total egresos</div>
+        <div class="res-item"><strong>${fmtMon((resumenMov.ingresos ?? 0) - (resumenMov.egresos ?? 0))}</strong>Diferencia</div>
+        <div class="res-item"><strong>${fmtMon(cuentaSel?.Saldo ?? 0)}</strong>Saldo actual</div>
+      </div>
+      <script>window.onload=()=>{window.print()}<\/script></body></html>`;
+    const w = window.open('', '_blank');
+    if (w) { w.document.write(html); w.document.close(); }
+  };
+
   const colsMov: ColDef[] = [
     { headerName: 'Fecha', field: 'Fecha', width: 130, cellRenderer: (p: any) => new Date(p.value).toLocaleString('es-CO', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) },
     { headerName: 'Tipo', field: 'Tipo', width: 110, cellRenderer: (p: any) => {
@@ -158,13 +227,19 @@ export function BancosManagement() {
       {/* Movimientos de cuenta seleccionada */}
       {cuentaSel && (
         <div style={{ background: '#fff', borderRadius: 12, overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
-          <div style={{ padding: '8px 14px', borderBottom: '1px solid #e5e7eb', display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span style={{ fontSize: 13, fontWeight: 700, flex: 1 }}>{cuentaSel.Nombre} — Movimientos</span>
+          <div style={{ padding: '8px 14px', borderBottom: '1px solid #e5e7eb', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 13, fontWeight: 700, flex: 1, minWidth: 120 }}>{cuentaSel.NomCuenta} — Movimientos</span>
             <input type="date" value={desde} onChange={e => setDesde(e.target.value)} style={{ height: 26, border: '1px solid #d1d5db', borderRadius: 6, fontSize: 11, padding: '0 4px' }} />
             <span style={{ fontSize: 11, color: '#6b7280' }}>a</span>
             <input type="date" value={hasta} onChange={e => setHasta(e.target.value)} style={{ height: 26, border: '1px solid #d1d5db', borderRadius: 6, fontSize: 11, padding: '0 4px' }} />
             <span style={{ fontSize: 12, fontWeight: 600, color: '#16a34a' }}>Ing: {fmtMon(resumenMov.ingresos || 0)}</span>
             <span style={{ fontSize: 12, fontWeight: 600, color: '#dc2626' }}>Egr: {fmtMon(resumenMov.egresos || 0)}</span>
+            <button onClick={exportarCSV} title="Exportar CSV" style={{ height: 26, padding: '0 8px', background: '#f0fdf4', color: '#16a34a', border: '1px solid #16a34a', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
+              <FileDown size={12} /> CSV
+            </button>
+            <button onClick={imprimirHistorial} title="Imprimir historial" style={{ height: 26, padding: '0 8px', background: '#eff6ff', color: '#2563eb', border: '1px solid #2563eb', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
+              <Printer size={12} /> Imprimir
+            </button>
           </div>
           <div style={{ height: 300 }}>
             <AgGridReact rowData={movimientos} columnDefs={colsMov} animateRows defaultColDef={{ resizable: true, sortable: true }} rowHeight={32} headerHeight={32} getRowId={p => String(p.data.Id_Mov)} />

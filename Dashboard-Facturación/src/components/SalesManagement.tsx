@@ -111,14 +111,16 @@ export function SalesManagement() {
 
   const meses = ['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
 
+  // Anchos calibrados — AG Grid mete iconos de sort/filter en el header (~30-40px)
+  // así que sobredimensionamos un poco para evitar truncado.
   const cols: ColDef[] = [
-    { headerName: 'Factura', field: 'Factura_N', width: 80, sortable: true,
+    { headerName: 'Factura', field: 'Factura_N', width: 90, sortable: true,
       cellRenderer: (p: any) => <span style={{ color: '#7c3aed', fontWeight: 600 }}>{p.value}</span> },
-    { headerName: 'Fecha', field: 'Fecha', width: 95, sortable: true,
+    { headerName: 'Fecha', field: 'Fecha', width: 110, sortable: true,
       cellRenderer: (p: any) => p.value ? new Date(p.value).toLocaleDateString('es-CO') : '-' },
-    { headerName: 'Hora', field: 'Hora', width: 60 },
+    { headerName: 'Hora', field: 'Hora', width: 75 },
     { headerName: 'Cliente', field: 'A_nombre', flex: 1, minWidth: 180, sortable: true, filter: true },
-    { headerName: 'Tipo', field: 'Tipo', width: 80,
+    { headerName: 'Tipo', field: 'Tipo', width: 105,
       cellRenderer: (p: any) => {
         const esCredito = p.value !== 'Contado';
         return <span style={{ padding: '1px 8px', borderRadius: 4, fontSize: 11, fontWeight: 600,
@@ -126,19 +128,19 @@ export function SalesManagement() {
         }}>{esCredito ? 'Crédito' : 'Contado'}</span>;
       }
     },
-    { headerName: 'Items', field: 'Total_Items', width: 60, cellStyle: { textAlign: 'center' },
+    { headerName: 'Ítems', field: 'Total_Items', width: 80, cellStyle: { textAlign: 'center' },
       cellRenderer: (p: any) => <span style={{ fontWeight: 600 }}>{p.value}</span> },
-    { headerName: 'Total', field: 'Total', width: 120, sortable: true, cellStyle: { textAlign: 'right' },
+    { headerName: 'Total', field: 'Total', width: 135, sortable: true, cellStyle: { textAlign: 'right' },
       cellRenderer: (p: any) => <span style={{ fontWeight: 700 }}>{fmtMon(p.value || 0)}</span> },
-    { headerName: 'Saldo', field: 'Saldo', width: 100, sortable: true, cellStyle: { textAlign: 'right' },
+    { headerName: 'Saldo', field: 'Saldo', width: 130, sortable: true, cellStyle: { textAlign: 'right' },
       cellRenderer: (p: any) => {
         const v = p.value || 0;
         return v > 0 ? <span style={{ fontWeight: 600, color: '#dc2626' }}>{fmtMon(v)}</span> : <span style={{ color: '#16a34a' }}>$ 0</span>;
       }
     },
-    { headerName: 'Medio', field: 'MedioPago', width: 90,
+    { headerName: 'Medio', field: 'MedioPago', width: 110,
       cellRenderer: (p: any) => <span style={{ fontSize: 11, padding: '1px 6px', borderRadius: 4, background: '#f3f4f6' }}>{p.value}</span> },
-    { headerName: '', width: 60, sortable: false,
+    { headerName: '', width: 75, sortable: false,
       cellStyle: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 },
       cellRenderer: (p: any) => (
         <div style={{ display: 'flex', gap: 4 }}>
@@ -241,9 +243,9 @@ export function SalesManagement() {
 
       {/* Grid */}
       <div style={{ background: '#fff', borderRadius: 12, overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
-        <div style={{ height: 'calc(100vh - 370px)', width: '100%' }}>
+        <div className="ag-theme-alpine" style={{ height: 'calc(100vh - 370px)', width: '100%', fontSize: 12, ['--ag-font-size' as any]: '12px' }}>
           <AgGridReact ref={gridRef} rowData={filtrados} columnDefs={cols} loading={loading} animateRows
-            getRowId={p => String(p.data.Factura_N)} rowHeight={36} headerHeight={36}
+            getRowId={p => String(p.data.Factura_N)} rowHeight={32} headerHeight={30}
             defaultColDef={{ resizable: true }}
             getRowStyle={p => {
               if (p.data?.EstadoFact === 'Anulada') return { background: '#fef2f2', textDecoration: 'line-through', opacity: 0.6 };

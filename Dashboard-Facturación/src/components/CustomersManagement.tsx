@@ -410,8 +410,8 @@ export function CustomersManagement() {
                     {nitInput()}
                     {inp('Teléfono', 'Telefonos')}
                     {inp('WhatsApp', 'Whatsapp')}
-                    {inp('Dirección', 'Direccion', { containerStyle: { gridColumn: 'span 2' } })}
-                    {inp('Email', 'Email')}
+                    {inp('Dirección', 'Direccion')}
+                    {inp('Email', 'Email', { containerStyle: { gridColumn: 'span 2' } })}
                     {inp('Cupo Autorizado', 'CupoAutorizado')}
                     {inp('Término (días)', 'Termino')}
                     {inp('Cumpleaños', 'FechaCumple', { type: 'date' })}

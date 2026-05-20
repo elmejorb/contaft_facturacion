@@ -3,17 +3,101 @@ import { AgGridReact } from 'ag-grid-react';
 import { AllCommunityModule, ModuleRegistry, ColDef } from 'ag-grid-community';
 import {
   Search, RefreshCw, FileText, CheckCircle, XCircle, AlertTriangle,
-  Clock, Send, Eye, Printer, Globe, Mail, MailCheck, MailOpen, MailX, FileMinus, X
+  Clock, Send, Eye, Printer, Globe, Mail, MailCheck, MailOpen, MailX, FileMinus, X, Copy
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { DetalleDocElectronico } from './DetalleDocElectronico';
+import { getConfigImpresion, getEmpresaCache } from './ConfiguracionSistema';
+import { imprimirFactura, DatosFactura } from './ImpresionFactura';
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
 const API = 'http://localhost:80/conta-app-backend/api/facturacion-electronica';
 const fmtMon = (v: number) => '$ ' + Math.round(v).toLocaleString('es-CO');
 
-export function FacturacionElectronica() {
+// Mapea un documento electrónico + sus items al shape DatosFactura que usa
+// imprimirFactura(). Se usa cuando el usuario elige formato Tirilla desde el
+// listado de FE — para Carta seguimos usando el pdf.php del backend (TCPDF).
+// Si viene `empresa` en la respuesta del backend, incluye los datos FE
+// (CUFE, QR DIAN, resolución completa) que la tirilla renderiza.
+function mapFEtoDatosFactura(doc: any, items: any[], empresa?: any): DatosFactura {
+  const emp = getEmpresaCache();
+  const subtotal = items.reduce((s, i) => s + (parseFloat(i.line_extension_amount) || 0), 0);
+  const iva = items.reduce((s, i) => s + (parseFloat(i.tax_amount) || 0), 0);
+
+  // Tipo de documento DIAN
+  const tipoId = parseInt(doc.type_document_id) || 1;
+  let tipoDocFE = 'FACTURA ELECTRÓNICA DE VENTA';
+  if (tipoId === 2) tipoDocFE = 'NOTA CRÉDITO ELECTRÓNICA';
+  else if (tipoId === 3) tipoDocFE = 'NOTA DÉBITO ELECTRÓNICA';
+
+  // QR de verificación DIAN
+  const cufe = doc.cufe || '';
+  const qrUrl = cufe ? `https://catalogo-vpfe.dian.gov.co/document/searchqr?documentkey=${cufe}` : '';
+
+  // Texto de autorización de numeración (replicando el footer del pdf.php)
+  let resolucionTexto = '';
+  if (empresa && empresa.Resolucion) {
+    const fechaR = empresa.FechaR ? new Date(empresa.FechaR) : null;
+    const fechaDesde = fechaR ? fechaR.toLocaleDateString('es-CO') : '';
+    const fechaHasta = fechaR
+      ? new Date(fechaR.getTime() + 2 * 365 * 24 * 3600 * 1000).toLocaleDateString('es-CO')
+      : '';
+    const prefijo = empresa.Prefijo || doc.prefix || '';
+    resolucionTexto = `Autorización de numeración N°${empresa.Resolucion} de ${fechaDesde} Modalidad ${tipoDocFE} Desde N° ${prefijo}${empresa.Rango || '1'} hasta ${prefijo}${empresa.Rango2 || '20000'} vigencia hasta ${fechaHasta}`;
+  }
+
+  return {
+    numero: `${doc.prefix || ''}${doc.number}`,
+    fecha: new Date(doc.fecha).toLocaleDateString('es-CO') + ' - ' +
+           new Date(doc.fecha).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' }),
+    tipo: parseInt(doc.payment_form_id) === 1 ? 'Contado' : 'Crédito',
+    dias: parseInt(doc.payment_due_days) || 0,
+    cliente: {
+      nombre: doc.Razon_Social || '-',
+      nit: doc.Nit || '-',
+      telefono: doc.Telefonos || '-',
+      direccion: doc.Direccion || '-',
+    },
+    items: items.map(i => ({
+      codigo: i.Codigo || '',
+      nombre: i.description || i.Nombres_Articulo || '',
+      cantidad: parseFloat(i.invoiced_quantity) || 0,
+      precio: parseFloat(i.price_amount) || 0,
+      iva: parseFloat(i.tax_percent) || 0,
+      descuento: parseFloat(i.discount_amount) || 0,
+      subtotal: parseFloat(i.line_extension_amount) || 0,
+    })),
+    subtotal,
+    descuento: items.reduce((s, i) => s + (parseFloat(i.discount_amount) || 0), 0),
+    iva,
+    total: parseFloat(doc.total) || (subtotal + iva),
+    efectivo: 0, transferencia: 0, cambio: 0, abono: 0, saldo: 0,
+    medioPago: doc.payment_method_name || '',
+    vendedor: '',
+    empresa: {
+      nombre: (empresa && empresa.Empresa) || emp.nombre,
+      nit: (empresa && empresa.Nit) || emp.nit,
+      telefono: (empresa && empresa.Telefono) || emp.telefono,
+      direccion: (empresa && empresa.Direccion) || emp.direccion,
+      regimen: (empresa && empresa.Regimen) || emp.regimen || '',
+      propietario: '-',
+      resolucion: (empresa && empresa.Resolucion) || emp.resolucion || '',
+    },
+    // ===== Datos específicos FE =====
+    esFE: true,
+    tipoDocFE,
+    cufe,
+    qrUrl,
+    resolucionTexto,
+  };
+}
+
+interface Props {
+  onNavigate?: (section: string) => void;
+}
+
+export function FacturacionElectronica({ onNavigate }: Props = {}) {
   const [docs, setDocs] = useState<any[]>([]);
   const [ventasDian, setVentasDian] = useState<any[]>([]);
   const [resumen, setResumen] = useState<any>({});
@@ -38,7 +122,51 @@ export function FacturacionElectronica() {
   const [contingencias, setContingencias] = useState<any[]>([]);
   const [showContingencias, setShowContingencias] = useState(false);
   const [reenviandoCont, setReenviandoCont] = useState(false);
+  // Formato de impresión preseleccionado desde configuración del sistema.
+  // El usuario puede cambiarlo aquí sin afectar la config global.
+  const [formatoImp, setFormatoImp] = useState<'carta' | 'tirilla'>(
+    () => (getConfigImpresion().formatoFactura === 'tirilla' ? 'tirilla' : 'carta')
+  );
+  // Modal de envío de correo — soporta múltiples destinatarios.
+  // El usuario edita la lista antes de enviar y opcionalmente guarda en el cliente.
+  const [showEmailModal, setShowEmailModal] = useState<{
+    cufe: string;
+    cod_cliente: number;
+    label: string;
+    yaEnviado: boolean;
+  } | null>(null);
+  const [emailDraft, setEmailDraft] = useState('');
+  const [emailGuardar, setEmailGuardar] = useState(false);
   const gridRef = useRef<AgGridReact>(null);
+
+  // Copiar una FE al pantalla de Nueva Venta. Guarda el ID en localStorage
+  // y navega — NuevaVenta detecta el flag al montar y carga los datos vía
+  // facturacion-electronica/copiar.php (mismo flujo que pedidos de vendedor).
+  // No se copia el número de factura: la nueva venta toma su consecutivo.
+  const copiarDocFE = (id: number, label?: string) => {
+    localStorage.setItem('fe_para_copiar_id', String(id));
+    toast.success(`${label || 'Factura'} cargada para copia — ajuste y guarde`);
+    onNavigate?.('nueva-venta');
+  };
+
+  // Imprimir un documento electrónico en el formato elegido:
+  //  - 'carta' / 'media-carta': delega al pdf.php del backend (TCPDF)
+  //  - 'tirilla': carga detalle.php y usa imprimirFactura() del frontend (HTML 80mm)
+  const imprimirDocFE = async (id: number) => {
+    if (formatoImp === 'carta') {
+      window.open(`${API}/pdf.php?id=${id}`, 'PDF_Viewer', 'width=900,height=700,menubar=no,toolbar=no,location=no,status=no');
+      return;
+    }
+    try {
+      const r = await fetch(`${API}/detalle.php?id=${id}`);
+      const d = await r.json();
+      if (!d.success) { toast.error(d.message || 'No se pudo cargar el documento'); return; }
+      const datos = mapFEtoDatosFactura(d.documento, d.items || [], d.empresa);
+      imprimirFactura(datos, 'tirilla');
+    } catch (e) {
+      toast.error('Error al imprimir tirilla');
+    }
+  };
 
   const cargar = async () => {
     setLoading(true);
@@ -135,12 +263,22 @@ export function FacturacionElectronica() {
     } catch (e) { toast.error('Error de conexión', { id: 'nd-send' }); }
   };
 
-  const enviarEmail = async (cufe: string, forceResend: boolean = false) => {
+  const enviarEmail = async (
+    cufe: string,
+    emailList?: string,
+    updateCliente?: boolean,
+    forceResend: boolean = false
+  ) => {
     toast.loading('Enviando correo...', { id: 'email-send' });
     try {
       const r = await fetch(`${API}/email.php`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cufe, force_resend: forceResend })
+        body: JSON.stringify({
+          cufe,
+          email: emailList ?? undefined,
+          update_cliente_email: !!updateCliente,
+          force_resend: forceResend,
+        }),
       });
       const d = await r.json();
       if (d.success) {
@@ -148,10 +286,9 @@ export function FacturacionElectronica() {
         cargar();
         cargarEmailStatus(true);
       } else if (d.code === 409) {
-        // Ya fue enviado — preguntar si reenviar
         toast.dismiss('email-send');
         if (confirm('El correo ya fue enviado anteriormente. ¿Desea reenviarlo?')) {
-          enviarEmail(cufe, true);
+          enviarEmail(cufe, emailList, updateCliente, true);
         }
         return;
       } else {
@@ -316,35 +453,39 @@ export function FacturacionElectronica() {
       }
     },
     {
-      headerName: '', width: 110, sortable: false,
+      headerName: '', width: 145, sortable: false,
       cellRenderer: (p: any) => (
         <div style={{ display: 'flex', gap: 3, alignItems: 'center' }}>
           <button title="Ver detalle" onClick={() => setFacturaDetalle(p.data.id)}
             style={{ width: 26, height: 24, border: '1px solid #d1d5db', borderRadius: 4, cursor: 'pointer', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <Eye size={13} color="#6b7280" />
           </button>
-          <button title="Imprimir PDF" onClick={() => window.open(`${API}/pdf.php?id=${p.data.id}`, 'PDF_Viewer', 'width=900,height=700,menubar=no,toolbar=no,location=no,status=no')}
+          <button title={`Imprimir (${formatoImp === 'tirilla' ? 'Tirilla POS' : 'Carta'})`} onClick={() => imprimirDocFE(p.data.id)}
             style={{ width: 26, height: 24, border: '1px solid #d1d5db', borderRadius: 4, cursor: 'pointer', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <Printer size={13} color="#7c3aed" />
+          </button>
+          <button title="Copiar a Nueva Venta" onClick={() => copiarDocFE(p.data.id, `FE-${p.data.prefix || ''}${p.data.number}`)}
+            style={{ width: 26, height: 24, border: '1px solid #d1d5db', borderRadius: 4, cursor: 'pointer', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <Copy size={13} color="#16a34a" />
           </button>
           {p.data.cufe && (
             <button title={p.data.email_sent ? 'Reenviar correo' : 'Enviar correo al cliente'}
               onClick={async () => {
-                // Buscar email del cliente
+                // Precargar el email del cliente y abrir el modal de envío múltiple
                 try {
                   const r = await fetch(`http://localhost:80/conta-app-backend/api/clientes/listar.php?id=${p.data.cod_cliente}`);
                   const d = await r.json();
                   const email = d.success ? (d.cliente?.Email || '') : '';
-                  if (!email || !email.includes('@')) {
-                    toast.error(`El cliente no tiene un correo válido registrado. ${email ? 'Email actual: ' + email : 'Sin email.'}`);
-                    return;
-                  }
-                  const msg = p.data.email_sent
-                    ? `¿Reenviar correo de ${p.data.prefix}${p.data.number} a ${email}?`
-                    : `¿Enviar factura ${p.data.prefix}${p.data.number} a ${email}?`;
-                  if (confirm(msg)) enviarEmail(p.data.cufe);
+                  setEmailDraft(email);
+                  setEmailGuardar(false);
+                  setShowEmailModal({
+                    cufe: p.data.cufe,
+                    cod_cliente: p.data.cod_cliente,
+                    label: `${p.data.prefix || ''}${p.data.number}`,
+                    yaEnviado: !!p.data.email_sent,
+                  });
                 } catch (e) {
-                  toast.error('Error al verificar email del cliente');
+                  toast.error('Error al cargar email del cliente');
                 }
               }}
               style={{ width: 26, height: 24, border: `1px solid ${p.data.email_sent ? '#16a34a' : '#2563eb'}`, borderRadius: 4, cursor: 'pointer', background: p.data.email_sent ? '#f0fdf4' : '#eff6ff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -477,6 +618,16 @@ export function FacturacionElectronica() {
           ))}
         </div>
         <div style={{ flex: 1 }} />
+        {/* Formato de impresión — override del default de Configuración */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <Printer size={13} color="#6b7280" />
+          <span style={{ fontSize: 11, color: '#6b7280', fontWeight: 600 }}>Imprimir:</span>
+          <select value={formatoImp} onChange={e => setFormatoImp(e.target.value as 'carta' | 'tirilla')}
+            style={{ height: 28, padding: '0 8px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 12, background: '#fff', cursor: 'pointer' }}>
+            <option value="carta">Carta (PDF)</option>
+            <option value="tirilla">Tirilla POS</option>
+          </select>
+        </div>
         <div style={{ position: 'relative' }}>
           <Search size={14} style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', color: '#9ca3af' }} />
           <input type="text" placeholder="Buscar por cliente, número, CUFE..." value={busqueda} onChange={e => setBusqueda(e.target.value)}
@@ -637,6 +788,85 @@ export function FacturacionElectronica() {
         </div>
       )}
 
+      {/* Modal envío de correo (soporta múltiples destinatarios) */}
+      {showEmailModal && (() => {
+        // Validación en vivo de cada correo
+        const tokens = emailDraft
+          .split(/[;,\n]+/)
+          .map(s => s.trim())
+          .filter(s => s.length > 0);
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        const validados = tokens.map(t => ({ email: t, valido: emailRegex.test(t) }));
+        const hayValidos = validados.some(v => v.valido);
+        const hayInvalidos = validados.some(v => !v.valido);
+        return (
+          <div style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.4)' }} onClick={() => setShowEmailModal(null)} />
+            <div style={{ position: 'relative', background: '#fff', borderRadius: 12, width: 480, boxShadow: '0 20px 60px rgba(0,0,0,0.25)', padding: 20 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <div style={{ fontSize: 15, fontWeight: 700, color: '#111827', display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <Mail size={16} color="#2563eb" /> {showEmailModal.yaEnviado ? 'Reenviar' : 'Enviar'} FE-{showEmailModal.label}
+                </div>
+                <button onClick={() => setShowEmailModal(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6b7280' }}>✕</button>
+              </div>
+              <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 10 }}>
+                Separa varios correos con coma o punto y coma. El sistema valida y envía a cada uno.
+              </div>
+              <textarea
+                value={emailDraft}
+                onChange={e => setEmailDraft(e.target.value)}
+                placeholder="cliente@empresa.com, contador@empresa.com"
+                rows={3}
+                style={{ width: '100%', padding: 8, fontSize: 13, border: '1px solid #d1d5db', borderRadius: 6, fontFamily: 'inherit', resize: 'vertical', boxSizing: 'border-box' }}
+              />
+              {validados.length > 0 && (
+                <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                  {validados.map((v, idx) => (
+                    <span key={idx} style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 4,
+                      padding: '2px 8px', borderRadius: 12, fontSize: 11, fontWeight: 600,
+                      background: v.valido ? '#dcfce7' : '#fee2e2',
+                      color: v.valido ? '#16a34a' : '#dc2626',
+                    }}>
+                      {v.valido ? <CheckCircle size={11} /> : <XCircle size={11} />} {v.email}
+                    </span>
+                  ))}
+                </div>
+              )}
+              {hayInvalidos && (
+                <div style={{ marginTop: 6, fontSize: 11, color: '#dc2626' }}>
+                  ⚠️ Los correos en rojo tienen formato inválido y serán ignorados.
+                </div>
+              )}
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 12, cursor: 'pointer', fontSize: 12, color: '#374151' }}>
+                <input type="checkbox" checked={emailGuardar} onChange={e => setEmailGuardar(e.target.checked)} />
+                Guardar estos correos en el cliente (para próximas facturas)
+              </label>
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
+                <button onClick={() => setShowEmailModal(null)}
+                  style={{ height: 32, padding: '0 14px', background: '#f3f4f6', color: '#374151', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                  Cancelar
+                </button>
+                <button disabled={!hayValidos}
+                  onClick={() => {
+                    const cufe = showEmailModal.cufe;
+                    const lista = validados.filter(v => v.valido).map(v => v.email).join(',');
+                    setShowEmailModal(null);
+                    enviarEmail(cufe, lista, emailGuardar, showEmailModal.yaEnviado);
+                  }}
+                  style={{
+                    height: 32, padding: '0 16px', background: hayValidos ? '#2563eb' : '#9ca3af',
+                    color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 600,
+                    cursor: hayValidos ? 'pointer' : 'not-allowed', display: 'flex', alignItems: 'center', gap: 6
+                  }}>
+                  <Send size={13} /> {showEmailModal.yaEnviado ? 'Reenviar' : 'Enviar'} a {validados.filter(v => v.valido).length || '0'}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Modal preview JSON */}
       {detalle && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -659,7 +889,8 @@ export function FacturacionElectronica() {
 
       {/* Modal detalle documento electrónico */}
       {facturaDetalle && (
-        <DetalleDocElectronico docId={facturaDetalle} onClose={() => setFacturaDetalle(null)} onUpdate={cargar} />
+        <DetalleDocElectronico docId={facturaDetalle} onClose={() => setFacturaDetalle(null)} onUpdate={cargar}
+          onCopiar={(id, label) => { setFacturaDetalle(null); copiarDocFE(id, label); }} />
       )}
 
     </div>

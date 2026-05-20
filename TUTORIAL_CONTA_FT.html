@@ -1,0 +1,1890 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Manual de Usuario — Conta FT</title>
+<style>
+  :root {
+    --primary: #4f46e5;
+    --primary-dark: #3730a3;
+    --primary-light: #e0e7ff;
+    --success: #059669;
+    --success-light: #d1fae5;
+    --warning: #d97706;
+    --warning-light: #fef3c7;
+    --danger: #dc2626;
+    --danger-light: #fee2e2;
+    --gray-50: #f9fafb;
+    --gray-100: #f3f4f6;
+    --gray-200: #e5e7eb;
+    --gray-300: #d1d5db;
+    --gray-400: #9ca3af;
+    --gray-500: #6b7280;
+    --gray-600: #4b5563;
+    --gray-700: #374151;
+    --gray-800: #1f2937;
+    --gray-900: #111827;
+    --sidebar-width: 270px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 14px; color: var(--gray-800); background: var(--gray-50); }
+
+  /* SIDEBAR */
+  #sidebar {
+    position: fixed; top: 0; left: 0; width: var(--sidebar-width);
+    height: 100vh; background: var(--gray-900); color: #fff;
+    overflow-y: auto; z-index: 100; padding-bottom: 40px;
+  }
+  #sidebar-header {
+    padding: 20px 16px; background: linear-gradient(135deg, #4f46e5, #7c3aed);
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+  }
+  #sidebar-header h1 { font-size: 18px; font-weight: 700; color: #fff; }
+  #sidebar-header p { font-size: 11px; color: rgba(255,255,255,0.7); margin-top: 4px; }
+  .sidebar-section { padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.07); }
+  .sidebar-section-title {
+    padding: 6px 16px; font-size: 10px; font-weight: 700; letter-spacing: 1px;
+    text-transform: uppercase; color: var(--gray-400);
+  }
+  .sidebar-link {
+    display: block; padding: 8px 16px; color: var(--gray-300);
+    text-decoration: none; font-size: 13px; cursor: pointer; border: none;
+    background: none; width: 100%; text-align: left;
+    transition: background 0.15s, color 0.15s;
+  }
+  .sidebar-link:hover, .sidebar-link.active {
+    background: rgba(79,70,229,0.3); color: #fff;
+  }
+  .sidebar-link span.icon { margin-right: 8px; font-size: 14px; }
+
+  /* MAIN CONTENT */
+  #main { margin-left: var(--sidebar-width); padding: 0; }
+  .page-hero {
+    background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+    color: #fff; padding: 40px 48px; margin-bottom: 0;
+  }
+  .page-hero h1 { font-size: 28px; font-weight: 800; margin-bottom: 8px; }
+  .page-hero p { font-size: 16px; opacity: 0.85; max-width: 700px; line-height: 1.6; }
+
+  /* SECTIONS */
+  .module { padding: 40px 48px; border-bottom: 1px solid var(--gray-200); }
+  .module:last-child { border-bottom: none; }
+  .module-header { display: flex; align-items: center; gap: 14px; margin-bottom: 28px; }
+  .module-icon {
+    width: 48px; height: 48px; border-radius: 12px; display: flex;
+    align-items: center; justify-content: center; font-size: 22px; flex-shrink: 0;
+  }
+  .module-title h2 { font-size: 22px; font-weight: 700; color: var(--gray-900); }
+  .module-title p { color: var(--gray-500); font-size: 13px; margin-top: 3px; }
+
+  /* STEPS */
+  .steps { counter-reset: step; }
+  .step {
+    display: flex; gap: 16px; margin-bottom: 20px;
+    padding: 16px 20px; background: #fff; border-radius: 10px;
+    border: 1px solid var(--gray-200); align-items: flex-start;
+  }
+  .step-number {
+    width: 32px; height: 32px; border-radius: 50%; background: var(--primary);
+    color: #fff; font-weight: 700; font-size: 13px; display: flex;
+    align-items: center; justify-content: center; flex-shrink: 0; margin-top: 1px;
+  }
+  .step-content h4 { font-weight: 600; color: var(--gray-800); margin-bottom: 4px; font-size: 14px; }
+  .step-content p { color: var(--gray-600); line-height: 1.6; font-size: 13px; }
+
+  /* CARDS GRID */
+  .cards-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; margin-bottom: 28px; }
+  .card {
+    background: #fff; border: 1px solid var(--gray-200); border-radius: 10px;
+    padding: 18px; transition: box-shadow 0.15s;
+  }
+  .card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
+  .card-icon { font-size: 24px; margin-bottom: 10px; }
+  .card h4 { font-size: 14px; font-weight: 600; color: var(--gray-800); margin-bottom: 6px; }
+  .card p { font-size: 12px; color: var(--gray-500); line-height: 1.5; }
+
+  /* ALERTS */
+  .alert {
+    padding: 14px 18px; border-radius: 8px; margin: 16px 0;
+    display: flex; gap: 12px; align-items: flex-start; font-size: 13px; line-height: 1.6;
+  }
+  .alert-icon { font-size: 18px; flex-shrink: 0; margin-top: 1px; }
+  .alert-tip { background: var(--primary-light); border-left: 4px solid var(--primary); color: #312e81; }
+  .alert-warning { background: var(--warning-light); border-left: 4px solid var(--warning); color: #78350f; }
+  .alert-success { background: var(--success-light); border-left: 4px solid var(--success); color: #064e3b; }
+  .alert-danger { background: var(--danger-light); border-left: 4px solid var(--danger); color: #7f1d1d; }
+
+  /* FIELDS TABLE */
+  .fields-table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 13px; }
+  .fields-table th {
+    background: var(--gray-100); text-align: left; padding: 10px 14px;
+    font-weight: 600; color: var(--gray-700); border-bottom: 2px solid var(--gray-200);
+  }
+  .fields-table td { padding: 9px 14px; border-bottom: 1px solid var(--gray-100); color: var(--gray-600); vertical-align: top; }
+  .fields-table tr:last-child td { border-bottom: none; }
+  .badge {
+    display: inline-block; padding: 2px 8px; border-radius: 99px; font-size: 11px; font-weight: 600;
+  }
+  .badge-required { background: #fee2e2; color: #991b1b; }
+  .badge-optional { background: var(--gray-100); color: var(--gray-600); }
+  .badge-auto { background: #dbeafe; color: #1e40af; }
+
+  /* TOC */
+  #toc { background: var(--gray-900); padding: 24px 16px; }
+  #toc h3 { color: var(--gray-300); font-size: 11px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px; }
+
+  /* DIVIDER */
+  .section-divider { height: 4px; background: linear-gradient(90deg, #4f46e5, #7c3aed, transparent); margin: 0; }
+
+  /* KEYBOARD KEY */
+  kbd {
+    display: inline-block; padding: 2px 6px; background: var(--gray-200); border: 1px solid var(--gray-300);
+    border-radius: 4px; font-family: monospace; font-size: 12px; font-weight: 600; color: var(--gray-700);
+  }
+
+  /* TWO COLUMN */
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin: 16px 0; }
+  @media (max-width: 800px) { .two-col { grid-template-columns: 1fr; } }
+
+  /* FLOW DIAGRAM */
+  .flow { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin: 16px 0; }
+  .flow-step {
+    padding: 6px 14px; background: #fff; border: 1px solid var(--gray-300);
+    border-radius: 20px; font-size: 12px; font-weight: 500; color: var(--gray-700);
+  }
+  .flow-arrow { color: var(--gray-400); font-size: 16px; }
+
+  /* CHECKLIST */
+  .checklist { list-style: none; margin: 12px 0; }
+  .checklist li { padding: 5px 0; font-size: 13px; color: var(--gray-600); display: flex; align-items: flex-start; gap: 8px; }
+  .checklist li::before { content: "✓"; color: var(--success); font-weight: 700; flex-shrink: 0; margin-top: 1px; }
+
+  /* PRINT */
+  @media print {
+    #sidebar { display: none; }
+    #main { margin-left: 0; }
+    .module { page-break-inside: avoid; }
+  }
+
+  h3.sub { font-size: 16px; font-weight: 600; color: var(--gray-800); margin: 24px 0 12px; }
+  p.text { color: var(--gray-600); line-height: 1.7; margin-bottom: 12px; font-size: 13px; }
+  strong { color: var(--gray-800); }
+</style>
+</head>
+<body>
+
+<!-- ========================= SIDEBAR ========================= -->
+<nav id="sidebar">
+  <div id="sidebar-header">
+    <h1>📊 Conta FT</h1>
+    <p>Manual de Usuario Completo</p>
+  </div>
+
+  <div class="sidebar-section">
+    <div class="sidebar-section-title">Inicio</div>
+    <a class="sidebar-link" onclick="goToSection('inicio')"><span class="icon">🏠</span> Introducción</a>
+    <a class="sidebar-link" onclick="goToSection('bienvenida')"><span class="icon">🎉</span> Bienvenida y funciones</a>
+    <a class="sidebar-link" onclick="goToSection('login')"><span class="icon">🔐</span> Acceso al sistema</a>
+    <a class="sidebar-link" onclick="goToSection('config-inicial')"><span class="icon">⚙️</span> Configuración Inicial</a>
+    <a class="sidebar-link" onclick="goToSection('usuarios-cajas')"><span class="icon">👥</span> Usuarios y Cajas</a>
+  </div>
+
+  <div class="sidebar-section">
+    <div class="sidebar-section-title">Inventario</div>
+    <a class="sidebar-link" onclick="goToSection('inventario')"><span class="icon">📋</span> Inventario</a>
+    <a class="sidebar-link" onclick="goToSection('kardex')"><span class="icon">📊</span> Kárdex y Auditoría</a>
+    <a class="sidebar-link" onclick="goToSection('lotes')"><span class="icon">🏷️</span> Lotes y Vencimientos</a>
+    <a class="sidebar-link" onclick="goToSection('familias')"><span class="icon">🔗</span> Familias de Productos</a>
+  </div>
+
+  <div class="sidebar-section">
+    <div class="sidebar-section-title">Operación diaria</div>
+    <a class="sidebar-link" onclick="goToSection('caja')"><span class="icon">💰</span> Caja Registradora</a>
+    <a class="sidebar-link" onclick="goToSection('caja-admin')"><span class="icon">🏦</span> Caja Principal Admin</a>
+    <a class="sidebar-link" onclick="goToSection('historial-cajas')"><span class="icon">📂</span> Historial de Cajas</a>
+    <a class="sidebar-link" onclick="goToSection('ventas')"><span class="icon">🛒</span> Nueva Venta</a>
+    <a class="sidebar-link" onclick="goToSection('fe')"><span class="icon">📄</span> Facturación Electrónica</a>
+    <a class="sidebar-link" onclick="goToSection('compras')"><span class="icon">📦</span> Compras</a>
+    <a class="sidebar-link" onclick="goToSection('gastos')"><span class="icon">💸</span> Gastos</a>
+  </div>
+
+  <div class="sidebar-section">
+    <div class="sidebar-section-title">Terceros y cartera</div>
+    <a class="sidebar-link" onclick="goToSection('clientes')"><span class="icon">👥</span> Clientes</a>
+    <a class="sidebar-link" onclick="goToSection('cartera-clientes')"><span class="icon">📬</span> Cobros a Clientes</a>
+    <a class="sidebar-link" onclick="goToSection('proveedores')"><span class="icon">🏭</span> Proveedores</a>
+    <a class="sidebar-link" onclick="goToSection('cartera-proveedores')"><span class="icon">📤</span> Pagos a Proveedores</a>
+  </div>
+
+  <div class="sidebar-section">
+    <div class="sidebar-section-title">Finanzas</div>
+    <a class="sidebar-link" onclick="goToSection('bancos')"><span class="icon">🏦</span> Bancos</a>
+    <a class="sidebar-link" onclick="goToSection('historial-bancos')"><span class="icon">📋</span> Historial Movimientos</a>
+    <a class="sidebar-link" onclick="goToSection('informes')"><span class="icon">📈</span> Informes</a>
+  </div>
+
+  <div class="sidebar-section">
+    <div class="sidebar-section-title">Administración</div>
+    <a class="sidebar-link" onclick="goToSection('usuarios')"><span class="icon">👤</span> Usuarios</a>
+    <a class="sidebar-link" onclick="goToSection('configuracion')"><span class="icon">🔧</span> Configuración</a>
+  </div>
+</nav>
+
+<!-- ========================= MAIN ========================= -->
+<main id="main">
+
+<!-- HERO -->
+<div class="page-hero" id="inicio">
+  <h1>📊 Manual de Usuario — Conta FT</h1>
+  <p>Guía completa de uso del sistema de facturación y contabilidad. Encontrará aquí instrucciones paso a paso para cada módulo, desde la configuración inicial hasta el cierre de caja y los informes.</p>
+</div>
+<div class="section-divider"></div>
+
+<!-- ========================= BIENVENIDA ========================= -->
+<section class="module" id="bienvenida" style="background: linear-gradient(135deg, #f0f4ff 0%, #faf5ff 100%);">
+  <div style="text-align:center; padding: 10px 0 28px;">
+    <div style="font-size:52px; margin-bottom:12px;">🎉</div>
+    <h2 style="font-size:26px; font-weight:800; color:#312e81; margin-bottom:10px;">¡Bienvenido a Conta FT!</h2>
+    <p style="font-size:15px; color:#4b5563; max-width:620px; margin:0 auto; line-height:1.7;">
+      A partir de hoy su negocio tiene un sistema completo que le permite <strong>controlar ventas, inventario, caja, cartera y facturación electrónica</strong> desde un solo lugar — sin papeles, sin hojas de cálculo, sin errores de cuadre.
+    </p>
+  </div>
+
+  <h3 class="sub" style="text-align:center; margin-bottom:18px;">¿Qué puede hacer con Conta FT?</h3>
+  <div class="cards-grid">
+    <div class="card" style="border-top:3px solid #4f46e5">
+      <div class="card-icon">🛒</div>
+      <h4>Ventas rápidas</h4>
+      <p>Facture con código de barras o búsqueda por nombre. El sistema calcula IVA, descuentos y cambio al instante.</p>
+    </div>
+    <div class="card" style="border-top:3px solid #059669">
+      <div class="card-icon">📄</div>
+      <h4>Facturación Electrónica</h4>
+      <p>Emita facturas electrónicas válidas ante la DIAN directamente desde la venta, sin software adicional.</p>
+    </div>
+    <div class="card" style="border-top:3px solid #d97706">
+      <div class="card-icon">📦</div>
+      <h4>Inventario en tiempo real</h4>
+      <p>Cada venta y compra actualiza las existencias. Alertas de stock bajo y control por lotes y vencimientos.</p>
+    </div>
+    <div class="card" style="border-top:3px solid #db2777">
+      <div class="card-icon">💰</div>
+      <h4>Control de caja</h4>
+      <p>Apertura, cierres, cuadre de efectivo, traslados entre cajas y comprobantes de egreso automáticos.</p>
+    </div>
+    <div class="card" style="border-top:3px solid #7c3aed">
+      <div class="card-icon">📬</div>
+      <h4>Cartera de clientes</h4>
+      <p>Ventas a crédito, seguimiento de pagos, estado de cuenta por cliente y alertas de cartera vencida.</p>
+    </div>
+    <div class="card" style="border-top:3px solid #0891b2">
+      <div class="card-icon">📈</div>
+      <h4>Informes y cierres</h4>
+      <p>Cierre diario, estado de resultados, top de clientes, IVA, kardex de inventario y más — exportables.</p>
+    </div>
+  </div>
+
+  <div style="background:#fff; border-radius:12px; border:1px solid #e0e7ff; padding:24px; margin-top:24px;">
+    <h3 style="font-size:15px; font-weight:700; color:#312e81; margin-bottom:16px; text-align:center;">🗺️ Ruta sugerida para arrancar</h3>
+    <div style="display:flex; gap:0; align-items:stretch; flex-wrap:wrap; justify-content:center;">
+      <div style="text-align:center; padding:12px 18px; min-width:110px;">
+        <div style="font-size:26px; margin-bottom:6px;">🔐</div>
+        <div style="font-size:12px; font-weight:700; color:#4f46e5;">1. Acceder</div>
+        <div style="font-size:11px; color:#6b7280; margin-top:3px;">Iniciar sesión con el usuario administrador</div>
+      </div>
+      <div style="display:flex; align-items:center; color:#9ca3af; font-size:20px; padding:0 4px;">→</div>
+      <div style="text-align:center; padding:12px 18px; min-width:110px;">
+        <div style="font-size:26px; margin-bottom:6px;">⚙️</div>
+        <div style="font-size:12px; font-weight:700; color:#4f46e5;">2. Configurar</div>
+        <div style="font-size:11px; color:#6b7280; margin-top:3px;">Datos de empresa, logo e impresión</div>
+      </div>
+      <div style="display:flex; align-items:center; color:#9ca3af; font-size:20px; padding:0 4px;">→</div>
+      <div style="text-align:center; padding:12px 18px; min-width:110px;">
+        <div style="font-size:26px; margin-bottom:6px;">👥</div>
+        <div style="font-size:12px; font-weight:700; color:#4f46e5;">3. Usuarios y cajas</div>
+        <div style="font-size:11px; color:#6b7280; margin-top:3px;">Crear cajeros y asignarlos a sus cajas</div>
+      </div>
+      <div style="display:flex; align-items:center; color:#9ca3af; font-size:20px; padding:0 4px;">→</div>
+      <div style="text-align:center; padding:12px 18px; min-width:110px;">
+        <div style="font-size:26px; margin-bottom:6px;">📋</div>
+        <div style="font-size:12px; font-weight:700; color:#4f46e5;">4. Inventario</div>
+        <div style="font-size:11px; color:#6b7280; margin-top:3px;">Cargar productos con precios y existencias</div>
+      </div>
+      <div style="display:flex; align-items:center; color:#9ca3af; font-size:20px; padding:0 4px;">→</div>
+      <div style="text-align:center; padding:12px 18px; min-width:110px;">
+        <div style="font-size:26px; margin-bottom:6px;">💰</div>
+        <div style="font-size:12px; font-weight:700; color:#4f46e5;">5. ¡A vender!</div>
+        <div style="font-size:11px; color:#6b7280; margin-top:3px;">Abrir caja y registrar la primera venta</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="alert alert-tip" style="margin-top:20px">
+    <span class="alert-icon">💡</span>
+    <div>Este manual está organizado en el mismo orden en que debe usar el sistema. Sígalo de arriba hacia abajo la primera vez y en pocas horas tendrá todo listo para operar.</div>
+  </div>
+</section>
+
+<!-- ========================= ACCESO ========================= -->
+<section class="module" id="login">
+  <div class="module-header">
+    <div class="module-icon" style="background:#fce7f3">🔐</div>
+    <div class="module-title">
+      <h2>Acceso al Sistema</h2>
+      <p>Inicio de sesión y perfiles de usuario</p>
+    </div>
+  </div>
+
+  <div class="two-col">
+    <div>
+      <h3 class="sub">Cómo ingresar</h3>
+      <div class="steps">
+        <div class="step">
+          <div class="step-number">1</div>
+          <div class="step-content">
+            <h4>Abrir la aplicación</h4>
+            <p>Haga doble clic en el ícono de <strong>Conta FT</strong> en el escritorio. La pantalla de inicio mostrará el nombre de la empresa y el logotipo.</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-number">2</div>
+          <div class="step-content">
+            <h4>Ingresar usuario y contraseña</h4>
+            <p>Escriba su nombre de usuario y contraseña. Presione <kbd>Enter</kbd> o el botón <strong>Ingresar</strong>.</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-number">3</div>
+          <div class="step-content">
+            <h4>Pantalla de inicio</h4>
+            <p>Verá la pantalla de bienvenida con accesos rápidos a los módulos según su perfil. Los administradores ven más opciones que los cajeros.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <h3 class="sub">Perfiles de usuario</h3>
+      <table class="fields-table">
+        <tr><th>Perfil</th><th>Puede hacer</th></tr>
+        <tr><td><strong>Administrador</strong></td><td>Todo: ventas, compras, informes, configuración, anulaciones sin restricción</td></tr>
+        <tr><td><strong>Cajero / Vendedor</strong></td><td>Ventas, cobros, caja propia. Las anulaciones y devoluciones pueden requerir autorización del admin</td></tr>
+      </table>
+
+      <div class="alert alert-tip">
+        <span class="alert-icon">💡</span>
+        <div>La sesión se cierra automáticamente cuando se cierra la ventana de la aplicación. Cada vez que abre el sistema debe volver a ingresar.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ========================= CONFIGURACIÓN INICIAL ========================= -->
+<section class="module" id="config-inicial">
+  <div class="module-header">
+    <div class="module-icon" style="background:#e0e7ff">⚙️</div>
+    <div class="module-title">
+      <h2>Configuración Inicial</h2>
+      <p>Pasos obligatorios antes de empezar a operar</p>
+    </div>
+  </div>
+
+  <div class="alert alert-warning">
+    <span class="alert-icon">⚠️</span>
+    <div>Realice estos pasos <strong>antes de registrar cualquier venta o movimiento.</strong> Una configuración incompleta puede generar inconvenientes en la facturación electrónica y los reportes.</div>
+  </div>
+
+  <h3 class="sub">Lista de verificación de puesta en marcha</h3>
+
+  <div class="cards-grid">
+    <div class="card">
+      <div class="card-icon">🏢</div>
+      <h4>1. Datos de la empresa</h4>
+      <p>NIT, nombre, dirección, teléfono, logo. Aparecen en todas las facturas e informes.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon">👤</div>
+      <h4>2. Usuarios y contraseñas</h4>
+      <p>Crear al menos un usuario administrador y los cajeros/vendedores que operarán el sistema.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon">💰</div>
+      <h4>3. Cajas</h4>
+      <p>Crear las cajas físicas (ej: "Caja Principal", "Caja 2"). Asignar usuarios a cada caja.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon">🖨️</div>
+      <h4>4. Configuración de impresión</h4>
+      <p>Tipo de impresora (tirilla 80mm o carta), márgenes, logo en facturas.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon">📂</div>
+      <h4>5. Categorías de gastos</h4>
+      <p>Crear las categorías de gasto del negocio: Servicios, Arriendo, Nómina, etc.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon">📄</div>
+      <h4>6. Facturación Electrónica</h4>
+      <p>Solo si usa FE: configurar credenciales DIAN, prefijo y número inicial. Lo instala el técnico.</p>
+    </div>
+  </div>
+
+  <h3 class="sub">¿Cómo acceder a la configuración?</h3>
+  <p class="text">En el menú lateral izquierdo, haga clic en <strong>Configuración</strong> (ícono de engranaje ⚙️ al final del menú). Solo los usuarios con perfil <strong>Administrador</strong> pueden acceder a esta sección.</p>
+
+  <div class="alert alert-tip">
+    <span class="alert-icon">💡</span>
+    <div>El logo de la empresa debe ser una imagen JPG o PNG menor a 500 KB. Aparecerá en facturas, informes y recibos de caja. Si no tiene logo, el sistema usará solo el nombre de la empresa.</div>
+  </div>
+</section>
+
+<!-- ========================= USUARIOS Y CAJAS ========================= -->
+<section class="module" id="usuarios-cajas">
+  <div class="module-header">
+    <div class="module-icon" style="background:#dcfce7">👥</div>
+    <div class="module-title">
+      <h2>Usuarios y Cajas</h2>
+      <p>Crear cuentas de acceso, asignar perfiles y configurar las cajas del negocio</p>
+    </div>
+  </div>
+
+  <div class="alert alert-warning">
+    <span class="alert-icon">⚠️</span>
+    <div>Este paso debe realizarse <strong>antes de que los cajeros o vendedores ingresen al sistema por primera vez.</strong> Sin una caja asignada, el usuario no podrá abrir sesión de caja ni registrar ventas.</div>
+  </div>
+
+  <div class="two-col">
+    <div>
+      <h3 class="sub">Paso 1 — Crear usuarios</h3>
+      <p class="text" style="margin-bottom:14px">Vaya a <strong>Configuración → Usuarios</strong>. Solo el administrador puede acceder a esta sección.</p>
+      <div class="steps">
+        <div class="step">
+          <div class="step-number">1</div>
+          <div class="step-content">
+            <h4>Clic en "Nuevo Usuario"</h4>
+            <p>Aparece el formulario de creación en la parte superior del módulo.</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-number">2</div>
+          <div class="step-content">
+            <h4>Completar los datos</h4>
+            <p>Nombre completo, nombre de usuario (para el login), contraseña y tipo de perfil.</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-number">3</div>
+          <div class="step-content">
+            <h4>Seleccionar el tipo de perfil</h4>
+            <p><strong>Administrador:</strong> acceso total. <strong>Cajero/Vendedor:</strong> acceso limitado a operación diaria.</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-number">4</div>
+          <div class="step-content">
+            <h4>Guardar</h4>
+            <p>El usuario queda activo y puede ingresar inmediatamente con las credenciales asignadas.</p>
+          </div>
+        </div>
+      </div>
+
+      <table class="fields-table" style="margin-top:12px">
+        <thead><tr><th>Campo</th><th>Descripción</th><th>Req.</th></tr></thead>
+        <tbody>
+          <tr><td>Nombre completo</td><td>Nombre real de la persona (aparece en registros)</td><td>✅</td></tr>
+          <tr><td>Usuario</td><td>Nombre corto para el login (sin espacios, ej: carlos)</td><td>✅</td></tr>
+          <tr><td>Contraseña</td><td>Mínimo 4 caracteres. El sistema la encripta automáticamente</td><td>✅</td></tr>
+          <tr><td>Tipo</td><td>Administrador (1) o Cajero/Vendedor (2)</td><td>✅</td></tr>
+          <tr><td>Estado</td><td>Activo / Inactivo. Un usuario inactivo no puede iniciar sesión</td><td>—</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div>
+      <h3 class="sub">Paso 2 — Crear cajas</h3>
+      <p class="text" style="margin-bottom:14px">Vaya a <strong>Configuración → Cajas</strong>. Aquí define las cajas físicas del negocio.</p>
+      <div class="steps">
+        <div class="step">
+          <div class="step-number">1</div>
+          <div class="step-content">
+            <h4>Clic en "Nueva Caja"</h4>
+            <p>Ingrese el nombre de la caja (ej: <em>Caja Principal</em>, <em>Punto 2</em>).</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-number">2</div>
+          <div class="step-content">
+            <h4>Definir el tipo</h4>
+            <p><strong>Caja de cajero:</strong> para operación diaria de ventas. <strong>Caja administrativa:</strong> para la caja principal del negocio (recibe traslados).</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-number">3</div>
+          <div class="step-content">
+            <h4>Asignar usuarios a la caja</h4>
+            <p>Seleccione los usuarios que pueden operar esta caja. Un usuario solo puede abrir la caja que tiene asignada.</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-number">4</div>
+          <div class="step-content">
+            <h4>Guardar y repetir</h4>
+            <p>Cree todas las cajas que necesite. Puede tener varias cajas con distintos cajeros operando simultáneamente.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="alert alert-tip">
+        <span class="alert-icon">💡</span>
+        <div>Cree siempre una <strong>Caja Administrativa o Principal</strong>. Hacia ella se hacen los traslados de efectivo desde las cajas de cajeros al final de la jornada, y desde allí se registran los gastos y pagos del negocio.</div>
+      </div>
+    </div>
+  </div>
+
+  <h3 class="sub" style="margin-top:28px">Estructura recomendada para un negocio típico</h3>
+  <div class="cards-grid" style="margin-top:14px">
+    <div class="card">
+      <div class="card-icon">🏢</div>
+      <h4>Caja Principal (Administrativa)</h4>
+      <p>Manejada por el administrador. Recibe traslados de las cajas de cajeros. Se usa para gastos, pagos a proveedores y retiros del negocio.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon">🖥️</div>
+      <h4>Caja 1 — Punto de venta</h4>
+      <p>Asignada al cajero o vendedor del mostrador. Se abre al inicio del turno y se cierra al final con conteo físico.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon">🖥️</div>
+      <h4>Caja 2 — Punto adicional</h4>
+      <p>Si hay más de un punto de venta o cajero. Cada caja opera independiente y puede tener su propio cajero asignado.</p>
+    </div>
+  </div>
+
+  <div class="alert alert-success" style="margin-top:20px">
+    <span class="alert-icon">✅</span>
+    <div><strong>Orden correcto:</strong> primero cree los usuarios, luego cree las cajas y al crearlas asigne los usuarios. Así, cuando el cajero inicie sesión el sistema ya sabe qué caja le corresponde y le pedirá el monto de apertura.</div>
+  </div>
+</section>
+
+<!-- ========================= INVENTARIO ========================= -->
+<section class="module" id="inventario">
+  <div class="module-header">
+    <div class="module-icon" style="background:#fef3c7">📋</div>
+    <div class="module-title">
+      <h2>Inventario</h2>
+      <p>Gestión del catálogo de productos, precios, stock y categorías</p>
+    </div>
+  </div>
+
+  <div class="alert alert-warning">
+    <span class="alert-icon">⚠️</span>
+    <div>Cargue al menos los productos que vende antes de registrar la primera venta. Sin productos en el inventario no es posible facturar ni controlar existencias.</div>
+  </div>
+
+  <h3 class="sub">Ver y editar productos</h3>
+  <p class="text">En el módulo <strong>Inventario</strong> verá la lista completa de productos en una tabla. Puede filtrar por nombre, código o categoría. Para ver el detalle o editar un producto, haga clic en él.</p>
+
+  <div class="two-col">
+    <div>
+      <h3 class="sub">Crear un producto nuevo</h3>
+      <div class="steps">
+        <div class="step">
+          <div class="step-number">1</div>
+          <div class="step-content">
+            <h4>Botón "Nuevo Producto"</h4>
+            <p>Se abre el formulario de creación.</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-number">2</div>
+          <div class="step-content">
+            <h4>Datos básicos</h4>
+            <p>Código (puede ser el de barras), nombre, categoría, precio de venta, precio de costo.</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-number">3</div>
+          <div class="step-content">
+            <h4>IVA y existencia</h4>
+            <p>Tarifa de IVA (0%, 5%, 19%) y cantidad inicial en inventario.</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-number">4</div>
+          <div class="step-content">
+            <h4>Guardar</h4>
+            <p>El producto queda disponible para ventas y compras de inmediato.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <h3 class="sub">Campos del producto</h3>
+      <table class="fields-table">
+        <tr><th>Campo</th><th>Tipo</th></tr>
+        <tr><td>Código</td><td><span class="badge badge-required">Obligatorio</span></td></tr>
+        <tr><td>Nombre</td><td><span class="badge badge-required">Obligatorio</span></td></tr>
+        <tr><td>Categoría</td><td><span class="badge badge-optional">Opcional</span></td></tr>
+        <tr><td>Precio de venta</td><td><span class="badge badge-required">Obligatorio</span></td></tr>
+        <tr><td>Precio de costo</td><td><span class="badge badge-required">Obligatorio</span></td></tr>
+        <tr><td>IVA %</td><td><span class="badge badge-required">Obligatorio</span></td></tr>
+        <tr><td>Existencia inicial</td><td><span class="badge badge-optional">Opcional</span></td></tr>
+        <tr><td>Stock mínimo</td><td><span class="badge badge-optional">Opcional</span></td></tr>
+        <tr><td>Maneja lotes</td><td><span class="badge badge-optional">Opcional</span></td></tr>
+      </table>
+    </div>
+  </div>
+
+  <h3 class="sub">Funciones especiales del inventario</h3>
+  <div class="cards-grid">
+    <div class="card">
+      <div class="card-icon">📊</div>
+      <h4>Detalle del producto</h4>
+      <p>Haga clic derecho sobre un producto para ver su historial completo: ventas, compras, devoluciones, estadísticas de rotación, clientes que lo compraron.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon">🔢</div>
+      <h4>Conteo de inventario</h4>
+      <p>Cuando necesite hacer un conteo físico y ajustar existencias, use el módulo <strong>Conteo de Inventario</strong>. Ingrese las cantidades reales y el sistema calcula las diferencias.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon">⚠️</div>
+      <h4>Stock bajo</h4>
+      <p>El sistema envía alertas (campana 🔔) cuando un producto baja del stock mínimo configurado. También puede ver la lista completa desde <strong>Stock Bajo</strong>.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon">📝</div>
+      <h4>Notas del artículo</h4>
+      <p>Puede agregar notas internas a cualquier producto (instrucciones de manejo, observaciones). Haga clic derecho → Notas.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ========================= CAJA ========================= -->
+<section class="module" id="caja">
+  <div class="module-header">
+    <div class="module-icon" style="background:#fef9c3">💰</div>
+    <div class="module-title">
+      <h2>Caja Registradora</h2>
+      <p>Apertura, operación y cierre de caja con cuadre</p>
+    </div>
+  </div>
+
+  <div class="alert alert-warning">
+    <span class="alert-icon">⚠️</span>
+    <div>Antes de registrar una venta en efectivo, <strong>la caja debe estar abierta.</strong> El sistema le avisará si intenta vender sin caja activa.</div>
+  </div>
+
+  <h3 class="sub">Abrir la caja</h3>
+  <div class="steps">
+    <div class="step">
+      <div class="step-number">1</div>
+      <div class="step-content">
+        <h4>Ir a Caja Registradora</h4>
+        <p>En el menú lateral, haga clic en <strong>Caja</strong>. Si tiene varias cajas asignadas, el sistema le preguntará cuál desea abrir.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-number">2</div>
+      <div class="step-content">
+        <h4>Ingresar el fondo inicial</h4>
+        <p>Escriba el valor del dinero en efectivo con el que inicia la caja (ej: <strong>$ 50.000</strong>). El sistema sugerirá el monto del último cierre como referencia.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-number">3</div>
+      <div class="step-content">
+        <h4>Presionar "Abrir Caja"</h4>
+        <p>La caja queda activa. A partir de este momento las ventas, cobros, gastos y compras al contado quedarán registrados en esta sesión.</p>
+      </div>
+    </div>
+  </div>
+
+  <h3 class="sub">Durante la sesión — Movimientos manuales</h3>
+  <p class="text">Mientras la caja está abierta puede registrar movimientos que no son ventas:</p>
+  <div class="cards-grid">
+    <div class="card">
+      <div class="card-icon">➕</div>
+      <h4>Ingreso directo</h4>
+      <p>Dinero que entra a la caja que no es una venta (ej: préstamo del dueño, devolución de un gasto). Use el botón <strong>"Ingreso"</strong>.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon">➖</div>
+      <h4>Egreso directo</h4>
+      <p>Dinero que sale de la caja distinto a gastos registrados (ej: pago de domicilio). Use el botón <strong>"Egreso"</strong>.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon">↩️</div>
+      <h4>Retiro parcial</h4>
+      <p>Sacar dinero de la caja sin cerrarla (ej: enviar efectivo al banco a media jornada). Use <strong>"Retiro Parcial"</strong>. Esto reduce el saldo de caja pero la mantiene abierta.</p>
+    </div>
+  </div>
+
+  <h3 class="sub">Cerrar la caja (cuadre)</h3>
+  <div class="steps">
+    <div class="step">
+      <div class="step-number">1</div>
+      <div class="step-content">
+        <h4>Presionar "Cerrar Caja"</h4>
+        <p>El sistema mostrará el resumen de la sesión: ventas por medio de pago, cobros, gastos, retiros.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-number">2</div>
+      <div class="step-content">
+        <h4>Contar el efectivo físico</h4>
+        <p>Cuente los billetes y monedas de la caja e ingrese el valor total en el campo <strong>"Efectivo contado"</strong>.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-number">3</div>
+      <div class="step-content">
+        <h4>Seleccionar qué hacer con el efectivo sobrante</h4>
+        <p>Elija una opción:<br>
+        • <strong>Trasladar todo:</strong> Todo el efectivo (incluida la base) va a caja principal<br>
+        • <strong>Solo ganancias:</strong> Solo las ventas del día van a caja principal, deja la base<br>
+        • <strong>No trasladar:</strong> El dinero queda en esta caja para el día siguiente</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-number">4</div>
+      <div class="step-content">
+        <h4>Confirmar y cerrar</h4>
+        <p>El sistema muestra la diferencia entre lo esperado y lo contado. Confirme el cierre. Se genera automáticamente el <strong>comprobante de cuadre</strong> para imprimir.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="alert alert-tip">
+    <span class="alert-icon">💡</span>
+    <div>El cuadre de caja muestra el efectivo neto (descontando el cambio entregado a clientes). Si vendió por $ 100.000 pero entregó $ 15.000 de cambio, el efectivo esperado es $ 85.000.</div>
+  </div>
+
+  <!-- CAJA PRINCIPAL ADMINISTRATIVA -->
+  <h3 class="sub" id="caja-admin" style="margin-top:32px">Caja Principal — Movimientos Administrativos</h3>
+  <p class="text">La <strong>Caja Principal</strong> es manejada exclusivamente por el administrador. A diferencia de las cajas de cajero (que abren y cierran por turno), la caja principal recibe traslados de efectivo y permite registrar ingresos y egresos en cualquier momento sin necesidad de una sesión de turno.</p>
+
+  <div class="two-col" style="margin-top:16px">
+    <div>
+      <h3 class="sub">Registrar un Ingreso</h3>
+      <div class="steps">
+        <div class="step">
+          <div class="step-number">1</div>
+          <div class="step-content">
+            <h4>Ir a Caja → Caja Principal</h4>
+            <p>Solo visible para usuarios con perfil Administrador.</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-number">2</div>
+          <div class="step-content">
+            <h4>Botón "Nuevo Movimiento" → Ingreso</h4>
+            <p>Ingrese el valor, la descripción y la categoría del ingreso (ej: <em>Traslado de caja cajero, Capital del dueño, Cobro de cartera en efectivo</em>).</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-number">3</div>
+          <div class="step-content">
+            <h4>Confirmar</h4>
+            <p>El saldo de la caja principal aumenta y queda registrado el movimiento con fecha, hora y usuario.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <h3 class="sub">Registrar un Egreso</h3>
+      <div class="steps">
+        <div class="step">
+          <div class="step-number">1</div>
+          <div class="step-content">
+            <h4>Botón "Nuevo Movimiento" → Egreso</h4>
+            <p>Seleccione la categoría de egreso configurada (ej: <em>Arriendo, Servicios, Nómina, Retiro del dueño</em>).</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-number">2</div>
+          <div class="step-content">
+            <h4>Valor y descripción</h4>
+            <p>Ingrese el monto y una descripción del gasto. El sistema genera un <strong>recibo de egreso</strong> que puede imprimir como soporte.</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-number">3</div>
+          <div class="step-content">
+            <h4>Confirmar</h4>
+            <p>El saldo de la caja principal disminuye y el movimiento queda registrado para los informes.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="cards-grid" style="margin-top:16px">
+    <div class="card">
+      <div class="card-icon">📥</div>
+      <h4>Traslado desde cajero</h4>
+      <p>Cuando un cajero cierra su turno y elige "Trasladar efectivo", el dinero llega automáticamente como ingreso en la caja principal. El admin lo ve reflejado en tiempo real.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon">💳</div>
+      <h4>Pago a proveedor en efectivo</h4>
+      <p>Al registrar un pago a proveedor con efectivo desde Cartera de Proveedores, el sistema descuenta el valor automáticamente del saldo de la caja principal.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon">📄</div>
+      <h4>Recibo de egreso</h4>
+      <p>Todo egreso de la caja principal genera un comprobante imprimible con número consecutivo, valor, categoría, descripción y firma del responsable.</p>
+    </div>
+  </div>
+
+  <div class="alert alert-warning" style="margin-top:8px">
+    <span class="alert-icon">⚠️</span>
+    <div>Los movimientos de la caja principal <strong>no se pueden eliminar</strong>. Si ingresó un valor incorrecto, registre un movimiento contrario (egreso por el mismo valor con la nota "Corrección") para anular su efecto.</div>
+  </div>
+
+  <!-- HISTORIAL DE CAJAS -->
+  <h3 class="sub" id="historial-cajas" style="margin-top:32px">Historial de Cajas</h3>
+  <p class="text">Desde <strong>Caja → Historial de Cajas</strong> el administrador puede consultar todas las sesiones cerradas de todas las cajas. Útil para auditar el cuadre de días anteriores o reimprimir un comprobante.</p>
+
+  <div class="two-col" style="margin-top:16px">
+    <div>
+      <h3 class="sub">Consultar el historial</h3>
+      <div class="steps">
+        <div class="step">
+          <div class="step-number">1</div>
+          <div class="step-content">
+            <h4>Filtrar por caja y fechas</h4>
+            <p>Seleccione la caja (o "Todas"), la fecha de inicio y fin del período que desea consultar.</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-number">2</div>
+          <div class="step-content">
+            <h4>Ver el resumen de la sesión</h4>
+            <p>Cada fila muestra: caja, cajero, fecha apertura/cierre, fondo inicial, total ventas, total egresos, efectivo esperado, efectivo contado y diferencia.</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-number">3</div>
+          <div class="step-content">
+            <h4>Ver detalle o reimprimir</h4>
+            <p>Haga clic en una sesión para ver el desglose completo de movimientos. Desde ahí puede <strong>reimprimir el comprobante de cuadre</strong> en cualquier momento.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <h3 class="sub">Qué muestra el cuadre de una sesión</h3>
+      <table class="fields-table">
+        <thead><tr><th>Concepto</th><th>Descripción</th></tr></thead>
+        <tbody>
+          <tr><td>Fondo inicial</td><td>Dinero con el que se abrió la caja</td></tr>
+          <tr><td>Ventas en efectivo</td><td>Total cobrado en efectivo durante la sesión</td></tr>
+          <tr><td>Cobros de cartera</td><td>Pagos de facturas a crédito recibidos</td></tr>
+          <tr><td>Egresos / Retiros</td><td>Gastos y retiros parciales realizados</td></tr>
+          <tr><td>Efectivo esperado</td><td>Fondo + entradas − salidas (calculado por sistema)</td></tr>
+          <tr><td>Efectivo contado</td><td>Lo que el cajero declaró al cierre</td></tr>
+          <tr><td>Diferencia</td><td>Sobrante (+) o faltante (−) de la sesión</td></tr>
+        </tbody>
+      </table>
+
+      <div class="alert alert-tip" style="margin-top:12px">
+        <span class="alert-icon">💡</span>
+        <div>Una diferencia de <strong>$ 0</strong> significa cuadre exacto. Diferencias pequeñas (redondeos de cambio) son normales. Diferencias grandes deben investigarse revisando el detalle de la sesión.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ========================= VENTAS ========================= -->
+<section class="module" id="ventas">
+  <div class="module-header">
+    <div class="module-icon" style="background:#dcfce7">🛒</div>
+    <div class="module-title">
+      <h2>Nueva Venta</h2>
+      <p>Registro de ventas POS, crédito y facturación electrónica</p>
+    </div>
+  </div>
+
+  <div class="flow">
+    <span class="flow-step">Abrir caja</span><span class="flow-arrow">→</span>
+    <span class="flow-step">Seleccionar cliente</span><span class="flow-arrow">→</span>
+    <span class="flow-step">Agregar productos</span><span class="flow-arrow">→</span>
+    <span class="flow-step">Definir tipo de pago</span><span class="flow-arrow">→</span>
+    <span class="flow-step">Guardar y factura</span>
+  </div>
+
+  <h3 class="sub">Paso a paso — Venta al contado</h3>
+  <div class="steps">
+    <div class="step">
+      <div class="step-number">1</div>
+      <div class="step-content">
+        <h4>Ir a Ventas → Nueva Venta</h4>
+        <p>El sistema verifica que haya una caja abierta. Si no hay caja, le ofrecerá abrirla antes de continuar.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-number">2</div>
+      <div class="step-content">
+        <h4>Seleccionar el cliente</h4>
+        <p>Para ventas rápidas de mostrador: deje el cliente predeterminado <strong>"Ventas al Contado"</strong>.<br>
+        Para facturar a un cliente específico: haga clic en el campo de cliente, escriba el nombre o NIT (mínimo 2 caracteres) y selecciónelo de la lista. También puede buscarlo con el ícono 🔍.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-number">3</div>
+      <div class="step-content">
+        <h4>Agregar productos</h4>
+        <p>En el campo de búsqueda de producto, escriba el <strong>código de barras</strong> (con lector o teclado) o el nombre del producto y presione <kbd>Enter</kbd>. El producto se agrega a la lista automáticamente. Ajuste la cantidad si es necesario.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-number">4</div>
+      <div class="step-content">
+        <h4>Revisar totales y aplicar descuentos</h4>
+        <p>Si va a aplicar un descuento a toda la factura, ingrese el porcentaje en el campo <strong>Descuento Global</strong>. También puede aplicar descuento línea por línea haciendo clic en el valor de descuento de cada producto.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-number">5</div>
+      <div class="step-content">
+        <h4>Tipo de pago: Contado</h4>
+        <p>Seleccione el <strong>medio de pago</strong> (Efectivo, Tarjeta, Transferencia, Nequi, etc.). Si es efectivo, ingrese el valor recibido para calcular el cambio automáticamente.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-number">6</div>
+      <div class="step-content">
+        <h4>Guardar la venta</h4>
+        <p>Presione <strong>"Guardar Venta"</strong> o <kbd>F10</kbd>. El sistema genera el número de factura y le ofrece imprimir (tirilla o carta) o enviar por correo si es FE.</p>
+      </div>
+    </div>
+  </div>
+
+  <h3 class="sub">Venta a crédito</h3>
+  <p class="text">El flujo es igual a la venta al contado, con estas diferencias:</p>
+  <ul class="checklist">
+    <li>El cliente <strong>debe existir en el sistema</strong> con su información completa (no se puede vender a crédito al cliente genérico "Ventas al Contado")</li>
+    <li>Seleccione <strong>"Crédito"</strong> como tipo de pago e indique los días de plazo (ej: 30, 60, 90 días)</li>
+    <li>Si el cliente tiene un <strong>cupo de crédito</strong> configurado y la venta lo supera, el sistema le pedirá autorización del administrador</li>
+    <li>La factura queda con <strong>saldo pendiente</strong> y aparecerá en la cartera de clientes para cobro posterior</li>
+  </ul>
+
+  <h3 class="sub">Tipos de documento disponibles</h3>
+  <table class="fields-table">
+    <tr><th>Tipo</th><th>Cuándo usarlo</th></tr>
+    <tr><td><strong>POS / Factura POS</strong></td><td>Ventas de mostrador sin facturación electrónica. Formato tirilla 80mm.</td></tr>
+    <tr><td><strong>Factura Electrónica</strong></td><td>Cuando el cliente exige factura con CUFE y QR del DIAN. Requiere configuración FE activa.</td></tr>
+    <tr><td><strong>Documento Soporte</strong></td><td>Para registrar compras a proveedores no obligados a facturar (personas naturales, régimen simplificado).</td></tr>
+  </table>
+
+  <h3 class="sub">Ver y gestionar ventas anteriores</h3>
+  <p class="text">Desde el módulo <strong>Ventas → Listado</strong> puede buscar facturas por fecha, cliente o número. Haciendo clic en una factura puede:</p>
+  <ul class="checklist">
+    <li>Ver el detalle completo con los productos vendidos</li>
+    <li>Reimprimir la factura</li>
+    <li>Registrar una devolución parcial (ver sección Devoluciones)</li>
+    <li>Anular la factura (requiere autorización si es de otro cajero o de un día anterior)</li>
+  </ul>
+
+  <div class="alert alert-warning">
+    <span class="alert-icon">⚠️</span>
+    <div><strong>Anular una venta contado</strong> requiere que haya una caja abierta, ya que el sistema registrará automáticamente un egreso por el dinero que se devuelve al cliente.</div>
+  </div>
+
+  <h3 class="sub">Cotizaciones</h3>
+  <p class="text">Para crear una cotización en lugar de una venta, use la pestaña <strong>"Cotizaciones"</strong> en el módulo de Ventas. Una cotización no descuenta inventario ni genera saldo. Cuando el cliente apruebe, puede convertirla a factura.</p>
+</section>
+
+<!-- ========================= FE ========================= -->
+<section class="module" id="fe">
+  <div class="module-header">
+    <div class="module-icon" style="background:#ede9fe">📄</div>
+    <div class="module-title">
+      <h2>Facturación Electrónica</h2>
+      <p>Envío al DIAN, notas crédito, notas débito y estado de documentos</p>
+    </div>
+  </div>
+
+  <div class="alert alert-tip">
+    <span class="alert-icon">💡</span>
+    <div>La factura electrónica se crea igual que una venta normal. La diferencia es que al seleccionar <strong>tipo "Factura Electrónica"</strong> en Nueva Venta, el sistema la envía automáticamente al DIAN después de guardar.</div>
+  </div>
+
+  <h3 class="sub">Módulo de Facturación Electrónica</h3>
+  <p class="text">Desde el menú <strong>Facturación Electrónica</strong> puede ver todos los documentos electrónicos emitidos:</p>
+
+  <div class="cards-grid">
+    <div class="card">
+      <div class="card-icon">✅</div>
+      <h4>Estado: Autorizado</h4>
+      <p>El DIAN aceptó la factura. Tiene CUFE válido. El cliente puede descargar el PDF.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon">❌</div>
+      <h4>Estado: Rechazado</h4>
+      <p>El DIAN rechazó el documento. Ver el motivo en el detalle y corregir. Si tiene error de datos del cliente, editarlos y reenviar.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon">⏳</div>
+      <h4>Estado: Pendiente</h4>
+      <p>Guardada localmente pero no enviada aún (sin conexión o en espera). Puede reenviar manualmente.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon">📵</div>
+      <h4>Modo Contingencia</h4>
+      <p>Cuando no hay internet: las facturas se guardan localmente numeradas en contingencia. Al recuperar la conexión se reenvían al DIAN desde el módulo.</p>
+    </div>
+  </div>
+
+  <h3 class="sub">Emitir una Nota Crédito (devolución FE)</h3>
+  <div class="steps">
+    <div class="step">
+      <div class="step-number">1</div>
+      <div class="step-content">
+        <h4>Abrir la factura electrónica</h4>
+        <p>Búsquela en el módulo de Facturación Electrónica o en el Listado de Ventas y haga clic en ella.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-number">2</div>
+      <div class="step-content">
+        <h4>Presionar "Nota Crédito"</h4>
+        <p>Seleccione el motivo (devolución, descuento, anulación) e ingrese los valores a acreditar.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-number">3</div>
+      <div class="step-content">
+        <h4>Confirmar y enviar</h4>
+        <p>El sistema puede pedir autorización del administrador según la configuración. La nota crédito se envía al DIAN y queda vinculada a la factura original.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="alert alert-tip">
+    <span class="alert-icon">💡</span>
+    <div>Puede enviar el PDF de cualquier factura electrónica por correo desde el botón <strong>"Enviar por email"</strong> en el detalle del documento.</div>
+  </div>
+</section>
+
+<!-- ========================= COMPRAS ========================= -->
+<section class="module" id="compras">
+  <div class="module-header">
+    <div class="module-icon" style="background:#fce7f3">📦</div>
+    <div class="module-title">
+      <h2>Compras</h2>
+      <p>Registro de entradas de mercancía, actualización de costos e inventario</p>
+    </div>
+  </div>
+
+  <div class="alert alert-success">
+    <span class="alert-icon">✅</span>
+    <div>Al guardar una compra, el sistema <strong>actualiza automáticamente</strong> el costo de los productos y suma las unidades al inventario. No es necesario hacer ajuste manual.</div>
+  </div>
+
+  <h3 class="sub">Registrar una compra</h3>
+  <div class="steps">
+    <div class="step">
+      <div class="step-number">1</div>
+      <div class="step-content">
+        <h4>Ir a Compras → Nueva Compra</h4>
+        <p>Se abre el formulario de ingreso de mercancía.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-number">2</div>
+      <div class="step-content">
+        <h4>Seleccionar el proveedor</h4>
+        <p>Haga clic en el campo de proveedor y búsquelo por nombre o NIT. Si el proveedor no existe, créelo primero desde el módulo de Proveedores.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-number">3</div>
+      <div class="step-content">
+        <h4>Número de factura del proveedor</h4>
+        <p>Ingrese el número que aparece en la factura física del proveedor (ej: <strong>FV-2456</strong>). Este número queda guardado para conciliación posterior.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-number">4</div>
+      <div class="step-content">
+        <h4>Tipo de pago: Contado o Crédito</h4>
+        <p>Si es <strong>Contado</strong>: el sistema registrará un egreso automático en la caja activa.<br>
+        Si es <strong>Crédito</strong>: queda como cuenta por pagar al proveedor con los días de plazo indicados.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-number">5</div>
+      <div class="step-content">
+        <h4>Agregar los productos comprados</h4>
+        <p>Busque cada producto por código o nombre. Para cada línea ingrese:<br>
+        • <strong>Cantidad</strong> recibida<br>
+        • <strong>Costo unitario</strong> sin IVA (el sistema calcula el IVA según la tarifa del producto)<br>
+        • Si el producto maneja lotes: ingrese el <strong>número de lote</strong> y la <strong>fecha de vencimiento</strong></p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-number">6</div>
+      <div class="step-content">
+        <h4>Agregar flete (si aplica)</h4>
+        <p>Si pagó un costo de transporte, ingrese el valor en el campo <strong>Flete Total</strong>. El sistema lo distribuye proporcionalmente entre los productos para calcular el costo real de cada uno.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-number">7</div>
+      <div class="step-content">
+        <h4>Guardar la compra</h4>
+        <p>Presione <strong>"Guardar Compra"</strong>. El inventario se actualiza y los costos de los productos quedan registrados.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="alert alert-tip">
+    <span class="alert-icon">💡</span>
+    <div>El sistema guarda automáticamente la compra en progreso. Si cierra la ventana accidentalmente, al volver a abrir <strong>Nueva Compra</strong> encontrará los datos recuperados.</div>
+  </div>
+
+  <h3 class="sub">Opciones de IVA en la compra</h3>
+  <table class="fields-table">
+    <tr><th>Opción</th><th>Cuándo usar</th></tr>
+    <tr><td>IVA incluido en el precio</td><td>El costo que ingresa ya tiene IVA. El sistema lo separará para el cálculo.</td></tr>
+    <tr><td>IVA no incluido</td><td>El costo que ingresa es base antes de IVA. El IVA se calculará aparte.</td></tr>
+    <tr><td>Sin IVA</td><td>El producto es excluido o exento de IVA (medicamentos, canasta básica, etc.).</td></tr>
+  </table>
+</section>
+
+<!-- ========================= KARDEX ========================= -->
+<section class="module" id="kardex">
+  <div class="module-header">
+    <div class="module-icon" style="background:#ecfdf5">📊</div>
+    <div class="module-title">
+      <h2>Kárdex y Auditoría</h2>
+      <p>Historial de movimientos de inventario por producto</p>
+    </div>
+  </div>
+
+  <p class="text">El <strong>Kárdex</strong> registra cada entrada y salida de un producto con su costo, saldo y la causa del movimiento (venta, compra, devolución, ajuste). Es el libro oficial del inventario.</p>
+
+  <div class="two-col">
+    <div>
+      <h3 class="sub">Ver el kárdex de un producto</h3>
+      <ul class="checklist">
+        <li>Ir a <strong>Inventario → Kárdex</strong></li>
+        <li>Seleccionar el producto en el campo de búsqueda</li>
+        <li>Definir el rango de fechas</li>
+        <li>El sistema muestra cada movimiento con fecha, tipo, entradas, salidas y saldo acumulado</li>
+      </ul>
+    </div>
+    <div>
+      <h3 class="sub">Diagnóstico y auditoría</h3>
+      <ul class="checklist">
+        <li><strong>Diagnóstico (30 días):</strong> Productos sin movimiento reciente que pueden estar acumulados</li>
+        <li><strong>Auditoría (90 días):</strong> Detalle de todos los movimientos en los últimos 3 meses para identificar irregularidades</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="alert alert-tip">
+    <span class="alert-icon">💡</span>
+    <div>El kárdex nunca se borra ni se modifica directamente. Cada corrección genera un asiento compensatorio. Esto garantiza la trazabilidad completa del inventario.</div>
+  </div>
+</section>
+
+<!-- ========================= LOTES ========================= -->
+<section class="module" id="lotes">
+  <div class="module-header">
+    <div class="module-icon" style="background:#fef9c3">🏷️</div>
+    <div class="module-title">
+      <h2>Lotes y Vencimientos</h2>
+      <p>Control de fechas de vencimiento para productos que lo requieren</p>
+    </div>
+  </div>
+
+  <p class="text">Para productos que manejan lotes (alimentos, medicamentos, cosméticos), el sistema permite registrar el número de lote y la fecha de vencimiento al momento de la compra.</p>
+
+  <div class="two-col">
+    <div>
+      <h3 class="sub">Configurar un producto para manejar lotes</h3>
+      <ul class="checklist">
+        <li>Abrir el producto en el inventario</li>
+        <li>Activar el switch <strong>"Requiere lote"</strong></li>
+        <li>Al hacer la próxima compra, el sistema pedirá el lote y la fecha de vencimiento</li>
+      </ul>
+    </div>
+    <div>
+      <h3 class="sub">Ver productos por vencer</h3>
+      <ul class="checklist">
+        <li>Ir a <strong>Inventario → Lotes por Vencer</strong></li>
+        <li>El sistema muestra los productos cuyo vencimiento se acerca</li>
+        <li>La campana 🔔 también alerta cuando hay productos próximos a vencer</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ========================= FAMILIAS ========================= -->
+<section class="module" id="familias">
+  <div class="module-header">
+    <div class="module-icon" style="background:#e0e7ff">🔗</div>
+    <div class="module-title">
+      <h2>Familias de Productos</h2>
+      <p>Agrupar presentaciones del mismo producto (Bulto, Kilo, Libra, Unidad)</p>
+    </div>
+  </div>
+
+  <p class="text">Una <strong>familia</strong> agrupa varias presentaciones del mismo producto. Por ejemplo: <em>Azúcar Bulto x 50kg</em> y <em>Azúcar Libra</em> son el mismo producto en diferentes presentaciones. Cada presentación es un producto independiente con su propio precio y existencia.</p>
+
+  <h3 class="sub">Para qué sirve</h3>
+  <ul class="checklist">
+    <li>Cuando se vende una presentación pequeña (Libra) y no hay stock, el sistema puede <strong>distribuir automáticamente</strong> desde la presentación grande (Bulto) sin tener que hacer ajuste manual</li>
+    <li>La distribución puede ser automática (sin preguntar) o con confirmación previa, según la configuración</li>
+    <li>Los movimientos de distribución quedan registrados en el historial</li>
+  </ul>
+
+  <div class="alert alert-tip">
+    <span class="alert-icon">💡</span>
+    <div>Para crear una familia, vaya a <strong>Inventario → Familias de Productos</strong> y agrupe los productos indicando el factor de conversión (ej: 1 Bulto = 50 Libras → factor 50).</div>
+  </div>
+</section>
+
+<!-- ========================= CLIENTES ========================= -->
+<section class="module" id="clientes">
+  <div class="module-header">
+    <div class="module-icon" style="background:#dbeafe">👥</div>
+    <div class="module-title">
+      <h2>Clientes</h2>
+      <p>Gestión del directorio de clientes, cupo de crédito y datos de facturación</p>
+    </div>
+  </div>
+
+  <h3 class="sub">Crear un cliente nuevo</h3>
+  <div class="steps">
+    <div class="step">
+      <div class="step-number">1</div>
+      <div class="step-content">
+        <h4>Ir a Clientes → Nuevo Cliente</h4>
+        <p>O también puede crear el cliente directamente desde la ventana de Nueva Venta haciendo clic en el ícono "+" junto al campo de cliente.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-number">2</div>
+      <div class="step-content">
+        <h4>Datos básicos</h4>
+        <p>Nombre o razón social, NIT o cédula, teléfono, dirección, email. Para facturación electrónica: tipo de documento, régimen tributario y municipio (requeridos por el DIAN).</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-number">3</div>
+      <div class="step-content">
+        <h4>Cupo de crédito (opcional)</h4>
+        <p>Si el cliente maneja crédito, ingrese el <strong>cupo máximo</strong> autorizado. El sistema bloqueará ventas que superen este límite hasta que el administrador autorice.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-number">4</div>
+      <div class="step-content">
+        <h4>Guardar</h4>
+        <p>El cliente queda disponible de inmediato para ventas y cobros.</p>
+      </div>
+    </div>
+  </div>
+
+  <h3 class="sub">Detalle del cliente</h3>
+  <p class="text">Al hacer clic en un cliente desde la lista, se abre su perfil completo con:</p>
+  <div class="cards-grid">
+    <div class="card">
+      <div class="card-icon">📋</div>
+      <h4>Historial de ventas</h4>
+      <p>Todas las facturas del cliente, contado y crédito.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon">💳</div>
+      <h4>Estado de cartera</h4>
+      <p>Facturas pendientes, monto total adeudado, días vencidas.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon">🎂</div>
+      <h4>Cumpleaños</h4>
+      <p>Si tiene la fecha de nacimiento registrada, el sistema alerta el día de su cumpleaños.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon">📊</div>
+      <h4>Retenciones</h4>
+      <p>Si el cliente aplica retenciones (ReteFuente, ReteICA, ReteIVA), se configuran aquí y se aplican automáticamente en la FE.</p>
+    </div>
+  </div>
+
+  <div class="alert alert-tip">
+    <span class="alert-icon">💡</span>
+    <div><strong>Top Clientes:</strong> Desde el módulo Clientes puede ver un ranking de los mejores clientes por volumen de compra. Útil para tomar decisiones comerciales.</div>
+  </div>
+</section>
+
+<!-- ========================= CARTERA CLIENTES ========================= -->
+<section class="module" id="cartera-clientes">
+  <div class="module-header">
+    <div class="module-icon" style="background:#dcfce7">📬</div>
+    <div class="module-title">
+      <h2>Cobros a Clientes (Cartera)</h2>
+      <p>Registro de pagos sobre facturas crédito pendientes</p>
+    </div>
+  </div>
+
+  <div class="flow">
+    <span class="flow-step">Buscar cliente</span><span class="flow-arrow">→</span>
+    <span class="flow-step">Ver facturas pendientes</span><span class="flow-arrow">→</span>
+    <span class="flow-step">Seleccionar facturas a pagar</span><span class="flow-arrow">→</span>
+    <span class="flow-step">Ingresar valor recibido</span><span class="flow-arrow">→</span>
+    <span class="flow-step">Guardar recibo de caja</span>
+  </div>
+
+  <h3 class="sub">Registrar un pago de cliente</h3>
+  <div class="steps">
+    <div class="step">
+      <div class="step-number">1</div>
+      <div class="step-content">
+        <h4>Ir a Clientes → Pagos / Cobros</h4>
+        <p>O desde el detalle del cliente, pestaña <strong>"Pagos"</strong>.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-number">2</div>
+      <div class="step-content">
+        <h4>Buscar el cliente</h4>
+        <p>El sistema muestra automáticamente todas sus facturas con saldo pendiente, ordenadas por antigüedad.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-number">3</div>
+      <div class="step-content">
+        <h4>Ingresar el valor pagado por cada factura</h4>
+        <p>Puede abonar a varias facturas en un mismo recibo. Ingrese el valor en la columna de pago de cada factura que desea cubrir (puede ser pago total o abono parcial).</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-number">4</div>
+      <div class="step-content">
+        <h4>Seleccionar medio de pago</h4>
+        <p>Efectivo, transferencia, cheque u otro. Si es efectivo y hay caja abierta, el ingreso queda registrado automáticamente.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-number">5</div>
+      <div class="step-content">
+        <h4>Guardar</h4>
+        <p>Se genera el <strong>recibo de caja</strong> numerado. Las facturas quedan con el saldo actualizado.</p>
+      </div>
+    </div>
+  </div>
+
+  <h3 class="sub">Informe de cartera</h3>
+  <p class="text">Desde <strong>Informes → Cartera</strong> puede ver un resumen de todos los clientes con saldo pendiente, ordenados por antigüedad de deuda. Puede filtrar por días vencidos (0-30, 30-60, 60-90, +90 días).</p>
+
+  <div class="alert alert-tip">
+    <span class="alert-icon">💡</span>
+    <div>Si un cliente tiene facturas del sistema VB6 anterior que quedaron pendientes, estas también aparecen en la cartera bajo la sección <strong>"Facturas Anteriores"</strong>.</div>
+  </div>
+</section>
+
+<!-- ========================= PROVEEDORES ========================= -->
+<section class="module" id="proveedores">
+  <div class="module-header">
+    <div class="module-icon" style="background:#fce7f3">🏭</div>
+    <div class="module-title">
+      <h2>Proveedores</h2>
+      <p>Directorio de proveedores, historial de compras y cuentas por pagar</p>
+    </div>
+  </div>
+
+  <h3 class="sub">Crear un proveedor nuevo</h3>
+  <div class="steps">
+    <div class="step">
+      <div class="step-number">1</div>
+      <div class="step-content">
+        <h4>Ir a Proveedores → Nuevo Proveedor</h4>
+        <p>Ingrese: NIT, nombre o razón social, teléfono, dirección, contacto, email y días de crédito típicos que maneja con este proveedor.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-number">2</div>
+      <div class="step-content">
+        <h4>Guardar</h4>
+        <p>El proveedor queda disponible para registrar compras.</p>
+      </div>
+    </div>
+  </div>
+
+  <h3 class="sub">Detalle del proveedor</h3>
+  <p class="text">Al hacer clic en un proveedor puede ver:</p>
+  <ul class="checklist">
+    <li>Historial de compras realizadas a este proveedor</li>
+    <li>Facturas de compra pendientes de pago (cuentas por pagar)</li>
+    <li>Productos que se compran habitualmente a este proveedor</li>
+  </ul>
+</section>
+
+<!-- ========================= CARTERA PROVEEDORES ========================= -->
+<section class="module" id="cartera-proveedores">
+  <div class="module-header">
+    <div class="module-icon" style="background:#fef3c7">📤</div>
+    <div class="module-title">
+      <h2>Pagos a Proveedores (Cuentas por Pagar)</h2>
+      <p>Registro de pagos sobre compras a crédito pendientes</p>
+    </div>
+  </div>
+
+  <h3 class="sub">Registrar un pago a proveedor</h3>
+  <div class="steps">
+    <div class="step">
+      <div class="step-number">1</div>
+      <div class="step-content">
+        <h4>Ir a Proveedores → Detalle del proveedor → Pagos</h4>
+        <p>O desde el menú <strong>Proveedores → Pagos a Proveedores</strong>.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-number">2</div>
+      <div class="step-content">
+        <h4>Ver facturas pendientes</h4>
+        <p>El sistema lista las compras a crédito con saldo pendiente.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-number">3</div>
+      <div class="step-content">
+        <h4>Ingresar el valor pagado</h4>
+        <p>Indique cuánto paga a cada factura (total o abono).</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-number">4</div>
+      <div class="step-content">
+        <h4>Seleccionar el medio y el origen del dinero</h4>
+        <p>Escoja si el pago sale de <strong>efectivo (caja)</strong> o de una <strong>cuenta bancaria</strong>. Si es caja, seleccione cuál caja. El saldo de la caja o banco se descuenta automáticamente.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-number">5</div>
+      <div class="step-content">
+        <h4>Guardar el pago</h4>
+        <p>Queda registrado el egreso y la deuda con el proveedor se reduce.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="alert alert-tip">
+    <span class="alert-icon">💡</span>
+    <div>Desde <strong>Informes → Saldos Proveedores</strong> puede ver cuánto le debe al total de proveedores y cuáles facturas están próximas a vencer.</div>
+  </div>
+</section>
+
+<!-- ========================= GASTOS ========================= -->
+<section class="module" id="gastos">
+  <div class="module-header">
+    <div class="module-icon" style="background:#fee2e2">💸</div>
+    <div class="module-title">
+      <h2>Gastos</h2>
+      <p>Registro de egresos operativos: servicios, arriendos, salarios, etc.</p>
+    </div>
+  </div>
+
+  <h3 class="sub">Registrar un gasto</h3>
+  <div class="steps">
+    <div class="step">
+      <div class="step-number">1</div>
+      <div class="step-content">
+        <h4>Ir a Gastos → Nuevo Gasto</h4>
+        <p>Se abre el formulario de egreso.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-number">2</div>
+      <div class="step-content">
+        <h4>Ingresar el concepto y valor</h4>
+        <p>Describa el gasto en el campo <strong>Concepto</strong> (ej: <em>"Pago arriendo local comercial mayo"</em>). Ingrese el valor. Al hacer clic en otro campo, el valor se formateará automáticamente (ej: $ 1.200.000).</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-number">3</div>
+      <div class="step-content">
+        <h4>Categoría y beneficiario</h4>
+        <p>Seleccione la categoría del gasto (Arriendo, Servicios, Nómina, etc.) e ingrese el nombre y cédula de quien recibe el dinero.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-number">4</div>
+      <div class="step-content">
+        <h4>Origen del dinero</h4>
+        <p>Seleccione si el gasto sale de una <strong>caja</strong> (con sesión abierta) o de una <strong>cuenta bancaria</strong>.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-number">5</div>
+      <div class="step-content">
+        <h4>Guardar y comprobante</h4>
+        <p>El sistema genera un número de comprobante. Puede imprimir el <strong>Recibo de Egreso</strong> en formato media carta (para archivar con firma) o tirilla.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="alert alert-tip">
+    <span class="alert-icon">💡</span>
+    <div>Las categorías de gastos se configuran en <strong>Configuración → Categorías de Gasto</strong>. Cree las que corresponden a su negocio para obtener informes detallados por tipo de gasto.</div>
+  </div>
+</section>
+
+<!-- ========================= BANCOS ========================= -->
+<section class="module" id="bancos">
+  <div class="module-header">
+    <div class="module-icon" style="background:#dbeafe">🏦</div>
+    <div class="module-title">
+      <h2>Bancos</h2>
+      <p>Cuentas bancarias, movimientos e integración con caja</p>
+    </div>
+  </div>
+
+  <h3 class="sub">Vista de cuentas — Saldos en tiempo real</h3>
+  <p class="text">Al entrar al módulo de Bancos verá una tarjeta por cada cuenta bancaria activa con su <strong>saldo actual</strong>, nombre del banco y tipo de cuenta. Al pie de las tarjetas aparece el <strong>Total en Bancos</strong> (suma de todas las cuentas).</p>
+
+  <h3 class="sub" style="margin-top:24px">Operaciones disponibles</h3>
+  <div class="cards-grid">
+    <div class="card">
+      <div class="card-icon">📥</div>
+      <h4>Registrar ingreso bancario</h4>
+      <p>Cuando recibe una consignación, transferencia o pago directo a la cuenta. Ingrese valor, descripción y referencia.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon">📤</div>
+      <h4>Registrar egreso bancario</h4>
+      <p>Pagos con transferencia que no son a proveedores registrados (impuestos, servicios públicos, etc.).</p>
+    </div>
+    <div class="card">
+      <div class="card-icon">🔄</div>
+      <h4>Traslado caja ↔ banco</h4>
+      <p>Cuando lleva efectivo al banco: origen=Caja, destino=Banco. Cuando saca efectivo del banco: origen=Banco, destino=Caja. El saldo de ambos lados se actualiza automáticamente.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon">➕</div>
+      <h4>Crear cuenta bancaria</h4>
+      <p>Ingrese nombre descriptivo, nombre del banco, tipo (ahorros/corriente) y número de cuenta. Puede tener tantas cuentas como necesite.</p>
+    </div>
+  </div>
+
+  <h3 class="sub" id="historial-bancos" style="margin-top:28px">Historial de Movimientos Bancarios</h3>
+  <p class="text">Cada cuenta bancaria tiene su propio historial. Para verlo, <strong>haga clic sobre la tarjeta de la cuenta</strong>. Se despliega debajo la tabla de movimientos filtrable por rango de fechas.</p>
+
+  <div class="two-col" style="margin-top:16px">
+    <div>
+      <h3 class="sub">Cómo consultar el historial</h3>
+      <div class="steps">
+        <div class="step">
+          <div class="step-number">1</div>
+          <div class="step-content">
+            <h4>Clic en la tarjeta de la cuenta</h4>
+            <p>La tarjeta se resalta en azul y el historial de esa cuenta aparece debajo. El período predeterminado es el mes actual.</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-number">2</div>
+          <div class="step-content">
+            <h4>Ajustar el rango de fechas</h4>
+            <p>Use los campos <strong>Desde</strong> y <strong>Hasta</strong> para filtrar el período que necesita consultar.</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-number">3</div>
+          <div class="step-content">
+            <h4>Revisar los movimientos</h4>
+            <p>La tabla muestra cada transacción con fecha, tipo, descripción, referencia y valor. Los ingresos aparecen en verde y los egresos en rojo.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <h3 class="sub">Tipos de movimiento</h3>
+      <table class="fields-table">
+        <thead><tr><th>Tipo</th><th>Significado</th></tr></thead>
+        <tbody>
+          <tr><td><span style="background:#dcfce7;color:#16a34a;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:700">Ingreso</span></td><td>Consignación, transferencia recibida o cobro registrado manualmente</td></tr>
+          <tr><td><span style="background:#fee2e2;color:#dc2626;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:700">Egreso</span></td><td>Pago realizado desde la cuenta (transferencia saliente, débito)</td></tr>
+          <tr><td><span style="background:#dbeafe;color:#2563eb;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:700">Entrada</span></td><td>Llegada de un traslado (de caja a banco, o de otra cuenta)</td></tr>
+          <tr><td><span style="background:#fef3c7;color:#d97706;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:700">Salida</span></td><td>Partida de un traslado (de banco a caja, o hacia otra cuenta)</td></tr>
+        </tbody>
+      </table>
+
+      <div class="alert alert-tip" style="margin-top:12px">
+        <span class="alert-icon">💡</span>
+        <div>Los pagos de clientes con transferencia bancaria y los pagos a proveedores desde banco <strong>se registran automáticamente</strong> como movimientos en el historial cuando se procesan desde sus respectivos módulos. No tiene que registrarlos manualmente.</div>
+      </div>
+
+      <h3 class="sub" style="margin-top:16px">Imprimir y exportar el historial</h3>
+      <p class="text">En la barra del panel de movimientos encontrará dos botones:</p>
+      <table class="fields-table" style="margin-top:8px">
+        <thead><tr><th>Botón</th><th>Qué hace</th></tr></thead>
+        <tbody>
+          <tr><td>🖨️ <strong>Imprimir</strong></td><td>Abre una ventana con el historial formateado listo para imprimir o guardar como PDF. Incluye totales de ingresos, egresos, diferencia y saldo actual de la cuenta.</td></tr>
+          <tr><td>📥 <strong>CSV</strong></td><td>Descarga un archivo <code>.csv</code> con todos los movimientos del período filtrado. Compatible con Excel y hojas de cálculo de Google.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="alert alert-warning" style="margin-top:4px">
+    <span class="alert-icon">⚠️</span>
+    <div>El saldo que muestra el sistema es el saldo <strong>según los movimientos registrados en Conta FT</strong>. Para que coincida con el extracto bancario real, todos los movimientos de la cuenta deben haberse registrado en el sistema (tanto los automáticos como los manuales).</div>
+  </div>
+</section>
+
+<!-- ========================= INFORMES ========================= -->
+<section class="module" id="informes">
+  <div class="module-header">
+    <div class="module-icon" style="background:#f0fdf4">📈</div>
+    <div class="module-title">
+      <h2>Informes</h2>
+      <p>Reportes de ventas, cartera, inventario, gastos y estado del negocio</p>
+    </div>
+  </div>
+
+  <p class="text">Desde el menú <strong>Informes</strong> acceda al Hub de informes. Los reportes están organizados por categoría. La mayoría permiten filtrar por fechas, exportar a PDF e imprimir.</p>
+
+  <div class="two-col">
+    <div>
+      <h3 class="sub">Informes de ventas</h3>
+      <ul class="checklist">
+        <li><strong>Ventas diario:</strong> Detalle de todas las ventas del día con productos y medios de pago</li>
+        <li><strong>Ventas mensual:</strong> Resumen por mes, comparativo anual</li>
+        <li><strong>Ventas por categoría:</strong> Cuánto vendió de cada línea de producto</li>
+        <li><strong>Top productos:</strong> Los más vendidos en un período</li>
+        <li><strong>Top clientes:</strong> Los clientes con mayor volumen de compra</li>
+        <li><strong>Por vendedor:</strong> Ventas por cada usuario del sistema</li>
+        <li><strong>Por tipo de pago:</strong> Contado vs crédito, efectivo vs transferencia</li>
+      </ul>
+    </div>
+    <div>
+      <h3 class="sub">Informes contables y financieros</h3>
+      <ul class="checklist">
+        <li><strong>Estado de Resultados:</strong> Ventas – Costo – Gastos = Utilidad del período</li>
+        <li><strong>Cierre de mes:</strong> Resumen mensual completo para declaración</li>
+        <li><strong>IVA:</strong> IVA generado en ventas e IVA descontable en compras</li>
+        <li><strong>Gastos detallado:</strong> Todos los egresos por categoría y período</li>
+        <li><strong>Pagos a proveedores:</strong> Historial de pagos realizados</li>
+        <li><strong>Cuadre de caja:</strong> Detalle de una sesión específica</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="two-col">
+    <div>
+      <h3 class="sub">Informes de inventario</h3>
+      <ul class="checklist">
+        <li><strong>Inventario valorizado:</strong> Existencias × Costo = Valor total del inventario</li>
+        <li><strong>Productos agotados:</strong> Con existencia en 0</li>
+        <li><strong>Gráficos de inventario:</strong> Visualización de rotación y distribución</li>
+      </ul>
+    </div>
+    <div>
+      <h3 class="sub">Informes de cartera</h3>
+      <ul class="checklist">
+        <li><strong>Cartera detallada:</strong> Facturas pendientes por cliente con días de mora</li>
+        <li><strong>Cartera resumida:</strong> Total adeudado por cliente</li>
+        <li><strong>Proveedores listado:</strong> Estado de cuentas con proveedores</li>
+        <li><strong>Saldos proveedores:</strong> Cuánto se le debe a cada proveedor</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3 class="sub">Estado de Resultados — Cómo interpretar</h3>
+  <table class="fields-table">
+    <tr><th>Línea</th><th>Qué incluye</th></tr>
+    <tr><td><strong>(+) Ingresos por ventas</strong></td><td>Total facturado en ventas POS y FE del período</td></tr>
+    <tr><td><strong>(−) Costo de ventas</strong></td><td>Costo de los productos vendidos (precio de costo × cantidad)</td></tr>
+    <tr><td><strong>(=) Utilidad bruta</strong></td><td>Lo que queda antes de gastos</td></tr>
+    <tr><td><strong>(−) Gastos operativos</strong></td><td>Todos los gastos registrados en el módulo de Gastos</td></tr>
+    <tr><td><strong>(=) Utilidad neta</strong></td><td>Resultado final del período</td></tr>
+  </table>
+</section>
+
+<!-- ========================= USUARIOS ========================= -->
+<section class="module" id="usuarios">
+  <div class="module-header">
+    <div class="module-icon" style="background:#f0e6ff">👤</div>
+    <div class="module-title">
+      <h2>Usuarios</h2>
+      <p>Creación y gestión de cuentas de acceso al sistema</p>
+    </div>
+  </div>
+
+  <div class="two-col">
+    <div>
+      <h3 class="sub">Crear un usuario</h3>
+      <div class="steps">
+        <div class="step">
+          <div class="step-number">1</div>
+          <div class="step-content">
+            <h4>Ir a Configuración → Usuarios</h4>
+            <p>Solo el administrador puede gestionar usuarios.</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-number">2</div>
+          <div class="step-content">
+            <h4>Nuevo Usuario</h4>
+            <p>Ingrese nombre, tipo de perfil (Administrador / Cajero), y contraseña.</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-number">3</div>
+          <div class="step-content">
+            <h4>Asignar a una caja</h4>
+            <p>Indique en Configuración → Cajas qué usuarios pueden operar cada caja.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <h3 class="sub">Permisos por módulo</h3>
+      <p class="text">Desde <strong>Configuración → Permisos</strong> puede controlar qué módulos puede ver cada usuario. Por ejemplo: impedir que el cajero vea los informes financieros o acceda a la configuración.</p>
+
+      <div class="alert alert-warning">
+        <span class="alert-icon">⚠️</span>
+        <div>Nunca comparta la contraseña de administrador. Cree una cuenta separada para cada persona que use el sistema.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ========================= CONFIGURACIÓN ========================= -->
+<section class="module" id="configuracion">
+  <div class="module-header">
+    <div class="module-icon" style="background:#f1f5f9">🔧</div>
+    <div class="module-title">
+      <h2>Configuración del Sistema</h2>
+      <p>Datos de empresa, impresión, categorías, cajas y FE</p>
+    </div>
+  </div>
+
+  <div class="cards-grid">
+    <div class="card">
+      <div class="card-icon">🏢</div>
+      <h4>Datos de la empresa</h4>
+      <p>NIT, nombre, dirección, teléfono, logo. Se muestran en todas las facturas e informes.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon">🖨️</div>
+      <h4>Configuración de impresión</h4>
+      <p>Tipo de impresora: <strong>Tirilla 80mm</strong> (impresora POS) o <strong>Carta / Media carta</strong> (impresora de oficina). Puede configurar márgenes y si desea el logo en las facturas.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon">💰</div>
+      <h4>Cajas</h4>
+      <p>Crear, editar o desactivar cajas. Asignar usuarios a cada caja.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon">📂</div>
+      <h4>Categorías de gasto</h4>
+      <p>Las categorías que aparecen al registrar un gasto. Puede crear, editar o eliminar según las necesidades del negocio.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon">📄</div>
+      <h4>Facturación electrónica</h4>
+      <p>Credenciales DIAN, prefijo, número inicial, resolución. Esta configuración la realiza el técnico al momento de la instalación.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon">🔒</div>
+      <h4>Seguridad</h4>
+      <p>Configurar si las devoluciones o anulaciones requieren autorización del administrador con contraseña.</p>
+    </div>
+  </div>
+
+  <h3 class="sub">Configuración de autorización (operaciones sensibles)</h3>
+  <p class="text">Desde <strong>Configuración → Seguridad</strong> puede activar la solicitud de contraseña de administrador para:</p>
+  <ul class="checklist">
+    <li>Devoluciones de productos</li>
+    <li>Anulación de facturas</li>
+    <li>Override de cupo de crédito (siempre requiere admin, no es configurable)</li>
+  </ul>
+
+  <div class="alert alert-tip">
+    <span class="alert-icon">💡</span>
+    <div>Si la aplicación no puede conectarse al servidor de la empresa (instalaciones multi-terminal), verifique la dirección IP en <strong>Configuración → Servidor</strong>. Asegúrese de que todos los equipos estén en la misma red.</div>
+  </div>
+</section>
+
+<!-- ========================= TIPS GENERALES ========================= -->
+<section class="module">
+  <div class="module-header">
+    <div class="module-icon" style="background:#fef9c3">⭐</div>
+    <div class="module-title">
+      <h2>Atajos y Consejos Generales</h2>
+      <p>Tips para trabajar más rápido</p>
+    </div>
+  </div>
+
+  <div class="two-col">
+    <div>
+      <h3 class="sub">Atajos de teclado</h3>
+      <table class="fields-table">
+        <tr><th>Tecla</th><th>Función</th></tr>
+        <tr><td><kbd>Enter</kbd></td><td>Avanzar al siguiente campo en formularios</td></tr>
+        <tr><td><kbd>Esc</kbd></td><td>Cerrar modal o cancelar acción</td></tr>
+        <tr><td>Código + <kbd>Enter</kbd></td><td>Buscar y agregar producto en ventas y compras</td></tr>
+      </table>
+    </div>
+    <div>
+      <h3 class="sub">Notificaciones (campana 🔔)</h3>
+      <p class="text">La campana en la parte superior derecha muestra alertas activas:</p>
+      <ul class="checklist">
+        <li>Productos con <strong>stock bajo</strong> (bajo el mínimo configurado)</li>
+        <li>Lotes próximos a <strong>vencer</strong></li>
+        <li>Clientes con <strong>cumpleaños hoy</strong></li>
+        <li>Cartera vencida (facturas con más de X días sin pagar)</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3 class="sub">Rutina diaria recomendada</h3>
+  <div class="flow" style="flex-direction:column; align-items:flex-start; gap:4px;">
+    <div style="display:flex;align-items:center;gap:8px;"><span class="flow-step">☀️ Apertura</span><span style="color:#6b7280;font-size:12px">→ Abrir la app → Ingresar usuario → Abrir caja con el fondo del día</span></div>
+    <div style="display:flex;align-items:center;gap:8px;"><span class="flow-step">🌤️ Mañana</span><span style="color:#6b7280;font-size:12px">→ Revisar alertas de stock bajo → Registrar compras si llegó mercancía</span></div>
+    <div style="display:flex;align-items:center;gap:8px;"><span class="flow-step">⚙️ Día</span><span style="color:#6b7280;font-size:12px">→ Registrar ventas → Cobrar a clientes crédito → Registrar gastos del día</span></div>
+    <div style="display:flex;align-items:center;gap:8px;"><span class="flow-step">🌙 Cierre</span><span style="color:#6b7280;font-size:12px">→ Contar efectivo → Cerrar caja con cuadre → Imprimir comprobante</span></div>
+    <div style="display:flex;align-items:center;gap:8px;"><span class="flow-step">📅 Mensual</span><span style="color:#6b7280;font-size:12px">→ Generar Estado de Resultados → Revisar cartera vencida → Informe de IVA para declaración</span></div>
+  </div>
+
+  <div class="alert alert-success">
+    <span class="alert-icon">✅</span>
+    <div><strong>¿Necesita ayuda?</strong> Si tiene dudas sobre alguna funcionalidad, comuníquese con el soporte técnico de Innovación Digital. Tenga a mano el nombre del módulo y una descripción del inconveniente.</div>
+  </div>
+</section>
+
+</main>
+
+<script>
+function goToSection(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const top = el.getBoundingClientRect().top + window.pageYOffset - 16;
+  window.scrollTo({ top, behavior: 'smooth' });
+  // Marca activo inmediatamente sin esperar al scroll event
+  document.querySelectorAll('.sidebar-link').forEach(l => {
+    const match = (l.getAttribute('onclick') || '').match(/'([^']+)'/);
+    l.classList.toggle('active', !!match && match[1] === id);
+  });
+}
+
+// Highlight active section while scrolling
+const sections = Array.from(document.querySelectorAll('section[id], div[id]'));
+window.addEventListener('scroll', () => {
+  let current = '';
+  sections.forEach(s => {
+    if (s.getBoundingClientRect().top < 140) current = s.id;
+  });
+  document.querySelectorAll('.sidebar-link').forEach(l => {
+    const match = (l.getAttribute('onclick') || '').match(/'([^']+)'/);
+    l.classList.toggle('active', !!match && match[1] === current);
+  });
+}, { passive: true });
+</script>
+</body>
+</html>

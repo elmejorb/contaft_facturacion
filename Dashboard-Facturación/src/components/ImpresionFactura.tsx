@@ -28,6 +28,14 @@ export interface DatosFactura {
   retenciones?: { codigo: string; nombre: string; porcentaje: number; base: number; valor: number }[];
   retencionModo?: 'informativo' | 'gross_up';
   logo?: string; // URL o base64 del logo
+  // ===== Campos opcionales para Factura Electrónica =====
+  // Si esFE=true, la tirilla/representación gráfica incluye CUFE, QR, resolución
+  // y el banner "Representación gráfica de factura electrónica de venta"
+  esFE?: boolean;
+  tipoDocFE?: string;     // "FACTURA ELECTRÓNICA DE VENTA" / "NOTA CRÉDITO ELECTRÓNICA" / "NOTA DÉBITO ELECTRÓNICA"
+  cufe?: string;
+  qrUrl?: string;         // https://catalogo-vpfe.dian.gov.co/document/searchqr?documentkey=<cufe>
+  resolucionTexto?: string; // "Autorización de numeración N°... vigencia hasta..."
 }
 
 const BANNER_CONTINGENCIA_HTML = `
@@ -41,11 +49,18 @@ const BANNER_CONTINGENCIA_HTML = `
 // ============================================================
 function tirilla(d: DatosFactura): string {
   const config = getConfigImpresion();
-  const titulo = d.esCotizacion ? 'COTIZACIÓN' : 'DCTO EQUIVALENTE';
+  // Título depende del origen: cotización, FE, doc soporte o ticket POS estándar
+  const titulo = d.esCotizacion
+    ? 'COTIZACIÓN'
+    : (d.esFE && d.tipoDocFE ? d.tipoDocFE : 'DCTO EQUIVALENTE');
   const linea = '<div style="border-bottom:1px dashed #000;margin:4px 0;"></div>';
 
   let html = `<div style="width:62mm;font-family:'Courier New',monospace;font-size:11px;padding:3mm 4mm;line-height:1.4;word-wrap:break-word;overflow-wrap:break-word;">`;
   if (d.enContingencia) html += BANNER_CONTINGENCIA_HTML;
+  // Banner FE — encabezado obligatorio en representación gráfica
+  if (d.esFE) {
+    html += `<div style="text-align:center;border:1px solid #000;padding:3px 2px;margin-bottom:6px;font-size:10px;font-weight:bold;">REPRESENTACIÓN GRÁFICA DE<br/>${d.tipoDocFE || 'FACTURA ELECTRÓNICA'}</div>`;
+  }
   // Empresa
   html += `<div style="text-align:center;margin-bottom:6px;">`;
   if (d.logo) html += `<img src="${d.logo}" style="max-width:40mm;max-height:15mm;margin-bottom:4px;" />`;
@@ -53,6 +68,7 @@ function tirilla(d: DatosFactura): string {
   html += `<div>Nit. ${d.empresa.nit}</div>`;
   if (config.mostrarDireccion) html += `<div>${d.empresa.direccion}</div>`;
   if (config.mostrarTelefono) html += `<div>Tel. ${d.empresa.telefono}</div>`;
+  if (d.esFE && d.empresa.regimen) html += `<div style="font-size:9px;">${d.empresa.regimen}</div>`;
   html += `</div>`;
 
   // Datos factura
@@ -61,9 +77,9 @@ function tirilla(d: DatosFactura): string {
   html += `<div>CLIENTE: ${d.cliente.nombre}</div>`;
   html += `<div>NIT: ${d.cliente.nit}</div>`;
   if (d.cliente.direccion && d.cliente.direccion !== '-') html += `<div>DIRECCIÓN: ${d.cliente.direccion}</div>`;
-  html += `<div>SISTEMA P.O.S:</div>`;
+  if (!d.esFE) html += `<div>SISTEMA P.O.S:</div>`;
   html += `<div>FECHA: ${d.fecha}</div>`;
-  html += `<div>CAJA No: Caja ${d.caja || 1}</div>`;
+  if (!d.esFE) html += `<div>CAJA No: Caja ${d.caja || 1}</div>`;
   html += `</div>`;
 
   // Header productos
@@ -135,6 +151,25 @@ function tirilla(d: DatosFactura): string {
   html += linea;
   html += `<div>FORMA DE PAGO: ${d.tipo}, Días ${d.dias}</div>`;
   html += `<div>VENDEDOR: ${d.vendedor || 'Vendedor'}</div>`;
+
+  // ===== Bloque obligatorio de FE: QR + CUFE + Resolución =====
+  if (d.esFE) {
+    html += linea;
+    // QR — api.qrserver.com sirve el QR como imagen PNG; requiere conexión
+    // pero la verificación DIAN tampoco funciona offline así que es OK
+    if (d.qrUrl) {
+      const qrImg = `https://api.qrserver.com/v1/create-qr-code/?size=140x140&margin=2&data=${encodeURIComponent(d.qrUrl)}`;
+      html += `<div style="text-align:center;margin:4px 0;"><img src="${qrImg}" style="width:35mm;height:35mm;" alt="QR DIAN" /></div>`;
+    }
+    if (d.cufe) {
+      html += `<div style="font-size:8px;word-break:break-all;text-align:center;margin-bottom:4px;"><b>CUFE:</b> ${d.cufe}</div>`;
+    }
+    if (d.resolucionTexto) {
+      html += `<div style="font-size:7.5px;text-align:center;line-height:1.3;margin-bottom:3px;">${d.resolucionTexto}</div>`;
+    }
+    html += `<div style="text-align:center;font-size:8px;font-weight:bold;margin:3px 0;">Representación gráfica de ${(d.tipoDocFE || 'factura electrónica').toLowerCase()}</div>`;
+  }
+
   html += `<br>`;
   html += `<div style="text-align:center;">${linea}</div>`;
   html += `<div style="text-align:center;">Aceptación del Cliente</div>`;
@@ -359,9 +394,10 @@ function mediaCartaDoble(d: DatosFactura): string {
 // ============================================================
 // FUNCIÓN PRINCIPAL: Imprimir factura
 // ============================================================
-export function imprimirFactura(datos: DatosFactura) {
+export function imprimirFactura(datos: DatosFactura, formatoOverride?: 'tirilla' | 'carta' | 'media-carta') {
   const config = getConfigImpresion();
-  const formato = datos.esCotizacion ? config.formatoCotizacion : config.formatoFactura;
+  const formato = formatoOverride
+    || (datos.esCotizacion ? config.formatoCotizacion : config.formatoFactura);
 
   let contenido = '';
   let pageSize = '';

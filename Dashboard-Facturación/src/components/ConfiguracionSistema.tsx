@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
-import { Save, Printer, CheckCircle, Settings, FileText, ShoppingCart, Tag, Plus, Trash2, RotateCcw, Smartphone, Link2, RefreshCw } from 'lucide-react';
+import { Save, Printer, CheckCircle, Settings, FileText, ShoppingCart, Tag, Plus, Trash2, RotateCcw, Smartphone, Link2, RefreshCw, History, Info } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { HistorialVersiones } from './HistorialVersiones';
+import pkg from '../../package.json';
 
 export interface ConfigImpresion {
   // Formato de impresión
@@ -138,6 +140,7 @@ const API_CAT = 'http://localhost:80/conta-app-backend/api/movimientos/categoria
 
 export function ConfiguracionSistema() {
   const [config, setConfig] = useState<ConfigImpresion>(getConfigImpresion);
+  const [showHistorial, setShowHistorial] = useState(false);
   const [categoriasGasto, setCategoriasGasto] = useState<any[]>([]);
   const [nuevaCat, setNuevaCat] = useState('');
   const [editandoCat, setEditandoCat] = useState<number | null>(null);
@@ -509,6 +512,32 @@ export function ConfiguracionSistema() {
           )}
         </div>
       </div>
+
+      {/* Acerca de — visible solo para admins (esta vista ya está restringida) */}
+      {seccion('Acerca del sistema', <Info size={18} color="#7c3aed" />, (
+        <div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
+            <div style={{ background: '#f9fafb', borderRadius: 8, padding: '10px 14px' }}>
+              <div style={{ fontSize: 10, color: '#6b7280', letterSpacing: 0.5, marginBottom: 2 }}>VERSIÓN INSTALADA</div>
+              <div style={{ fontSize: 18, fontWeight: 800, color: '#7c3aed' }}>v{pkg.version}</div>
+            </div>
+            <div style={{ background: '#f9fafb', borderRadius: 8, padding: '10px 14px' }}>
+              <div style={{ fontSize: 10, color: '#6b7280', letterSpacing: 0.5, marginBottom: 2 }}>SISTEMA</div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: '#374151' }}>Conta FT — Facturación</div>
+              <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 1 }}>Innovación Digital</div>
+            </div>
+          </div>
+          <button onClick={() => setShowHistorial(true)}
+            style={{ width: '100%', height: 40, background: 'linear-gradient(135deg, #1e1b4b, #4c1d95)', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+            <History size={15} /> Ver historial completo de versiones
+          </button>
+          <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 8, textAlign: 'center' }}>
+            Historial de cambios, mejoras y correcciones por versión. Solo visible para administradores.
+          </div>
+        </div>
+      ))}
+
+      <HistorialVersiones open={showHistorial} onClose={() => setShowHistorial(false)} />
     </div>
   );
 }

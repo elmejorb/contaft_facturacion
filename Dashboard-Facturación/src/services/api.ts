@@ -1,12 +1,19 @@
 import axios from 'axios';
+import { getApiUrl } from '../config/api';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:80/conta-app-backend/api';
-
+// baseURL inicial — el interceptor lo recalcula dinámicamente en cada request
+// usando getApiUrl() (que lee el config.json cargado).
 const api = axios.create({
-  baseURL: API_URL,
+  baseURL: getApiUrl(),
   headers: {
     'Content-Type': 'application/json',
   },
+});
+
+// Reescribir baseURL en cada request para reflejar el config.json actual
+api.interceptors.request.use((config) => {
+  config.baseURL = getApiUrl();
+  return config;
 });
 
 // Interceptor para agregar el token a cada petición

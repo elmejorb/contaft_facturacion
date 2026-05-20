@@ -27,7 +27,7 @@ export function EditarArticuloModal({ isOpen, onClose, articulo, onGuardado, mod
   const formVacio = {
     Items: 0, Codigo: '', Nombres_Articulo: '',
     Precio_Costo: 0, Precio_Venta: 0, Precio_Venta2: 0, Precio_Venta3: 0,
-    Precio_Minimo: 0, Iva: 0, Existencia_minima: 0,
+    Precio_Minimo: 0, Iva: 0, Existencia: 0, Existencia_minima: 0,
     Id_Categoria: 0, CodigoPro: 0, Estante: '', Estado: 1, requiere_lote: 0, Id_Etiqueta: 0,
   };
 
@@ -36,6 +36,7 @@ export function EditarArticuloModal({ isOpen, onClose, articulo, onGuardado, mod
     Precio_Costo: a.Costo || 0, Precio_Venta: a.Precio1 || 0,
     Precio_Venta2: a.Precio2 || 0, Precio_Venta3: a.Precio3 || 0,
     Precio_Minimo: a.PrecioMinimo || 0, Iva: a.Iva || 0,
+    Existencia: a.Existencia || 0,
     Existencia_minima: a.Existencia_minima || 0,
     Id_Categoria: a.Id_Categoria || 0,
     CodigoPro: a.CodigoPro || 0,
@@ -74,8 +75,11 @@ export function EditarArticuloModal({ isOpen, onClose, articulo, onGuardado, mod
   }, [isOpen]);
 
   const set = (f: string, v: string | number) => setForm(p => ({ ...p, [f]: v }));
+  // Precio_Costo en BD está CON IVA. La utilidad y el "sin IVA" se calculan
+  // dividiendo por (1+IVA%). Esto cuadra con la base de Precio_Venta (también
+  // con IVA cuando precioIvaIncluido=true), así la resta Venta-Costo da margen real.
   const util = (pv: number) => (!form.Precio_Costo || !pv) ? '0.0' : (((pv - form.Precio_Costo) / pv) * 100).toFixed(1);
-  const costoIva = () => (form.Precio_Costo * (1 + form.Iva / 100)).toFixed(0);
+  const costoSinIva = () => (form.Iva > 0 ? form.Precio_Costo / (1 + form.Iva / 100) : form.Precio_Costo).toFixed(0);
   const fmt = (v: number) => '$ ' + Math.round(v || 0).toLocaleString('es-CO');
 
   const handleGuardar = async () => {
@@ -223,8 +227,13 @@ export function EditarArticuloModal({ isOpen, onClose, articulo, onGuardado, mod
               <legend style={s.legend}>Existencias</legend>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                 <div>
-                  <label style={s.label}>Cantidad</label>
-                  <input value={esNuevo ? 0 : (articulo?.Existencia || 0)} disabled style={{ ...s.input, background: '#eff6ff', borderColor: '#bfdbfe', color: '#1d4ed8', fontWeight: 600 }} />
+                  <label style={s.label}>Cantidad {esNuevo ? '(inicial)' : '(actual)'}</label>
+                  <input type="text" defaultValue={form.Existencia}
+                    onKeyDown={soloNumeros}
+                    onBlur={e => set('Existencia', toNum(e.target.value))}
+                    placeholder="0"
+                    title={esNuevo ? "Stock inicial — genera entrada de Carga Inicial en el kárdex" : "Si lo cambias se registrará la diferencia como Entrada/Salida en el kárdex"}
+                    style={{ ...s.input, background: '#f0fdf4', borderColor: '#bbf7d0', color: '#166534', fontWeight: 600 }} />
                 </div>
                 <div>
                   <label style={s.label}>Exist. Mínima</label>
@@ -253,19 +262,30 @@ export function EditarArticuloModal({ isOpen, onClose, articulo, onGuardado, mod
           <fieldset style={s.fieldset}>
             <legend style={s.legend}>Detalle</legend>
             <div style={{ ...s.row, gridTemplateColumns: '1fr 1fr 1fr', marginBottom: 8 }}>
+              {/*
+                Precio_Costo en BD está CON IVA.
+                - "Costo con IVA" lee/escribe directo Precio_Costo
+                - "Costo sin IVA" es calculado: Precio_Costo / (1 + IVA%)
+                Si el usuario edita "Costo sin IVA", multiplicamos por (1+IVA%) y guardamos.
+              */}
               <div>
                 <label style={s.label}>Costo sin IVA</label>
                 <input data-precio="true" data-costo-sin-iva="true"
-                  defaultValue={fmtMoneda(form.Precio_Costo)}
+                  defaultValue={fmtMoneda(form.Iva > 0 ? form.Precio_Costo / (1 + form.Iva / 100) : form.Precio_Costo)}
                   onKeyDown={soloNumeros}
-                  onFocus={e => { e.target.value = String(form.Precio_Costo || ''); e.target.select(); }}
+                  onFocus={e => {
+                    const sinIva = form.Iva > 0 ? form.Precio_Costo / (1 + form.Iva / 100) : form.Precio_Costo;
+                    e.target.value = String(Math.round(sinIva) || '');
+                    e.target.select();
+                  }}
                   onBlur={e => {
-                    const v = toNum(e.target.value);
-                    set('Precio_Costo', v);
-                    e.target.value = fmtMoneda(v);
-                    // Sincronizar costo con IVA
+                    const sinIva = toNum(e.target.value);
+                    const conIva = sinIva * (1 + form.Iva / 100);
+                    set('Precio_Costo', conIva);
+                    e.target.value = fmtMoneda(sinIva);
+                    // Sincronizar campo costo con IVA
                     const costoConIvaInput = e.target.closest('div')?.parentElement?.querySelector<HTMLInputElement>('[data-costo-con-iva]');
-                    if (costoConIvaInput) costoConIvaInput.value = fmtMoneda(v * (1 + form.Iva / 100));
+                    if (costoConIvaInput) costoConIvaInput.value = fmtMoneda(conIva);
                   }}
                   style={{ ...s.input, background: '#fefce8', borderColor: '#fde047', fontWeight: 600 }} />
               </div>
@@ -274,12 +294,14 @@ export function EditarArticuloModal({ isOpen, onClose, articulo, onGuardado, mod
                 <select value={form.Iva} onChange={e => {
                   const newIva = parseFloat(e.target.value);
                   set('Iva', newIva);
-                  // Sincronizar costo con IVA al cambiar IVA
+                  // Al cambiar IVA: el valor con IVA (Precio_Costo) NO cambia (es el dato fijo);
+                  // solo recalculamos el "sin IVA" mostrado.
                   setTimeout(() => {
-                    const costoConIvaInput = document.querySelector<HTMLInputElement>('[data-costo-con-iva]');
-                    if (costoConIvaInput) costoConIvaInput.value = fmtMoneda(form.Precio_Costo * (1 + newIva / 100));
+                    const sinIva = newIva > 0 ? form.Precio_Costo / (1 + newIva / 100) : form.Precio_Costo;
                     const costoSinIvaInput = document.querySelector<HTMLInputElement>('[data-costo-sin-iva]');
-                    if (costoSinIvaInput) costoSinIvaInput.value = fmtMoneda(form.Precio_Costo);
+                    if (costoSinIvaInput) costoSinIvaInput.value = fmtMoneda(sinIva);
+                    const costoConIvaInput = document.querySelector<HTMLInputElement>('[data-costo-con-iva]');
+                    if (costoConIvaInput) costoConIvaInput.value = fmtMoneda(form.Precio_Costo);
                   }, 20);
                 }} style={s.select}>
                   <option value={0}>Exento (0%)</option>
@@ -290,18 +312,17 @@ export function EditarArticuloModal({ isOpen, onClose, articulo, onGuardado, mod
               <div>
                 <label style={s.label}>Costo con IVA</label>
                 <input data-precio="true" data-costo-con-iva="true"
-                  defaultValue={fmtMoneda(form.Precio_Costo * (1 + form.Iva / 100))}
+                  defaultValue={fmtMoneda(form.Precio_Costo)}
                   onKeyDown={soloNumeros}
-                  onFocus={e => { e.target.value = String(Math.round(form.Precio_Costo * (1 + form.Iva / 100)) || ''); e.target.select(); }}
+                  onFocus={e => { e.target.value = String(Math.round(form.Precio_Costo) || ''); e.target.select(); }}
                   onBlur={e => {
-                    const costoConIva = toNum(e.target.value);
-                    e.target.value = fmtMoneda(costoConIva);
-                    // Calcular costo sin IVA a partir del costo con IVA
-                    const costoSinIva = form.Iva > 0 ? Math.round(costoConIva / (1 + form.Iva / 100)) : costoConIva;
-                    set('Precio_Costo', costoSinIva);
+                    const conIva = toNum(e.target.value);
+                    set('Precio_Costo', conIva);
+                    e.target.value = fmtMoneda(conIva);
                     // Sincronizar campo costo sin IVA
+                    const sinIva = form.Iva > 0 ? conIva / (1 + form.Iva / 100) : conIva;
                     const costoSinIvaInput = e.target.closest('div')?.parentElement?.querySelector<HTMLInputElement>('[data-costo-sin-iva]');
-                    if (costoSinIvaInput) costoSinIvaInput.value = fmtMoneda(costoSinIva);
+                    if (costoSinIvaInput) costoSinIvaInput.value = fmtMoneda(sinIva);
                   }}
                   style={{ ...s.input, background: '#f0fdf4', borderColor: '#86efac', color: '#16a34a', fontWeight: 600 }} />
               </div>
@@ -321,7 +342,9 @@ export function EditarArticuloModal({ isOpen, onClose, articulo, onGuardado, mod
                 { label: 'P. al Público 3', field: 'Precio_Venta3', val: form.Precio_Venta3, main: false },
                 { label: 'P. Mínimo', field: 'Precio_Minimo', val: form.Precio_Minimo, main: false },
               ].map(row => {
-                const cIva = form.Precio_Costo * (1 + form.Iva / 100);
+                // Precio_Costo ya está CON IVA, así que es base directa para comparar
+                // contra Precio_Venta (también con IVA cuando precioIvaIncluido=true).
+                const cIva = form.Precio_Costo;
                 const pct = cIva > 0 ? ((row.val - cIva) / cIva) * 100 : 0;
                 const ganancia = row.val - cIva;
 

@@ -21,19 +21,48 @@ try {
             exit;
         }
 
-        // Facturas con saldo pendiente
-        $stmt = $db->prepare("
-            SELECT Factura_N, Fecha, Total, Saldo, Dias, Tipo
-            FROM tblventas
+        // Facturas con saldo pendiente — usa las vistas (saldo dinámico),
+        // une POS + FE + facturas anteriores. Las vistas ya filtran anuladas
+        // y solo traen las que tienen Saldo > 0.
+        $tieneFE = $db->query("SHOW TABLES LIKE 'electronic_documents'")->fetch();
+        $tieneFA = $db->query("SHOW TABLES LIKE 'tblfacturasanteriores'")->fetch();
+
+        $sql = "
+            SELECT Factura_N, Fecha, Total, Saldo, Dias, Tipo, 'venta' AS Origen
+            FROM vw_facturas_cliente_saldos
             WHERE CodigoCli = :id AND Saldo > 0
-            ORDER BY Fecha ASC
-        ");
-        $stmt->execute([':id' => $clienteId]);
+        ";
+        if ($tieneFE) {
+            $sql .= "
+            UNION ALL
+            SELECT Factura_N, Fecha, Total, Saldo, Dias,
+                   CASE WHEN Tipo = 1 THEN 'Contado' ELSE 'Crédito' END AS Tipo,
+                   'electronica' AS Origen
+            FROM vw_facturas_elec_cliente_saldos
+            WHERE CodigoCli = :id_fe AND Saldo > 0
+            ";
+        }
+        if ($tieneFA) {
+            $sql .= "
+            UNION ALL
+            SELECT FacturaN AS Factura_N, Fecha, Total, Saldo, Dias,
+                   'Crédito' AS Tipo, 'anterior' AS Origen
+            FROM vw_facturas_anteriores_cliente
+            WHERE CodigoCli = :id_fa AND Saldo > 0
+            ";
+        }
+        $sql .= " ORDER BY Fecha ASC";
+
+        $params = [':id' => $clienteId];
+        if ($tieneFE) $params[':id_fe'] = $clienteId;
+        if ($tieneFA) $params[':id_fa'] = $clienteId;
+
+        $stmt = $db->prepare($sql);
+        $stmt->execute($params);
         $pendientes = $stmt->fetchAll();
         foreach ($pendientes as &$f) {
             $f['Total'] = floatval($f['Total']);
             $f['Saldo'] = floatval($f['Saldo']);
-            // Días vencida
             $fechaFact = new DateTime($f['Fecha']);
             $hoy = new DateTime();
             $f['Dias_Vencida'] = $hoy->diff($fechaFact)->days;
@@ -113,8 +142,8 @@ try {
             $stmtInsert = $db->prepare("
                 INSERT INTO tblpagos (RecCajaN, Codigo, Fact_N, ValorPago, Fecha, DetallePago,
                     ValorFact, SaldoAct, Descuento, Retencion, Estado, Afectada, id_mediopago, NFactAnt, Nfact_electronica, FechaMod, id_usuario)
-                VALUES (:rec, :codigo, 0, :valor, :fecha, :detalle, :valor_fact, :saldo_act,
-                    :descuento, 0, 'Valida', '1110', :medio, :nfact_ant, '', NOW(), :id_user)
+                VALUES (:rec, :codigo, :fact_n, :valor, :fecha, :detalle, :valor_fact, :saldo_act,
+                    :descuento, 0, 'Valida', '1110', :medio, '', '', NOW(), :id_user)
             ");
 
             $stmtUpdateVenta = $db->prepare("
@@ -154,6 +183,7 @@ try {
                 $stmtInsert->execute([
                     ':rec' => $recCaja,
                     ':codigo' => $clienteId,
+                    ':fact_n' => intval($factN),
                     ':valor' => $valor,
                     ':fecha' => $fechaPago,
                     ':detalle' => $detalle,
@@ -161,7 +191,6 @@ try {
                     ':saldo_act' => max($nuevoSaldo, 0),
                     ':descuento' => $descuento,
                     ':medio' => $medioPago,
-                    ':nfact_ant' => $factN,
                     ':id_user' => $idUsuario,
                 ]);
 

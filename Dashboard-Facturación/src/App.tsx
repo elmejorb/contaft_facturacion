@@ -6,6 +6,7 @@ import { Toaster } from 'react-hot-toast';
 import { ConfirmDialogProvider } from './components/ConfirmDialog';
 import { ConfigurarServidor } from './components/ConfigurarServidor';
 import { AutoUpdater } from './components/AutoUpdater';
+import { SubscriptionGate } from './components/SubscriptionGate';
 import { isApiConfigured, loadConfigFromFile } from './config/api';
 
 function AppContent() {
@@ -21,7 +22,9 @@ function AppContent() {
     });
   }, []);
 
-  if (loading) {
+  // Bloquear render hasta que se cargue config.json — evita que componentes
+  // hagan fetch con DEFAULT_URL antes de que loadConfigFromFile termine.
+  if (loading || !configLoaded) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="flex flex-col items-center gap-4">
@@ -39,14 +42,16 @@ function AppContent() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <AutoUpdater />
-      {!isAuthenticated ? (
-        <LoginPage />
-      ) : (
-        <Dashboard onLogout={logout} user={user} />
-      )}
-    </div>
+    <SubscriptionGate>
+      <div className="min-h-screen bg-gray-50">
+        <AutoUpdater />
+        {!isAuthenticated ? (
+          <LoginPage />
+        ) : (
+          <Dashboard onLogout={logout} user={user} />
+        )}
+      </div>
+    </SubscriptionGate>
   );
 }
 
@@ -58,6 +63,7 @@ export default function App() {
       </ConfirmDialogProvider>
       <Toaster
         position="top-right"
+        containerStyle={{ zIndex: 100000 }}
         toastOptions={{
           duration: 4000,
           style: { fontSize: 14, fontWeight: 600, borderRadius: 10, padding: '12px 18px', boxShadow: '0 8px 24px rgba(0,0,0,0.15)' },

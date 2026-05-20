@@ -39,12 +39,15 @@ try {
     $stmt = $db->query("SELECT COALESCE(MAX(Items), 0) + 1 as nextItems FROM tblarticulos");
     $nextItems = $stmt->fetch()['nextItems'];
 
+    $existenciaInicial = floatval($input['Existencia'] ?? 0);
+    $costoUnit = floatval($input['Precio_Costo'] ?? 0);
+
     $query = "INSERT INTO tblarticulos (
         Items, Codigo, Nombres_Articulo, Id_Categoria, Existencia, Existencia_minima,
         Precio_Costo, Precio_Venta, Precio_Venta2, Precio_Venta3, Precio_Minimo,
         Iva, CodigoPro, Estante, Estado, requiere_lote, Id_Etiqueta, FechaMod
     ) VALUES (
-        :items, :codigo, :nombre, :categoria, 0, :existenciaMinima,
+        :items, :codigo, :nombre, :categoria, :existencia, :existenciaMinima,
         :costo, :precio1, :precio2, :precio3, :precioMinimo,
         :iva, :proveedor, :estante, :estado, :requiereLote, :etiqueta, NOW()
     )";
@@ -55,8 +58,9 @@ try {
         ':codigo' => $input['Codigo'],
         ':nombre' => $input['Nombres_Articulo'],
         ':categoria' => $input['Id_Categoria'] ?? 0,
+        ':existencia' => $existenciaInicial,
         ':existenciaMinima' => $input['Existencia_minima'] ?? 0,
-        ':costo' => $input['Precio_Costo'] ?? 0,
+        ':costo' => $costoUnit,
         ':precio1' => $input['Precio_Venta'] ?? 0,
         ':precio2' => $input['Precio_Venta2'] ?? 0,
         ':precio3' => $input['Precio_Venta3'] ?? 0,
@@ -68,6 +72,31 @@ try {
         ':requiereLote' => !empty($input['requiere_lote']) ? 1 : 0,
         ':etiqueta' => !empty($input['Id_Etiqueta']) ? intval($input['Id_Etiqueta']) : null,
     ]);
+
+    // Si hay existencia inicial y existe la tabla kardex, registrar la carga inicial.
+    if ($existenciaInicial > 0) {
+        $tieneKardex = $db->query("SHOW TABLES LIKE 'tblkardex'")->fetch();
+        if ($tieneKardex) {
+            $costoTotal = $existenciaInicial * $costoUnit;
+            $mesNombre = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'][intval(date('n'))-1];
+            $kStmt = $db->prepare("
+                INSERT INTO tblkardex
+                  (Fecha, Mes, Items, Detalle, C_D, Cant_Ent, Cost_Ent, Cant_Sal, Cost_Sal, Cant_Saldo, Cost_Saldo, Cost_Unit)
+                VALUES
+                  (NOW(), :mes, :items, :detalle, 0, :cant, :costo_total, 0, 0, :saldo_cant, :saldo_costo, :costo_unit)
+            ");
+            $kStmt->execute([
+                ':mes'         => $mesNombre,
+                ':items'       => $nextItems,
+                ':detalle'     => 'Carga inicial al crear el artículo',
+                ':cant'        => $existenciaInicial,
+                ':costo_total' => $costoTotal,
+                ':saldo_cant'  => $existenciaInicial,
+                ':saldo_costo' => $costoTotal,
+                ':costo_unit'  => $costoUnit,
+            ]);
+        }
+    }
 
     echo json_encode([
         'success' => true,

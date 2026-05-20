@@ -22,6 +22,19 @@ require_once '../config/database.php';
 $db = (new Database())->getConnection();
 $tipo = $_GET['tipo'] ?? '';
 
+// Cache: ¿la BD del cliente tiene módulo de FE? Si no existen las tablas
+// `electronic_documents` y `detalle_document_electronic`, todas las queries
+// que las referencian se omiten y se asumen valores en 0.
+$_tablaExisteCache = [];
+function tablaExiste($db, $nombre) {
+    global $_tablaExisteCache;
+    if (isset($_tablaExisteCache[$nombre])) return $_tablaExisteCache[$nombre];
+    $stmt = $db->prepare("SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?");
+    $stmt->execute([$nombre]);
+    return $_tablaExisteCache[$nombre] = (intval($stmt->fetchColumn()) > 0);
+}
+$tieneFE = tablaExiste($db, 'electronic_documents') && tablaExiste($db, 'detalle_document_electronic');
+
 try {
     if ($tipo === 'cierre_mes') {
         $anio = intval($_GET['anio'] ?? date('Y'));
@@ -40,20 +53,23 @@ try {
             FROM tblventas WHERE $where AND EstadoFact='Valida'
         ")->fetch();
 
-        // Sumar electrónicas no duplicadas en tblventas
-        $rEd = $db->query("
-            SELECT
-              SUM(CASE WHEN payment_form_id=1 AND payment_method_id=10 THEN total ELSE 0 END) AS fe_efectivo,
-              SUM(CASE WHEN payment_form_id=1 AND payment_method_id=14 THEN total ELSE 0 END) AS fe_tarjeta,
-              SUM(CASE WHEN payment_form_id=1 AND payment_method_id NOT IN (10,14) THEN total ELSE 0 END) AS fe_otros,
-              SUM(CASE WHEN payment_form_id=2 THEN total ELSE 0 END) AS fe_credito,
-              SUM(total) AS fe_total,
-              COUNT(*) AS fe_count
-            FROM electronic_documents
-            WHERE YEAR(fecha)=$anio AND MONTH(fecha)=$mes
-              AND status='autorizado' AND type_document_id=1
-              AND cufe NOT IN (SELECT cufe FROM tblventas WHERE cufe IS NOT NULL AND cufe!='')
-        ")->fetch();
+        // Sumar electrónicas no duplicadas en tblventas (solo si el cliente tiene módulo FE)
+        $rEd = ['fe_efectivo'=>0, 'fe_tarjeta'=>0, 'fe_otros'=>0, 'fe_credito'=>0, 'fe_total'=>0, 'fe_count'=>0];
+        if ($tieneFE) {
+            $rEd = $db->query("
+                SELECT
+                  SUM(CASE WHEN payment_form_id=1 AND payment_method_id=10 THEN total ELSE 0 END) AS fe_efectivo,
+                  SUM(CASE WHEN payment_form_id=1 AND payment_method_id=14 THEN total ELSE 0 END) AS fe_tarjeta,
+                  SUM(CASE WHEN payment_form_id=1 AND payment_method_id NOT IN (10,14) THEN total ELSE 0 END) AS fe_otros,
+                  SUM(CASE WHEN payment_form_id=2 THEN total ELSE 0 END) AS fe_credito,
+                  SUM(total) AS fe_total,
+                  COUNT(*) AS fe_count
+                FROM electronic_documents
+                WHERE YEAR(fecha)=$anio AND MONTH(fecha)=$mes
+                  AND status='autorizado' AND type_document_id=1
+                  AND cufe NOT IN (SELECT cufe FROM tblventas WHERE cufe IS NOT NULL AND cufe!='')
+            ")->fetch();
+        }
 
         // Compras
         $rComp = $db->query("
@@ -92,14 +108,17 @@ try {
 
         // Costo de ventas FE (electronic_documents — solo las que NO duplican tblventas
         // para evitar contar costo dos veces). Usa PrecioCosto guardado en el detalle.
-        $rCostoFE = $db->query("
-            SELECT SUM(de.invoiced_quantity * de.PrecioCosto) AS costo_fe
-            FROM detalle_document_electronic de
-            INNER JOIN electronic_documents e ON de.factura_n = e.id
-            WHERE YEAR(e.fecha)=$anio AND MONTH(e.fecha)=$mes
-              AND e.status='autorizado' AND e.type_document_id=1
-              AND e.cufe NOT IN (SELECT cufe FROM tblventas WHERE cufe IS NOT NULL AND cufe!='')
-        ")->fetch();
+        $rCostoFE = ['costo_fe' => 0];
+        if ($tieneFE) {
+            $rCostoFE = $db->query("
+                SELECT SUM(de.invoiced_quantity * de.PrecioCosto) AS costo_fe
+                FROM detalle_document_electronic de
+                INNER JOIN electronic_documents e ON de.factura_n = e.id
+                WHERE YEAR(e.fecha)=$anio AND MONTH(e.fecha)=$mes
+                  AND e.status='autorizado' AND e.type_document_id=1
+                  AND e.cufe NOT IN (SELECT cufe FROM tblventas WHERE cufe IS NOT NULL AND cufe!='')
+            ")->fetch();
+        }
 
         $ventas_total = floatval($r['ventas_total']) + floatval($rEd['fe_total']);
         $costo = floatval($rCosto['costo_ventas']) + floatval($rCostoFE['costo_fe']);
@@ -160,16 +179,19 @@ try {
         $r->execute([$desde, $hasta]);
         $rVen = $r->fetch();
 
-        // Sumar también FE no duplicadas en tblventas
-        $r = $db->prepare("
-            SELECT SUM(total) AS ventas_fe, COUNT(*) AS num_fe
-            FROM electronic_documents
-            WHERE fecha BETWEEN ? AND CONCAT(?, ' 23:59:59')
-              AND status='autorizado' AND type_document_id=1
-              AND cufe NOT IN (SELECT cufe FROM tblventas WHERE cufe IS NOT NULL AND cufe!='')
-        ");
-        $r->execute([$desde, $hasta]);
-        $rVenFE = $r->fetch();
+        // Sumar también FE no duplicadas en tblventas (solo si el cliente tiene módulo FE)
+        $rVenFE = ['ventas_fe' => 0, 'num_fe' => 0];
+        if ($tieneFE) {
+            $r = $db->prepare("
+                SELECT SUM(total) AS ventas_fe, COUNT(*) AS num_fe
+                FROM electronic_documents
+                WHERE fecha BETWEEN ? AND CONCAT(?, ' 23:59:59')
+                  AND status='autorizado' AND type_document_id=1
+                  AND cufe NOT IN (SELECT cufe FROM tblventas WHERE cufe IS NOT NULL AND cufe!='')
+            ");
+            $r->execute([$desde, $hasta]);
+            $rVenFE = $r->fetch();
+        }
 
         $r = $db->prepare("
             SELECT SUM(d.Cantidad * d.PrecioC) AS costo
@@ -179,17 +201,20 @@ try {
         $r->execute([$desde, $hasta]);
         $rCos = $r->fetch();
 
-        // Costo de FE no duplicadas
-        $r = $db->prepare("
-            SELECT SUM(de.invoiced_quantity * de.PrecioCosto) AS costo_fe
-            FROM detalle_document_electronic de
-            INNER JOIN electronic_documents e ON de.factura_n = e.id
-            WHERE e.fecha BETWEEN ? AND CONCAT(?, ' 23:59:59')
-              AND e.status='autorizado' AND e.type_document_id=1
-              AND e.cufe NOT IN (SELECT cufe FROM tblventas WHERE cufe IS NOT NULL AND cufe!='')
-        ");
-        $r->execute([$desde, $hasta]);
-        $rCosFE = $r->fetch();
+        // Costo de FE no duplicadas (solo si tiene módulo FE)
+        $rCosFE = ['costo_fe' => 0];
+        if ($tieneFE) {
+            $r = $db->prepare("
+                SELECT SUM(de.invoiced_quantity * de.PrecioCosto) AS costo_fe
+                FROM detalle_document_electronic de
+                INNER JOIN electronic_documents e ON de.factura_n = e.id
+                WHERE e.fecha BETWEEN ? AND CONCAT(?, ' 23:59:59')
+                  AND e.status='autorizado' AND e.type_document_id=1
+                  AND e.cufe NOT IN (SELECT cufe FROM tblventas WHERE cufe IS NOT NULL AND cufe!='')
+            ");
+            $r->execute([$desde, $hasta]);
+            $rCosFE = $r->fetch();
+        }
 
         $r = $db->prepare("
             SELECT COALESCE(cg.Nombre, 'Sin categoría') AS Categoria, SUM(e.Valor) AS total

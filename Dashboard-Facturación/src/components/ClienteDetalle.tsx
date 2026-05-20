@@ -551,7 +551,7 @@ export function ClienteDetalle({ clienteId, onClose, tabInicial = 'ventas' }: Pr
                               <input
                                 type="text"
                                 data-pago-input="true"
-                                key={`abono-cli-${f.Factura_N}-${formVersion}`}
+                                key={`abono-cli-${clienteId}-${f.Factura_N}-${formVersion}`}
                                 defaultValue={abono > 0 ? abono.toLocaleString('es-CO') : ''}
                                 onFocus={e => {
                                   const val = abonos.get(f.Factura_N) || 0;

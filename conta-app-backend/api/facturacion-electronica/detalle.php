@@ -68,12 +68,17 @@ try {
         $dianResponse = json_decode($doc['dian_response'], true);
     }
 
+    // Empresa (para renderizar tirilla/preview con resolución, prefijo, rango DIAN)
+    $stmtEmp = $db->query("SELECT Empresa, Nit, Direccion, Telefono, Regimen, Resolucion, FechaR, Rango, Rango2, Prefijo FROM tbldatosempresa LIMIT 1");
+    $empresa = $stmtEmp->fetch() ?: [];
+
     echo json_encode([
         'success' => true,
         'documento' => $doc,
         'items' => $items,
         'notas' => $notas,
-        'dian_response' => $dianResponse
+        'dian_response' => $dianResponse,
+        'empresa' => $empresa,
     ], JSON_UNESCAPED_UNICODE);
 
 } catch (Exception $e) {
