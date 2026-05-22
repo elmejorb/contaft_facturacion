@@ -48,6 +48,9 @@ export interface ConfigImpresion {
   autorizarDevoluciones: boolean;     // pide clave admin para devolver
   autorizarAnulaciones: boolean;      // pide clave admin para anular venta
   autorizarOverrideCupo: boolean;     // pide clave admin si la venta supera cupo del cliente
+  // Reglas de venta — validaciones que bloquean facturar
+  permitirFacturarNegativo: boolean;  // si false, no permite vender más de la existencia
+  validarPrecioMinimo: boolean;       // si true, bloquea PrecioVenta < Precio_Minimo y < Precio_Costo
 }
 
 const CONFIG_KEY = 'config_sistema';
@@ -86,6 +89,8 @@ const defaultConfig: ConfigImpresion = {
   autorizarDevoluciones: false,
   autorizarAnulaciones: false,
   autorizarOverrideCupo: false,
+  permitirFacturarNegativo: false,
+  validarPrecioMinimo: true,
 };
 
 export function getConfigImpresion(): ConfigImpresion {
@@ -400,6 +405,17 @@ export function ConfiguracionSistema() {
           <div style={{ background: '#fef9c3', border: '1px solid #fde047', borderRadius: 6, padding: '8px 12px', fontSize: 11, color: '#713f12', marginTop: 8 }}>
             🔒 <b>Override de cupo</b>: las ventas a crédito que superen el cupo del cliente <b>siempre</b> requieren autorización del administrador. Esta protección no es configurable.
           </div>
+        </div>
+      ))}
+
+      {/* Reglas de Venta */}
+      {seccion('Reglas de Venta', <Settings size={18} color="#16a34a" />, (
+        <div>
+          <p style={{ fontSize: 11, color: '#6b7280', marginTop: -8, marginBottom: 14 }}>
+            Validaciones automáticas que el sistema aplica al facturar.
+          </p>
+          {toggle('Permitir facturar en negativo', 'permitirFacturarNegativo', 'Si está apagado, el sistema bloquea la venta cuando la cantidad supera la existencia disponible')}
+          {toggle('Validar precio mínimo y costo', 'validarPrecioMinimo', 'Si está activo, no se puede vender por debajo del Precio Mínimo del artículo, ni por debajo o igual al Precio de Costo')}
         </div>
       ))}
 

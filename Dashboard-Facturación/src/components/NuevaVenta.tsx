@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { Search, Trash2, Plus, Save, X, ShoppingCart, Lock, Unlock, PackagePlus } from 'lucide-react';
 import { EditarArticuloModal } from './EditarArticuloModal';
 import toast from 'react-hot-toast';
-import { getConfigImpresion } from './ConfiguracionSistema';
+import { getConfigImpresion, getEmpresaCache } from './ConfiguracionSistema';
 import { imprimirFactura, buildDatosFactura } from './ImpresionFactura';
 import { useAuth } from '../contexts/AuthContext';
 import { AutorizacionAdminModal, type AdminAutorizado } from './AutorizacionAdminModal';
@@ -84,6 +84,7 @@ interface LineaVenta {
   Existencia: number;
   Cantidad: number;
   PrecioCosto: number;
+  PrecioMinimo?: number;
   PrecioVenta: number;
   Iva: number;
   Descuento: number;
@@ -229,12 +230,25 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
   const agregarProducto = (art: any) => {
     const existente = lineas.find(l => l.Items === art.Items);
     if (existente) {
-      setLineas(prev => prev.map(l => l.Items === art.Items ? { ...l, Cantidad: l.Cantidad + 1, Subtotal: (l.Cantidad + 1) * l.PrecioVenta - l.Descuento } : l));
+      // Validar stock al incrementar (si está apagado "permitir facturar en negativo")
+      const cfg = getConfigImpresion();
+      const nuevaCant = existente.Cantidad + 1;
+      if (!cfg.permitirFacturarNegativo && nuevaCant > existente.Existencia) {
+        toast.error(`No hay existencia suficiente de ${art.Codigo} ${art.Nombres_Articulo} (disponible: ${existente.Existencia})`, { duration: 5000 });
+        return;
+      }
+      setLineas(prev => prev.map(l => l.Items === art.Items ? { ...l, Cantidad: nuevaCant, Subtotal: nuevaCant * l.PrecioVenta - l.Descuento } : l));
     } else {
+      const cfg = getConfigImpresion();
+      if (!cfg.permitirFacturarNegativo && (art.Existencia || 0) <= 0) {
+        toast.error(`${art.Codigo} ${art.Nombres_Articulo} sin existencia. Activa "Permitir facturar en negativo" en Configuración → Reglas de Venta si necesitas vender de todas formas.`, { duration: 6000 });
+        return;
+      }
       const precio = listaPrecio === 2 ? (art.Precio_Venta2 || art.Precio_Venta) : listaPrecio === 3 ? (art.Precio_Venta3 || art.Precio_Venta) : art.Precio_Venta;
       const nueva: LineaVenta = {
         id: ++lineaId, Items: art.Items, Codigo: art.Codigo, Nombre: art.Nombres_Articulo,
         Existencia: art.Existencia, Cantidad: 1, PrecioCosto: art.Precio_Costo,
+        PrecioMinimo: art.Precio_Minimo || 0,
         PrecioVenta: precio, Iva: art.Iva || 0, Descuento: 0, Subtotal: precio,
       };
       setLineas(prev => [...prev, nueva]);
@@ -244,9 +258,33 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
     productoInputRef.current?.focus();
   };
 
+  // actualizarLinea aplica reglas de venta antes de aceptar el cambio:
+  //  - Cantidad > Existencia bloquea si permitirFacturarNegativo=false
+  //  - PrecioVenta < PrecioCosto (o ≤ PrecioCosto si validarPrecioMinimo) bloquea
+  //  - PrecioVenta < Precio_Minimo (>0) bloquea si validarPrecioMinimo=true
   const actualizarLinea = (id: number, field: keyof LineaVenta, value: number) => {
     setLineas(prev => prev.map(l => {
       if (l.id !== id) return l;
+      const cfg = getConfigImpresion();
+
+      // Validar stock al cambiar cantidad
+      if (field === 'Cantidad' && !cfg.permitirFacturarNegativo && value > l.Existencia) {
+        toast.error(`No hay existencia suficiente de ${l.Codigo} ${l.Nombre} (disponible: ${l.Existencia})`, { duration: 5000 });
+        return l;
+      }
+
+      // Validar precio mínimo y costo
+      if (field === 'PrecioVenta' && cfg.validarPrecioMinimo && value > 0) {
+        if (l.PrecioCosto > 0 && value <= l.PrecioCosto) {
+          toast.error(`No puedes vender ${l.Codigo} a $${value.toLocaleString('es-CO')} — está en o por debajo del costo ($${l.PrecioCosto.toLocaleString('es-CO')})`, { duration: 6000 });
+          return l;
+        }
+        if ((l.PrecioMinimo || 0) > 0 && value < (l.PrecioMinimo || 0)) {
+          toast.error(`Precio mínimo de ${l.Codigo}: $${(l.PrecioMinimo || 0).toLocaleString('es-CO')}. No se puede vender por debajo de ese valor.`, { duration: 6000 });
+          return l;
+        }
+      }
+
       const updated = { ...l, [field]: value };
       updated.Subtotal = (updated.Cantidad * updated.PrecioVenta) - updated.Descuento;
       return updated;
@@ -444,9 +482,19 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
     })();
   }, [cliente.id]);
 
+  // Si la empresa NO es Responsable de IVA (Régimen Simplificado/Simple), no
+  // genera IVA en sus ventas — el precio del catálogo es lo que paga el cliente,
+  // sin sumarle nada encima. El campo Iva por producto sigue existiendo para
+  // trazar IVA pagado en compras, pero no se aplica al facturar.
+  const empresaRegimen = (getEmpresaCache().regimen || '').toLowerCase();
+  const esResponsableIVA = empresaRegimen.includes('común') || empresaRegimen.includes('comun')
+    || empresaRegimen.includes('responsable');
+
   // Totales "base" (si no hubiera retención)
   const subtotalBase = lineas.reduce((s, l) => s + l.Subtotal, 0);
-  const totalIvaBase = lineas.reduce((s, l) => s + (l.Subtotal * (l.Iva / 100)), 0);
+  const totalIvaBase = esResponsableIVA
+    ? lineas.reduce((s, l) => s + (l.Subtotal * (l.Iva / 100)), 0)
+    : 0;
   const ivaFrac = subtotalBase > 0 ? totalIvaBase / subtotalBase : 0;
 
   // Suma de % de retenciones aplicadas (todas se aplican sobre el subtotal antes de IVA)
@@ -1106,11 +1154,28 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
                       style={{ width: 48, height: 24, textAlign: 'center', border: '1px solid #d1d5db', borderRadius: 4, fontSize: 12, fontWeight: 600, outline: 'none' }} />
                   </td>
                   <td style={{ padding: '3px 4px', textAlign: 'right', width: 95 }}>
-                    <input type="text" key={`precio-${l.id}-${l.PrecioVenta}`} defaultValue={String(l.PrecioVenta)}
-                      onFocus={e => e.target.select()}
-                      onBlur={e => { const v = parseFloat(e.target.value) || 0; actualizarLinea(l.id, 'PrecioVenta', v); e.target.value = v.toLocaleString('es-CO'); }}
-                      onKeyDown={e => { soloNum(e); if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
-                      style={{ width: 80, height: 24, textAlign: 'right', border: '1px solid #d1d5db', borderRadius: 4, fontSize: 12, outline: 'none' }} />
+                    {(() => {
+                      // Tooltip discreto con costo y margen — solo si está activado en
+                      // Configuración → Datos en la Factura Impresa → Mostrar precio costo.
+                      // Aparece al pasar el mouse sobre el input del precio; el cliente
+                      // no lo nota porque solo se ve al hacer hover.
+                      const verCosto = getConfigImpresion().mostrarPrecioCosto;
+                      let tip: string | undefined;
+                      if (verCosto && l.PrecioCosto > 0) {
+                        const margen = l.PrecioVenta - l.PrecioCosto;
+                        const pct = l.PrecioVenta > 0 ? (margen / l.PrecioVenta) * 100 : 0;
+                        const signo = margen >= 0 ? '+' : '';
+                        tip = `Costo: ${fmtMon(l.PrecioCosto)}   Margen: ${signo}${fmtMon(margen)} (${pct.toFixed(1)}%)`;
+                      }
+                      return (
+                        <input type="text" key={`precio-${l.id}-${l.PrecioVenta}`} defaultValue={String(l.PrecioVenta)}
+                          title={tip}
+                          onFocus={e => e.target.select()}
+                          onBlur={e => { const v = parseFloat(e.target.value) || 0; actualizarLinea(l.id, 'PrecioVenta', v); e.target.value = v.toLocaleString('es-CO'); }}
+                          onKeyDown={e => { soloNum(e); if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+                          style={{ width: 80, height: 24, textAlign: 'right', border: '1px solid #d1d5db', borderRadius: 4, fontSize: 12, outline: 'none' }} />
+                      );
+                    })()}
                   </td>
                   <td style={{ padding: '3px 4px', textAlign: 'right', width: 75 }}>
                     <input type="text" defaultValue={l.Descuento > 0 ? String(l.Descuento) : ''} placeholder="0"

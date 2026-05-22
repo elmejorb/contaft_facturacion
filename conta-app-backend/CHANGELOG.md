@@ -5,6 +5,26 @@ Visible solo para administradores desde **Configuración → Acerca de → Ver h
 
 ---
 
+## 4.3.31 — 2026-05-20
+
+### Mejoras
+- **Nueva sección "Reglas de Venta" en Configuración** con dos toggles:
+  - **Permitir facturar en negativo** (default: OFF) — si está apagado, el sistema bloquea con mensaje claro cuando la cantidad supera la existencia disponible
+  - **Validar precio mínimo y costo** (default: ON) — si está activo, no se puede vender por debajo del Precio Mínimo del artículo, ni en o por debajo del Precio de Costo
+- Validación se aplica al agregar producto, al incrementar cantidad, y al editar el precio en línea — siempre con toast de error explicando el motivo
+
+---
+
+## 4.3.30 — 2026-05-20
+
+### Correcciones de bugs
+- **Empresas Régimen Simplificado/Simple no deben sumar IVA al facturar**: si la empresa no es Responsable de IVA (régimen distinto a Común/Responsable), el sistema ya no agrega el IVA del producto al total de la venta. El precio del catálogo es el precio que paga el cliente. El campo IVA por producto sigue existiendo para trazar IVA pagado en compras
+
+### Mejoras
+- **Tooltip discreto de costo y margen en Nueva Venta**: al pasar el mouse sobre el campo Precio de cada línea, aparece un tooltip nativo con "Costo: $X   Margen: $Y (Z%)". Solo aparece si está activado "Mostrar precio costo" en Configuración → Datos en la Factura Impresa. No se ve por defecto, así que el cliente sentado al lado no lo nota — solo el vendedor que sabe pasar el mouse
+
+---
+
 ## 4.3.29 — 2026-05-20
 
 ### Mejoras
