@@ -5,6 +5,14 @@ Visible solo para administradores desde **Configuración → Acerca de → Ver h
 
 ---
 
+## 4.3.32 — 2026-05-20
+
+### Mejoras
+- **Permitir el mismo producto en varias líneas** (nuevo toggle en Reglas de Venta, default OFF). Si está activo, agregar un producto que ya está en la factura crea una línea nueva en lugar de sumar cantidad. Útil para vender a precios distintos por unidad o aplicar promociones a parte del lote
+- La validación de stock ahora **suma todas las líneas del mismo Items** contra la existencia disponible (importante con el toggle anterior activo, para evitar vender más de lo que hay aunque esté repartido en varias líneas)
+
+---
+
 ## 4.3.31 — 2026-05-20
 
 ### Mejoras

@@ -51,6 +51,7 @@ export interface ConfigImpresion {
   // Reglas de venta — validaciones que bloquean facturar
   permitirFacturarNegativo: boolean;  // si false, no permite vender más de la existencia
   validarPrecioMinimo: boolean;       // si true, bloquea PrecioVenta < Precio_Minimo y < Precio_Costo
+  permitirRepetirProducto: boolean;   // si true, el mismo Item puede aparecer en varias líneas (útil para precios distintos por unidad, promociones)
 }
 
 const CONFIG_KEY = 'config_sistema';
@@ -91,6 +92,7 @@ const defaultConfig: ConfigImpresion = {
   autorizarOverrideCupo: false,
   permitirFacturarNegativo: false,
   validarPrecioMinimo: true,
+  permitirRepetirProducto: false,
 };
 
 export function getConfigImpresion(): ConfigImpresion {
@@ -416,6 +418,7 @@ export function ConfiguracionSistema() {
           </p>
           {toggle('Permitir facturar en negativo', 'permitirFacturarNegativo', 'Si está apagado, el sistema bloquea la venta cuando la cantidad supera la existencia disponible')}
           {toggle('Validar precio mínimo y costo', 'validarPrecioMinimo', 'Si está activo, no se puede vender por debajo del Precio Mínimo del artículo, ni por debajo o igual al Precio de Costo')}
+          {toggle('Permitir el mismo producto en varias líneas', 'permitirRepetirProducto', 'Si está activo, agregar un producto que ya está en la factura crea una línea nueva en lugar de sumar cantidad. Útil para precios distintos por unidad o promociones')}
         </div>
       ))}
 

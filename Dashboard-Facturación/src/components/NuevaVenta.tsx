@@ -228,20 +228,27 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
   };
 
   const agregarProducto = (art: any) => {
+    const cfg = getConfigImpresion();
     const existente = lineas.find(l => l.Items === art.Items);
-    if (existente) {
-      // Validar stock al incrementar (si está apagado "permitir facturar en negativo")
-      const cfg = getConfigImpresion();
+
+    // Cantidad ya comprometida de este producto en toda la grilla (suma de todas las líneas)
+    const cantTotalEnGrid = lineas
+      .filter(l => l.Items === art.Items)
+      .reduce((s, l) => s + (l.Cantidad || 0), 0);
+
+    if (existente && !cfg.permitirRepetirProducto) {
+      // Comportamiento clásico: incrementar la cantidad de la línea existente
       const nuevaCant = existente.Cantidad + 1;
       if (!cfg.permitirFacturarNegativo && nuevaCant > existente.Existencia) {
         toast.error(`No hay existencia suficiente de ${art.Codigo} ${art.Nombres_Articulo} (disponible: ${existente.Existencia})`, { duration: 5000 });
         return;
       }
-      setLineas(prev => prev.map(l => l.Items === art.Items ? { ...l, Cantidad: nuevaCant, Subtotal: nuevaCant * l.PrecioVenta - l.Descuento } : l));
+      setLineas(prev => prev.map(l => l.id === existente.id ? { ...l, Cantidad: nuevaCant, Subtotal: nuevaCant * l.PrecioVenta - l.Descuento } : l));
     } else {
-      const cfg = getConfigImpresion();
-      if (!cfg.permitirFacturarNegativo && (art.Existencia || 0) <= 0) {
-        toast.error(`${art.Codigo} ${art.Nombres_Articulo} sin existencia. Activa "Permitir facturar en negativo" en Configuración → Reglas de Venta si necesitas vender de todas formas.`, { duration: 6000 });
+      // Línea nueva (producto fresco, o producto repetido si el toggle está activo).
+      // Valida que la suma de cantidades del producto en la grilla + 1 no exceda existencia.
+      if (!cfg.permitirFacturarNegativo && (cantTotalEnGrid + 1) > (art.Existencia || 0)) {
+        toast.error(`No hay existencia suficiente de ${art.Codigo} ${art.Nombres_Articulo} (disponible: ${art.Existencia}, ya en factura: ${cantTotalEnGrid})`, { duration: 5000 });
         return;
       }
       const precio = listaPrecio === 2 ? (art.Precio_Venta2 || art.Precio_Venta) : listaPrecio === 3 ? (art.Precio_Venta3 || art.Precio_Venta) : art.Precio_Venta;
@@ -259,36 +266,46 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
   };
 
   // actualizarLinea aplica reglas de venta antes de aceptar el cambio:
-  //  - Cantidad > Existencia bloquea si permitirFacturarNegativo=false
+  //  - Cantidad: la SUMA del producto en toda la grilla > Existencia bloquea
+  //    (importante cuando permitirRepetirProducto=true y hay varias líneas del mismo Item)
   //  - PrecioVenta < PrecioCosto (o ≤ PrecioCosto si validarPrecioMinimo) bloquea
   //  - PrecioVenta < Precio_Minimo (>0) bloquea si validarPrecioMinimo=true
   const actualizarLinea = (id: number, field: keyof LineaVenta, value: number) => {
-    setLineas(prev => prev.map(l => {
-      if (l.id !== id) return l;
+    setLineas(prev => {
+      const lineaActual = prev.find(l => l.id === id);
+      if (!lineaActual) return prev;
       const cfg = getConfigImpresion();
 
-      // Validar stock al cambiar cantidad
-      if (field === 'Cantidad' && !cfg.permitirFacturarNegativo && value > l.Existencia) {
-        toast.error(`No hay existencia suficiente de ${l.Codigo} ${l.Nombre} (disponible: ${l.Existencia})`, { duration: 5000 });
-        return l;
+      // Validar stock al cambiar cantidad (suma todas las líneas del mismo Items)
+      if (field === 'Cantidad' && !cfg.permitirFacturarNegativo) {
+        const cantSumandoEsta = prev
+          .filter(l => l.Items === lineaActual.Items && l.id !== id)
+          .reduce((s, l) => s + (l.Cantidad || 0), 0) + value;
+        if (cantSumandoEsta > lineaActual.Existencia) {
+          toast.error(`No hay existencia suficiente de ${lineaActual.Codigo} ${lineaActual.Nombre} (disponible: ${lineaActual.Existencia})`, { duration: 5000 });
+          return prev;
+        }
       }
 
       // Validar precio mínimo y costo
       if (field === 'PrecioVenta' && cfg.validarPrecioMinimo && value > 0) {
-        if (l.PrecioCosto > 0 && value <= l.PrecioCosto) {
-          toast.error(`No puedes vender ${l.Codigo} a $${value.toLocaleString('es-CO')} — está en o por debajo del costo ($${l.PrecioCosto.toLocaleString('es-CO')})`, { duration: 6000 });
-          return l;
+        if (lineaActual.PrecioCosto > 0 && value <= lineaActual.PrecioCosto) {
+          toast.error(`No puedes vender ${lineaActual.Codigo} a $${value.toLocaleString('es-CO')} — está en o por debajo del costo ($${lineaActual.PrecioCosto.toLocaleString('es-CO')})`, { duration: 6000 });
+          return prev;
         }
-        if ((l.PrecioMinimo || 0) > 0 && value < (l.PrecioMinimo || 0)) {
-          toast.error(`Precio mínimo de ${l.Codigo}: $${(l.PrecioMinimo || 0).toLocaleString('es-CO')}. No se puede vender por debajo de ese valor.`, { duration: 6000 });
-          return l;
+        if ((lineaActual.PrecioMinimo || 0) > 0 && value < (lineaActual.PrecioMinimo || 0)) {
+          toast.error(`Precio mínimo de ${lineaActual.Codigo}: $${(lineaActual.PrecioMinimo || 0).toLocaleString('es-CO')}. No se puede vender por debajo de ese valor.`, { duration: 6000 });
+          return prev;
         }
       }
 
-      const updated = { ...l, [field]: value };
-      updated.Subtotal = (updated.Cantidad * updated.PrecioVenta) - updated.Descuento;
-      return updated;
-    }));
+      return prev.map(l => {
+        if (l.id !== id) return l;
+        const updated = { ...l, [field]: value };
+        updated.Subtotal = (updated.Cantidad * updated.PrecioVenta) - updated.Descuento;
+        return updated;
+      });
+    });
   };
 
   // Verificar caja abierta al montar + cargar base sugerida
