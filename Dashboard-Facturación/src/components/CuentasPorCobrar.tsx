@@ -4,6 +4,7 @@ import { AllCommunityModule, ModuleRegistry, ColDef } from 'ag-grid-community';
 import { Search, RefreshCw, Users, DollarSign, AlertTriangle, Clock, Wallet, Eye, Printer, Plus, X, Ban, RotateCcw, Award } from 'lucide-react';
 import { confirmar } from './ConfirmDialog';
 import { ClienteDetalle } from './ClienteDetalle';
+import { getEmpresaCache } from './ConfiguracionSistema';
 import toast from 'react-hot-toast';
 import { hoyLocal, inicioMesLocal } from '../utils/fecha';
 
@@ -119,7 +120,7 @@ export function CuentasPorCobrar() {
       .resumen .total { font-weight:700; font-size:12px; border-top:2px solid #000; }
     </style></head><body>
       <div class="header">
-        <h1>DISTRIBUIDORA DE SALSAS DE PLANETA RICA</h1>
+        <h1>${getEmpresaCache().nombre}</h1>
         <h2>Cartera de Clientes</h2>
       </div>
       <div class="fecha"><strong>Fecha Impresión:</strong> ${hoy} &nbsp;&nbsp; <strong>Clientes:</strong> ${datos.length} &nbsp;&nbsp; <strong>Filtro:</strong> ${filtro === 'todos' ? 'Todos' : filtro}</div>
@@ -262,7 +263,7 @@ export function CuentasPorCobrar() {
         .resumen .total { font-weight:700; font-size:11px; border-top:2px solid #000; }
       </style></head><body>
         <div class="header">
-          <h1>DISTRIBUIDORA DE SALSAS DE PLANETA RICA</h1>
+          <h1>${getEmpresaCache().nombre}</h1>
           <h2>Saldos de Clientes - Detallado</h2>
         </div>
         <div style="font-size:10px;margin-bottom:8px"><strong>Fecha:</strong> ${hoy} &nbsp; <strong>Clientes:</strong> ${clientesDetalle.length}</div>

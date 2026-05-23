@@ -5,6 +5,24 @@ Visible solo para administradores desde **Configuración → Acerca de → Ver h
 
 ---
 
+## 4.3.39 — 2026-05-23
+
+### Correcciones adicionales
+- **NuevaVenta refresca el cache de empresa al montarse**: si quedaba un valor viejo en `localStorage` (de una sesión previa con otra BD), la tirilla podía imprimir un nombre de empresa equivocado en la primera venta. Ahora cada vez que se abre la pantalla de Nueva Venta se hace fetch al endpoint `/empresa/datos.php` y se actualiza `empresa_cache`. Las impresiones posteriores ya leen el valor correcto
+- **Tirilla desde Listado de Ventas también hardcodeada**: el 4.3.37 corrigió `buildDatosFactura` (NuevaVenta) pero el botón de impresora en `SalesManagement.tsx` tenía su propio bloque `empresa: {...}` con "DISTRIBUIDORA DE SALSAS" hardcoded. Por eso al reimprimir desde el listado seguía saliendo mal. Corregido también en `SalesManagement.tsx`, `DetalleFacturaModal.tsx` y `CuentasPorCobrar.tsx` (header del informe impreso de cartera). Todos usan ahora `getEmpresaCache()`
+
+---
+
+## 4.3.37 — 2026-05-23
+
+### Correcciones de bugs críticas (tirilla POS)
+- **Empresa hardcodeada**: `buildDatosFactura` tenía "DISTRIBUIDORA DE SALSAS DE PLANETA RICA" fijo. Ahora lee `getEmpresaCache()` (datos reales de `tbldatosempresa`)
+- **Vendedor "Vendedor" literal**: ahora pasa el nombre del usuario logueado (`user.nombre || user.username`) desde `NuevaVenta`
+- **Fuente con artefactos** ("SIN IVA" → "SIK IVA"): cambiada de Courier New a Consolas / Lucida Console / DejaVu Sans Mono. Más compatible con Bixolon, Epson TM-T20, 3nStar, etc.
+- **Sección "DETALLE DE LOS IMPUESTOS" se mostraba para empresas Régimen Simplificado/Simple** aunque no manejan IVA. Solo confundía al cliente. Ahora el bloque entero se renderiza únicamente cuando la empresa es Responsable de IVA (Régimen Común)
+
+---
+
 ## 4.3.35 — 2026-05-23
 
 ### Mejoras

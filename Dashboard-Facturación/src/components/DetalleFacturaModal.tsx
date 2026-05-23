@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { X, Save, Printer, RotateCcw, Ban, Edit3, Eye, Search } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { getConfigImpresion } from './ConfiguracionSistema';
+import { getConfigImpresion, getEmpresaCache } from './ConfiguracionSistema';
 import { imprimirFactura, type DatosFactura } from './ImpresionFactura';
 import { confirmar } from './ConfirmDialog';
 import { AutorizacionAdminModal, type AdminAutorizado } from './AutorizacionAdminModal';
@@ -195,7 +195,13 @@ export function DetalleFacturaModal({ factN, onClose, onUpdate }: Props) {
       transferencia: parseFloat(factura.valorpagado1) || 0, cambio: parseFloat(factura.Cambio) || 0,
       abono: parseFloat(factura.Abono) || 0, saldo: parseFloat(factura.Saldo) || 0,
       medioPago: factura.MedioPago || 'Efectivo', vendedor: factura.NombreUsuario || 'Vendedor',
-      empresa: { nombre: 'DISTRIBUIDORA DE SALSAS DE PLANETA RICA', nit: '901.529.697-3', telefono: '3128478781', direccion: 'CR 7 14 60 BRR LOS ABETOS PLANETA RICA', regimen: 'Régimen Común', propietario: '-', resolucion: '0' },
+      empresa: (() => {
+        const emp = getEmpresaCache();
+        return {
+          nombre: emp.nombre, nit: emp.nit, telefono: emp.telefono, direccion: emp.direccion,
+          regimen: emp.regimen || '', propietario: '-', resolucion: emp.resolucion || '',
+        };
+      })(),
       caja: 1, logo: config.logo || undefined
     };
     imprimirFactura(datosImp);

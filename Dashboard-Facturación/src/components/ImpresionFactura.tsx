@@ -1,4 +1,4 @@
-import { getConfigImpresion } from './ConfiguracionSistema';
+import { getConfigImpresion, getEmpresaCache } from './ConfiguracionSistema';
 
 const fmtMon = (v: number) => '$ ' + Math.round(v).toLocaleString('es-CO');
 const fmtMonDec = (v: number) => '$ ' + v.toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -49,13 +49,19 @@ const BANNER_CONTINGENCIA_HTML = `
 // ============================================================
 function tirilla(d: DatosFactura): string {
   const config = getConfigImpresion();
-  // Título depende del origen: cotización, FE, doc soporte o ticket POS estándar
+  // Título depende del origen: cotización, FE, o factura de venta estándar.
+  // "Factura de Venta" aplica a Régimen Común y Simplificado por igual —
+  // "Documento Equivalente" se reservaba para tickets de máquinas registradoras
+  // antiguas, pólizas, etc. (norma DIAN), no para ventas regulares.
   const titulo = d.esCotizacion
     ? 'COTIZACIÓN'
-    : (d.esFE && d.tipoDocFE ? d.tipoDocFE : 'DCTO EQUIVALENTE');
+    : (d.esFE && d.tipoDocFE ? d.tipoDocFE : 'FACTURA DE VENTA');
   const linea = '<div style="border-bottom:1px dashed #000;margin:4px 0;"></div>';
 
-  let html = `<div style="width:62mm;font-family:'Courier New',monospace;font-size:11px;padding:3mm 4mm;line-height:1.4;word-wrap:break-word;overflow-wrap:break-word;">`;
+  // Fuente: Consolas/Lucida Console renderizan mejor que Courier New en
+  // impresoras térmicas POS (Bixolon, Epson TM-T20, 3nStar, etc.).
+  // Courier New a veces produce artefactos donde la "N" sale como "K".
+  let html = `<div style="width:62mm;font-family:Consolas,'Lucida Console','DejaVu Sans Mono',monospace;font-size:11px;padding:3mm 4mm;line-height:1.4;word-wrap:break-word;overflow-wrap:break-word;">`;
   if (d.enContingencia) html += BANNER_CONTINGENCIA_HTML;
   // Banner FE — encabezado obligatorio en representación gráfica
   if (d.esFE) {
@@ -118,39 +124,48 @@ function tirilla(d: DatosFactura): string {
     html += `<div style="display:flex;justify-content:space-between;font-size:11px;"><span>CAMBIO</span><span>${fmtMonDec(d.cambio)}</span></div>`;
   }
 
-  // Detalle impuestos — siempre mostrar para régimen común
-  html += linea;
-  html += `<div style="text-align:center;font-weight:bold;font-size:9px;">** DETALLE DE LOS IMPUESTOS **</div>`;
-  html += `<div style="display:flex;justify-content:space-between;font-size:9px;font-weight:bold;">`;
-  html += `<span>Tipo</span><span>Compra</span><span>Base/Imp</span><span>Imp</span></div>`;
-  html += linea;
+  // Detalle de impuestos: solo para empresas Responsables de IVA (Régimen
+  // Común). En Régimen Simplificado/Simple no se genera IVA en ventas, así
+  // que el bloque solo confunde al cliente (mostraba "SIN IVA" para todo).
+  const regimenEmpresa = (d.empresa.regimen || '').toLowerCase();
+  const esResponsableIVA = regimenEmpresa.includes('común') ||
+                           regimenEmpresa.includes('comun') ||
+                           regimenEmpresa.includes('responsable');
 
-  // Items gravados (IVA > 0)
-  const itemsGravados = d.items.filter(i => i.iva > 0);
-  const totalGravado = itemsGravados.reduce((s, i) => s + i.subtotal, 0);
-  const baseGravado = itemsGravados.reduce((s, i) => s + (i.subtotal / (1 + i.iva / 100)), 0);
-  const ivaGravado = totalGravado - baseGravado;
+  if (esResponsableIVA) {
+    html += linea;
+    html += `<div style="text-align:center;font-weight:bold;font-size:9px;">** DETALLE DE LOS IMPUESTOS **</div>`;
+    html += `<div style="display:flex;justify-content:space-between;font-size:9px;font-weight:bold;">`;
+    html += `<span>Tipo</span><span>Compra</span><span>Base/Imp</span><span>Imp</span></div>`;
+    html += linea;
 
-  // Items exentos (IVA = 0)
-  const itemsExentos = d.items.filter(i => !i.iva || i.iva === 0);
-  const totalExento = itemsExentos.reduce((s, i) => s + i.subtotal, 0);
+    // Items gravados (IVA > 0)
+    const itemsGravados = d.items.filter(i => i.iva > 0);
+    const totalGravado = itemsGravados.reduce((s, i) => s + i.subtotal, 0);
+    const baseGravado = itemsGravados.reduce((s, i) => s + (i.subtotal / (1 + i.iva / 100)), 0);
+    const ivaGravado = totalGravado - baseGravado;
 
-  if (totalGravado > 0) {
-    html += `<div style="display:flex;justify-content:space-between;font-size:9px;">`;
-    html += `<span>A 19%</span><span>${fmtMonDec(totalGravado)}</span><span>${fmtMonDec(baseGravado)}</span><span>${fmtMonDec(ivaGravado)}</span></div>`;
+    // Items exentos (IVA = 0)
+    const itemsExentos = d.items.filter(i => !i.iva || i.iva === 0);
+    const totalExento = itemsExentos.reduce((s, i) => s + i.subtotal, 0);
+
+    if (totalGravado > 0) {
+      html += `<div style="display:flex;justify-content:space-between;font-size:9px;">`;
+      html += `<span>A 19%</span><span>${fmtMonDec(totalGravado)}</span><span>${fmtMonDec(baseGravado)}</span><span>${fmtMonDec(ivaGravado)}</span></div>`;
+    }
+    if (totalExento > 0) {
+      html += `<div style="display:flex;justify-content:space-between;font-size:9px;">`;
+      html += `<span>SIN IVA</span><span>${fmtMonDec(totalExento)}</span><span></span><span></span></div>`;
+    }
+
+    html += linea;
+    html += `<div style="display:flex;justify-content:space-between;font-size:9px;font-weight:bold;">`;
+    html += `<span>TOTAL</span><span>${fmtMonDec(d.total)}</span><span>${fmtMonDec(baseGravado || d.subtotal)}</span><span>${fmtMonDec(ivaGravado)}</span></div>`;
   }
-  if (totalExento > 0) {
-    html += `<div style="display:flex;justify-content:space-between;font-size:9px;">`;
-    html += `<span>SIN IVA</span><span>${fmtMonDec(totalExento)}</span><span></span><span></span></div>`;
-  }
-
-  html += linea;
-  html += `<div style="display:flex;justify-content:space-between;font-size:9px;font-weight:bold;">`;
-  html += `<span>TOTAL</span><span>${fmtMonDec(d.total)}</span><span>${fmtMonDec(baseGravado || d.subtotal)}</span><span>${fmtMonDec(ivaGravado)}</span></div>`;
 
   html += linea;
   html += `<div>FORMA DE PAGO: ${d.tipo}, Días ${d.dias}</div>`;
-  html += `<div>VENDEDOR: ${d.vendedor || 'Vendedor'}</div>`;
+  html += `<div>CAJERO: ${d.vendedor || '-'}</div>`;
 
   // ===== Bloque obligatorio de FE: QR + CUFE + Resolución =====
   if (d.esFE) {
@@ -477,7 +492,8 @@ export function buildDatosFactura(
   esCotizacion?: boolean,
   enContingencia?: boolean,
   retenciones?: DatosFactura['retenciones'],
-  retencionModo?: DatosFactura['retencionModo']
+  retencionModo?: DatosFactura['retencionModo'],
+  vendedorNombre?: string
 ): DatosFactura {
   const items = lineas.map(l => ({
     codigo: l.Codigo, nombre: l.Nombre, cantidad: l.Cantidad,
@@ -490,6 +506,10 @@ export function buildDatosFactura(
   const total = subtotal + iva - descuentoGlobal;
   const saldo = tipo === 'Contado' ? 0 : Math.max(total - abono, 0);
 
+  // Lee datos reales de la empresa del cache (poblado al cargar Dashboard
+  // desde tbldatosempresa). Antes había un hardcode de "DISTRIBUIDORA DE
+  // SALSAS" que salía en TODAS las tirillas independiente del cliente.
+  const emp = getEmpresaCache();
   return {
     numero: factN,
     fecha: new Date().toLocaleDateString('es-CO') + ' - ' + new Date().toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' }),
@@ -497,15 +517,16 @@ export function buildDatosFactura(
     cliente: { nombre: cliente.nombre, nit: cliente.nit, telefono: cliente.tel, direccion: cliente.dir },
     items, subtotal, descuento: descuentoGlobal, iva, total,
     efectivo, transferencia, cambio, abono, saldo,
-    medioPago, vendedor: 'Vendedor',
+    medioPago,
+    vendedor: vendedorNombre || 'Vendedor',
     empresa: {
-      nombre: 'DISTRIBUIDORA DE SALSAS DE PLANETA RICA',
-      nit: '901.529.697-3',
-      telefono: '3128478781',
-      direccion: 'CR 7 14 60 BRR LOS ABETOS PLANETA RICA',
-      regimen: 'Régimen Común',
+      nombre: emp.nombre,
+      nit: emp.nit,
+      telefono: emp.telefono,
+      direccion: emp.direccion,
+      regimen: emp.regimen || '',
       propietario: '-',
-      resolucion: '0'
+      resolucion: emp.resolucion || '',
     },
     caja: 1,
     esCotizacion,

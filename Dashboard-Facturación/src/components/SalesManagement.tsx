@@ -6,7 +6,7 @@ import {
   Eye, X, Printer
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { getConfigImpresion } from './ConfiguracionSistema';
+import { getConfigImpresion, getEmpresaCache } from './ConfiguracionSistema';
 import { imprimirFactura, type DatosFactura } from './ImpresionFactura';
 import { DetalleFacturaModal } from './DetalleFacturaModal';
 
@@ -82,13 +82,25 @@ export function SalesManagement() {
         abono: parseFloat(fac.Abono) || 0,
         saldo: parseFloat(fac.Saldo) || 0,
         medioPago: fac.MedioPago || 'Efectivo',
-        vendedor: fac.Vendedor || 'Vendedor',
-        empresa: {
-          nombre: 'DISTRIBUIDORA DE SALSAS DE PLANETA RICA',
-          nit: '901.529.697-3', telefono: '3128478781',
-          direccion: 'CR 7 14 60 BRR LOS ABETOS PLANETA RICA',
-          regimen: 'Régimen Común', propietario: '-', resolucion: '0'
-        },
+        // detalle-factura.php hace JOIN con tblusuarios y devuelve NombreUsuario
+        // (el nombre del usuario que originalmente registró la venta, no el
+        // que está reimprimiendo ahora — eso es lo correcto).
+        vendedor: fac.NombreUsuario || fac.Vendedor || 'Vendedor',
+        empresa: (() => {
+          // Datos reales de la empresa (cache poblado al cargar Dashboard
+          // desde tbldatosempresa). Antes había un hardcode de "DISTRIBUIDORA
+          // DE SALSAS" que salía en TODAS las tirillas.
+          const emp = getEmpresaCache();
+          return {
+            nombre: emp.nombre,
+            nit: emp.nit,
+            telefono: emp.telefono,
+            direccion: emp.direccion,
+            regimen: emp.regimen || '',
+            propietario: '-',
+            resolucion: emp.resolucion || '',
+          };
+        })(),
         caja: 1,
         logo: getConfigImpresion().logo || undefined
       };

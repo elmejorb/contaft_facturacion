@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { Search, Trash2, Plus, Save, X, ShoppingCart, Lock, Unlock, PackagePlus } from 'lucide-react';
 import { EditarArticuloModal } from './EditarArticuloModal';
 import toast from 'react-hot-toast';
-import { getConfigImpresion, getEmpresaCache } from './ConfiguracionSistema';
+import { getConfigImpresion, getEmpresaCache, saveEmpresaCache } from './ConfiguracionSistema';
 import { imprimirFactura, buildDatosFactura } from './ImpresionFactura';
 import { useAuth } from '../contexts/AuthContext';
 import { AutorizacionAdminModal, type AdminAutorizado } from './AutorizacionAdminModal';
@@ -311,6 +311,16 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
       });
     });
   };
+
+  // Refrescar el cache de empresa al montar — garantiza que la tirilla
+  // imprima con los datos actuales de tbldatosempresa y no con un cache
+  // viejo de localStorage (que en un entorno legacy podía traer otra empresa).
+  useEffect(() => {
+    fetch('http://localhost:80/conta-app-backend/api/empresa/datos.php')
+      .then(r => r.json())
+      .then(d => { if (d.success && d.empresa) saveEmpresaCache(d.empresa); })
+      .catch(() => {});
+  }, []);
 
   // Verificar caja abierta al montar + cargar base sugerida
   useEffect(() => {
@@ -633,7 +643,7 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
         const lineasPrint = factorGrossUp !== 1
           ? lineas.map(l => ({ ...l, PrecioVenta: l.PrecioVenta * factorGrossUp, Subtotal: l.Subtotal * factorGrossUp, Descuento: l.Descuento * factorGrossUp }))
           : lineas;
-        const datosImp = buildDatosFactura(factN, lineasPrint, cliente, tipo, dias, descuentoGlobal, pagoEfectivoNum, pagoTransfNum, cambioPago, tipo !== 'Contado' ? pagoAbonoNum : 0, medioNombre, false, enContingencia, retencionesCalc, retencionModoCliente);
+        const datosImp = buildDatosFactura(factN, lineasPrint, cliente, tipo, dias, descuentoGlobal, pagoEfectivoNum, pagoTransfNum, cambioPago, tipo !== 'Contado' ? pagoAbonoNum : 0, medioNombre, false, enContingencia, retencionesCalc, retencionModoCliente, user?.nombre || user?.username);
         imprimirFactura(datosImp);
       }
     }
