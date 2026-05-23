@@ -52,6 +52,7 @@ export interface ConfigImpresion {
   permitirFacturarNegativo: boolean;  // si false, no permite vender más de la existencia
   validarPrecioMinimo: boolean;       // si true, bloquea PrecioVenta < Precio_Minimo y < Precio_Costo
   permitirRepetirProducto: boolean;   // si true, el mismo Item puede aparecer en varias líneas (útil para precios distintos por unidad, promociones)
+  permitirFechaVenta: boolean;        // si true, muestra un campo Fecha en Nueva Venta para registrar la venta con fecha distinta a hoy (clientes que no facturan el mismo día)
 }
 
 const CONFIG_KEY = 'config_sistema';
@@ -93,6 +94,7 @@ const defaultConfig: ConfigImpresion = {
   permitirFacturarNegativo: false,
   validarPrecioMinimo: true,
   permitirRepetirProducto: false,
+  permitirFechaVenta: false,
 };
 
 export function getConfigImpresion(): ConfigImpresion {
@@ -419,6 +421,7 @@ export function ConfiguracionSistema() {
           {toggle('Permitir facturar en negativo', 'permitirFacturarNegativo', 'Si está apagado, el sistema bloquea la venta cuando la cantidad supera la existencia disponible')}
           {toggle('Validar precio mínimo y costo', 'validarPrecioMinimo', 'Si está activo, no se puede vender por debajo del Precio Mínimo del artículo, ni por debajo o igual al Precio de Costo')}
           {toggle('Permitir el mismo producto en varias líneas', 'permitirRepetirProducto', 'Si está activo, agregar un producto que ya está en la factura crea una línea nueva en lugar de sumar cantidad. Útil para precios distintos por unidad o promociones')}
+          {toggle('Permitir cambiar la fecha de la venta', 'permitirFechaVenta', 'Si está activo, en Nueva Venta aparece un campo Fecha editable (default hoy). Útil cuando el negocio no alcanza a facturar el mismo día y debe registrar ventas atrasadas con la fecha real')}
         </div>
       ))}
 

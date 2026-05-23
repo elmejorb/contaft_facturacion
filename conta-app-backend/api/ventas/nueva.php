@@ -136,7 +136,27 @@ try {
     $pago = $tipo === 'Contado' ? ($efectivo + $valorPagado) : $abono;
     $cambio = $tipo === 'Contado' ? max(($efectivo + $valorPagado) - $total, 0) : 0;
 
-    $mesActual = date('n');
+    // Fecha de la venta. Default = NOW() (timestamp con fecha+hora actuales).
+    // Si el frontend manda una fecha custom (toggle "Permitir cambiar la fecha
+    // de la venta" en Reglas de Venta), validamos formato YYYY-MM-DD y la
+    // combinamos con la hora actual. N_Mes y anio se derivan de esa fecha
+    // para que los informes mensuales/anuales clasifiquen correctamente.
+    $fechaCustom = isset($data->fecha) && $data->fecha
+        ? trim((string)$data->fecha)
+        : null;
+    $fechaParaInsert = 'NOW()';
+    $fechaParams = [];
+    if ($fechaCustom !== null && preg_match('/^\d{4}-\d{2}-\d{2}$/', $fechaCustom)) {
+        // Combinamos la fecha custom con la hora actual para mantener trazabilidad
+        $fechaTimestamp = $fechaCustom . ' ' . date('H:i:s');
+        $fechaParaInsert = ':fecha_custom';
+        $fechaParams[':fecha_custom'] = $fechaTimestamp;
+        $mesActual = intval(date('n', strtotime($fechaCustom)));
+        $anioVenta = intval(date('Y', strtotime($fechaCustom)));
+    } else {
+        $mesActual = intval(date('n'));
+        $anioVenta = intval(date('Y'));
+    }
     $hora = date('H:i');
 
     // Insert factura (sin Factura_N — AUTO_INCREMENT lo genera)
@@ -145,12 +165,12 @@ try {
             Identificacion, Direccion, Telefono, Impuesto, Descuento, Total, Saldo,
             EstadoPedido, Comentario, EstadoFact, Pago, Cambio, Hora, Id_Usuario,
             Abono, pagada, CodigoEmp, id_mediopago, efectivo, valorpagado1)
-        VALUES (:mes, :anio, NOW(), :tipo, :dias, :cli, :nombre, :ident, :dir, :tel,
+        VALUES (:mes, :anio, $fechaParaInsert, :tipo, :dias, :cli, :nombre, :ident, :dir, :tel,
             :imp, :desc, :total, :saldo, 'Recibido', :com, 'Valida', :pago, :cambio, :hora,
             :usuario, :abono, :pagada, 0, :medio, :efectivo, :valorpagado)
     ");
-    $stmt->execute([
-        ':mes' => $mesActual, ':anio' => date('Y'),
+    $stmt->execute(array_merge([
+        ':mes' => $mesActual, ':anio' => $anioVenta,
         ':tipo' => $tipo, ':dias' => $dias, ':cli' => $clienteId,
         ':nombre' => $clienteNombre, ':ident' => $clienteIdent,
         ':dir' => $clienteDir, ':tel' => $clienteTel,
@@ -158,8 +178,8 @@ try {
         ':saldo' => $saldo, ':com' => $comentario, ':pago' => $pago,
         ':cambio' => $cambio, ':hora' => $hora, ':usuario' => $vendedor,
         ':abono' => $abono, ':pagada' => $pagada, ':medio' => $medioPago,
-        ':efectivo' => $efectivo, ':valorpagado' => $valorPagado
-    ]);
+        ':efectivo' => $efectivo, ':valorpagado' => $valorPagado,
+    ], $fechaParams));
 
     $factN = $db->lastInsertId();
 

@@ -5,6 +5,14 @@ Visible solo para administradores desde **Configuración → Acerca de → Ver h
 
 ---
 
+## 4.3.35 — 2026-05-23
+
+### Mejoras
+- **Permitir cambiar la fecha en Nueva Venta** (toggle en Configuración → Reglas de Venta, default OFF). Cuando se activa, aparece un campo Fecha en el header de Nueva Venta. Útil para negocios que no alcanzan a facturar el mismo día. El campo se resalta en naranja cuando se cambia a una fecha distinta de hoy. Backend `api/ventas/nueva.php` acepta el parámetro opcional `fecha` (YYYY-MM-DD), valida formato y deriva `N_Mes` / `anio` correctamente para que los informes mensuales y anuales clasifiquen bien
+- **Preview de factura desde detalle del cliente** (estilo VB6): al hacer click en el número de factura en la pestaña Pagar o Ventas del modal del cliente, se abre el modal de detalle de la venta **encima** del modal del cliente, sin cerrarlo. Permite consultar qué se vendió sin perder el contexto del cliente. El N° de factura ahora aparece con subrayado punteado morado para indicar que es clickeable
+
+---
+
 ## 4.3.34 — 2026-05-23
 
 ### Correcciones de bugs

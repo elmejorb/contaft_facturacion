@@ -114,6 +114,10 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
   const { user } = useAuth();
   const init = initialState || { tipo: 'Contado', dias: 0, listaPrecio: 1, descuentoGlobal: 0, cliente: { id: 130500, nombre: 'VENTAS AL CONTADO', nit: '0', tel: '0', dir: '-', cupo: 0, esCliente: false, email: '' }, lineas: [] };
   const [tipoDocumento, setTipoDocumento] = useState('pos'); // pos, electronica, soporte
+  // Fecha de la venta. Default = hoy. Solo se muestra/edita si Configuración →
+  // Reglas de Venta → "Permitir cambiar la fecha de la venta" está activo.
+  const hoyISO = () => new Date().toISOString().slice(0, 10);
+  const [fechaVenta, setFechaVenta] = useState<string>(hoyISO());
   const [enviarEmailFE, setEnviarEmailFE] = useState(false);
   const [nota, setNota] = useState('');
   const [pedidoOrigenId, setPedidoOrigenId] = useState(0);
@@ -720,8 +724,16 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
       const lineasFinal = factorGrossUp !== 1
         ? lineas.map(l => ({ ...l, PrecioVenta: l.PrecioVenta * factorGrossUp, Subtotal: l.Subtotal * factorGrossUp, Descuento: l.Descuento * factorGrossUp }))
         : lineas;
+      // Fecha de la venta: solo se envía custom si el toggle está activo Y el
+      // usuario la cambió a una fecha distinta de hoy. Si no, el backend usa NOW().
+      const cfgPermFecha = getConfigImpresion().permitirFechaVenta;
+      const fechaPersonalizada = cfgPermFecha && fechaVenta && fechaVenta !== hoyISO()
+        ? fechaVenta
+        : null;
+
       const body = {
         tipo, dias: tipo === 'Contado' ? 0 : dias,
+        fecha: fechaPersonalizada,
         cliente_id: cliente.id, cliente_nombre: cliente.nombre,
         cliente_identificacion: cliente.nit, cliente_direccion: cliente.dir, cliente_telefono: cliente.tel,
         medio_pago: medioFinal, vendedor: user?.id || 0, descuento_global: descuentoGlobal, comentario: nota || '-',
@@ -939,6 +951,18 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
             <label style={{ fontSize: 9, color: '#6b7280', display: 'block', marginBottom: 2 }}>DÍAS</label>
             <input type="text" value={dias} onChange={e => setDias(parseInt(e.target.value) || 0)} onKeyDown={soloNum}
               style={{ height: 28, width: 40, textAlign: 'center', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 12 }} />
+          </div>
+        )}
+        {getConfigImpresion().permitirFechaVenta && (
+          <div title="Fecha con la que se registrará la venta. Por defecto es hoy.">
+            <label style={{ fontSize: 9, color: '#6b7280', display: 'block', marginBottom: 2 }}>FECHA</label>
+            <input type="date" value={fechaVenta} onChange={e => setFechaVenta(e.target.value || hoyISO())}
+              style={{
+                height: 28, padding: '0 6px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 12,
+                background: fechaVenta !== hoyISO() ? '#fef3c7' : '#fff',
+                color: fechaVenta !== hoyISO() ? '#92400e' : '#374151',
+                fontWeight: fechaVenta !== hoyISO() ? 700 : 400,
+              }} />
           </div>
         )}
         <div>

@@ -3,6 +3,7 @@ import { AgGridReact } from 'ag-grid-react';
 import { AllCommunityModule, ModuleRegistry, ColDef } from 'ag-grid-community';
 import { X, FileText, ShoppingBag, BarChart3, DollarSign, Receipt, CreditCard, Wallet, Save, CheckCircle, Search, Ban, Pencil, Printer } from 'lucide-react';
 import { ReciboImpresion } from './ReciboImpresion';
+import { DetalleFacturaModal } from './DetalleFacturaModal';
 import { getConfigImpresion } from './ConfiguracionSistema';
 import toast from 'react-hot-toast';
 import { useAuth } from '../contexts/AuthContext';
@@ -40,6 +41,10 @@ export function ClienteDetalle({ clienteId, onClose, tabInicial = 'ventas' }: Pr
   const [descuentoGlobal, setDescuentoGlobal] = useState('');
   const [guardandoPago, setGuardandoPago] = useState(false);
   const [formVersion, setFormVersion] = useState(0);
+  // Preview de factura — al hacer click en el número de factura en la pestaña
+  // Pagar/Ventas/Historial, se abre el modal de detalle ENCIMA del modal del
+  // cliente (sin cerrarlo). Permite consultar qué se vendió sin perder el contexto.
+  const [previewFactN, setPreviewFactN] = useState<number | null>(null);
   const [pagoSuccess, setPagoSuccess] = useState('');
   const [pagoError, setPagoError] = useState('');
 
@@ -193,7 +198,12 @@ export function ClienteDetalle({ clienteId, onClose, tabInicial = 'ventas' }: Pr
   const colsVentas: ColDef[] = [
     {
       headerName: 'Factura', field: 'Factura_N', width: 90, sortable: true,
-      cellRenderer: (p: any) => <span style={{ color: '#7c3aed', fontWeight: 600, cursor: 'pointer' }}>{p.value}</span>
+      cellRenderer: (p: any) => (
+        <button type="button" onClick={() => setPreviewFactN(p.value)} title="Ver detalle de la venta"
+          style={{ background: 'transparent', border: 'none', padding: 0, cursor: 'pointer', color: '#7c3aed', fontWeight: 600, textDecoration: 'underline dotted', textUnderlineOffset: 2 }}>
+          {p.value}
+        </button>
+      )
     },
     {
       headerName: 'Fecha', field: 'Fecha', flex: 1, minWidth: 100, sortable: true,
@@ -542,7 +552,13 @@ export function ClienteDetalle({ clienteId, onClose, tabInicial = 'ventas' }: Pr
                             borderBottom: '1px solid #f3f4f6',
                             background: abono > 0 ? '#f0fdf4' : vencida ? '#fef2f2' : 'transparent'
                           }}>
-                            <td style={{ padding: '5px 8px', fontWeight: 600, color: '#7c3aed' }}>{f.Factura_N}</td>
+                            <td style={{ padding: '5px 8px' }}>
+                              <button type="button" onClick={() => setPreviewFactN(f.Factura_N)}
+                                title="Ver detalle de la venta"
+                                style={{ background: 'transparent', border: 'none', padding: 0, cursor: 'pointer', fontWeight: 600, color: '#7c3aed', textDecoration: 'underline dotted', textUnderlineOffset: 2, fontFamily: 'inherit', fontSize: 'inherit' }}>
+                                {f.Factura_N}
+                              </button>
+                            </td>
                             <td style={{ padding: '5px 8px' }}>{new Date(f.Fecha).toLocaleDateString('es-CO')}</td>
                             <td style={{ padding: '5px 8px', textAlign: 'right' }}>{fmtMon(f.Total)}</td>
                             <td style={{ padding: '5px 8px', textAlign: 'right', fontWeight: 600, color: '#dc2626' }}>{fmtMon(f.Saldo)}</td>
@@ -854,6 +870,19 @@ export function ClienteDetalle({ clienteId, onClose, tabInicial = 'ventas' }: Pr
           formato={reciboImprimir.formato}
           onClose={() => setReciboImprimir(null)}
         />
+      )}
+
+      {/* Preview de factura — abierto encima del modal de cliente
+          (estilo VB6: el padre queda visible al fondo, no se cierra).
+          Usa un wrapper con zIndex mayor para superponerse al modal del cliente. */}
+      {previewFactN !== null && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 11000 }}>
+          <DetalleFacturaModal
+            factN={previewFactN}
+            onClose={() => setPreviewFactN(null)}
+            onUpdate={() => { cargar(anio); cargarPagos(); }}
+          />
+        </div>
       )}
     </div>
   );
