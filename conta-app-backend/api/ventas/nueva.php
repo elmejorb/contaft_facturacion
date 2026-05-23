@@ -104,6 +104,15 @@ try {
     $valorPagado = floatval($data->valor_pagado ?? 0);
     $abono = floatval($data->abono ?? 0);
 
+    // Si la empresa NO es Responsable de IVA (Régimen Simplificado/Simple),
+    // no genera IVA en sus ventas. El IVA por línea queda en 0 para no
+    // contaminar el Saldo/Total con un valor que el cliente no debe pagar.
+    $stmtEmp = $db->query("SELECT Regimen FROM tbldatosempresa LIMIT 1");
+    $empresaRegimen = strtolower((string)($stmtEmp->fetchColumn() ?: ''));
+    $esResponsableIVA = (strpos($empresaRegimen, 'común') !== false)
+        || (strpos($empresaRegimen, 'comun') !== false)
+        || (strpos($empresaRegimen, 'responsable') !== false);
+
     // Calculate totals
     $subtotal = 0;
     $totalIva = 0;
@@ -115,7 +124,7 @@ try {
         $desc = floatval($item->descuento ?? 0);
         $iva = floatval($item->iva ?? 0);
         $lineaSubtotal = ($cant * $precio) - $desc;
-        $lineaIva = $lineaSubtotal * ($iva / 100);
+        $lineaIva = $esResponsableIVA ? $lineaSubtotal * ($iva / 100) : 0;
         $subtotal += $lineaSubtotal;
         $totalIva += $lineaIva;
         $totalDescuento += $desc;
@@ -178,7 +187,9 @@ try {
         $desc = floatval($item->descuento ?? 0);
         $iva = floatval($item->iva ?? 0);
         $lineaSubtotal = ($cant * $precioV) - $desc;
-        $lineaIva = $lineaSubtotal * ($iva / 100);
+        // Mismo gate que el cálculo de totales arriba: si NO es Responsable IVA,
+        // el Impuesto de la línea queda en 0 aunque el producto tenga IVA en catálogo.
+        $lineaIva = $esResponsableIVA ? $lineaSubtotal * ($iva / 100) : 0;
 
         $stmtDetalle->execute([
             ':fact' => $factN, ':items' => $itemId, ':cant' => $cant,

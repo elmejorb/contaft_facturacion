@@ -413,6 +413,26 @@ try {
         // NUEVA COMPRA
         // ========================================
 
+        // Prevención de duplicados: bloquear si ya existe otro pedido con la
+        // misma factura del proveedor + mismo CodigoPro (no anulado).
+        // Esto evita el bug donde un doble-click o pérdida del state del
+        // frontend creaba 2 pedidos idénticos sumando inventario y deuda doble.
+        $stmtDup = $db->prepare("
+            SELECT Pedido_N FROM tblpedidos
+            WHERE FacturaCompra_N = ? AND CodigoPro = ?
+              AND COALESCE(EstadoPedido, '') <> 'Anulado'
+            LIMIT 1
+        ");
+        $stmtDup->execute([$facturaCompra, $codigoPro]);
+        $existePedido = $stmtDup->fetchColumn();
+        if ($existePedido) {
+            echo json_encode([
+                'success' => false,
+                'message' => "Ya existe una compra registrada con la factura $facturaCompra de este proveedor (Pedido N° $existePedido). Si quieres modificarla, ábrela desde el Listado de Compras y usa Editar."
+            ]);
+            exit;
+        }
+
         // Insert pedido header
         $stmt = $db->prepare("
             INSERT INTO tblpedidos (FacturaCompra_N, N_Mes, anio, Fecha, TipoPedido, Dias, CodigoPro,
