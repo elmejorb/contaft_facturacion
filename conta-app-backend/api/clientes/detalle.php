@@ -62,18 +62,28 @@ try {
         $v['Saldo'] = floatval($v['Saldo']);
     }
 
-    // Resumen del año (tblventas)
+    // Resumen del año. El monto_total se toma de tblventas (incluye contado y
+    // crédito), pero el saldo_pendiente se calcula desde la vista
+    // vw_facturas_cliente_saldos, que filtra EstadoFact='Valida' y resta los
+    // pagos reales de tblpagos. Si se sumara tblventas.Saldo directamente,
+    // facturas marcadas pagadas=1 sin pago real desincronizarían el total.
     $stmt = $db->prepare("
         SELECT COUNT(*) as total_facturas,
-               COALESCE(SUM(Total), 0) as monto_total,
-               COALESCE(SUM(Saldo), 0) as saldo_pendiente
+               COALESCE(SUM(Total), 0) as monto_total
         FROM tblventas
         WHERE CodigoCli = :id AND YEAR(Fecha) = :anio
     ");
     $stmt->execute([':id' => $id, ':anio' => $anio]);
     $resumenAnio = $stmt->fetch();
     $resumenAnio['monto_total']     = floatval($resumenAnio['monto_total']);
-    $resumenAnio['saldo_pendiente'] = floatval($resumenAnio['saldo_pendiente']);
+
+    $stmtSaldo = $db->prepare("
+        SELECT COALESCE(SUM(Saldo), 0) AS saldo_pendiente
+        FROM vw_facturas_cliente_saldos
+        WHERE CodigoCli = :id AND YEAR(Fecha) = :anio
+    ");
+    $stmtSaldo->execute([':id' => $id, ':anio' => $anio]);
+    $resumenAnio['saldo_pendiente'] = floatval($stmtSaldo->fetchColumn());
 
     // Sumar saldo pendiente de FE crédito (electronic_documents) que NO esté en tblventas
     $stmtFe = $db->prepare("

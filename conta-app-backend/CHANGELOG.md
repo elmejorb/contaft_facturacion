@@ -5,6 +5,13 @@ Visible solo para administradores desde **Configuración → Acerca de → Ver h
 
 ---
 
+## 4.3.34 — 2026-05-23
+
+### Correcciones de bugs
+- **Modal de detalle del cliente: "Saldo Pendiente" coincide con la lista de pendientes**: la card superior leía `tblventas.Saldo` directamente (campo cacheado que puede desincronizarse cuando una factura quedó marcada como `pagada=1` sin pago real en `tblpagos`), mientras la lista de "Facturas pendientes" abajo usaba la vista dinámica `vw_facturas_cliente_saldos`. Resultado: dos sumas distintas en la misma pantalla. Ahora `api/clientes/detalle.php` calcula `saldo_pendiente` desde la vista dinámica (única fuente de verdad), respetando el filtro `EstadoFact='Valida'` y restando los pagos reales de `tblpagos`
+
+---
+
 ## 4.3.33 — 2026-05-23
 
 ### Correcciones de bugs críticas
