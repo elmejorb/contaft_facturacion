@@ -30,7 +30,6 @@ export interface ConfigImpresion {
   logo: string; // base64 del logo
   // Formato
   formatoFecha: 'dd/mm/yyyy' | 'mm/dd/yyyy' | 'yyyy-mm-dd';
-  agruparProductos: boolean; // agrupar productos iguales
   // Ventas
   campoPredeterminado: 'codigo' | 'nombre'; // campo donde inicia el cursor al vender
   usarDecimales: boolean;
@@ -76,7 +75,6 @@ const defaultConfig: ConfigImpresion = {
   maxProductosMediaCarta: 12,
   logo: '',
   formatoFecha: 'dd/mm/yyyy',
-  agruparProductos: false,
   campoPredeterminado: 'codigo',
   usarDecimales: false,
   numDecimales: 2,
@@ -369,7 +367,6 @@ export function ConfiguracionSistema() {
           {toggle('Mostrar dirección empresa', 'mostrarDireccion')}
           {toggle('Mostrar precio costo', 'mostrarPrecioCosto', 'Muestra el costo al lado del precio de venta (solo para uso interno)')}
           {toggle('Media carta lado derecho', 'mediaCartaDerecha', 'Imprime en la mitad derecha de la hoja')}
-          {toggle('Agrupar productos iguales', 'agruparProductos', 'Si un producto aparece 2 veces, lo agrupa sumando cantidades')}
           {selectField('Máx. productos en media carta', 'maxProductosMediaCarta', [
             { value: 8, label: '8 productos' }, { value: 10, label: '10 productos' },
             { value: 12, label: '12 productos' }, { value: 15, label: '15 productos' },

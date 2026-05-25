@@ -5,6 +5,14 @@ Visible solo para administradores desde **Configuración → Acerca de → Ver h
 
 ---
 
+## 4.3.42 — 2026-05-25
+
+### Correcciones de bugs
+- **Preview de tirilla mostraba Total inflado con IVA fantasma en Régimen Simplificado**: la función `buildDatosFactura()` calculaba `iva = subtotal × l.Iva%` leyendo el porcentaje del catálogo (`tblarticulos.Iva`) sin importar el régimen de la empresa. Un MAÍZ con `Iva=5` sumaba 5% al Total ($62.000 → $65.100) solo en la preview que sale al guardar la venta. Al reimprimir desde el Listado de Ventas salía bien porque ese path lee `Total` directo de la BD (que el backend ya guarda sin IVA en Simplificado desde 4.3.33). Ahora `buildDatosFactura` consulta el régimen del cache de empresa y omite el cálculo si no es Responsable de IVA
+- **Toggle "Agrupar productos iguales" huérfano**: la opción aparecía en Configuración → Datos en la Factura Impresa pero no estaba conectada a ninguna lógica (código muerto). Apagarla no cambiaba nada porque el comportamiento real lo controla **"Permitir el mismo producto en varias líneas"** (más abajo en la misma pantalla). Eliminado el toggle huérfano para no confundir
+
+---
+
 ## 4.3.41 — 2026-05-25
 
 ### Correcciones de bugs críticas (saldos de cartera)

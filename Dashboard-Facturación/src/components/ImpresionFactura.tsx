@@ -495,9 +495,25 @@ export function buildDatosFactura(
   retencionModo?: DatosFactura['retencionModo'],
   vendedorNombre?: string
 ): DatosFactura {
+  // Lee datos reales de la empresa del cache (poblado al cargar Dashboard
+  // desde tbldatosempresa). Antes había un hardcode de "DISTRIBUIDORA DE
+  // SALSAS" que salía en TODAS las tirillas independiente del cliente.
+  const emp = getEmpresaCache();
+
+  // Régimen Simplificado/Simple no factura IVA; aunque la línea traiga
+  // l.Iva=5 (del catálogo), aquí debe ignorarse. Si no, la preview suma
+  // 5% al Total mientras la BD lo guarda en 0 → al reimprimir desde el
+  // listado el total cuadraba pero la preview salía inflada.
+  const regimenLower = (emp.regimen || '').toLowerCase();
+  const esResponsableIVA = regimenLower.includes('común') ||
+                           regimenLower.includes('comun') ||
+                           regimenLower.includes('responsable');
+
   const items = lineas.map(l => ({
     codigo: l.Codigo, nombre: l.Nombre, cantidad: l.Cantidad,
-    precio: l.PrecioVenta, iva: l.Iva, descuento: l.Descuento,
+    precio: l.PrecioVenta,
+    iva: esResponsableIVA ? l.Iva : 0,
+    descuento: l.Descuento,
     subtotal: l.Subtotal
   }));
 
@@ -505,11 +521,6 @@ export function buildDatosFactura(
   const iva = items.reduce((s, i) => s + (i.subtotal * (i.iva / 100)), 0);
   const total = subtotal + iva - descuentoGlobal;
   const saldo = tipo === 'Contado' ? 0 : Math.max(total - abono, 0);
-
-  // Lee datos reales de la empresa del cache (poblado al cargar Dashboard
-  // desde tbldatosempresa). Antes había un hardcode de "DISTRIBUIDORA DE
-  // SALSAS" que salía en TODAS las tirillas independiente del cliente.
-  const emp = getEmpresaCache();
   return {
     numero: factN,
     fecha: new Date().toLocaleDateString('es-CO') + ' - ' + new Date().toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' }),
