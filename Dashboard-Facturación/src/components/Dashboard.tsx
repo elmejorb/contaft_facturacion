@@ -685,7 +685,7 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
           {currentView === 'cuentas-pagar' && <ProveedoresManagement modoCxP />}
           {currentView === 'purchases' && <PurchasesManagement />}
           {currentView === 'nueva-compra' && <NuevaCompra />}
-          {currentView === 'sales' && <SalesManagement />}
+          {currentView === 'sales' && <SalesManagement onNavigate={(v) => setCurrentView(v as View)} />}
           {currentView === 'ventas-tipo-pago' && <VentasPorTipoPago />}
           {currentView === 'nueva-venta' && <VentasTabs />}
           {currentView === 'facturacion-electronica' && <FacturacionElectronica onNavigate={(v) => setCurrentView(v as View)} />}

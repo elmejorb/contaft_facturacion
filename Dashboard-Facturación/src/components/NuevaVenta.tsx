@@ -362,6 +362,7 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
   useEffect(() => {
     const pedidoIdRaw = localStorage.getItem('pedido_para_venta_id');
     const feCopiaIdRaw = localStorage.getItem('fe_para_copiar_id');
+    const ventaCopiaIdRaw = localStorage.getItem('venta_para_copiar_id');
     let urlCargar: string | null = null;
     let etiqueta = 'pedido';
     let pedidoOrigenIdLocal: number | null = null;
@@ -378,7 +379,13 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
         localStorage.removeItem('fe_para_copiar_id');
         urlCargar = `http://localhost:80/conta-app-backend/api/facturacion-electronica/copiar.php?id=${id}`;
         etiqueta = 'factura';
-        // No seteamos pedidoOrigenId — la FE copiada genera una venta independiente
+      }
+    } else if (ventaCopiaIdRaw) {
+      const id = parseInt(ventaCopiaIdRaw, 10);
+      if (id && !isNaN(id)) {
+        localStorage.removeItem('venta_para_copiar_id');
+        urlCargar = `http://localhost:80/conta-app-backend/api/ventas/copiar.php?id=${id}`;
+        etiqueta = 'factura';
       }
     }
     if (!urlCargar) return;
@@ -950,7 +957,14 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
         </div>
         <div>
           <label style={{ fontSize: 9, color: '#6b7280', display: 'block', marginBottom: 2 }}>TÉRMINO</label>
-          <select value={tipo} onChange={e => { setTipo(e.target.value); if (e.target.value === 'Contado') setDias(0); }}
+          <select value={tipo} onChange={e => {
+              const nuevoTipo = e.target.value;
+              setTipo(nuevoTipo);
+              // Default: Contado → 0 días; Crédito → 30 días (lo más común).
+              // El usuario puede ajustar el campo Días si necesita otro plazo.
+              if (nuevoTipo === 'Contado') setDias(0);
+              else if (nuevoTipo === 'Crédito' && (!dias || dias === 0)) setDias(30);
+            }}
             style={{ height: 28, border: '1px solid #d1d5db', borderRadius: 6, fontSize: 12, padding: '0 4px', width: 90 }}>
             <option value="Contado">Contado</option>
             <option value="Crédito">Crédito</option>

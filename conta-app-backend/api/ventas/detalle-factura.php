@@ -172,16 +172,23 @@ try {
             $totales = $stmt->fetch();
             $nuevoTotal = floatval($totales['nuevoSubtotal']) + floatval($totales['nuevoIva']);
 
-            // Update factura total and saldo
-            $stmtFac = $db->prepare("SELECT Total, Saldo, Tipo FROM tblventas WHERE Factura_N = ?");
+            // Actualizar Total primero (con Saldo provisional = nuevoTotal).
+            // Luego recalcularSaldoFactura() lo persiste correctamente desde
+            // tblpagos (fuente de verdad), sin depender del Saldo cacheado
+            // previo — que podía estar desincronizado por bugs históricos
+            // y llevar a un nuevoSaldo erróneo.
+            $stmtFac = $db->prepare("SELECT Tipo FROM tblventas WHERE Factura_N = ?");
             $stmtFac->execute([$factN]);
             $fac = $stmtFac->fetch();
 
-            $loPagado = floatval($fac['Total']) - floatval($fac['Saldo']);
-            $nuevoSaldo = $fac['Tipo'] !== 'Contado' ? max($nuevoTotal - $loPagado, 0) : 0;
-
-            $db->prepare("UPDATE tblventas SET Total = ?, Saldo = ? WHERE Factura_N = ?")
-               ->execute([$nuevoTotal, $nuevoSaldo, $factN]);
+            $db->prepare("UPDATE tblventas SET Total = ? WHERE Factura_N = ?")
+               ->execute([$nuevoTotal, $factN]);
+            if ($fac['Tipo'] !== 'Contado') {
+                require_once '../config/saldo_helper.php';
+                recalcularSaldoFactura($db, intval($factN));
+            } else {
+                $db->prepare("UPDATE tblventas SET Saldo = 0 WHERE Factura_N = ?")->execute([$factN]);
+            }
 
             // ===== Si era venta contado: registrar egreso automático en caja abierta =====
             if ($fac['Tipo'] === 'Contado' && $totalDevuelto > 0) {

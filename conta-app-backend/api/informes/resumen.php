@@ -329,7 +329,8 @@ try {
     }
 
     if ($tipo === 'cartera') {
-        // Trae todas las facturas con saldo > 0, de tblventas y tblfacturasanteriores, junto con datos del cliente.
+        // Trae todas las facturas con saldo > 0 desde las VISTAS (fuente de verdad
+        // calculada desde tblpagos). No leer Saldo cacheado de tblventas/tblfacturasanteriores.
         $r = $db->query("
             SELECT c.CodigoClien, c.Razon_Social, c.Nit, c.Telefonos,
                    x.Factura_N, x.Fecha, x.Dias, x.Total, x.Saldo,
@@ -337,10 +338,10 @@ try {
             FROM tblclientes c
             INNER JOIN (
                 SELECT CodigoCli AS cod, Factura_N, Fecha, Dias, Total, Saldo
-                  FROM tblventas WHERE Saldo > 0 AND EstadoFact='Valida'
+                  FROM vw_facturas_cliente_saldos WHERE Saldo > 0
                 UNION ALL
-                SELECT CodigoCli AS cod, FacturaN AS Factura_N, Fecha, Dias, Valor AS Total, Saldo
-                  FROM tblfacturasanteriores WHERE Saldo > 0
+                SELECT CodigoCli AS cod, FacturaN AS Factura_N, Fecha, Dias, Total, Saldo
+                  FROM vw_facturas_anteriores_cliente WHERE Saldo > 0
             ) x ON c.CodigoClien = x.cod
             ORDER BY c.Razon_Social, x.Fecha
         ");
@@ -397,12 +398,12 @@ try {
         $clientes = array_values($clientesMap);
         usort($clientes, fn($a, $b) => strcmp($a['Razon_Social'], $b['Razon_Social']));
 
-        // Total de tblventas + tblfacturasanteriores brutos (Monto Total = sum of Total facturas)
+        // Monto total facturado de facturas con saldo > 0 (desde la vista de verdad).
         $rTotal = $db->query("
             SELECT COALESCE(SUM(Total),0) AS monto_total FROM (
-                SELECT Total FROM tblventas WHERE Saldo > 0 AND EstadoFact='Valida'
+                SELECT Total FROM vw_facturas_cliente_saldos WHERE Saldo > 0
                 UNION ALL
-                SELECT Valor AS Total FROM tblfacturasanteriores WHERE Saldo > 0
+                SELECT Total FROM vw_facturas_anteriores_cliente WHERE Saldo > 0
             ) y
         ")->fetch();
 
@@ -429,12 +430,16 @@ try {
         $params = [$desde, $hasta];
         if ($estado !== 'todos') { $where .= " AND v.EstadoFact = ?"; $params[] = $estado; }
 
+        // Saldo desde la vista (fuente real); v.Saldo cacheado no se lee.
+        // Contado/Anulada no aparecen en la vista → COALESCE a 0.
         $r = $db->prepare("
             SELECT v.Factura_N, v.Fecha, v.A_nombre AS cliente, v.Identificacion AS nit,
-                   v.Tipo, v.Total, v.Saldo, v.efectivo, v.valorpagado1, v.EstadoFact,
+                   v.Tipo, v.Total, COALESCE(s.Saldo, 0) AS Saldo,
+                   v.efectivo, v.valorpagado1, v.EstadoFact,
                    COALESCE(m.nombre_medio, 'Efectivo') AS medio_pago
             FROM tblventas v
             LEFT JOIN tblmedios_pago m ON m.id_mediopago = v.id_mediopago
+            LEFT JOIN vw_facturas_cliente_saldos s ON s.Factura_N = v.Factura_N
             WHERE $where
             ORDER BY v.Fecha, v.Factura_N
         ");
@@ -622,12 +627,19 @@ try {
         $hasta = $_GET['hasta'] ?? date('Y-m-d');
         $limite = intval($_GET['limite'] ?? 30);
 
+        // saldo_actual: viene de la vista vw_facturas_cliente_saldos que filtra
+        // pagos negativos defensivamente y calcula desde tblpagos.
+        // No se usa SUM(v.Saldo) cacheado de tblventas porque puede tener valores
+        // negativos por reversos mal hechos, edición manual o migración VB6.
         $r = $db->prepare("
             SELECT c.CodigoClien, c.Razon_Social, c.Nit, c.Telefonos,
                    COUNT(v.Factura_N) AS num_facturas,
                    SUM(v.Total) AS monto_total,
                    AVG(v.Total) AS ticket_promedio,
-                   SUM(v.Saldo) AS saldo_actual,
+                   COALESCE((
+                       SELECT SUM(Saldo) FROM vw_facturas_cliente_saldos
+                       WHERE CodigoCli = c.CodigoClien
+                   ), 0) AS saldo_actual,
                    MAX(v.Fecha) AS ultima_compra
             FROM tblventas v
             INNER JOIN tblclientes c ON v.CodigoCli = c.CodigoClien
@@ -891,20 +903,35 @@ try {
     if ($tipo === 'ventas_mensual') {
         $anio = intval($_GET['anio'] ?? date('Y'));
 
+        // FIX: la query anterior hacía JOIN con tbldetalle_venta y sumaba v.Total,
+        // lo que multiplicaba el total de cada factura por su cantidad de líneas
+        // (ej. 198 facturas con 416 líneas → cada factura se contaba ~2 veces).
+        // Ahora se separan los aggregates en subqueries independientes y se
+        // unen por mes — cada SUM opera sobre su tabla sin duplicar filas.
         $r = $db->prepare("
-            SELECT MONTH(v.Fecha) AS mes,
-                   COUNT(DISTINCT v.Factura_N) AS num_facturas,
-                   SUM(CASE WHEN v.Tipo='Contado' THEN v.Total ELSE 0 END) AS contado,
-                   SUM(CASE WHEN v.Tipo='Crédito' THEN v.Total ELSE 0 END) AS credito,
-                   SUM(v.Total) AS total,
-                   COALESCE(SUM(d.Cantidad * d.PrecioC), 0) AS costo
-            FROM tblventas v
-            LEFT JOIN tbldetalle_venta d ON d.Factura_N = v.Factura_N
-            WHERE YEAR(v.Fecha) = ? AND v.EstadoFact='Valida'
-            GROUP BY MONTH(v.Fecha)
-            ORDER BY MONTH(v.Fecha)
+            SELECT v.mes, v.num_facturas, v.contado, v.credito, v.total,
+                   COALESCE(c.costo, 0) AS costo
+            FROM (
+                SELECT MONTH(Fecha) AS mes,
+                       COUNT(*) AS num_facturas,
+                       SUM(CASE WHEN Tipo='Contado' THEN Total ELSE 0 END) AS contado,
+                       SUM(CASE WHEN Tipo='Crédito' THEN Total ELSE 0 END) AS credito,
+                       SUM(Total) AS total
+                FROM tblventas
+                WHERE YEAR(Fecha) = ? AND EstadoFact='Valida'
+                GROUP BY MONTH(Fecha)
+            ) v
+            LEFT JOIN (
+                SELECT MONTH(v2.Fecha) AS mes,
+                       SUM(d.Cantidad * d.PrecioC) AS costo
+                FROM tbldetalle_venta d
+                JOIN tblventas v2 ON v2.Factura_N = d.Factura_N
+                WHERE YEAR(v2.Fecha) = ? AND v2.EstadoFact='Valida'
+                GROUP BY MONTH(v2.Fecha)
+            ) c ON c.mes = v.mes
+            ORDER BY v.mes
         ");
-        $r->execute([$anio]);
+        $r->execute([$anio, $anio]);
         $rows = $r->fetchAll();
         $meses = ['','Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
         $data = [];
@@ -938,20 +965,32 @@ try {
         $desde = $_GET['desde'] ?? date('Y-m-01');
         $hasta = $_GET['hasta'] ?? date('Y-m-d');
 
+        // Mismo fix que ventas_mensual: subqueries separadas para evitar que
+        // el JOIN con tbldetalle_venta duplique el SUM(Total) por línea.
         $r = $db->prepare("
-            SELECT DATE(v.Fecha) AS dia,
-                   COUNT(DISTINCT v.Factura_N) AS num_facturas,
-                   SUM(CASE WHEN v.Tipo='Contado' THEN v.Total ELSE 0 END) AS contado,
-                   SUM(CASE WHEN v.Tipo='Crédito' THEN v.Total ELSE 0 END) AS credito,
-                   SUM(v.Total) AS total,
-                   COALESCE(SUM(d.Cantidad * d.PrecioC), 0) AS costo
-            FROM tblventas v
-            LEFT JOIN tbldetalle_venta d ON d.Factura_N = v.Factura_N
-            WHERE DATE(v.Fecha) BETWEEN ? AND ? AND v.EstadoFact='Valida'
-            GROUP BY DATE(v.Fecha)
-            ORDER BY DATE(v.Fecha)
+            SELECT v.dia, v.num_facturas, v.contado, v.credito, v.total,
+                   COALESCE(c.costo, 0) AS costo
+            FROM (
+                SELECT DATE(Fecha) AS dia,
+                       COUNT(*) AS num_facturas,
+                       SUM(CASE WHEN Tipo='Contado' THEN Total ELSE 0 END) AS contado,
+                       SUM(CASE WHEN Tipo='Crédito' THEN Total ELSE 0 END) AS credito,
+                       SUM(Total) AS total
+                FROM tblventas
+                WHERE DATE(Fecha) BETWEEN ? AND ? AND EstadoFact='Valida'
+                GROUP BY DATE(Fecha)
+            ) v
+            LEFT JOIN (
+                SELECT DATE(v2.Fecha) AS dia,
+                       SUM(d.Cantidad * d.PrecioC) AS costo
+                FROM tbldetalle_venta d
+                JOIN tblventas v2 ON v2.Factura_N = d.Factura_N
+                WHERE DATE(v2.Fecha) BETWEEN ? AND ? AND v2.EstadoFact='Valida'
+                GROUP BY DATE(v2.Fecha)
+            ) c ON c.dia = v.dia
+            ORDER BY v.dia
         ");
-        $r->execute([$desde, $hasta]);
+        $r->execute([$desde, $hasta, $desde, $hasta]);
         $rows = $r->fetchAll();
 
         $totals = ['num_facturas' => 0, 'contado' => 0, 'credito' => 0, 'total' => 0, 'costo' => 0, 'utilidad' => 0];

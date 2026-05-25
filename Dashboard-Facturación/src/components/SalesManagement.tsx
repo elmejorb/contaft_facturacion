@@ -3,7 +3,7 @@ import { AgGridReact } from 'ag-grid-react';
 import { AllCommunityModule, ModuleRegistry, ColDef } from 'ag-grid-community';
 import {
   Search, RefreshCw, TrendingUp, DollarSign, CreditCard, Wallet,
-  Eye, X, Printer
+  Eye, X, Printer, Copy
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { getConfigImpresion, getEmpresaCache } from './ConfiguracionSistema';
@@ -15,7 +15,24 @@ ModuleRegistry.registerModules([AllCommunityModule]);
 const API = 'http://localhost:80/conta-app-backend/api/ventas/listar.php';
 const fmtMon = (v: number) => '$ ' + Math.round(v).toLocaleString('es-CO');
 
-export function SalesManagement() {
+interface Props {
+  onNavigate?: (section: string) => void;
+}
+
+export function SalesManagement({ onNavigate }: Props = {}) {
+  // Copiar una venta a Nueva Venta. Guarda el ID en localStorage y navega —
+  // NuevaVenta detecta el flag al montar y carga los datos vía
+  // ventas/copiar.php (mismo flujo que copiar FE o convertir pedido vendedor).
+  // No se copia el número de factura: la nueva venta toma su consecutivo.
+  const copiarVenta = (factN: number) => {
+    localStorage.setItem('venta_para_copiar_id', String(factN));
+    toast.success(`Factura ${factN} cargada para copia — ajuste y guarde`);
+    if (onNavigate) {
+      onNavigate('nueva-venta');
+    } else {
+      toast.error('No se pudo navegar — abre Nueva Venta manualmente.');
+    }
+  };
   const [ventas, setVentas] = useState<any[]>([]);
   const [resumen, setResumen] = useState<any>({});
   const [loading, setLoading] = useState(true);
@@ -152,7 +169,7 @@ export function SalesManagement() {
     },
     { headerName: 'Medio', field: 'MedioPago', width: 110,
       cellRenderer: (p: any) => <span style={{ fontSize: 11, padding: '1px 6px', borderRadius: 4, background: '#f3f4f6' }}>{p.value}</span> },
-    { headerName: '', width: 75, sortable: false,
+    { headerName: '', width: 100, sortable: false,
       cellStyle: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 },
       cellRenderer: (p: any) => (
         <div style={{ display: 'flex', gap: 4 }}>
@@ -163,6 +180,10 @@ export function SalesManagement() {
           <button title="Imprimir factura" onClick={() => imprimirDesdeListado(p.data.Factura_N)}
             style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 3 }}>
             <Printer size={15} color="#2563eb" />
+          </button>
+          <button title="Copiar a Nueva Venta" onClick={() => copiarVenta(p.data.Factura_N)}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 3 }}>
+            <Copy size={15} color="#16a34a" />
           </button>
         </div>
       )

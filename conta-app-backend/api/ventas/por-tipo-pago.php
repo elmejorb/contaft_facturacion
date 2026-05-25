@@ -63,12 +63,16 @@ try {
         $paramsDetalle[':tipo'] = $tipo;
     }
 
+    // Saldo desde la vista (fuente real desde tblpagos). Contado/Anulada no
+    // están en la vista → COALESCE a 0.
     $stmt2 = $db->prepare("
-        SELECT v.Factura_N, v.Fecha, v.Hora, v.A_nombre, v.Tipo, v.Total, v.Saldo,
+        SELECT v.Factura_N, v.Fecha, v.Hora, v.A_nombre, v.Tipo, v.Total,
+               COALESCE(s.Saldo, 0) AS Saldo,
                v.efectivo, v.valorpagado1, v.id_mediopago,
                COALESCE(m.nombre_medio, 'Efectivo') as MedioPago
         FROM tblventas v
         LEFT JOIN tblmedios_pago m ON v.id_mediopago = m.id_mediopago
+        LEFT JOIN vw_facturas_cliente_saldos s ON s.Factura_N = v.Factura_N
         WHERE $whereDetalle
         ORDER BY v.Factura_N DESC
         LIMIT 500

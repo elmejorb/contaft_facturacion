@@ -27,8 +27,13 @@ try {
     ");
     $ventasMesAnterior = $stmt->fetch();
 
-    // Cuentas por cobrar (saldo pendiente)
-    $stmt = $db->query("SELECT COALESCE(SUM(Saldo),0) as total, COUNT(*) as cantidad FROM tblventas WHERE Saldo > 0");
+    // Cuentas por cobrar (saldo pendiente) — desde la vista que calcula
+    // dinámicamente desde tblpagos. No leer tblventas.Saldo cacheado.
+    $stmt = $db->query("
+        SELECT COALESCE(SUM(Saldo), 0) AS total, COUNT(*) AS cantidad
+        FROM vw_facturas_cliente_saldos
+        WHERE Saldo > 0
+    ");
     $cuentasPorCobrar = $stmt->fetch();
 
     // Pagos recibidos hoy

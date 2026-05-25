@@ -54,17 +54,15 @@ try {
         $pagos = intval($r['pagos'] ?? 0);
         $mora = $r['mora_prom'] !== null ? round(floatval($r['mora_prom'])) : null;
 
-        // ¿Tiene saldo abierto vencido > 60 días? → directo a crítico
+        // ¿Tiene saldo abierto vencido > 60 días? → directo a crítico.
+        // Saldo se lee desde la vista (no del cache tblventas.Saldo).
         $stmt = $db->prepare("
-            SELECT COUNT(DISTINCT v.Factura_N) AS criticas
-            FROM tblventas v
-            INNER JOIN tblpagos p ON p.Fact_N = v.Factura_N
-            INNER JOIN tblclientes c ON c.CodigoClien = p.Codigo
+            SELECT COUNT(DISTINCT s.Factura_N) AS criticas
+            FROM vw_facturas_cliente_saldos s
+            INNER JOIN tblclientes c ON c.CodigoClien = s.CodigoCli
             WHERE c.CodigoClien = ?
-              AND v.EstadoFact = 'Valida'
-              AND v.Tipo <> 'Contado'
-              AND v.Saldo > 0
-              AND DATEDIFF(CURDATE(), DATE_ADD(v.Fecha, INTERVAL COALESCE(c.Termino,0) DAY)) > 60
+              AND s.Saldo > 0
+              AND DATEDIFF(CURDATE(), DATE_ADD(s.Fecha, INTERVAL COALESCE(c.Termino,0) DAY)) > 60
         ");
         $stmt->execute([$codigoClien]);
         $criticas = intval($stmt->fetch()['criticas'] ?? 0);

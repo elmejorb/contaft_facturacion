@@ -5,6 +5,33 @@ Visible solo para administradores desde **Configuración → Acerca de → Ver h
 
 ---
 
+## 4.3.41 — 2026-05-25
+
+### Correcciones de bugs críticas (saldos de cartera)
+- **Cache de `tblventas.Saldo` desincronizado generaba saldos negativos y montos inflados en informes**. Diagnóstico: el campo `Saldo` se mantenía con `UPDATE` incremental (`Saldo = Saldo - :pago`), pero si entraba un pago con `ValorPago < 0` (anulación mal hecha, edición manual) o se editaba el Total de la factura, el delta componía errores y dejaba el cache desfasado de la realidad (tblpagos). El cliente nuevo de Nutrigranos vio saldo $-2.849.000 en JAIME OSTEN al cabo de 15 días — sin haber hecho nada raro, simplemente el flujo normal lo desincronizaba
+- **Self-healing del cache**: nuevo helper [`api/config/saldo_helper.php`](conta-app-backend/api/config/saldo_helper.php) con `recalcularSaldoFactura()` que NO calcula delta — lee `tblventas.Total` + `SUM(ValorPago)` de tblpagos válidos y persiste el saldo real. Se llama después de cada inserción/anulación/edición de pago y después de editar el Total de una factura. Tras cualquier operación, el cache queda en sincronía con la fuente real
+- **Todos los endpoints de lectura de saldo ahora consultan la VISTA `vw_facturas_cliente_saldos` (calculada en vivo desde tblpagos), no el cache**:
+  - `api/dashboard/resumen.php` (Cuentas por cobrar del dashboard inicio)
+  - `api/informes/resumen.php` (Cartera, Ventas listado, Top Clientes)
+  - `api/ventas/listar.php` (Listado de ventas POS)
+  - `api/ventas/por-tipo-pago.php` (Listado por medio de pago)
+  - `api/clientes/comportamiento.php` (Clasificación de morosos)
+  - `api/clientes/pagos.php` (Validación de "no sobrepagar" al recibir pago)
+- **Script de resincronización retroactiva** [`sql/resync_saldos_clientes.sql`](conta-app-backend/sql/resync_saldos_clientes.sql): para BDs de clientes existentes que ya tienen el cache desincronizado. Idempotente — recalcula `tblventas.Saldo` y `pagada` para todas las facturas a crédito Validas desde `SUM(ValorPago + Descuento)` filtrando pagos válidos
+- **JOIN bug en informes mensuales/diarios**: las consultas de `ventas_mensual` y `ventas_diario` hacían `LEFT JOIN tbldetalle_venta` con `SUM(v.Total)`, lo que multiplicaba el Total de cada factura por su número de líneas (factura con 5 ítems contaba 5x). Resultado: utilidad inflada ~2.7x. Corregido separando los agregados en subqueries unidos por mes/día
+
+---
+
+## 4.3.40 — 2026-05-23
+
+### Mejoras
+- **Copiar venta POS desde Listado de Ventas**: nuevo botón verde 📋 al lado de los íconos de Ver/Imprimir en cada fila. Carga el cliente, ítems (con precios actuales del catálogo) y forma de pago en Nueva Venta para guardar como factura nueva. Mismo patrón que la copia de FE. Nuevo endpoint `api/ventas/copiar.php`
+
+### Correcciones de bugs
+- **Saldo inflado por pagos negativos en `tblpagos`**: las vistas `vw_facturas_cliente_saldos`, `vw_facturas_elec_cliente_saldos` y `vw_facturas_anteriores_cliente` hacían `SUM(ValorPago)` sin filtrar. Si una factura tenía un pago con `ValorPago ≤ 0` (de una anulación mal hecha, edición manual o migración de VB6), la suma se invertía y el saldo aparecía más alto que el Total (ej. factura de $1.032.000 mostraba saldo $5.069.000). Ahora las 3 vistas filtran `ValorPago > 0` defensivamente
+
+---
+
 ## 4.3.39 — 2026-05-23
 
 ### Correcciones adicionales

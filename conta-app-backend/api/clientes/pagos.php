@@ -7,6 +7,7 @@
  */
 
 require_once '../config/database.php';
+require_once '../config/saldo_helper.php';
 
 $database = new Database();
 $db = $database->getConnection();
@@ -146,9 +147,9 @@ try {
                     :descuento, 0, 'Valida', '1110', :medio, '', '', NOW(), :id_user)
             ");
 
-            $stmtUpdateVenta = $db->prepare("
-                UPDATE tblventas SET Saldo = Saldo - :pago, pagada = IF(Saldo - :pago2 <= 0, '1', '') WHERE Factura_N = :fact
-            ");
+            // El UPDATE delta (Saldo = Saldo - :pago) compone errores si el
+            // cache estaba desincronizado. Ahora usamos recalcularSaldoFactura()
+            // después de insertar el pago — recalcula desde tblpagos.
 
             $totalPagado = 0;
             $facturasAfectadas = 0;
@@ -162,8 +163,14 @@ try {
 
                 $valorTotal = $valor + $descuento;
 
-                // Get current invoice data
-                $stmt = $db->prepare("SELECT Total, Saldo FROM tblventas WHERE Factura_N = :fact");
+                // Saldo desde la VISTA (fuente de verdad calculada desde tblpagos).
+                // El Saldo cacheado en tblventas puede estar desincronizado.
+                $stmt = $db->prepare("
+                    SELECT v.Total, COALESCE(s.Saldo, v.Total) AS Saldo
+                    FROM tblventas v
+                    LEFT JOIN vw_facturas_cliente_saldos s ON s.Factura_N = v.Factura_N
+                    WHERE v.Factura_N = :fact
+                ");
                 $stmt->execute([':fact' => $factN]);
                 $factura = $stmt->fetch();
                 if (!$factura) continue;
@@ -194,12 +201,9 @@ try {
                     ':id_user' => $idUsuario,
                 ]);
 
-                // Update invoice balance
-                $stmtUpdateVenta->execute([
-                    ':pago' => $valorTotal,
-                    ':pago2' => $valorTotal,
-                    ':fact' => $factN
-                ]);
+                // Recalcular Saldo desde la fuente de verdad (tblpagos),
+                // no incremental. Auto-cura el cache si estaba desincronizado.
+                recalcularSaldoFactura($db, intval($factN));
 
                 $totalPagado += $valor;
                 $facturasAfectadas++;
@@ -240,11 +244,13 @@ try {
 
             // Reverse: add back to invoice saldo
             $factN = $pago['NFactAnt'] ?: $pago['Fact_N'];
-            $valorRevertir = floatval($pago['ValorPago']) + floatval($pago['Descuento']);
 
             if ($factN && $factN != '0') {
-                $stmt = $db->prepare("UPDATE tblventas SET Saldo = Saldo + :valor, pagada = '' WHERE Factura_N = :fact");
-                $stmt->execute([':valor' => $valorRevertir, ':fact' => $factN]);
+                // Antes el UPDATE delta sumaba el valor del pago anulado al Saldo,
+                // arrastrando errores previos. Ahora se recalcula desde tblpagos —
+                // como el pago ya quedó marcado Estado='Anulada' antes de este punto,
+                // el helper lo excluye correctamente.
+                recalcularSaldoFactura($db, intval($factN));
             }
 
             $db->commit();
@@ -318,10 +324,11 @@ try {
             $stmt = $db->prepare("UPDATE tblpagos SET $updates WHERE Id_Pagos = :id");
             $stmt->execute($params);
 
-            // Update invoice saldo
+            // Recalcular saldo desde tblpagos. El pago editado ya tiene el
+            // nuevo ValorPago, así que el helper lo lee directo y persiste
+            // un saldo cuadrado, sin depender del valor cacheado anterior.
             if ($factN && $factN != '0') {
-                $stmt = $db->prepare("UPDATE tblventas SET Saldo = Saldo - :diff, pagada = IF(Saldo - :diff2 <= 0, '1', '') WHERE Factura_N = :fact");
-                $stmt->execute([':diff' => $diferencia, ':diff2' => $diferencia, ':fact' => $factN]);
+                recalcularSaldoFactura($db, intval($factN));
             }
 
             $db->commit();

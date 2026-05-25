@@ -92,9 +92,12 @@ try {
             $params[':buscar_like'] = "%$buscar%";
         }
 
+        // Saldo desde la vista (fuente real desde tblpagos). Contado/Anulada no
+        // están en la vista → COALESCE a 0.
         $stmt = $db->prepare("
             SELECT v.Factura_N, v.Fecha, v.Tipo, v.CodigoCli, v.A_nombre, v.Identificacion,
-                   v.Total, v.Saldo, v.EstadoFact, v.Descuento, v.Impuesto,
+                   v.Total, COALESCE(s.Saldo, 0) AS Saldo,
+                   v.EstadoFact, v.Descuento, v.Impuesto,
                    v.id_mediopago, v.Hora, v.Id_Usuario, v.enviada_dian, v.cufe,
                    COALESCE(m.nombre_medio, 'Efectivo') as MedioPago,
                    COALESCE(u.Nombre, '') as NombreUsuario,
@@ -102,6 +105,7 @@ try {
             FROM tblventas v
             LEFT JOIN tblmedios_pago m ON v.id_mediopago = m.id_mediopago
             LEFT JOIN tblusuarios u ON v.Id_Usuario = u.Id_Usuario
+            LEFT JOIN vw_facturas_cliente_saldos s ON s.Factura_N = v.Factura_N
             WHERE $where
             ORDER BY v.Factura_N DESC
             LIMIT " . intval($limit)
