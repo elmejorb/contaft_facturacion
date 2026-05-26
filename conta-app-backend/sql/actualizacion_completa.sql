@@ -799,6 +799,7 @@ LEFT JOIN (
         SUM(tp.ValorPago) AS TotalPagos
     FROM tblpagos tp
     WHERE COALESCE(tp.Estado, 'Valida') = 'Valida'
+      AND tp.ValorPago > 0  -- defensivo: ignora reversos mal hechos (ValorPago<0) que envenenan el SUM y devuelven Saldo > Total
     GROUP BY COALESCE(NULLIF(tp.Fact_N, 0),
              CASE WHEN tp.NFactAnt REGEXP '^[0-9]+$' THEN CAST(tp.NFactAnt AS UNSIGNED) END)
 ) p ON p.Fact_N = v.Factura_N
@@ -830,9 +831,54 @@ LEFT JOIN (
            SUM(tp.ValorPago) AS TotalPagos
     FROM tblpagos tp
     WHERE COALESCE(tp.Estado, 'Valida') = 'Valida'
+      AND tp.ValorPago > 0  -- defensivo: ignora reversos mal hechos (ValorPago<0)
       AND ((tp.NFactAnt IS NOT NULL AND tp.NFactAnt <> '') OR tp.Fact_N IS NOT NULL)
     GROUP BY tp.Codigo, COALESCE(NULLIF(tp.NFactAnt, ''), CAST(tp.Fact_N AS CHAR))
 ) p ON p.CodigoCli = fa.CodigoCli AND p.FacturaN = fa.FacturaN
+", 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- 2c. Recrear vw_facturas_elec_cliente_saldos (módulo FE — electronic_documents)
+-- Solo se crea si existe la tabla electronic_documents (FE habilitada).
+SET @t = (SELECT COUNT(*) FROM information_schema.TABLES
+          WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'electronic_documents');
+
+SET @sql = IF(@t = 1, "DROP VIEW IF EXISTS vw_facturas_elec_cliente_saldos", 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @sql = IF(@t = 1, "
+CREATE VIEW vw_facturas_elec_cliente_saldos AS
+SELECT
+    v.id AS DocID,
+    CONCAT(v.prefix, v.number) AS Factura_N,
+    v.cod_cliente AS CodigoCli,
+    c.Razon_Social AS A_Nombre,
+    v.fecha AS Fecha,
+    v.payment_due_days AS Dias,
+    v.fecha + INTERVAL v.payment_due_days DAY AS Fechav,
+    v.total AS Total,
+    COALESCE(p.TotalPagos, 0) AS TotalPagos,
+    GREATEST(v.total - COALESCE(p.TotalPagos, 0), 0) AS Saldo,
+    v.payment_form_id AS Tipo,
+    v.EstadoFact AS EstadoFact,
+    v.updated_at AS updated_at,
+    CASE WHEN CURDATE() >= v.fecha + INTERVAL v.payment_due_days DAY
+         THEN TO_DAYS(CURDATE()) - TO_DAYS(v.fecha + INTERVAL v.payment_due_days DAY)
+         ELSE 0 END AS DiasVenc,
+    CURDATE() > v.fecha + INTERVAL v.payment_due_days DAY AS Vencida
+FROM electronic_documents v
+JOIN tblclientes c ON c.CodigoClien = v.cod_cliente
+LEFT JOIN (
+    SELECT tp.Codigo AS CodigoCli,
+           CAST(NULLIF(tp.Nfact_electronica, '') AS UNSIGNED) AS DocID,
+           SUM(tp.ValorPago) AS TotalPagos
+    FROM tblpagos tp
+    WHERE tp.Estado = 'Valida'
+      AND tp.ValorPago > 0  -- defensivo: ignora reversos mal hechos
+      AND tp.Nfact_electronica IS NOT NULL
+    GROUP BY tp.Codigo, CAST(NULLIF(tp.Nfact_electronica, '') AS UNSIGNED)
+) p ON p.CodigoCli = v.cod_cliente AND p.DocID = v.id
+WHERE v.payment_form_id = 2 AND v.status = 'autorizado' AND v.type_document_id = 1
 ", 'SELECT 1');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 

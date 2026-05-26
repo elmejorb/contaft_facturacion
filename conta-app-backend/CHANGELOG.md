@@ -5,6 +5,53 @@ Visible solo para administradores desde **Configuración → Acerca de → Ver h
 
 ---
 
+## 4.3.45 — 2026-05-26
+
+### Correcciones de bugs críticas (Facturación Electrónica)
+- **DIAN rechazaba ventas a crédito con regla FAN04** ("crédito sin fecha en que se comprometió el pago"). El JSON enviado a la API Lumen no incluía `payment_due_date` ni `duration_measure`. Ahora se calculan a partir de `tblventas.Fecha + Dias` y se envían cuando `Tipo='Crédito'`
+- **Abonos iniciales no llegaban a DIAN**: si una factura a crédito tenía abono al momento de emitir (campo `Abono`, `efectivo` o `valorpagado1`), DIAN no lo veía. Ahora se envía como `pre_paid_amount` en `legal_monetary_totals`. PrePaidAmount = $3M y PayableAmount = $5M deja claro a DIAN que el cliente debe $2M
+- **Fix bloqueo "Duplicate entry FCON-0 for key uq_prefix_number"**: si un envío FE fallaba, la fila `(prefix='FCON', number=0, status='rechazado')` quedaba bloqueando todos los envíos siguientes por el UNIQUE constraint. Ahora antes de cada INSERT se mueven los huérfanos a `number = 9000000000 + id` (rango lejos de consecutivos reales DIAN), liberando el slot `(FCON, 0)` sin perder la huella de los intentos fallidos — el usuario sigue viendo sus rechazadas en el listado FE
+- **Validación previa al envío DIAN**: nueva función `validateInvoiceForDIAN()` que verifica NIT, razón social, fecha, líneas, días en crédito y que abono ≤ total ANTES de gastar el envío. Si falla, aborta con mensaje claro y no consume rate-limit ni gasta consecutivos
+
+### Mejoras de UX
+- **Listado de Ventas POS — filtro por día**: nuevo selector "Día" en la toolbar al lado del Mes. Se desactiva si el mes está en "Todos" y se autoadapta al número de días reales del mes (28/29/30/31)
+- **PDF de FE — wrap automático de la Nota**: la línea "Nota: ..." al pie del PDF usaba `Cell` de ancho fijo que cortaba el texto cuando era largo (caso anticipo + saldo pendiente). Ahora usa `MultiCell` con ancho 90mm que envuelve a segunda línea
+
+### Correcciones de bugs (pagos)
+- **Backend rechaza `ValorPago < 0` o `Descuento < 0`** en el bulk de pagos: aborta toda la transacción con mensaje claro. Antes solo bloqueaba si AMBOS eran ≤ 0
+- **Pagos: si `saldoActual ≤ 0` se salta la factura** (ya está saldada o el cache está mal). Antes el clamp "no sobrepagar" convertía pagos positivos en negativos cuando el saldo cacheado venía corrupto — caso JAIME OSTEN factura 213 que terminó con `ValorPago = -$4.037.000`
+- **Clamp "no sobrepagar" usa `max(.., 0)`** por defensa adicional: aunque un saldo raro pase los filtros, el ValorPago nunca puede quedar negativo
+- **Label "Pago Final" solo si arrancábamos con saldo > 0**: antes, un abono de $44.000 sobre una factura de $950.000 podía etiquetarse "Pago Final" si el cache del saldo venía corrupto en 0. Aplicado en insert y edición de pago
+
+### Nota importante para BD del cliente
+La API Lumen DIAN tenía un typo en el template XML: `<cbc:PrePaidAmount>` con P mayúscula, cuando el schema DIAN exige `<cbc:PrepaidAmount>`. Corregido en `api-electronica/resources/views/xml/_legal_monetary_total.blade.php` — verificar que el hosting tenga la versión actualizada y el cache de vistas Laravel limpio
+
+---
+
+## 4.3.44 — 2026-05-25
+
+### Correcciones de bugs críticas (FE y pagos)
+- **Reintentar DIAN se bloqueaba con `Duplicate entry 'FCON-0'`**: cuando un envío de FE fallaba, dejaba una fila `(prefix='FCON', number=0, status='rechazado')` en `electronic_documents`. El siguiente intento (reintentar o enviar otra FE) intentaba insertar otra fila con `(FCON, 0)` y violaba el unique constraint `uq_prefix_number`. Ahora antes del INSERT se mueven todas las filas `(FCON, 0, pendiente/rechazado)` a `number = -id` para liberar el slot, preservando historial. Aplicado en envío inicial y en `reenviar_contingencia`
+- **Pagos: clamp "no sobrepagar" convertía pagos positivos en negativos** cuando el saldo cacheado venía corrupto. Caso JAIME OSTEN factura 213: cache en -$4.037.000 + distribución de $456.000 → terminó insertando ValorPago = -$4.037.000. Ahora si `saldoActual ≤ 0` se salta esa factura (ya está saldada o el dato está mal), y el clamp usa `max(.., 0)` por defensa
+- **Rechazo explícito de `ValorPago < 0` o `Descuento < 0`** en el bulk de pagos: aborta toda la transacción con mensaje claro. Antes solo bloqueaba si AMBOS eran ≤ 0 (hueco que permitía digitación manual envenenada)
+- **Label "Pago Final" solo si arrancábamos con saldo > 0**: antes, un abono de $44.000 sobre una factura de $950.000 podía etiquetarse como "Pago Final" si el cache del saldo venía corrupto en 0. Aplicado en insert y edición de pago
+
+---
+
+## 4.3.43 — 2026-05-25
+
+### Correcciones de bugs críticas (vistas de saldo)
+- **Las vistas `vw_facturas_cliente_saldos`, `vw_facturas_anteriores_cliente` y `vw_facturas_elec_cliente_saldos` no filtraban `ValorPago > 0`**, así que cualquier fila en `tblpagos` con `ValorPago < 0` (residuo de la era del cache desincronizado pre-4.3.41) envenenaba el SUM y la vista devolvía `Saldo > Total`. Cliente de Nutrigranos seguía viendo factura 213 con saldo $5.069.000 sobre un Total de $1.032.000 incluso después de actualizar a 4.3.42, porque la vista en su BD todavía sumaba un pago histórico de -$4.037.000 (Estado='Valida'). Ahora las 3 vistas filtran `tp.ValorPago > 0` defensivamente — el pago corrupto se ignora y el saldo vuelve a ser real
+- **Definición de `vw_facturas_elec_cliente_saldos` agregada a `sql/actualizacion_completa.sql`**: antes solo existía en producción creada manualmente, no estaba versionada. Ahora se recrea cada vez que se corre la migración (idempotente, condicionada a que exista `electronic_documents`)
+
+### Pasos para BDs de clientes con datos legacy
+1. Ejecutar `sql/actualizacion_completa.sql` para que las vistas se recreen con el filtro defensivo
+2. Ejecutar `sql/resync_saldos_clientes.sql` para resincronizar el cache `tblventas.Saldo` desde la vista corregida
+
+A partir de 4.3.41 cada operación de pago llama `recalcularSaldoFactura()` filtrando `ValorPago > 0` en la fuente, así que ningún cliente nuevo va a tener este problema.
+
+---
+
 ## 4.3.42 — 2026-05-25
 
 ### Correcciones de bugs

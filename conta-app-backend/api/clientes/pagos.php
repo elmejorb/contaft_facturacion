@@ -159,7 +159,17 @@ try {
                 $valor = floatval($pago->valor);
                 $descuento = floatval($pago->descuento ?? 0);
 
-                if ($valor <= 0 && $descuento <= 0) continue;
+                // Rechazar negativos explícitamente. Un pago con ValorPago<0
+                // o Descuento<0 inserta una fila que envenena la vista de saldos
+                // (caso JAIME OSTEN factura 213: $-4.037.000 inflaba el saldo
+                // de $1.032.000 a $5.069.000). Mejor abortar el bulk completo.
+                if ($valor < 0 || $descuento < 0) {
+                    $db->rollBack();
+                    http_response_code(400);
+                    echo json_encode(["success" => false, "message" => "El valor del pago o descuento no puede ser negativo (factura {$factN})"]);
+                    exit;
+                }
+                if ($valor == 0 && $descuento == 0) continue;
 
                 $valorTotal = $valor + $descuento;
 
@@ -178,12 +188,25 @@ try {
                 $saldoActual = floatval($factura['Saldo']);
                 $valorFact = floatval($factura['Total']);
 
-                // Don't overpay
+                // Si el saldo real ya está saldado (≤0), no aceptar más pagos.
+                // Esto evita el bug histórico donde un cache corrupto en negativo
+                // hacía que el clamp "no sobrepagar" convirtiera pagos positivos
+                // en negativos. Caso JAIME OSTEN: cache de 213 en -$4.037.000 +
+                // distribución de $456.000 → terminó insertando -$4.037.000.
+                if ($saldoActual <= 0.001) continue;
+
+                // Don't overpay — usar max(.., 0) por defensa para que un saldo
+                // raro nunca produzca un ValorPago negativo aunque pase el guard.
                 if ($valorTotal > $saldoActual) $valorTotal = $saldoActual;
-                if ($valor > $saldoActual - $descuento) $valor = $saldoActual - $descuento;
+                if ($valor > $saldoActual - $descuento) $valor = max($saldoActual - $descuento, 0);
 
                 $nuevoSaldo = $saldoActual - $valorTotal;
-                $esPagoFinal = $nuevoSaldo <= 0;
+                // Solo etiquetar como "Pago Final" si arrancábamos con saldo real
+                // pendiente y el pago lo cierra. Antes, si el saldo cacheado venía
+                // corrupto en 0 o negativo, hasta un abono de $44.000 sobre una
+                // factura de $950.000 se grababa como "Pago Final" (caso recibo
+                // #42 de Jaime Osten — factura 183).
+                $esPagoFinal = $saldoActual > 0.001 && $nuevoSaldo <= 0.001;
 
                 $detalle = ($esPagoFinal ? "Pago Final" : "Abono") . " de factura Nº {$factN}";
 
@@ -315,8 +338,11 @@ try {
             $updates .= ", SaldoAct = :saldo_act";
             $params[':saldo_act'] = max($nuevoSaldoAct, 0);
 
-            // Update detalle
-            $esPagoFinal = $nuevoSaldoAct <= 0;
+            // Update detalle — solo es "Pago Final" si arranca con saldo positivo
+            // real y el pago lo cierra. Si SaldoAct venía corrupto en 0/negativo,
+            // hasta un abono pequeño se etiquetaba mal (caso recibo #42).
+            $saldoActPrevio = floatval($pago['SaldoAct']);
+            $esPagoFinal = $saldoActPrevio > 0.001 && $nuevoSaldoAct <= 0.001;
             $detalle = ($esPagoFinal ? "Pago Final" : "Abono") . " de factura Nº $factN (editado)";
             $updates .= ", DetallePago = :detalle";
             $params[':detalle'] = $detalle;

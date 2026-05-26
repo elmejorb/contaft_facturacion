@@ -70,6 +70,48 @@ function loginFE($db, $apiBase) {
 }
 
 // Build invoice JSON from factura data
+/**
+ * Valida que la factura tenga lo mínimo que DIAN exige antes de enviarla,
+ * para evitar rechazos costosos (rate limits, ruido en logs, gasto de
+ * consecutivos). Devuelve array de errores; vacío = ok.
+ *
+ * Reglas referenciadas:
+ *   FAN04 — Venta a crédito sin fecha en que se comprometió el pago.
+ *   AAF14 — Identificación del adquiriente inválida.
+ *   Schema XML — fechas/strings vacíos rompen el cvc-datatype-valid.
+ */
+function validateInvoiceForDIAN(array $factura, array $items): array {
+    $errores = [];
+
+    if (empty($factura['Identificacion']) || $factura['Identificacion'] === '0') {
+        $errores[] = 'El cliente no tiene NIT/Cédula registrado. La FE exige identificación del adquiriente (regla AAF14).';
+    }
+    if (empty($factura['A_nombre'])) {
+        $errores[] = 'El cliente no tiene Razón Social/Nombre registrado.';
+    }
+    if (empty($factura['Fecha'])) {
+        $errores[] = 'La factura no tiene fecha de emisión.';
+    }
+    if (count($items) === 0) {
+        $errores[] = 'La factura no tiene líneas de detalle.';
+    }
+    if (($factura['Tipo'] ?? '') !== 'Contado') {
+        // Crédito requiere Dias > 0 para calcular payment_due_date (FAN04).
+        $dias = intval($factura['Dias'] ?? 0);
+        if ($dias <= 0) {
+            $errores[] = 'Venta a crédito sin "Días" de plazo. DIAN rechaza con regla FAN04 si no hay fecha en que se comprometió el pago.';
+        }
+        // El abono inicial no puede ser mayor al total (rompe el balance).
+        $abono = floatval($factura['Abono'] ?? 0) + floatval($factura['efectivo'] ?? 0) + floatval($factura['valorpagado1'] ?? 0);
+        $total = floatval($factura['Total'] ?? 0);
+        if ($abono > $total + 0.01) {
+            $errores[] = "El abono inicial (\$$abono) supera el total de la factura (\$$total).";
+        }
+    }
+
+    return $errores;
+}
+
 function buildInvoiceJSON($db, $factura, $items, $companyId) {
     // Get client fiscal data
     $stmt = $db->prepare("
@@ -183,6 +225,28 @@ function buildInvoiceJSON($db, $factura, $items, $companyId) {
     if ($medioPago === 1) $paymentMethodId = 14; // Tarjeta
     elseif ($medioPago >= 2) $paymentMethodId = 30; // Transferencia
 
+    // Para ventas a CRÉDITO, DIAN exige payment_due_date (regla FAN04) y
+    // duration_measure. Sin estos el envío se rechaza con
+    // "Venta a crédito sin información de fecha en la cual se comprometió el pago".
+    $paymentDueDate = null;
+    $durationDays = 0;
+    if ($paymentFormId === 2) {
+        $diasFact = intval($factura['Dias'] ?? 0);
+        if ($diasFact <= 0) $diasFact = 1; // mínimo 1 día para que sea válido como crédito
+        $durationDays = $diasFact;
+        $paymentDueDate = date('Y-m-d', strtotime($factura['Fecha'] . " +{$diasFact} days"));
+    }
+
+    // Abono inicial al momento de emitir la factura — va en pre_paid_amount.
+    // Sólo aplica a Crédito con abono > 0 (en Contado el pago está implícito).
+    // Suma Abono + lo recibido en efectivo/transferencia al emitir.
+    $prePaidAmount = 0.0;
+    if ($paymentFormId === 2) {
+        $prePaidAmount = floatval($factura['Abono'] ?? 0)
+                       + floatval($factura['efectivo'] ?? 0)
+                       + floatval($factura['valorpagado1'] ?? 0);
+    }
+
     // === Retenciones aplicadas a esta factura (DIAN WithholdingTaxTotal) ===
     $withholdingTaxes = [];
     $factN = intval($factura['Factura_N'] ?? 0);
@@ -216,19 +280,22 @@ function buildInvoiceJSON($db, $factura, $items, $companyId) {
         'company_id' => $companyId,
         'note' => $factura['Comentario'] ?? '',
         'customer' => $customer,
-        'legal_monetary_totals' => [
+        'legal_monetary_totals' => array_filter([
             'line_extension_amount' => number_format($totalBase, 2, '.', ''),
             'tax_exclusive_amount' => number_format($totalBase, 2, '.', ''),
             'tax_inclusive_amount' => number_format($totalInclusive, 2, '.', ''),
             'allowance_total_amount' => number_format($descGlobal, 2, '.', ''),
             'charge_total_amount' => '0.00',
-            'payable_amount' => number_format($totalInclusive - $descGlobal, 2, '.', '')
-        ],
+            'pre_paid_amount' => $prePaidAmount > 0 ? number_format($prePaidAmount, 2, '.', '') : null,
+            'payable_amount' => number_format($totalInclusive - $descGlobal, 2, '.', ''),
+        ], fn($v) => $v !== null),
         'invoice_lines' => $invoiceLines,
-        'payment_form' => [
+        'payment_form' => array_filter([
             'payment_form_id' => $paymentFormId,
-            'payment_method_id' => $paymentMethodId
-        ],
+            'payment_method_id' => $paymentMethodId,
+            'payment_due_date' => $paymentDueDate,
+            'duration_measure' => $durationDays > 0 ? $durationDays : null,
+        ], fn($v) => $v !== null),
         'date' => date('Y-m-d', strtotime($factura['Fecha'])),
         'time' => date('H:i:s', strtotime($factura['Fecha']))
     ];
@@ -441,6 +508,19 @@ try {
             $stmt->execute([$factN]);
             $items = $stmt->fetchAll();
 
+            // Validar campos críticos ANTES de gastar el envío a DIAN. Si falta
+            // algo, abortamos con un mensaje útil para el usuario en vez de
+            // dejar que DIAN responda con códigos de regla crípticos.
+            $erroresValidacion = validateInvoiceForDIAN($factura, $items);
+            if (!empty($erroresValidacion)) {
+                echo json_encode([
+                    'success' => false,
+                    'message' => 'La factura no cumple requisitos DIAN: ' . implode(' · ', $erroresValidacion),
+                    'errores' => $erroresValidacion,
+                ], JSON_UNESCAPED_UNICODE);
+                exit;
+            }
+
             // Build JSON
             $invoiceJSON = buildInvoiceJSON($db, $factura, $items, $companyId);
 
@@ -464,7 +544,20 @@ try {
                 }
             }
 
-            // PASO 1: Guardar en local con status "pendiente" ANTES de enviar a DIAN
+            // PASO 1: Guardar en local con status "pendiente" ANTES de enviar a DIAN.
+            // OJO: la tabla tiene UNIQUE (prefix, number) — uq_prefix_number. Si un
+            // envío anterior falló, su fila quedó en (FCON, 0, 'rechazado'); para que
+            // siga visible en el listado FE (y el usuario pueda reintentarla o
+            // editarla) la movemos a un number alto fuera del rango de consecutivos
+            // DIAN (9000000000 + id local). NO la borramos: el usuario quiere ver
+            // sus intentos fallidos en el módulo de FE y poder accionar sobre ellos.
+            // 9_000_000_000 es seguro: DIAN no asigna consecutivos cerca de ese rango.
+            $db->prepare("
+                UPDATE electronic_documents
+                SET number = 9000000000 + id
+                WHERE prefix = 'FCON' AND number = 0 AND status IN ('pendiente', 'rechazado')
+            ")->execute();
+
             $notaFactura = $factura['Comentario'] ?? '-';
             $stmtDoc = $db->prepare("
                 INSERT INTO electronic_documents
@@ -861,6 +954,15 @@ try {
             if ($existing) {
                 $docElecId = $existing['id'];
             } else {
+                // Mueve huérfanos (FCON, 0) de otras facturas a number=9000000000+id
+                // para liberar el slot del UNIQUE (prefix, number) sin perder la fila
+                // — el usuario quiere ver sus intentos fallidos en el listado FE.
+                $db->prepare("
+                    UPDATE electronic_documents
+                    SET number = 9000000000 + id
+                    WHERE prefix = 'FCON' AND number = 0 AND status IN ('pendiente', 'rechazado')
+                ")->execute();
+
                 $notaFactura = $factura['Comentario'] ?? '-';
                 $db->prepare("
                     INSERT INTO electronic_documents

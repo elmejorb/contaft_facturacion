@@ -39,6 +39,7 @@ export function SalesManagement({ onNavigate }: Props = {}) {
   const [busqueda, setBusqueda] = useState('');
   const [anio, setAnio] = useState(new Date().getFullYear());
   const [mes, setMes] = useState(new Date().getMonth() + 1);
+  const [dia, setDia] = useState(0); // 0 = todos los días del mes
   const [filtroTipo, setFiltroTipo] = useState('todos');
   const [filtroEstado, setFiltroEstado] = useState('Valida');
   const [aniosDisp, setAniosDisp] = useState<any[]>([]);
@@ -50,6 +51,7 @@ export function SalesManagement({ onNavigate }: Props = {}) {
     try {
       let url = `${API}?anio=${anio}&estado=${filtroEstado}`;
       if (mes > 0) url += `&mes=${mes}`;
+      if (dia > 0) url += `&dia=${dia}`;
       if (buscar) url += `&buscar=${encodeURIComponent(buscar)}`;
       const r = await fetch(url);
       const d = await r.json();
@@ -62,7 +64,10 @@ export function SalesManagement({ onNavigate }: Props = {}) {
     setLoading(false);
   };
 
-  useEffect(() => { cargar(); }, [anio, mes, filtroEstado]);
+  useEffect(() => { cargar(); }, [anio, mes, dia, filtroEstado]);
+
+  // Si cambia el mes a "Todos" (0), reseteamos día porque ya no tiene sentido.
+  useEffect(() => { if (mes === 0 && dia !== 0) setDia(0); }, [mes]);
 
   const verDetalle = (factN: number) => setFacturaDetalleN(factN);
 
@@ -230,6 +235,16 @@ export function SalesManagement({ onNavigate }: Props = {}) {
           style={{ height: 30, border: '1px solid #d1d5db', borderRadius: 6, fontSize: 12, padding: '0 6px' }}>
           <option value={0}>Todos</option>
           {meses.slice(1).map((m, i) => <option key={i} value={i + 1}>{m}</option>)}
+        </select>
+        <select value={dia} onChange={e => setDia(parseInt(e.target.value))}
+          disabled={mes === 0}
+          title={mes === 0 ? 'Selecciona un mes para filtrar por día' : 'Día del mes'}
+          style={{ height: 30, border: '1px solid #d1d5db', borderRadius: 6, fontSize: 12, padding: '0 6px',
+                   opacity: mes === 0 ? 0.5 : 1, cursor: mes === 0 ? 'not-allowed' : 'pointer' }}>
+          <option value={0}>Día (todos)</option>
+          {Array.from({ length: new Date(anio, mes, 0).getDate() }, (_, i) => i + 1).map(d => (
+            <option key={d} value={d}>{d}</option>
+          ))}
         </select>
         <select value={filtroEstado} onChange={e => setFiltroEstado(e.target.value)}
           style={{ height: 30, border: '1px solid #d1d5db', borderRadius: 6, fontSize: 12, padding: '0 6px' }}>

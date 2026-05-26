@@ -319,8 +319,11 @@ EOD;
     $pdf->SetXY(10, $yTot);
     $pdf->MultiCell(90, 4, "Esta factura se asimila en todos sus efectos a una letra de cambio de conformidad con el Art. 774 del código de comercio. Autorizo que en caso de incumplimiento de esta obligación sea reportado a las centrales de riesgo, se cobrarán intereses por mora.", 0, 'J');
     if ($doc['nota']) {
+        // Espacio antes de la nota y ancho fijo para que envuelva en segunda
+        // línea cuando la nota es larga (ej. detalles de anticipo + saldo).
+        $pdf->Ln(2);
         $pdf->SetX(10);
-        $pdf->Cell(90, 5, 'Nota: ' . $doc['nota'], 0, 1, 'L');
+        $pdf->MultiCell(90, 4, 'Nota: ' . $doc['nota'], 0, 'L');
     }
 
     // Totales a la derecha (mismo nivel que texto legal)

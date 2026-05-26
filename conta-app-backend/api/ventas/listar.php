@@ -59,6 +59,7 @@ try {
     } else {
         // Listado con filtros
         $mes = $_GET['mes'] ?? null;
+        $dia = $_GET['dia'] ?? null;   // opcional — restringe a un día específico
         $anio = $_GET['anio'] ?? date('Y');
         $tipo = $_GET['tipo'] ?? null;
         $estado = $_GET['estado'] ?? 'Valida';
@@ -68,6 +69,10 @@ try {
         $where = "YEAR(v.Fecha) = :anio";
         $params = [':anio' => $anio];
 
+        if ($dia) {
+            $where .= " AND DAY(v.Fecha) = :dia";
+            $params[':dia'] = intval($dia);
+        }
         if ($mes) {
             $where .= " AND MONTH(v.Fecha) = :mes";
             $params[':mes'] = $mes;
