@@ -241,26 +241,37 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
       .reduce((s, l) => s + (l.Cantidad || 0), 0);
 
     if (existente && !cfg.permitirRepetirProducto) {
-      // Comportamiento clásico: incrementar la cantidad de la línea existente
-      const nuevaCant = existente.Cantidad + 1;
-      if (!cfg.permitirFacturarNegativo && nuevaCant > existente.Existencia) {
+      // Comportamiento clásico: incrementar la cantidad de la línea existente.
+      // El paso es 1, salvo que solo quede un fraccionario < 1 disponible: en ese
+      // caso incrementa por lo que reste (ej. completar a 1.5 desde 1 con 0.5 libre).
+      const dispRestante = existente.Existencia - existente.Cantidad;
+      const paso = (!cfg.permitirFacturarNegativo && dispRestante > 0 && dispRestante < 1)
+        ? dispRestante : 1;
+      const nuevaCant = existente.Cantidad + paso;
+      if (!cfg.permitirFacturarNegativo && nuevaCant > existente.Existencia + 1e-9) {
         toast.error(`No hay existencia suficiente de ${art.Codigo} ${art.Nombres_Articulo} (disponible: ${existente.Existencia})`, { duration: 5000 });
         return;
       }
       setLineas(prev => prev.map(l => l.id === existente.id ? { ...l, Cantidad: nuevaCant, Subtotal: nuevaCant * l.PrecioVenta - l.Descuento } : l));
     } else {
       // Línea nueva (producto fresco, o producto repetido si el toggle está activo).
-      // Valida que la suma de cantidades del producto en la grilla + 1 no exceda existencia.
-      if (!cfg.permitirFacturarNegativo && (cantTotalEnGrid + 1) > (art.Existencia || 0)) {
+      // Cantidad inicial = 1, salvo que el stock restante sea fraccionario < 1 (ej.
+      // medio bulto 0.5): en ese caso arranca con lo disponible para no bloquear la
+      // venta del fraccionario. El usuario puede ajustar luego.
+      const dispRestante = (art.Existencia || 0) - cantTotalEnGrid;
+      const cantInicial = (!cfg.permitirFacturarNegativo && dispRestante > 0 && dispRestante < 1)
+        ? dispRestante : 1;
+      // Tolerancia epsilon por aritmética de punto flotante (0.1+0.2 etc.)
+      if (!cfg.permitirFacturarNegativo && (cantTotalEnGrid + cantInicial) > (art.Existencia || 0) + 1e-9) {
         toast.error(`No hay existencia suficiente de ${art.Codigo} ${art.Nombres_Articulo} (disponible: ${art.Existencia}, ya en factura: ${cantTotalEnGrid})`, { duration: 5000 });
         return;
       }
       const precio = listaPrecio === 2 ? (art.Precio_Venta2 || art.Precio_Venta) : listaPrecio === 3 ? (art.Precio_Venta3 || art.Precio_Venta) : art.Precio_Venta;
       const nueva: LineaVenta = {
         id: ++lineaId, Items: art.Items, Codigo: art.Codigo, Nombre: art.Nombres_Articulo,
-        Existencia: art.Existencia, Cantidad: 1, PrecioCosto: art.Precio_Costo,
+        Existencia: art.Existencia, Cantidad: cantInicial, PrecioCosto: art.Precio_Costo,
         PrecioMinimo: art.Precio_Minimo || 0,
-        PrecioVenta: precio, Iva: art.Iva || 0, Descuento: 0, Subtotal: precio,
+        PrecioVenta: precio, Iva: art.Iva || 0, Descuento: 0, Subtotal: cantInicial * precio,
       };
       setLineas(prev => [...prev, nueva]);
     }
@@ -285,7 +296,7 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
         const cantSumandoEsta = prev
           .filter(l => l.Items === lineaActual.Items && l.id !== id)
           .reduce((s, l) => s + (l.Cantidad || 0), 0) + value;
-        if (cantSumandoEsta > lineaActual.Existencia) {
+        if (cantSumandoEsta > lineaActual.Existencia + 1e-9) {
           toast.error(`No hay existencia suficiente de ${lineaActual.Codigo} ${lineaActual.Nombre} (disponible: ${lineaActual.Existencia})`, { duration: 5000 });
           return prev;
         }

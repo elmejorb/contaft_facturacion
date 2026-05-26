@@ -5,6 +5,13 @@ Visible solo para administradores desde **Configuración → Acerca de → Ver h
 
 ---
 
+## 4.3.47 — 2026-05-26
+
+### Correcciones de bugs
+- **No dejaba facturar stock fraccionario menor a 1** (ej. medio bulto, 0.5). Al agregar el producto la cantidad arrancaba en 1 y como solo había 0.5 disponible, la validación `1 > 0.5` bloqueaba con "No hay existencia suficiente" aunque sí hubiera media unidad. Ahora la cantidad inicial arranca con el disponible cuando es fraccionario < 1, y al incrementar un producto ya en la grilla el paso se ajusta al resto disponible. Se añadió tolerancia epsilon (1e-9) en todas las validaciones de stock para que la aritmética de punto flotante (0.1+0.2, etc.) no genere falsos "no hay existencia"
+
+---
+
 ## 4.3.46 — 2026-05-26
 
 ### Mejoras UX
