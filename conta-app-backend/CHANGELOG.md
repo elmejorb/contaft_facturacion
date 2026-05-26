@@ -5,6 +5,14 @@ Visible solo para administradores desde **Configuración → Acerca de → Ver h
 
 ---
 
+## 4.3.46 — 2026-05-26
+
+### Mejoras UX
+- **Listado de Ventas POS — totales reactivos al filtro**: las 4 cards de arriba (Total Facturas, Monto Total, Contado, Crédito) ahora se calculan sobre el array filtrado del cliente, no sobre el `resumen` del backend. Ahora reflejan TODOS los filtros activos: año/mes/día/estado (backend) + Contado/Crédito/búsqueda libre (cliente). Antes daban el total del mes completo aunque filtraras por día o por tipo
+- **Hora en formato 12h con zona Bogotá**: la columna "Hora" del listado POS, el modal de detalle de factura, la reimpresión y el dashboard del vendedor muestran ahora la hora como `3:53 p. m.` en lugar de `15:53:00`. Más legible para usuarios colombianos
+
+---
+
 ## 4.3.45 — 2026-05-26
 
 ### Correcciones de bugs críticas (Facturación Electrónica)

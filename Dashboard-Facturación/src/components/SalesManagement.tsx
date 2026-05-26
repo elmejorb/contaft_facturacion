@@ -15,6 +15,19 @@ ModuleRegistry.registerModules([AllCommunityModule]);
 const API = 'http://localhost:80/conta-app-backend/api/ventas/listar.php';
 const fmtMon = (v: number) => '$ ' + Math.round(v).toLocaleString('es-CO');
 
+// Hora viene de DB como "HH:MM:SS" o "HH:MM" en zona horaria local (Bogotá).
+// La formateamos a 12h con sufijo a. m. / p. m. estilo es-CO.
+const fmtHora12 = (h?: string | null): string => {
+  if (!h) return '-';
+  const [hStr, mStr] = h.split(':');
+  const hh = parseInt(hStr, 10);
+  const mm = (mStr ?? '00').padStart(2, '0');
+  if (isNaN(hh)) return h;
+  const sufijo = hh >= 12 ? 'p. m.' : 'a. m.';
+  const h12 = hh % 12 === 0 ? 12 : hh % 12;
+  return `${h12}:${mm} ${sufijo}`;
+};
+
 interface Props {
   onNavigate?: (section: string) => void;
 }
@@ -81,7 +94,7 @@ export function SalesManagement({ onNavigate }: Props = {}) {
       const items = d.items || [];
       const datosImp: DatosFactura = {
         numero: fac.Factura_N,
-        fecha: fac.Fecha ? new Date(fac.Fecha).toLocaleDateString('es-CO') + ' - ' + (fac.Hora || '') : '-',
+        fecha: fac.Fecha ? new Date(fac.Fecha).toLocaleDateString('es-CO') + ' - ' + fmtHora12(fac.Hora) : '-',
         tipo: fac.Tipo || 'Contado',
         dias: parseInt(fac.Dias) || 0,
         cliente: { nombre: fac.A_nombre || '-', nit: fac.Identificacion || '0', telefono: fac.Telefono || '0', direccion: fac.Direccion || '-' },
@@ -143,6 +156,17 @@ export function SalesManagement({ onNavigate }: Props = {}) {
     return true;
   });
 
+  // Totales calculados sobre `filtrados` (no sobre `resumen` del backend), para
+  // que las cards reflejen TODOS los filtros aplicados — año/mes/día/estado
+  // (que vienen del backend) + Contado/Crédito + búsqueda libre (cliente).
+  const statsFiltrados = filtrados.reduce((acc, v) => {
+    acc.cantidad += 1;
+    acc.monto += v.Total || 0;
+    if (v.Tipo === 'Contado') acc.contado += v.Total || 0;
+    else acc.credito += v.Total || 0;
+    return acc;
+  }, { cantidad: 0, monto: 0, contado: 0, credito: 0 });
+
   const meses = ['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
 
   // Anchos calibrados — AG Grid mete iconos de sort/filter en el header (~30-40px)
@@ -152,7 +176,8 @@ export function SalesManagement({ onNavigate }: Props = {}) {
       cellRenderer: (p: any) => <span style={{ color: '#7c3aed', fontWeight: 600 }}>{p.value}</span> },
     { headerName: 'Fecha', field: 'Fecha', width: 110, sortable: true,
       cellRenderer: (p: any) => p.value ? new Date(p.value).toLocaleDateString('es-CO') : '-' },
-    { headerName: 'Hora', field: 'Hora', width: 75 },
+    { headerName: 'Hora', field: 'Hora', width: 90,
+      cellRenderer: (p: any) => fmtHora12(p.value) },
     { headerName: 'Cliente', field: 'A_nombre', flex: 1, minWidth: 180, sortable: true, filter: true },
     { headerName: 'Tipo', field: 'Tipo', width: 105,
       cellRenderer: (p: any) => {
@@ -205,10 +230,10 @@ export function SalesManagement({ onNavigate }: Props = {}) {
       {/* Stats */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 16 }}>
         {[
-          { label: 'Total Facturas', value: resumen.total_facturas || 0, icon: TrendingUp, bg: '#f3e8ff', color: '#7c3aed' },
-          { label: 'Monto Total', value: fmtMon(resumen.monto_total || 0), icon: DollarSign, bg: '#dcfce7', color: '#16a34a', isText: true },
-          { label: 'Contado', value: fmtMon(resumen.contado || 0), icon: Wallet, bg: '#f3f4f6', color: '#374151', isText: true },
-          { label: 'Crédito', value: fmtMon(resumen.credito || 0), icon: CreditCard, bg: '#dbeafe', color: '#2563eb', isText: true },
+          { label: 'Total Facturas', value: statsFiltrados.cantidad, icon: TrendingUp, bg: '#f3e8ff', color: '#7c3aed' },
+          { label: 'Monto Total', value: fmtMon(statsFiltrados.monto), icon: DollarSign, bg: '#dcfce7', color: '#16a34a', isText: true },
+          { label: 'Contado', value: fmtMon(statsFiltrados.contado), icon: Wallet, bg: '#f3f4f6', color: '#374151', isText: true },
+          { label: 'Crédito', value: fmtMon(statsFiltrados.credito), icon: CreditCard, bg: '#dbeafe', color: '#2563eb', isText: true },
         ].map((s, i) => {
           const Icon = s.icon;
           return (
@@ -328,7 +353,7 @@ export function SalesManagement({ onNavigate }: Props = {}) {
               {/* Info factura */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '6px 12px', fontSize: 13, marginBottom: 14 }}>
                 <div><span style={{ fontSize: 10, color: '#6b7280' }}>CLIENTE</span><div style={{ fontWeight: 600 }}>{facturaDetalle.A_nombre}</div></div>
-                <div><span style={{ fontSize: 10, color: '#6b7280' }}>FECHA</span><div>{new Date(facturaDetalle.Fecha).toLocaleDateString('es-CO')} {facturaDetalle.Hora}</div></div>
+                <div><span style={{ fontSize: 10, color: '#6b7280' }}>FECHA</span><div>{new Date(facturaDetalle.Fecha).toLocaleDateString('es-CO')} {fmtHora12(facturaDetalle.Hora)}</div></div>
                 <div><span style={{ fontSize: 10, color: '#6b7280' }}>TIPO</span><div>{facturaDetalle.Tipo}</div></div>
                 <div><span style={{ fontSize: 10, color: '#6b7280' }}>MEDIO DE PAGO</span><div>{facturaDetalle.MedioPago || 'Efectivo'}</div></div>
                 <div><span style={{ fontSize: 10, color: '#6b7280' }}>VENDEDOR</span><div>{facturaDetalle.NombreUsuario || '-'}</div></div>

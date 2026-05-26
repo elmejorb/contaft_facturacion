@@ -4,6 +4,16 @@ import { hoyLocal, inicioMesLocal } from '../utils/fecha';
 
 const API = 'http://localhost:80/conta-app-backend/api/ventas/listar.php';
 const fmtMon = (v: number) => '$ ' + Math.round(v).toLocaleString('es-CO');
+const fmtHora12 = (h?: string | null): string => {
+  if (!h) return '-';
+  const [hStr, mStr] = h.split(':');
+  const hh = parseInt(hStr, 10);
+  const mm = (mStr ?? '00').padStart(2, '0');
+  if (isNaN(hh)) return h;
+  const sufijo = hh >= 12 ? 'p. m.' : 'a. m.';
+  const h12 = hh % 12 === 0 ? 12 : hh % 12;
+  return `${h12}:${mm} ${sufijo}`;
+};
 
 interface Props { user: any; }
 
@@ -113,7 +123,7 @@ export function DashboardVendedor({ user }: Props) {
                   <td style={{ padding: '5px 8px', color: '#7c3aed', fontWeight: 700 }}>{v.Factura_N}</td>
                   <td style={{ padding: '5px 8px', color: '#6b7280' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                      <Clock size={12} /> {v.Hora || '-'}
+                      <Clock size={12} /> {fmtHora12(v.Hora)}
                     </div>
                   </td>
                   <td style={{ padding: '5px 8px', fontWeight: 500 }}>{v.A_nombre}</td>

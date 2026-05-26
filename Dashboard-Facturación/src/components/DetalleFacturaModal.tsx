@@ -10,6 +10,16 @@ import { useAuth } from '../contexts/AuthContext';
 const API = 'http://localhost:80/conta-app-backend/api/ventas/detalle-factura.php';
 const API_CLIENTES = 'http://localhost:80/conta-app-backend/api/clientes/buscar.php';
 const fmtMon = (v: number) => '$ ' + Math.round(v).toLocaleString('es-CO');
+const fmtHora12 = (h?: string | null): string => {
+  if (!h) return '-';
+  const [hStr, mStr] = h.split(':');
+  const hh = parseInt(hStr, 10);
+  const mm = (mStr ?? '00').padStart(2, '0');
+  if (isNaN(hh)) return h;
+  const sufijo = hh >= 12 ? 'p. m.' : 'a. m.';
+  const h12 = hh % 12 === 0 ? 12 : hh % 12;
+  return `${h12}:${mm} ${sufijo}`;
+};
 
 interface Props { factN: number; onClose: () => void; onUpdate?: () => void; }
 
@@ -185,7 +195,7 @@ export function DetalleFacturaModal({ factN, onClose, onUpdate }: Props) {
     const config = getConfigImpresion();
     const datosImp: DatosFactura = {
       numero: factura.Factura_N,
-      fecha: factura.Fecha ? new Date(factura.Fecha).toLocaleDateString('es-CO') + ' - ' + (factura.Hora || '') : '-',
+      fecha: factura.Fecha ? new Date(factura.Fecha).toLocaleDateString('es-CO') + ' - ' + fmtHora12(factura.Hora) : '-',
       tipo: factura.Tipo || 'Contado', dias: parseInt(factura.Dias) || 0,
       cliente: { nombre: factura.A_nombre || '-', nit: factura.Identificacion || '0', telefono: factura.Telefono || '0', direccion: factura.Direccion || '-' },
       items: items.map(i => ({ codigo: i.Codigo || '', nombre: i.Nombres_Articulo || '-', cantidad: parseFloat(i.Cantidad) || 0, precio: parseFloat(i.PrecioV) || 0, iva: parseFloat(i.IVA) || 0, descuento: parseFloat(i.Descuento) || 0, subtotal: parseFloat(i.Subtotal) || 0 })),
