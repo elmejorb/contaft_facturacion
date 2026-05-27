@@ -170,7 +170,7 @@ export function ReciboImpresion({ pago, cliente, formato, onClose, tipoTercero =
                     <tr>
                       <td style={{ border: '1px solid #000', padding: '6px 10px', fontWeight: 600, fontSize: 12, background: '#f9f9f9' }}>MEDIO DE PAGO</td>
                       <td style={{ border: '1px solid #000', padding: '6px 10px' }}>{pago.MedioPago}</td>
-                      <td style={{ border: '1px solid #000', padding: '6px 10px', fontWeight: 600, fontSize: 12, background: '#f9f9f9' }}>SALDO</td>
+                      <td style={{ border: '1px solid #000', padding: '6px 10px', fontWeight: 600, fontSize: 12, background: '#f9f9f9' }}>SALDO TOTAL CLIENTE</td>
                       <td style={{ border: '1px solid #000', padding: '6px 10px', textAlign: 'right', fontWeight: 600 }}>{fmtMon(pago.SaldoAct)}</td>
                     </tr>
                   </tbody>
@@ -237,7 +237,7 @@ export function ReciboImpresion({ pago, cliente, formato, onClose, tipoTercero =
                     <span>VALOR PAGADO:</span><span>{fmtMon(pago.ValorPago)}</span>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span>Saldo restante:</span><span>{fmtMon(pago.SaldoAct)}</span>
+                    <span>Saldo total cliente:</span><span>{fmtMon(pago.SaldoAct)}</span>
                   </div>
                 </div>
 

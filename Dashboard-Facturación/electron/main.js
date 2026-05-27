@@ -442,6 +442,68 @@ ipcMain.handle('config:read', () => readConfig());
 ipcMain.handle('config:write', (_, data) => writeConfig(data));
 ipcMain.handle('config:getPath', () => getConfigPath());
 
+// ============================================================
+// IPC handlers para impresión directa (silenciosa) a la térmica
+// ============================================================
+// Lista de impresoras instaladas para que el usuario elija la térmica.
+ipcMain.handle('print:listPrinters', async () => {
+  try {
+    if (!mainWindow) return [];
+    const printers = await mainWindow.webContents.getPrintersAsync();
+    return printers.map(p => ({
+      name: p.name,
+      displayName: p.displayName || p.name,
+      isDefault: !!p.isDefault,
+      status: p.status,
+    }));
+  } catch (e) {
+    console.error('[print] listPrinters error:', e?.message);
+    return [];
+  }
+});
+
+// Imprime un HTML directo a una impresora, SIN diálogo. Usa una ventana
+// oculta que carga el HTML y dispara print({silent:true, deviceName}).
+ipcMain.handle('print:silent', async (_, { html, deviceName }) => {
+  return new Promise((resolve) => {
+    let printWin = new BrowserWindow({
+      show: false,
+      webPreferences: { nodeIntegration: false, contextIsolation: true },
+    });
+    const cerrar = () => { try { if (printWin && !printWin.isDestroyed()) printWin.close(); } catch {} printWin = null; };
+
+    printWin.webContents.once('did-finish-load', () => {
+      // Pequeño respiro para asegurar render de fuentes/estilos antes de imprimir.
+      setTimeout(() => {
+        try {
+          printWin.webContents.print(
+            {
+              silent: true,
+              deviceName: deviceName || '',
+              printBackground: true,
+              margins: { marginType: 'none' },
+            },
+            (success, reason) => {
+              cerrar();
+              resolve({ success, reason: reason || null });
+            }
+          );
+        } catch (e) {
+          cerrar();
+          resolve({ success: false, reason: e?.message || 'print exception' });
+        }
+      }, 250);
+    });
+
+    printWin.webContents.once('did-fail-load', (_e, code, desc) => {
+      cerrar();
+      resolve({ success: false, reason: `load failed ${code}: ${desc}` });
+    });
+
+    printWin.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
+  });
+});
+
 let mainWindow;
 
 function createWindow() {
@@ -491,10 +553,34 @@ function createWindow() {
     if (mainWindow) mainWindow.reload();
   });
 
+  // Interceptar el cierre de la ventana: antes de cerrar le preguntamos al
+  // renderer si hay una caja abierta. El renderer decide (consulta el backend
+  // y muestra la confirmación) y, si el usuario acepta, responde para cerrar.
+  // Salvaguarda: si el renderer no responde (pantalla colgada) y el usuario
+  // vuelve a dar X, forzamos el cierre.
+  mainWindow.on('close', (e) => {
+    if (cierreConfirmado) return; // ya confirmado → dejar cerrar
+    if (cierreEnProceso) return;  // 2º intento sin respuesta → dejar cerrar (escape)
+    e.preventDefault();
+    cierreEnProceso = true;
+    if (mainWindow) mainWindow.webContents.send('app:intento-cierre');
+  });
+
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
 }
+
+// Banderas del flujo de cierre.
+let cierreConfirmado = false; // el usuario aceptó cerrar (o no había caja)
+let cierreEnProceso = false;  // se preguntó al renderer y se espera respuesta
+ipcMain.on('app:cerrar-confirmado', () => {
+  cierreConfirmado = true;
+  if (mainWindow) mainWindow.close();
+});
+ipcMain.on('app:cierre-cancelado', () => {
+  cierreEnProceso = false; // el usuario canceló → la próxima X vuelve a preguntar
+});
 
 app.whenReady().then(() => {
   Menu.setApplicationMenu(null);

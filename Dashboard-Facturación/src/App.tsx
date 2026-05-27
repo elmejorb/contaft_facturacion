@@ -22,6 +22,39 @@ function AppContent() {
     });
   }, []);
 
+  // Aviso al cerrar la ventana de Windows si hay una caja abierta sin cerrar.
+  // El main process intercepta el cierre y manda 'app:intento-cierre'; aquí
+  // consultamos en vivo el estado de la caja del usuario y, si está abierta,
+  // pedimos confirmación. Solo si el usuario acepta (o no hay caja) cerramos.
+  useEffect(() => {
+    let ipcRenderer: any;
+    try { ipcRenderer = window.require('electron').ipcRenderer; } catch { return; }
+    if (!ipcRenderer) return;
+
+    const onIntentoCierre = async () => {
+      try {
+        if (isAuthenticated && user?.id) {
+          const r = await fetch(`http://localhost:80/conta-app-backend/api/caja/sesion.php?usuario=${user.id}`);
+          const d = await r.json();
+          if (d?.abierta) {
+            const ok = window.confirm(
+              'Tienes una CAJA ABIERTA sin cerrar.\n\n' +
+              'Si cierras el sistema ahora, el cuadre de hoy quedará abierto y mañana seguirá acumulando.\n\n' +
+              '¿Seguro que deseas cerrar el sistema de todas formas?'
+            );
+            if (!ok) { ipcRenderer.send('app:cierre-cancelado'); return; } // canceló → no cerrar
+          }
+        }
+      } catch {
+        // Si falla la consulta (sin conexión, etc.) no bloqueamos el cierre.
+      }
+      ipcRenderer.send('app:cerrar-confirmado');
+    };
+
+    ipcRenderer.on('app:intento-cierre', onIntentoCierre);
+    return () => ipcRenderer.removeListener('app:intento-cierre', onIntentoCierre);
+  }, [isAuthenticated, user?.id]);
+
   // Bloquear render hasta que se cargue config.json — evita que componentes
   // hagan fetch con DEFAULT_URL antes de que loadConfigFromFile termine.
   if (loading || !configLoaded) {

@@ -5,6 +5,19 @@ Visible solo para administradores desde **Configuración → Acerca de → Ver h
 
 ---
 
+## 4.3.48 — 2026-05-26
+
+### Nuevas funciones
+- **Impresión directa a la impresora térmica (estilo VB6)**: nuevo toggle en Configuración → Comportamiento de Impresión, "Impresión directa a la térmica (sin diálogo)". Cuando se activa, la tirilla sale **sola** a la impresora elegida sin abrir el diálogo de impresión — cero clics, acelera mucho el flujo de ventas. Incluye selector de impresora (lista las instaladas), botón refrescar y botón "Probar" para tirilla de prueba. Apagado por default. Implementado con impresión silenciosa de Electron (`webContents.print({silent:true})`) vía ventana oculta
+- **Aviso al cerrar la app con caja abierta**: si se cierra la ventana de Windows y el usuario tiene una caja sin cerrar, el sistema pregunta "¿Seguro que deseas cerrar el sistema?" recordando que el cuadre quedará abierto. Si no hay caja abierta, cierra normal. Tiene salvaguarda: si la pantalla se cuelga, un segundo clic en la X fuerza el cierre
+
+### Mejoras
+- **Recibo de pago muestra el saldo TOTAL del cliente**: el recibo de abono ahora muestra "Saldo total cliente" (la deuda completa del cliente tras el pago, sumando todas sus facturas) en lugar de un saldo ambiguo. Antes el flujo de pago múltiple mandaba el saldo en 0
+- **Fuente de la tirilla POS cambiada a Arial / sans-serif**: más legible y limpia. La alineación de columnas se mantiene porque el layout usa flexbox, no fuente monoespaciada
+- **Tutorial de Familias de Productos y Distribución** ampliado en el manual HTML (`TUTORIAL_CONTA_FT.html`): concepto del Factor con ejemplos, crear familia paso a paso, distribución automática y manual, efecto en kardex/costo y errores comunes
+
+---
+
 ## 4.3.47 — 2026-05-26
 
 ### Correcciones de bugs

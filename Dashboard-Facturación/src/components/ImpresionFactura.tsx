@@ -58,10 +58,11 @@ function tirilla(d: DatosFactura): string {
     : (d.esFE && d.tipoDocFE ? d.tipoDocFE : 'FACTURA DE VENTA');
   const linea = '<div style="border-bottom:1px dashed #000;margin:4px 0;"></div>';
 
-  // Fuente: Consolas/Lucida Console renderizan mejor que Courier New en
-  // impresoras térmicas POS (Bixolon, Epson TM-T20, 3nStar, etc.).
-  // Courier New a veces produce artefactos donde la "N" sale como "K".
-  let html = `<div style="width:62mm;font-family:Consolas,'Lucida Console','DejaVu Sans Mono',monospace;font-size:11px;padding:3mm 4mm;line-height:1.4;word-wrap:break-word;overflow-wrap:break-word;">`;
+  // Fuente: Arial/sans-serif — más legible y limpia en la tirilla. La
+  // alineación de columnas no depende de fuente monoespaciada porque el
+  // layout usa flexbox (justify-content:space-between), así que se mantiene
+  // cuadrado aunque la fuente sea proporcional.
+  let html = `<div style="width:62mm;font-family:Arial,Helvetica,sans-serif;font-size:11px;padding:3mm 4mm;line-height:1.4;word-wrap:break-word;overflow-wrap:break-word;">`;
   if (d.enContingencia) html += BANNER_CONTINGENCIA_HTML;
   // Banner FE — encabezado obligatorio en representación gráfica
   if (d.esFE) {
@@ -437,6 +438,26 @@ export function imprimirFactura(datos: DatosFactura, formatoOverride?: 'tirilla'
     default:
       contenido = mediaCarta(datos);
       pageSize = 'letter landscape';
+  }
+
+  // Impresión DIRECTA (silenciosa) — estilo VB6: manda el HTML a la impresora
+  // configurada sin abrir diálogo ni ventana. Solo en Electron y si hay
+  // impresora elegida. Acelera el flujo de ventas (cero clics).
+  if (config.impresionDirecta && config.impresoraTirilla) {
+    try {
+      const ipc = (window as any).require?.('electron')?.ipcRenderer;
+      if (ipc) {
+        const docHtml = `<!DOCTYPE html><html><head>
+          <style>
+            @page { size: ${pageSize}; margin: 0; }
+            body { margin: 0; padding: 0; }
+          </style>
+        </head><body>${contenido}</body></html>`;
+        ipc.invoke('print:silent', { html: docHtml, deviceName: config.impresoraTirilla })
+          .then((res: any) => { if (!res?.success) console.warn('[print:silent]', res?.reason); });
+        return; // no abrimos ventana
+      }
+    } catch (e) { /* cae al flujo normal con ventana */ }
   }
 
   const winWidth = formato === 'tirilla' ? 360 : 800;

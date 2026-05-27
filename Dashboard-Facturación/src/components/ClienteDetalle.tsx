@@ -118,7 +118,8 @@ export function ClienteDetalle({ clienteId, onClose, tabInicial = 'ventas' }: Pr
             Fecha: fechaPago + ' ' + new Date().toLocaleTimeString('es-CO'),
             NFactAnt: pagosArr.map((p: any) => p.factura_n).join(', '),
             ValorPago: d.total_pagado,
-            SaldoAct: 0,
+            // Saldo TOTAL del cliente tras el pago (todas sus facturas), no 0.
+            SaldoAct: d.saldo_cliente ?? 0,
             Descuento: descGlobal,
             MedioPago: mediosPago.find((m: any) => m.id_mediopago === medioPago)?.nombre_medio || 'Efectivo',
             DetallePago: `Pago de ${d.facturas_afectadas} factura(s)`

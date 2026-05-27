@@ -234,12 +234,33 @@ try {
 
             $db->commit();
 
+            // Saldo TOTAL del cliente tras el pago (todas sus facturas pendientes,
+            // de POS + FE + anteriores), leído de las vistas de verdad. El recibo
+            // lo muestra para que el cliente sepa cuánto le queda debiendo en TOTAL,
+            // no solo de la factura que acaba de abonar.
+            $tieneFE = $db->query("SHOW TABLES LIKE 'electronic_documents'")->fetch();
+            $tieneFA = $db->query("SHOW TABLES LIKE 'tblfacturasanteriores'")->fetch();
+            $sqlSaldo = "SELECT COALESCE(SUM(Saldo),0) AS s FROM vw_facturas_cliente_saldos WHERE CodigoCli = :id AND Saldo > 0";
+            $paramsSaldo = [':id' => $clienteId];
+            if ($tieneFE) {
+                $sqlSaldo .= " UNION ALL SELECT COALESCE(SUM(Saldo),0) AS s FROM vw_facturas_elec_cliente_saldos WHERE CodigoCli = :id_fe AND Saldo > 0";
+                $paramsSaldo[':id_fe'] = $clienteId;
+            }
+            if ($tieneFA) {
+                $sqlSaldo .= " UNION ALL SELECT COALESCE(SUM(Saldo),0) AS s FROM vw_facturas_anteriores_cliente WHERE CodigoCli = :id_fa AND Saldo > 0";
+                $paramsSaldo[':id_fa'] = $clienteId;
+            }
+            $stmtSaldo = $db->prepare("SELECT COALESCE(SUM(s),0) AS total FROM ($sqlSaldo) x");
+            $stmtSaldo->execute($paramsSaldo);
+            $saldoCliente = floatval($stmtSaldo->fetchColumn() ?: 0);
+
             echo json_encode([
                 "success" => true,
                 "message" => "Pago registrado. Recibo #$recCaja. $facturasAfectadas factura(s) afectada(s).",
                 "recibo" => $recCaja,
                 "total_pagado" => $totalPagado,
-                "facturas_afectadas" => $facturasAfectadas
+                "facturas_afectadas" => $facturasAfectadas,
+                "saldo_cliente" => $saldoCliente
             ], JSON_UNESCAPED_UNICODE);
         } elseif ($action === 'anular') {
             $idPago = $data->id_pago ?? null;

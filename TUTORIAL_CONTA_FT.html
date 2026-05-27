@@ -1233,19 +1233,101 @@
     </div>
   </div>
 
-  <p class="text">Una <strong>familia</strong> agrupa varias presentaciones del mismo producto. Por ejemplo: <em>Azúcar Bulto x 50kg</em> y <em>Azúcar Libra</em> son el mismo producto en diferentes presentaciones. Cada presentación es un producto independiente con su propio precio y existencia.</p>
-
-  <h3 class="sub">Para qué sirve</h3>
-  <ul class="checklist">
-    <li>Cuando se vende una presentación pequeña (Libra) y no hay stock, el sistema puede <strong>distribuir automáticamente</strong> desde la presentación grande (Bulto) sin tener que hacer ajuste manual</li>
-    <li>La distribución puede ser automática (sin preguntar) o con confirmación previa, según la configuración</li>
-    <li>Los movimientos de distribución quedan registrados en el historial</li>
-  </ul>
+  <p class="text">A veces vende <strong>el mismo producto en distintas presentaciones</strong>: un <em>bulto</em> de 50 kilos, el <em>kilo</em> suelto, la <em>libra</em>. En el sistema cada presentación es un producto distinto con su propio código… pero <strong>físicamente son lo mismo</strong>. Las <strong>familias</strong> le dicen al sistema que esos códigos son el mismo producto, solo cambia la unidad, y cuánto vale cada uno respecto a los demás.</p>
 
   <div class="alert alert-tip">
     <span class="alert-icon">💡</span>
-    <div>Para crear una familia, vaya a <strong>Inventario → Familias de Productos</strong> y agrupe los productos indicando el factor de conversión (ej: 1 Bulto = 50 Libras → factor 50).</div>
+    <div><strong>Beneficio real:</strong> ya no tiene que hacer "entradas y salidas" manuales cada vez que rompe un bulto para vender al kilo. El sistema lo hace solo (o con un clic) y deja todo cuadrado en inventario y kardex.</div>
   </div>
+
+  <h3 class="sub">El concepto clave: el Factor</h3>
+  <p class="text">El Factor responde a una sola pregunta: <strong>¿cuántas unidades base contiene esta presentación?</strong> Primero elige cuál es la <strong>unidad base</strong> de la familia (la más pequeña). Esa siempre tiene <strong>Factor = 1</strong>. Las demás se miden contra ella.</p>
+
+  <p class="text" style="margin-bottom:6px"><strong>Ejemplo:</strong> Maíz que se vende por bulto, kilo y libra, con la base en <em>Kilo</em>:</p>
+  <table class="fields-table">
+    <thead><tr><th>Producto</th><th>Presentación</th><th>Factor</th><th>Significado</th></tr></thead>
+    <tbody>
+      <tr><td>MAIZ-BULTO</td><td>Bulto 50 kg</td><td><strong>50</strong></td><td>Un bulto = 50 kilos</td></tr>
+      <tr><td>MAIZ-KILO</td><td>Kilo</td><td><strong>1</strong></td><td>⭐ Unidad <strong>BASE</strong></td></tr>
+      <tr><td>MAIZ-LIBRA</td><td>Libra</td><td><strong>0.5</strong></td><td>Media libra = medio kilo</td></tr>
+    </tbody>
+  </table>
+
+  <div class="alert alert-warning">
+    <span class="alert-icon">⚠️</span>
+    <div><strong>Regla de oro:</strong> el Factor es <em>cuántas bases caben adentro</em>. Lo más cómodo es poner como base la unidad <strong>más pequeña</strong> (kilo, libra, unidad), así los factores quedan en números redondos. Si pone como base la unidad grande, los factores quedan en decimales raros (ej. el kilo sería 0.02).</div>
+  </div>
+
+  <h3 class="sub">Crear una familia paso a paso</h3>
+  <p class="text">Ruta: <strong>Inventario → Familias de Productos</strong></p>
+  <div class="steps">
+    <div class="step">
+      <div class="step-number">1</div>
+      <div class="step-content"><h4>Nueva familia</h4><p>Clic en <strong>➕ Nueva familia</strong>, escriba un nombre (ej. <em>Maíz Amarillo</em>) y guarde.</p></div>
+    </div>
+    <div class="step">
+      <div class="step-number">2</div>
+      <div class="step-content"><h4>Abrir la familia</h4><p>En la lista, clic en el ícono de <strong>capas (Ver productos)</strong>.</p></div>
+    </div>
+    <div class="step">
+      <div class="step-number">3</div>
+      <div class="step-content"><h4>Agregar cada presentación</h4><p>Clic en <strong>➕ Agregar producto</strong>, busque el producto, escriba su <strong>Factor</strong> y marque <strong>"Esta es la unidad base"</strong> SOLO en el de Factor 1. Repita para bulto, kilo, libra…</p></div>
+    </div>
+  </div>
+
+  <div class="alert alert-tip">
+    <span class="alert-icon">💡</span>
+    <div>Un producto solo puede estar en <strong>una familia a la vez</strong>. Si al buscarlo no aparece, probablemente ya está en otra. Quitar un producto de la familia <strong>NO lo borra del inventario</strong>, solo lo desvincula.</div>
+  </div>
+
+  <h3 class="sub">Distribución AUTOMÁTICA (durante una venta)</h3>
+  <p class="text">Se activa en <strong>Configuración → "Usar familias de productos"</strong>. Cuando vende una unidad pequeña y <strong>no hay suficiente stock suelto</strong>, el sistema <strong>abre automáticamente una unidad mayor</strong> de la misma familia para completar la venta.</p>
+
+  <div class="alert alert-success">
+    <span class="alert-icon">✅</span>
+    <div><strong>Ejemplo:</strong> tiene 0 kilos sueltos pero 3 bultos (de 50 kg). El cliente pide 20 kilos. Al guardar la venta, el sistema abre 1 bulto (−1 bulto → +50 kilos), vende los 20 y le deja <strong>30 kilos sueltos</strong> para la próxima. Todo automático.</div>
+  </div>
+  <ul class="checklist">
+    <li>Con <strong>"Confirmar distribución"</strong> apagado: abre los bultos en silencio y avisa con un mensaje (ej. <em>"Distribuido: 1 BULTO → 50 KILO"</em>).</li>
+    <li>Con <strong>"Confirmar distribución"</strong> encendido: antes de romper el bulto le pregunta si confirma.</li>
+    <li>Si <strong>no hay con qué cubrir</strong> (ni suelto ni bultos), bloquea la venta y le dice exactamente cuánto falta.</li>
+  </ul>
+
+  <h3 class="sub">Distribución MANUAL (a propósito, sin vender)</h3>
+  <p class="text">Para <strong>romper bultos por adelantado</strong> (preparar mercancía) sin esperar a una venta. Ruta: <strong>Inventario → Distribuir Productos</strong>.</p>
+  <div class="steps">
+    <div class="step">
+      <div class="step-number">1</div>
+      <div class="step-content"><h4>Producto origen (unidad mayor)</h4><p>Busque y seleccione el producto que va a abrir, ej. el Bulto. El sistema muestra su existencia y factor.</p></div>
+    </div>
+    <div class="step">
+      <div class="step-number">2</div>
+      <div class="step-content"><h4>Producto destino (unidad menor)</h4><p>Elija la unidad a la que se convierte, ej. Kilo.</p></div>
+    </div>
+    <div class="step">
+      <div class="step-number">3</div>
+      <div class="step-content"><h4>Cantidad a romper</h4><p>Cuántos bultos abre. El recuadro verde <strong>RESULTADO</strong> muestra la conversión en vivo: <em>–2 MAIZ-BULTO → +100.00 MAIZ-KILO</em>.</p></div>
+    </div>
+    <div class="step">
+      <div class="step-number">4</div>
+      <div class="step-content"><h4>Distribuir</h4><p>Comentario opcional (ej. <em>"Apertura para pedido del cliente X"</em>) y clic en <strong>Distribuir</strong>. El botón <strong>Historial</strong> muestra todas las distribuciones hechas (azul = manual, amarillo = automática de ventas).</p></div>
+    </div>
+  </div>
+
+  <h3 class="sub">¿Cómo queda en inventario y kardex?</h3>
+  <p class="text">Cada distribución deja rastro <strong>permanente y auditable</strong>: una <strong>SALIDA</strong> en el kardex del origen (<em>Distribución → MAIZ-KILO</em>) y una <strong>ENTRADA</strong> en el del destino (<em>Distribución ← MAIZ-BULTO</em>). El <strong>costo se reparte</strong>: si el bulto costaba $87.500, cada kilo hereda $1.750 (87.500 ÷ 50). Nunca se inventa ni se borra inventario — lo que sale de un lado entra exacto al otro, así que el inventario total en dinero <strong>no cambia</strong> al distribuir, solo cambia de presentación.</p>
+
+  <h3 class="sub">Errores comunes</h3>
+  <table class="fields-table">
+    <thead><tr><th>Mensaje / síntoma</th><th>Causa</th><th>Solución</th></tr></thead>
+    <tbody>
+      <tr><td>"Este producto no pertenece a ninguna familia"</td><td>No está agregado a una familia</td><td>Agréguelo en Familias de Productos</td></tr>
+      <tr><td>"No hay unidades menores a las cuales distribuir"</td><td>Solo agregó la unidad grande</td><td>Agregue también el kilo/libra/unidad a la familia</td></tr>
+      <tr><td>El producto no aparece al agregarlo</td><td>Ya está en otra familia</td><td>Quítelo de la otra primero (un producto = una familia)</td></tr>
+      <tr><td>Factores al revés (bultos enormes, kilos diminutos)</td><td>Puso como base la unidad grande</td><td>Marque como base la más pequeña y ajuste factores</td></tr>
+      <tr><td>La venta no rompe bultos sola</td><td>"Usar familias" apagado</td><td>Actívelo en Configuración</td></tr>
+    </tbody>
+  </table>
 </section>
 
 <!-- ========================= CLIENTES ========================= -->

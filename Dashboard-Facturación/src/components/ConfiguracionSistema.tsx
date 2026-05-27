@@ -15,6 +15,9 @@ export interface ConfigImpresion {
   vistaPrevia: boolean; // true = preview, false = imprime directo
   imprimirAlGuardar: boolean; // imprimir automáticamente al guardar factura
   imprimirCotizacion: boolean; // imprimir al guardar cotización
+  // Impresión directa (silenciosa) a la térmica — estilo VB6
+  impresionDirecta: boolean;   // si true, manda la tirilla directo a la impresora sin diálogo
+  impresoraTirilla: string;    // nombre (deviceName) de la impresora térmica elegida
   // Copias
   copiasFactura: number;
   copiasPago: number;
@@ -65,6 +68,8 @@ const defaultConfig: ConfigImpresion = {
   vistaPrevia: true,
   imprimirAlGuardar: true,
   imprimirCotizacion: false,
+  impresionDirecta: false,
+  impresoraTirilla: '',
   copiasFactura: 1,
   copiasPago: 1,
   mostrarPropietario: true,
@@ -152,6 +157,37 @@ export function ConfiguracionSistema() {
   const [nuevaCat, setNuevaCat] = useState('');
   const [editandoCat, setEditandoCat] = useState<number | null>(null);
   const [editNombre, setEditNombre] = useState('');
+  const [impresoras, setImpresoras] = useState<{ name: string; displayName: string; isDefault: boolean }[]>([]);
+
+  // Cargar impresoras instaladas (solo en Electron) para el selector de tirilla.
+  const cargarImpresoras = async () => {
+    try {
+      const ipc = (window as any).require?.('electron')?.ipcRenderer;
+      if (!ipc) return;
+      const lista = await ipc.invoke('print:listPrinters');
+      setImpresoras(lista || []);
+    } catch (e) { /* no-Electron o sin impresoras */ }
+  };
+  useEffect(() => { cargarImpresoras(); }, []);
+
+  // Imprimir una tirilla de prueba en la impresora elegida.
+  const probarImpresion = async () => {
+    try {
+      const ipc = (window as any).require?.('electron')?.ipcRenderer;
+      if (!ipc) { toast.error('Solo disponible en la app de escritorio'); return; }
+      if (!config.impresoraTirilla) { toast.error('Elige primero una impresora'); return; }
+      const html = `<!DOCTYPE html><html><head><style>@page{size:72mm auto;margin:0}body{margin:0;font-family:Arial,sans-serif;font-size:11px;width:62mm;padding:3mm 4mm;text-align:center}</style></head><body>
+        <div style="font-weight:bold;font-size:14px">PRUEBA DE IMPRESIÓN</div>
+        <div style="border-top:1px dashed #000;margin:6px 0"></div>
+        <div>Si lees esto, la impresión directa<br>funciona correctamente.</div>
+        <div style="margin-top:6px">${new Date().toLocaleString('es-CO')}</div>
+        <div style="border-top:1px dashed #000;margin:6px 0"></div>
+        <div>Conta FT</div></body></html>`;
+      const res = await ipc.invoke('print:silent', { html, deviceName: config.impresoraTirilla });
+      if (res?.success) toast.success('Tirilla de prueba enviada');
+      else toast.error('No se pudo imprimir: ' + (res?.reason || 'error'));
+    } catch (e) { toast.error('Error al probar impresión'); }
+  };
 
   const cargarCategorias = async () => {
     try {
@@ -354,6 +390,28 @@ export function ConfiguracionSistema() {
           {toggle('Vista previa antes de imprimir', 'vistaPrevia', 'Si se desactiva, imprime directamente sin mostrar preview (requiere Electron)')}
           {toggle('Imprimir factura al guardar', 'imprimirAlGuardar', 'Al finalizar una venta, imprime automáticamente')}
           {toggle('Imprimir cotización al guardar', 'imprimirCotizacion', 'Al guardar una cotización, imprime automáticamente')}
+          {toggle('Impresión directa a la térmica (sin diálogo)', 'impresionDirecta', 'Estilo VB6: la tirilla sale sola a la impresora elegida, sin ventana de impresión. Acelera las ventas. Requiere elegir la impresora abajo.')}
+          {config.impresionDirecta && (
+            <div style={{ padding: '10px 12px', background: '#faf5ff', border: '1px solid #e9d5ff', borderRadius: 8, marginTop: 6 }}>
+              <label style={{ fontSize: 12, fontWeight: 600, color: '#6b21a8', display: 'block', marginBottom: 6 }}>Impresora de tirilla</label>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <select value={config.impresoraTirilla} onChange={e => set('impresoraTirilla', e.target.value)}
+                  style={{ flex: 1, height: 32, border: '1px solid #d1d5db', borderRadius: 6, padding: '0 8px', fontSize: 13 }}>
+                  <option value="">— Selecciona la impresora —</option>
+                  {impresoras.map(p => (
+                    <option key={p.name} value={p.name}>{p.displayName}{p.isDefault ? ' (predeterminada)' : ''}</option>
+                  ))}
+                </select>
+                <button type="button" onClick={cargarImpresoras} title="Refrescar lista"
+                  style={{ height: 32, padding: '0 10px', background: '#fff', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 12, cursor: 'pointer' }}>↻</button>
+                <button type="button" onClick={probarImpresion}
+                  style={{ height: 32, padding: '0 12px', background: '#7c3aed', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, cursor: 'pointer', fontWeight: 600 }}>Probar</button>
+              </div>
+              {impresoras.length === 0 && (
+                <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 6 }}>No se detectaron impresoras (o estás en navegador). Abre la app de escritorio y dale ↻.</div>
+              )}
+            </div>
+          )}
           {selectField('Copias de factura', 'copiasFactura', [{ value: 1, label: '1 copia' }, { value: 2, label: '2 copias' }, { value: 3, label: '3 copias' }])}
           {selectField('Copias de recibo', 'copiasPago', [{ value: 1, label: '1 copia' }, { value: 2, label: '2 copias' }, { value: 3, label: '3 copias' }])}
         </div>
