@@ -5,10 +5,18 @@ Visible solo para administradores desde **Configuración → Acerca de → Ver h
 
 ---
 
+## 4.3.49 — 2026-05-27
+
+### Ajustes
+- **Textos de configuración más claros** (sin jerga técnica): los toggles de impresión ya no mencionan términos internos que confundían al usuario
+- **Impresión directa y Vista previa ahora son excluyentes**: al activar "Impresión directa a la térmica", se desactiva sola la "Vista previa antes de imprimir" (y viceversa). No tiene sentido mostrar preview si la tirilla sale directo
+
+---
+
 ## 4.3.48 — 2026-05-26
 
 ### Nuevas funciones
-- **Impresión directa a la impresora térmica (estilo VB6)**: nuevo toggle en Configuración → Comportamiento de Impresión, "Impresión directa a la térmica (sin diálogo)". Cuando se activa, la tirilla sale **sola** a la impresora elegida sin abrir el diálogo de impresión — cero clics, acelera mucho el flujo de ventas. Incluye selector de impresora (lista las instaladas), botón refrescar y botón "Probar" para tirilla de prueba. Apagado por default. Implementado con impresión silenciosa de Electron (`webContents.print({silent:true})`) vía ventana oculta
+- **Impresión directa a la impresora térmica**: nuevo toggle en Configuración → Comportamiento de Impresión, "Impresión directa a la térmica (sin diálogo)". Cuando se activa, la tirilla sale **sola** a la impresora elegida sin abrir el diálogo de impresión — cero clics, acelera mucho el flujo de ventas. Incluye selector de impresora (lista las instaladas), botón refrescar y botón "Probar" para tirilla de prueba. Apagado por default. Al activarla se desactiva automáticamente la "Vista previa" (son excluyentes)
 - **Aviso al cerrar la app con caja abierta**: si se cierra la ventana de Windows y el usuario tiene una caja sin cerrar, el sistema pregunta "¿Seguro que deseas cerrar el sistema?" recordando que el cuadre quedará abierto. Si no hay caja abierta, cierra normal. Tiene salvaguarda: si la pantalla se cuelga, un segundo clic en la X fuerza el cierre
 
 ### Mejoras

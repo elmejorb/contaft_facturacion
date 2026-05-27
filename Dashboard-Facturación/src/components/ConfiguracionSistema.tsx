@@ -231,7 +231,14 @@ export function ConfiguracionSistema() {
   };
 
   const set = (field: keyof ConfigImpresion, value: any) => {
-    setConfig(c => ({ ...c, [field]: value }));
+    setConfig(c => {
+      const next = { ...c, [field]: value } as ConfigImpresion;
+      // Impresión directa y vista previa son excluyentes: si imprime directo
+      // no hay preview, y si pide preview no puede imprimir directo.
+      if (field === 'impresionDirecta' && value) next.vistaPrevia = false;
+      if (field === 'vistaPrevia' && value) next.impresionDirecta = false;
+      return next;
+    });
   };
 
   const guardar = () => {
@@ -387,10 +394,10 @@ export function ConfiguracionSistema() {
       {/* Impresión - Comportamiento */}
       {seccion('Comportamiento de Impresión', <FileText size={18} color="#7c3aed" />, (
         <div>
-          {toggle('Vista previa antes de imprimir', 'vistaPrevia', 'Si se desactiva, imprime directamente sin mostrar preview (requiere Electron)')}
+          {toggle('Vista previa antes de imprimir', 'vistaPrevia', 'Si se desactiva, imprime directamente sin mostrar la ventana de vista previa')}
           {toggle('Imprimir factura al guardar', 'imprimirAlGuardar', 'Al finalizar una venta, imprime automáticamente')}
           {toggle('Imprimir cotización al guardar', 'imprimirCotizacion', 'Al guardar una cotización, imprime automáticamente')}
-          {toggle('Impresión directa a la térmica (sin diálogo)', 'impresionDirecta', 'Estilo VB6: la tirilla sale sola a la impresora elegida, sin ventana de impresión. Acelera las ventas. Requiere elegir la impresora abajo.')}
+          {toggle('Impresión directa a la térmica (sin diálogo)', 'impresionDirecta', 'La tirilla sale sola a la impresora elegida, sin ventana de impresión. Acelera las ventas. Requiere elegir la impresora abajo.')}
           {config.impresionDirecta && (
             <div style={{ padding: '10px 12px', background: '#faf5ff', border: '1px solid #e9d5ff', borderRadius: 8, marginTop: 6 }}>
               <label style={{ fontSize: 12, fontWeight: 600, color: '#6b21a8', display: 'block', marginBottom: 6 }}>Impresora de tirilla</label>
