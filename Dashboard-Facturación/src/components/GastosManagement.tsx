@@ -39,6 +39,22 @@ export function GastosManagement() {
   const [valorFocus, setValorFocus] = useState(false);
   const [reciboImprimir, setReciboImprimir] = useState<{ egreso: any; formato: 'media-carta' | 'tirilla' } | null>(null);
   const gridRef = useRef<AgGridReact>(null);
+  const valorInputRef = useRef<HTMLInputElement>(null);
+
+  // Focus controlado al abrir el modal — sin depender de autoFocus, que puede
+  // perderse cuando AgGrid termina de cargar o cuando un toast se interpone.
+  // El requestAnimationFrame asegura que el input ya está montado y visible.
+  useEffect(() => {
+    if (!showNuevo) return;
+    const raf = requestAnimationFrame(() => {
+      const t = setTimeout(() => valorInputRef.current?.focus(), 50);
+      (valorInputRef as any).__t = t;
+    });
+    return () => {
+      cancelAnimationFrame(raf);
+      if ((valorInputRef as any).__t) clearTimeout((valorInputRef as any).__t);
+    };
+  }, [showNuevo]);
 
   const imprimirEgreso = (g: any) => {
     const cfg = getConfigImpresion();
@@ -223,18 +239,24 @@ export function GastosManagement() {
         </div>
       </div>
 
-      {/* Grid */}
-      <div style={{ background: '#fff', borderRadius: 10, overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.08)', height: 'calc(100vh - 380px)', minHeight: 300 }}>
-        <AgGridReact ref={gridRef} rowData={gastos} columnDefs={cols} loading={loading} animateRows
-          quickFilterText={busqueda} defaultColDef={{ resizable: true }} rowHeight={34} headerHeight={34}
-          getRowId={p => String(p.data.Id_Egresos)} pagination paginationPageSize={50} />
+      {/* Grid — se oculta cuando hay un modal abierto para evitar que AgGrid
+          robe el focus al refrescar/cargar y bloquee la escritura en el modal. */}
+      <div style={{ background: '#fff', borderRadius: 10, overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.08)', height: 'calc(100vh - 380px)', minHeight: 300,
+                    visibility: showNuevo ? 'hidden' : 'visible' }}>
+        {!showNuevo && (
+          <AgGridReact ref={gridRef} rowData={gastos} columnDefs={cols} loading={loading} animateRows
+            quickFilterText={busqueda} defaultColDef={{ resizable: true }} rowHeight={34} headerHeight={34}
+            getRowId={p => String(p.data.Id_Egresos)} pagination paginationPageSize={50} />
+        )}
       </div>
 
       {/* Modal nuevo gasto */}
       {showNuevo && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.4)' }} onClick={() => setShowNuevo(false)} />
-          <div style={{ position: 'relative', background: '#fff', borderRadius: 12, width: 480, boxShadow: '0 20px 60px rgba(0,0,0,0.25)', padding: 20 }}>
+        <div style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          onClick={() => setShowNuevo(false)}>
+          <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.4)' }} />
+          <div style={{ position: 'relative', background: '#fff', borderRadius: 12, width: 480, boxShadow: '0 20px 60px rgba(0,0,0,0.25)', padding: 20 }}
+            onClick={e => e.stopPropagation()}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
               <span style={{ fontSize: 16, fontWeight: 700, color: '#dc2626' }}>Nuevo Gasto</span>
               <button onClick={() => setShowNuevo(false)} style={{ background: 'none', border: 'none', cursor: 'pointer' }}><X size={18} /></button>
@@ -248,14 +270,14 @@ export function GastosManagement() {
               </div>
               <div>
                 <label style={{ fontSize: 10, fontWeight: 600, color: '#6b7280', display: 'block', marginBottom: 4 }}>VALOR</label>
-                <input type="text"
+                <input ref={valorInputRef} type="text"
                   value={valorFocus
                     ? valor
                     : (valor ? '$ ' + parseInt(valor).toLocaleString('es-CO') : '')}
                   onChange={e => setValor(e.target.value.replace(/[^0-9]/g, ''))}
                   onFocus={e => { setValorFocus(true); setTimeout(() => e.target.select(), 0); }}
                   onBlur={() => setValorFocus(false)}
-                  placeholder="$ 0" autoFocus
+                  placeholder="$ 0"
                   style={{ width: '100%', height: 32, border: '2px solid #dc2626', borderRadius: 8, fontSize: 14, fontWeight: 700, padding: '0 10px', boxSizing: 'border-box' }} />
               </div>
             </div>

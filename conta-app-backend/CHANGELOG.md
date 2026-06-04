@@ -5,6 +5,13 @@ Visible solo para administradores desde **Configuración → Acerca de → Ver h
 
 ---
 
+## 4.3.50 — 2026-06-04
+
+### Corrección crítica
+- **Módulo Gastos no permitía escribir en los campos del modal "Nuevo Gasto"** y arrastraba el bloqueo a toda la app. Tres causas combinadas: (1) la grilla AgGrid del fondo "robaba" el foco al refrescar mientras el modal estaba abierto; (2) el `autoFocus` del campo VALOR competía con el repintado del modal; (3) el contenido del modal no detenía la propagación de clicks al backdrop. Fixes: la grilla se **desmonta mientras el modal está abierto**, el foco se aplica con `useEffect + requestAnimationFrame` (controlado, sin `autoFocus`), y el contenido del modal hace `stopPropagation`
+
+---
+
 ## 4.3.49 — 2026-05-27
 
 ### Ajustes
