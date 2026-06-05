@@ -3,6 +3,7 @@ import { Lock, Unlock, DollarSign, RefreshCw, Clock, ArrowDownRight, Plus, Setti
 import toast from 'react-hot-toast';
 import { useAuth } from '../contexts/AuthContext';
 import { getConfigImpresion } from './ConfiguracionSistema';
+import { confirmar } from './ConfirmDialog';
 
 const API = 'http://localhost:80/conta-app-backend/api/caja/sesion.php';
 const API_MOV = 'http://localhost:80/conta-app-backend/api/caja/movimientos.php';
@@ -101,7 +102,7 @@ export function CajaRegistradora() {
 
   const cerrarCaja = async () => {
     if (!data?.sesion) return;
-    if (!confirm('¿Está seguro de cerrar la caja?')) return;
+    if (!await confirmar({ title: 'Cerrar caja', message: '¿Está seguro de cerrar la caja?', type: 'warning', confirmText: 'Cerrar caja' })) return;
     try {
       const r = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'cerrar', sesion_id: data.sesion.Id_Sesion, conteo: parseInt(conteo) || 0, opcion_traslado: opcionTraslado }) });

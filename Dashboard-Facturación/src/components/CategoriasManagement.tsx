@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { AgGridReact } from 'ag-grid-react';
 import { AllCommunityModule, ModuleRegistry, ColDef } from 'ag-grid-community';
 import { Search, RefreshCw, Plus, Pencil, Trash2, Save, X, Tag } from 'lucide-react';
+import { confirmar } from './ConfirmDialog';
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
@@ -84,7 +85,7 @@ export function CategoriasManagement() {
   };
 
   const eliminar = async (id: number, nombre: string) => {
-    if (!confirm(`¿Eliminar la categoría "${nombre}"?`)) return;
+    if (!await confirmar({ title: 'Eliminar categoría', message: `¿Eliminar la categoría "${nombre}"?`, type: 'danger', confirmText: 'Eliminar' })) return;
     setError('');
     try {
       const r = await fetch(`${API}?id=${id}`, { method: 'DELETE' });

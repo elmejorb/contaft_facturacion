@@ -9,6 +9,7 @@ import toast from 'react-hot-toast';
 import { DetalleDocElectronico } from './DetalleDocElectronico';
 import { getConfigImpresion, getEmpresaCache } from './ConfiguracionSistema';
 import { imprimirFactura, DatosFactura } from './ImpresionFactura';
+import { confirmar } from './ConfirmDialog';
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
@@ -287,7 +288,7 @@ export function FacturacionElectronica({ onNavigate }: Props = {}) {
         cargarEmailStatus(true);
       } else if (d.code === 409) {
         toast.dismiss('email-send');
-        if (confirm('El correo ya fue enviado anteriormente. ¿Desea reenviarlo?')) {
+        if (await confirmar({ title: 'Reenviar correo', message: 'El correo ya fue enviado anteriormente. ¿Desea reenviarlo?', type: 'question', confirmText: 'Reenviar' })) {
           enviarEmail(cufe, emailList, updateCliente, true);
         }
         return;
@@ -913,10 +914,15 @@ function NotaCreditoModal({ nc, onClose, onEnviar }: { nc: any; onClose: () => v
 
   const factN = nc.factura_n_local || nc.factN || 0;
 
-  const enviar = () => {
+  const enviar = async () => {
     if (!factN) { toast.error('No se encontró la factura local'); return; }
     if (!motivo.trim()) { toast.error('Ingrese un motivo'); return; }
-    if (!confirm(`¿Confirmar la emisión de Nota Crédito ${conceptId === 2 ? '(ANULACIÓN)' : ''} para la factura ${nc.prefix}${nc.factN}?\n\nEsta operación NO se puede revertir.`)) return;
+    if (!await confirmar({
+      title: `Emitir Nota Crédito${conceptId === 2 ? ' (anulación)' : ''}`,
+      message: `¿Confirmar la emisión de Nota Crédito para la factura ${nc.prefix}${nc.factN}? Esta operación NO se puede revertir.`,
+      type: 'warning',
+      confirmText: 'Emitir'
+    })) return;
     setConfirmando(true);
     onEnviar(factN, motivo, conceptId);
   };

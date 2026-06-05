@@ -4,6 +4,7 @@ import { AllCommunityModule, ModuleRegistry, ColDef } from 'ag-grid-community';
 import { Search, Plus, Save, X, Trash2, ClipboardEdit, RefreshCw } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { triggerNotifRefresh } from '../hooks/useNotificaciones';
+import { confirmar } from './ConfirmDialog';
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
@@ -32,7 +33,7 @@ export function NotasArticulo() {
   useEffect(() => { cargar(); }, []);
 
   const eliminar = async (id: number) => {
-    if (!confirm('¿Eliminar esta nota? El kardex será compensado.')) return;
+    if (!await confirmar({ title: 'Eliminar nota', message: '¿Eliminar esta nota? El kardex será compensado.', type: 'danger', confirmText: 'Eliminar' })) return;
     try {
       const r = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'eliminar', id_nota: id }) });

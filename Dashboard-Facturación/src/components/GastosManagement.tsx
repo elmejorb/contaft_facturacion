@@ -170,7 +170,7 @@ export function GastosManagement() {
   };
 
   const anularGasto = async (id: number) => {
-    const ok = await confirmar({ titulo: 'Anular gasto', mensaje: '¿Anular este gasto?', tipo: 'peligro', textoConfirmar: 'Anular' });
+    const ok = await confirmar({ title: 'Anular gasto', message: '¿Anular este gasto?', type: 'danger', confirmText: 'Anular' });
     if (!ok) return;
     try {
       const r = await fetch(API, {

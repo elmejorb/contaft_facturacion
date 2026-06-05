@@ -4,6 +4,7 @@ import { AllCommunityModule, ModuleRegistry } from 'ag-grid-community';
 import { Smartphone, RefreshCw, CheckCircle, XCircle, Eye, Filter, ArrowRight } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useVendedoresConfig } from '../hooks/useVendedoresConfig';
+import { confirmar } from './ConfirmDialog';
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
@@ -59,7 +60,7 @@ export function VendedoresPedidos({ onNavigate }: Props) {
   };
 
   const anular = async (id: number) => {
-    if (!confirm('¿Anular este pedido?')) return;
+    if (!await confirmar({ title: 'Anular pedido', message: '¿Anular este pedido?', type: 'danger', confirmText: 'Anular' })) return;
     try {
       const r = await fetch(API, {
         method: 'POST',

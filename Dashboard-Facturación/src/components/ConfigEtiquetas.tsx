@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Tag, Plus, Edit2, Trash2, X, Save, Package } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { confirmar } from './ConfirmDialog';
 
 const API = 'http://localhost:80/conta-app-backend/api/etiquetas/index.php';
 
@@ -37,7 +38,7 @@ export function ConfigEtiquetas() {
   useEffect(() => { cargar(); }, [verInactivas]);
 
   const eliminar = async (e: Etiqueta) => {
-    if (!confirm(`¿Eliminar la etiqueta "${e.Nombre}"?`)) return;
+    if (!await confirmar({ title: 'Eliminar etiqueta', message: `¿Eliminar la etiqueta "${e.Nombre}"?`, type: 'danger', confirmText: 'Eliminar' })) return;
     try {
       const r = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'eliminar', id: e.Id_Etiqueta }) });

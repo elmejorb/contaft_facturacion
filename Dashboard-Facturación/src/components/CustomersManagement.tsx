@@ -6,6 +6,7 @@ import {
   UserX, Pencil, Trash2, Eye, X, Save, BarChart3
 } from 'lucide-react';
 import { ClienteDetalle } from './ClienteDetalle';
+import { confirmar } from './ConfirmDialog';
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
@@ -151,7 +152,7 @@ export function CustomersManagement() {
   };
 
   const eliminar = async (id: number, nombre: string) => {
-    if (!confirm(`¿Eliminar el cliente "${nombre}"?`)) return;
+    if (!await confirmar({ title: 'Eliminar cliente', message: `¿Eliminar el cliente "${nombre}"?`, type: 'danger', confirmText: 'Eliminar' })) return;
     try {
       const r = await fetch(`${API}?id=${id}`, { method: 'DELETE' });
       const d = await r.json();

@@ -4,6 +4,7 @@ import { NuevaVenta, type TabState } from './NuevaVenta';
 import toast from 'react-hot-toast';
 import { getConfigImpresion } from './ConfiguracionSistema';
 import { imprimirFactura, buildDatosFactura } from './ImpresionFactura';
+import { confirmar } from './ConfirmDialog';
 
 const API = 'http://localhost:80/conta-app-backend/api/ventas';
 const LS_KEY = 'ventas_tabs';
@@ -61,10 +62,10 @@ export function VentasTabs() {
   };
 
   // Cerrar tab
-  const cerrarTab = (tabId: string) => {
+  const cerrarTab = async (tabId: string) => {
     const tab = tabs.find(t => t.id === tabId);
     if (tab && tab.state.lineas.length > 0) {
-      if (!confirm('¿Desea cerrar esta factura? Los datos no guardados se perderán.')) return;
+      if (!await confirmar({ title: 'Cerrar factura', message: '¿Desea cerrar esta factura? Los datos no guardados se perderán.', type: 'warning', confirmText: 'Cerrar' })) return;
     }
     const newTabs = tabs.filter(t => t.id !== tabId);
     if (newTabs.length === 0) {
@@ -205,7 +206,7 @@ export function VentasTabs() {
 
   // Eliminar guardada
   const eliminarGuardada = async (tipoG: 'abiertas' | 'cotizaciones', id: number) => {
-    if (!confirm('¿Eliminar esta ' + (tipoG === 'abiertas' ? 'factura abierta' : 'cotización') + '?')) return;
+    if (!await confirmar({ title: 'Eliminar', message: '¿Eliminar esta ' + (tipoG === 'abiertas' ? 'factura abierta' : 'cotización') + '?', type: 'danger', confirmText: 'Eliminar' })) return;
     const url = tipoG === 'abiertas' ? `${API}/facturas-abiertas.php` : `${API}/cotizaciones.php`;
     await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'delete', id }) });
     abrirListaGuardadas(tipoG);

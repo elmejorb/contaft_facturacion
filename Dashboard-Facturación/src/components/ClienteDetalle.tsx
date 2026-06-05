@@ -5,6 +5,7 @@ import { X, FileText, ShoppingBag, BarChart3, DollarSign, Receipt, CreditCard, W
 import { ReciboImpresion } from './ReciboImpresion';
 import { DetalleFacturaModal } from './DetalleFacturaModal';
 import { getConfigImpresion } from './ConfiguracionSistema';
+import { confirmar } from './ConfirmDialog';
 import toast from 'react-hot-toast';
 import { useAuth } from '../contexts/AuthContext';
 import { hoyLocal, inicioMesLocal, fechaLocal } from '../utils/fecha';
@@ -111,7 +112,7 @@ export function ClienteDetalle({ clienteId, onClose, tabInicial = 'ventas' }: Pr
         cargarPagos();
         cargar(anio);
         // Preguntar si imprimir recibo
-        if (confirm('Pago registrado. ¿Desea imprimir el recibo?')) {
+        if (await confirmar({ title: 'Pago registrado', message: '¿Desea imprimir el recibo?', type: 'question', confirmText: 'Imprimir', cancelText: 'No, gracias' })) {
           const cfg = getConfigImpresion();
           const pagoData = {
             RecCajaN: d.recibo,
@@ -132,7 +133,7 @@ export function ClienteDetalle({ clienteId, onClose, tabInicial = 'ventas' }: Pr
   };
 
   const anularPago = async (idPago: number, recibo: number) => {
-    if (!confirm(`¿Anular el pago Recibo #${recibo}? Se restaurará el saldo de la factura.`)) return;
+    if (!await confirmar({ title: 'Anular pago', message: `¿Anular el pago Recibo #${recibo}? Se restaurará el saldo de la factura.`, type: 'danger', confirmText: 'Anular pago' })) return;
     try {
       const r = await fetch(API_PAGOS, {
         method: 'POST',

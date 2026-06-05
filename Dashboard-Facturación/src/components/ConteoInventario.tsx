@@ -7,6 +7,7 @@ import {
   HelpCircle, ChevronDown, ChevronUp, Printer
 } from 'lucide-react';
 import { imprimirHojaConteo } from './ImpresionConteo';
+import { confirmar } from './ConfirmDialog';
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
@@ -176,7 +177,7 @@ export function ConteoInventario() {
       ? `Hay ${sinContar} artículos sin contar. ¿Cerrar conteo de todas formas? Esto ajustará el inventario.`
       : '¿Cerrar conteo y ajustar inventario? Esta acción no se puede deshacer.';
 
-    if (!confirm(msg)) return;
+    if (!await confirmar({ title: 'Cerrar conteo', message: msg, type: 'warning', confirmText: 'Cerrar conteo' })) return;
     setError('');
     try {
       const r = await fetch(API, {
@@ -199,7 +200,7 @@ export function ConteoInventario() {
 
   const cancelarConteo = async () => {
     if (!conteoActual) return;
-    if (!confirm('¿Cancelar este conteo? No se realizarán ajustes al inventario.')) return;
+    if (!await confirmar({ title: 'Cancelar conteo', message: '¿Cancelar este conteo? No se realizarán ajustes al inventario.', type: 'danger', confirmText: 'Cancelar conteo' })) return;
     try {
       const r = await fetch(API, {
         method: 'POST',

@@ -732,8 +732,8 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
               <button onClick={() => setShowCambiarClave(false)} style={{ height: 34, padding: '0 16px', background: '#f3f4f6', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 13, cursor: 'pointer' }}>Cancelar</button>
               <button onClick={async () => {
                 if (!claveActual || !claveNueva) return;
-                if (claveNueva !== claveConfirmar) { alert('Las contraseñas no coinciden'); return; }
-                if (claveNueva.length < 4) { alert('La contraseña debe tener al menos 4 caracteres'); return; }
+                if (claveNueva !== claveConfirmar) { toast.error('Las contraseñas no coinciden'); return; }
+                if (claveNueva.length < 4) { toast.error('La contraseña debe tener al menos 4 caracteres'); return; }
                 try {
                   const { codificarPassword } = await import('../utils/passwordEncoder');
                   const r = await fetch('http://localhost:80/conta-app-backend/api/usuarios/listar.php', {
@@ -741,9 +741,9 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
                     body: JSON.stringify({ action: 'cambiar-pass', Id_Usuario: user?.id, contrasena: claveNueva, contrasena_actual: codificarPassword(claveActual) })
                   });
                   const d = await r.json();
-                  if (d.success) { alert('Contraseña actualizada'); setShowCambiarClave(false); setClaveActual(''); setClaveNueva(''); setClaveConfirmar(''); }
-                  else alert(d.message);
-                } catch (e) { alert('Error al cambiar contraseña'); }
+                  if (d.success) { toast.success('Contraseña actualizada'); setShowCambiarClave(false); setClaveActual(''); setClaveNueva(''); setClaveConfirmar(''); }
+                  else toast.error(d.message);
+                } catch (e) { toast.error('Error al cambiar contraseña'); }
               }}
                 style={{ height: 34, padding: '0 20px', background: '#7c3aed', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
                 Cambiar

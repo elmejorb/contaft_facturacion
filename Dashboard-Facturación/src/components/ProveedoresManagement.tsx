@@ -10,6 +10,7 @@ const tipoPagoNombre = (id: number) => ({ 0: 'Efectivo', 1: 'Tarjeta', 2: 'Banco
 import { ReciboImpresion } from './ReciboImpresion';
 import { getConfigImpresion } from './ConfiguracionSistema';
 import { useAuth } from '../contexts/AuthContext';
+import { confirmar } from './ConfirmDialog';
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
@@ -316,7 +317,7 @@ function ProveedorDetalle({ provId, onClose }: { provId: number; onClose: () => 
         setFormVersion(v => v + 1);
         cargar();
         // Preguntar si imprimir recibo
-        if (confirm('Pago registrado. ¿Desea imprimir el comprobante de egreso?')) {
+        if (await confirmar({ title: 'Pago registrado', message: '¿Desea imprimir el comprobante de egreso?', type: 'question', confirmText: 'Imprimir', cancelText: 'No, gracias' })) {
           const cfg = getConfigImpresion();
           const medio = mediosPago.find((m: any) => m.id_mediopago === medioPago);
           const pagoData = {

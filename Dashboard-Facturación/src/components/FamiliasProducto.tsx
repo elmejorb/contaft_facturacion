@@ -3,6 +3,7 @@ import { AgGridReact } from 'ag-grid-react';
 import { AllCommunityModule, ModuleRegistry, ColDef } from 'ag-grid-community';
 import { Search, Plus, Edit2, Trash2, X, Package, Layers, Save, CheckCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { confirmar } from './ConfirmDialog';
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
@@ -72,7 +73,7 @@ export function FamiliasProducto() {
   };
 
   const eliminarFamilia = async (fam: Familia) => {
-    if (!confirm(`¿Eliminar la familia "${fam.Nombre}"? Se quitarán todos los productos de la familia (los productos NO se eliminan).`)) return;
+    if (!await confirmar({ title: 'Eliminar familia', message: `¿Eliminar la familia "${fam.Nombre}"? Se quitarán todos los productos de la familia (los productos NO se eliminan).`, type: 'danger', confirmText: 'Eliminar familia' })) return;
     try {
       const r = await fetch(`${API}/guardar.php`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'eliminar', id: fam.Id_Familia }) });
       const d = await r.json();
@@ -89,7 +90,7 @@ export function FamiliasProducto() {
   };
 
   const removerProducto = async (idFamItem: number) => {
-    if (!confirm('¿Remover este producto de la familia?')) return;
+    if (!await confirmar({ title: 'Remover producto', message: '¿Remover este producto de la familia?', type: 'warning', confirmText: 'Remover' })) return;
     try {
       const r = await fetch(`${API}/guardar.php`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'remover_item', id_familia_item: idFamItem }) });
       const d = await r.json();

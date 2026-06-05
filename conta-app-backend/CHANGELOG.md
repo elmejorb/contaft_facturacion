@@ -11,7 +11,10 @@ Visible solo para administradores desde **Configuración → Acerca de → Ver h
 - **Editar gastos**: nuevo botón azul ✏️ en cada fila del listado de Gastos (solo en gastos válidos, no anulados). Abre el mismo modal precargado con los datos del gasto, permite cambiar concepto, valor, beneficiario, cédula, fecha y categoría. Si fue gasto de caja y cambia el valor, ajusta automáticamente el movimiento en `tblmov_caja` y el saldo de la caja por el delta. El **origen del pago** (caja vs banco) NO se puede cambiar al editar — si necesita cambiarlo, anule el gasto y cree uno nuevo
 
 ### Corrección de bug
-- **Modal de Gastos no aceptaba escritura después de guardar el primero**: tras crear un gasto y volver a abrir el modal, los inputs quedaban bloqueados hasta minimizar y restaurar la ventana. Causa: el `window.confirm("¿Imprimir?")` nativo de Electron dejaba el foco atascado tras aceptar. Solución: reemplazado por mini-modal React propio para la confirmación de impresión + reemplazado `confirm("¿Anular?")` por el diálogo del proyecto + blur defensivo al cerrar el modal. También se quitó el desmontaje de la grilla del fondo (causaba que desapareciera la tabla detrás del modal)
+- **Modal de Gastos no aceptaba escritura después de guardar el primero**: tras crear un gasto y volver a abrir el modal, los inputs quedaban bloqueados hasta minimizar y restaurar la ventana. Causa: el `window.confirm()` nativo de Electron dejaba el foco atascado tras aceptar. Solución: reemplazado por diálogos React propios + blur defensivo al cerrar el modal. También se quitó el desmontaje de la grilla del fondo (causaba que desapareciera la tabla detrás del modal)
+
+### Mejora generalizada
+- **Eliminados todos los `window.confirm()` y `window.alert()` nativos de la app** (25+ ocurrencias en 16 archivos). Se reemplazaron por el diálogo modal del proyecto (`ConfirmDialog`) y por `toast` para avisos. Razones: (1) los diálogos nativos de Electron se ven feos y desentonan con la UI, (2) dejaban el foco atascado bloqueando los inputs hasta minimizar/restaurar la ventana. Cubre: cerrar caja, eliminar categoría/cliente/familia/etiqueta/nota/retención, anular pago/gasto/pedido, recalcular costo, emitir nota crédito, cerrar/cancelar conteo, cerrar factura abierta, reenviar correo FE, cambio de contraseña, cierre de la app con caja abierta, etc.
 
 ---
 

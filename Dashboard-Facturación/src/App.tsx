@@ -3,7 +3,7 @@ import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { LoginPage } from './components/LoginPage';
 import { Dashboard } from './components/Dashboard';
 import { Toaster } from 'react-hot-toast';
-import { ConfirmDialogProvider } from './components/ConfirmDialog';
+import { ConfirmDialogProvider, confirmar } from './components/ConfirmDialog';
 import { ConfigurarServidor } from './components/ConfigurarServidor';
 import { AutoUpdater } from './components/AutoUpdater';
 import { SubscriptionGate } from './components/SubscriptionGate';
@@ -37,11 +37,13 @@ function AppContent() {
           const r = await fetch(`http://localhost:80/conta-app-backend/api/caja/sesion.php?usuario=${user.id}`);
           const d = await r.json();
           if (d?.abierta) {
-            const ok = window.confirm(
-              'Tienes una CAJA ABIERTA sin cerrar.\n\n' +
-              'Si cierras el sistema ahora, el cuadre de hoy quedará abierto y mañana seguirá acumulando.\n\n' +
-              '¿Seguro que deseas cerrar el sistema de todas formas?'
-            );
+            const ok = await confirmar({
+              title: 'Caja abierta sin cerrar',
+              message: 'Si cierras el sistema ahora, el cuadre de hoy quedará abierto y mañana seguirá acumulando. ¿Seguro que deseas cerrar el sistema?',
+              type: 'warning',
+              confirmText: 'Cerrar de todas formas',
+              cancelText: 'Quedarse abierto',
+            });
             if (!ok) { ipcRenderer.send('app:cierre-cancelado'); return; } // canceló → no cerrar
           }
         }

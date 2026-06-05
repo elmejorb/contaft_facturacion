@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Layers, Plus, Trash2, X, Save, Search, Calculator } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { confirmar } from './ConfirmDialog';
 
 const API = 'http://localhost:80/conta-app-backend/api/componentes/index.php';
 const API_PROD = 'http://localhost:80/conta-app-backend/api/familias/buscar-producto.php';
@@ -37,7 +38,7 @@ export function ComponentesModal({ itemsPadre, codigoPadre, nombrePadre, onClose
   useEffect(() => { cargar(); }, [itemsPadre]);
 
   const eliminar = async (id: number, nombre: string) => {
-    if (!confirm(`¿Eliminar "${nombre}" como componente?`)) return;
+    if (!await confirmar({ title: 'Quitar componente', message: `¿Eliminar "${nombre}" como componente?`, type: 'danger', confirmText: 'Quitar' })) return;
     try {
       const r = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'eliminar', id_componente: id }) });
@@ -48,7 +49,7 @@ export function ComponentesModal({ itemsPadre, codigoPadre, nombrePadre, onClose
   };
 
   const recalcularCosto = async () => {
-    if (!confirm(`Esto va a actualizar el Precio_Costo del producto a la suma de costos de sus componentes (${fmt(costoTotal)}). ¿Continuar?`)) return;
+    if (!await confirmar({ title: 'Recalcular costo', message: `Esto va a actualizar el Precio_Costo del producto a la suma de costos de sus componentes (${fmt(costoTotal)}). ¿Continuar?`, type: 'warning', confirmText: 'Recalcular' })) return;
     try {
       const r = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'recalcular_costo', items_padre: itemsPadre }) });

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Plus, Pencil, Trash2, Save, X, Percent, Info } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { confirmar } from './ConfirmDialog';
 
 const API = 'http://localhost:80/conta-app-backend/api/retenciones/listar.php';
 
@@ -52,7 +53,7 @@ export function ConfigRetenciones() {
   };
 
   const eliminar = async (r: Retencion) => {
-    if (!confirm(`¿Eliminar "${r.Nombre}"? Si tiene historial en facturas se marcará como inactiva.`)) return;
+    if (!await confirmar({ title: 'Eliminar retención', message: `¿Eliminar "${r.Nombre}"? Si tiene historial en facturas se marcará como inactiva.`, type: 'danger', confirmText: 'Eliminar' })) return;
     try {
       const res = await fetch(API, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
