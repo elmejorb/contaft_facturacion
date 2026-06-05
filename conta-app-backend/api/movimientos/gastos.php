@@ -114,6 +114,79 @@ try {
                 'comprobante' => $nComp
             ], JSON_UNESCAPED_UNICODE);
 
+        } elseif ($action === 'editar') {
+            $id = intval($data['id'] ?? 0);
+            if (!$id) { echo json_encode(['success' => false, 'message' => 'ID requerido']); exit; }
+
+            // Cargar el gasto actual
+            $stmt = $db->prepare("SELECT * FROM tblegresos WHERE Id_Egresos = ?");
+            $stmt->execute([$id]);
+            $gasto = $stmt->fetch();
+            if (!$gasto) { echo json_encode(['success' => false, 'message' => 'Gasto no encontrado']); exit; }
+            if ($gasto['Estado'] !== 'Valida') { echo json_encode(['success' => false, 'message' => 'No se puede editar un gasto anulado']); exit; }
+
+            $concepto     = $data['concepto']     ?? $gasto['Concepto'];
+            $valorNuevo   = floatval($data['valor'] ?? $gasto['Valor']);
+            $beneficiario = $data['beneficiario'] ?? $gasto['Orden'];
+            $cedula       = $data['cedula']       ?? $gasto['Cedula'];
+            $fecha        = $data['fecha']        ?? $gasto['Fecha'];
+            $categoria    = $data['categoria']    ?? $gasto['categoria_gasto'];
+
+            if (!$concepto || $valorNuevo <= 0) {
+                echo json_encode(['success' => false, 'message' => 'Concepto y valor requeridos']);
+                exit;
+            }
+
+            $valorAnterior   = floatval($gasto['Valor']);
+            $conceptoAnt     = $gasto['Concepto'];
+            $delta           = $valorNuevo - $valorAnterior;
+            $esDeCaja        = strpos((string)$gasto['Cuentas'], '51') !== false;
+
+            $db->beginTransaction();
+
+            // 1. Actualizar tblegresos
+            $db->prepare("
+                UPDATE tblegresos
+                SET Fecha = ?, Cedula = ?, Orden = ?, Concepto = ?, Valor = ?, categoria_gasto = ?
+                WHERE Id_Egresos = ?
+            ")->execute([$fecha, $cedula, $beneficiario, $concepto, $valorNuevo, $categoria, $id]);
+
+            // 2. Si fue gasto de caja, ajustar tblmov_caja y saldo de caja
+            //    Match best-effort: por descripción + valor anterior. Si no encuentra
+            //    una fila única, deja el movimiento sin tocar y avisa al usuario.
+            $avisoMov = null;
+            if ($esDeCaja) {
+                $stmt = $db->prepare("
+                    SELECT Id_Mov, Id_Caja_Origen FROM tblmov_caja
+                    WHERE Tipo = 'gasto' AND Descripcion = ? AND ABS(Valor - ?) < 0.01
+                    ORDER BY Id_Mov DESC LIMIT 1
+                ");
+                $stmt->execute(["Gasto: $conceptoAnt", $valorAnterior]);
+                $mov = $stmt->fetch();
+                if ($mov) {
+                    // Actualizar el movimiento (descripción + valor)
+                    $db->prepare("UPDATE tblmov_caja SET Valor = ?, Descripcion = ? WHERE Id_Mov = ?")
+                       ->execute([$valorNuevo, "Gasto: $concepto", $mov['Id_Mov']]);
+                    // Ajustar el saldo de la caja por el delta (si valor sube, saldo baja)
+                    if (abs($delta) > 0.001 && $mov['Id_Caja_Origen']) {
+                        $db->prepare("UPDATE tblcajas SET Saldo = Saldo - ? WHERE Id_Caja = ?")
+                           ->execute([$delta, $mov['Id_Caja_Origen']]);
+                    }
+                } else {
+                    $avisoMov = 'No se encontró el movimiento de caja vinculado — verifica el saldo manualmente';
+                }
+            }
+
+            $db->commit();
+
+            $msg = "Gasto #{$gasto['N_Comprobante']} actualizado";
+            if ($avisoMov) $msg .= ". ⚠ $avisoMov";
+            echo json_encode([
+                'success'     => true,
+                'message'     => $msg,
+                'comprobante' => $gasto['N_Comprobante'],
+            ], JSON_UNESCAPED_UNICODE);
+
         } elseif ($action === 'anular') {
             $id = intval($data['id'] ?? 0);
             if (!$id) { echo json_encode(['success' => false, 'message' => 'ID requerido']); exit; }

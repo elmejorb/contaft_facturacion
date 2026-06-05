@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
 import { AgGridReact } from 'ag-grid-react';
 import { AllCommunityModule, ModuleRegistry, ColDef } from 'ag-grid-community';
-import { Search, RefreshCw, Plus, Ban, X, Printer } from 'lucide-react';
+import { Search, RefreshCw, Plus, Ban, X, Printer, Edit2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../contexts/AuthContext';
 import { ReciboEgresoImpresion } from './ReciboEgresoImpresion';
 import { getConfigImpresion } from './ConfiguracionSistema';
+import { confirmar } from './ConfirmDialog';
 import { hoyLocal, inicioMesLocal } from '../utils/fecha';
 
 ModuleRegistry.registerModules([AllCommunityModule]);
@@ -24,6 +25,7 @@ export function GastosManagement() {
   const [mes, setMes] = useState(new Date().getMonth() + 1);
   const [busqueda, setBusqueda] = useState('');
   const [showNuevo, setShowNuevo] = useState(false);
+  const [editandoId, setEditandoId] = useState<number | null>(null); // null=crear, número=editar
   const [cajas, setCajas] = useState<any[]>([]);
   const [categorias, setCategorias] = useState<any[]>([]);
   const [porCategoria, setPorCategoria] = useState<Record<string, number>>({});
@@ -38,6 +40,9 @@ export function GastosManagement() {
   const [fecha, setFecha] = useState(hoyLocal());
   const [valorFocus, setValorFocus] = useState(false);
   const [reciboImprimir, setReciboImprimir] = useState<{ egreso: any; formato: 'media-carta' | 'tirilla' } | null>(null);
+  // Mini-modal de confirmación tras crear un gasto — sustituye a window.confirm
+  // nativo que en Electron dejaba el foco atascado y bloqueaba los inputs.
+  const [preguntaImprimir, setPreguntaImprimir] = useState<{ egreso: any; formato: 'media-carta' | 'tirilla' } | null>(null);
   const gridRef = useRef<AgGridReact>(null);
   const valorInputRef = useRef<HTMLInputElement>(null);
 
@@ -100,41 +105,73 @@ export function GastosManagement() {
 
   useEffect(() => { cargar(); cargarCajas(); }, [anio, mes]);
 
+  // Abrir el modal en modo EDITAR con los datos del gasto seleccionado
+  const editarGasto = (g: any) => {
+    if (g.Estado !== 'Valida') { toast.error('No se puede editar un gasto anulado'); return; }
+    setEditandoId(g.Id_Egresos);
+    setConcepto(g.Concepto || '');
+    setValor(String(Math.round(parseFloat(g.Valor) || 0)));
+    setBeneficiario(g.Orden || '');
+    setCedula(g.Cedula || '');
+    setCategoria(g.Categoria || g.categoria_gasto || 'Otros');
+    setFecha((g.Fecha || '').substring(0, 10) || hoyLocal());
+    // El origen no se puede cambiar al editar (evita mover dinero entre cajas/banco)
+    setOrigen((g.Cuentas || '').includes('51') ? 'caja' : 'banco');
+    setShowNuevo(true);
+  };
+
+  // Reset del form (se llama al cerrar/cancelar/guardar exitoso).
+  // Forzamos blur del elemento activo para evitar que el foco quede atrapado
+  // dentro del modal mientras éste se desmonta — eso a veces deja la app
+  // bloqueada hasta minimizar/restaurar la ventana.
+  const cerrarModal = () => {
+    try { (document.activeElement as HTMLElement | null)?.blur?.(); } catch {}
+    setShowNuevo(false);
+    setEditandoId(null);
+    setConcepto(''); setValor(''); setBeneficiario(''); setCedula('');
+  };
+
   const guardarGasto = async () => {
     if (!concepto || !(parseInt(valor) > 0)) { toast.error('Concepto y valor requeridos'); return; }
+    const esEdicion = editandoId !== null;
     try {
+      const payload: any = esEdicion
+        ? { action: 'editar', id: editandoId, concepto, valor: parseInt(valor), beneficiario, cedula, fecha, categoria, id_usuario: user?.id || 0 }
+        : { action: 'crear', concepto, valor: parseInt(valor), beneficiario, cedula, origen, caja_id: cajaId, fecha, categoria, id_usuario: user?.id || 0 };
       const r = await fetch(API, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'crear', concepto, valor: parseInt(valor), beneficiario, cedula, origen, caja_id: cajaId, fecha, categoria, id_usuario: user?.id || 0 })
+        body: JSON.stringify(payload)
       });
       const d = await r.json();
       if (d.success) {
         toast.success(d.message);
-        setShowNuevo(false);
         cargar();
-        if (confirm('Gasto registrado. ¿Desea imprimir el comprobante de egreso?')) {
-          const cfg = getConfigImpresion();
-          setReciboImprimir({
-            egreso: {
-              N_Comprobante: d.comprobante,
-              Fecha: fecha,
-              Beneficiario: beneficiario,
-              Cedula: cedula,
-              Concepto: concepto,
-              Categoria: categoria,
-              Valor: parseInt(valor),
-              MedioPago: origen === 'caja' ? 'Caja' : 'Banco',
-            },
-            formato: cfg.formatoPago,
-          });
+        // Solo preguntar por impresión cuando es un gasto NUEVO (no en edición).
+        // Usamos un mini-modal React en vez de window.confirm() nativo, porque
+        // en Electron el confirm nativo deja el foco atascado y bloquea los
+        // siguientes inputs hasta minimizar/restaurar la ventana.
+        const cfg = getConfigImpresion();
+        const egresoData = {
+          N_Comprobante: d.comprobante,
+          Fecha: fecha,
+          Beneficiario: beneficiario,
+          Cedula: cedula,
+          Concepto: concepto,
+          Categoria: categoria,
+          Valor: parseInt(valor),
+          MedioPago: origen === 'caja' ? 'Caja' : 'Banco',
+        };
+        if (!esEdicion) {
+          setPreguntaImprimir({ egreso: egresoData, formato: cfg.formatoPago });
         }
-        setConcepto(''); setValor(''); setBeneficiario(''); setCedula('');
+        cerrarModal();
       } else toast.error(d.message);
     } catch (e) { toast.error('Error'); }
   };
 
   const anularGasto = async (id: number) => {
-    if (!confirm('¿Anular este gasto?')) return;
+    const ok = await confirmar({ titulo: 'Anular gasto', mensaje: '¿Anular este gasto?', tipo: 'peligro', textoConfirmar: 'Anular' });
+    if (!ok) return;
     try {
       const r = await fetch(API, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -163,17 +200,23 @@ export function GastosManagement() {
       const ok = p.value === 'Valida';
       return <span style={{ fontSize: 10, fontWeight: 600, padding: '2px 6px', borderRadius: 4, background: ok ? '#dcfce7' : '#fee2e2', color: ok ? '#16a34a' : '#dc2626' }}>{p.value}</span>;
     }},
-    { headerName: '', width: 80, sortable: false, cellRenderer: (p: any) => (
+    { headerName: '', width: 110, sortable: false, cellRenderer: (p: any) => (
       <div style={{ display: 'flex', gap: 4, alignItems: 'center', height: '100%' }}>
         <button title="Imprimir comprobante" onClick={() => imprimirEgreso(p.data)}
           style={{ width: 26, height: 24, border: '1px solid #e9d5ff', borderRadius: 4, cursor: 'pointer', background: '#faf5ff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <Printer size={13} color="#7c3aed" />
         </button>
         {p.data.Estado === 'Valida' && (
-          <button title="Anular" onClick={() => anularGasto(p.data.Id_Egresos)}
-            style={{ width: 26, height: 24, border: '1px solid #fecaca', borderRadius: 4, cursor: 'pointer', background: '#fef2f2', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <Ban size={13} color="#dc2626" />
-          </button>
+          <>
+            <button title="Editar" onClick={() => editarGasto(p.data)}
+              style={{ width: 26, height: 24, border: '1px solid #bfdbfe', borderRadius: 4, cursor: 'pointer', background: '#eff6ff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Edit2 size={13} color="#2563eb" />
+            </button>
+            <button title="Anular" onClick={() => anularGasto(p.data.Id_Egresos)}
+              style={{ width: 26, height: 24, border: '1px solid #fecaca', borderRadius: 4, cursor: 'pointer', background: '#fef2f2', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Ban size={13} color="#dc2626" />
+            </button>
+          </>
         )}
       </div>
     )},
@@ -239,27 +282,23 @@ export function GastosManagement() {
         </div>
       </div>
 
-      {/* Grid — se oculta cuando hay un modal abierto para evitar que AgGrid
-          robe el focus al refrescar/cargar y bloquee la escritura en el modal. */}
-      <div style={{ background: '#fff', borderRadius: 10, overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.08)', height: 'calc(100vh - 380px)', minHeight: 300,
-                    visibility: showNuevo ? 'hidden' : 'visible' }}>
-        {!showNuevo && (
-          <AgGridReact ref={gridRef} rowData={gastos} columnDefs={cols} loading={loading} animateRows
-            quickFilterText={busqueda} defaultColDef={{ resizable: true }} rowHeight={34} headerHeight={34}
-            getRowId={p => String(p.data.Id_Egresos)} pagination paginationPageSize={50} />
-        )}
+      {/* Grid */}
+      <div style={{ background: '#fff', borderRadius: 10, overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.08)', height: 'calc(100vh - 380px)', minHeight: 300 }}>
+        <AgGridReact ref={gridRef} rowData={gastos} columnDefs={cols} loading={loading} animateRows
+          quickFilterText={busqueda} defaultColDef={{ resizable: true }} rowHeight={34} headerHeight={34}
+          getRowId={p => String(p.data.Id_Egresos)} pagination paginationPageSize={50} />
       </div>
 
-      {/* Modal nuevo gasto */}
+      {/* Modal nuevo / editar gasto */}
       {showNuevo && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-          onClick={() => setShowNuevo(false)}>
+          onClick={cerrarModal}>
           <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.4)' }} />
           <div style={{ position: 'relative', background: '#fff', borderRadius: 12, width: 480, boxShadow: '0 20px 60px rgba(0,0,0,0.25)', padding: 20 }}
             onClick={e => e.stopPropagation()}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-              <span style={{ fontSize: 16, fontWeight: 700, color: '#dc2626' }}>Nuevo Gasto</span>
-              <button onClick={() => setShowNuevo(false)} style={{ background: 'none', border: 'none', cursor: 'pointer' }}><X size={18} /></button>
+              <span style={{ fontSize: 16, fontWeight: 700, color: '#dc2626' }}>{editandoId ? `Editar Gasto #${editandoId}` : 'Nuevo Gasto'}</span>
+              <button onClick={cerrarModal} style={{ background: 'none', border: 'none', cursor: 'pointer' }}><X size={18} /></button>
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
@@ -310,8 +349,10 @@ export function GastosManagement() {
             </div>
 
             <div style={{ marginBottom: 16 }}>
-              <label style={{ fontSize: 10, fontWeight: 600, color: '#6b7280', display: 'block', marginBottom: 4 }}>ORIGEN DEL PAGO</label>
-              <div style={{ display: 'flex', gap: 8 }}>
+              <label style={{ fontSize: 10, fontWeight: 600, color: '#6b7280', display: 'block', marginBottom: 4 }}>
+                ORIGEN DEL PAGO {editandoId && <span style={{ color: '#9ca3af', fontWeight: 400 }}>(no se puede cambiar al editar)</span>}
+              </label>
+              <div style={{ display: 'flex', gap: 8, opacity: editandoId ? 0.6 : 1, pointerEvents: editandoId ? 'none' : 'auto' }}>
                 <div onClick={() => setOrigen('caja')} style={{
                   flex: 1, padding: '10px 12px', borderRadius: 8, cursor: 'pointer',
                   border: origen === 'caja' ? '2px solid #d97706' : '2px solid #e5e7eb',
@@ -337,10 +378,37 @@ export function GastosManagement() {
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-              <button onClick={() => setShowNuevo(false)} style={{ height: 34, padding: '0 16px', background: '#f3f4f6', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 13, cursor: 'pointer' }}>Cancelar</button>
+              <button onClick={cerrarModal} style={{ height: 34, padding: '0 16px', background: '#f3f4f6', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 13, cursor: 'pointer' }}>Cancelar</button>
               <button onClick={guardarGasto}
-                style={{ height: 34, padding: '0 20px', background: '#dc2626', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
-                Registrar Gasto
+                style={{ height: 34, padding: '0 20px', background: editandoId ? '#2563eb' : '#dc2626', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+                {editandoId ? 'Guardar Cambios' : 'Registrar Gasto'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Mini-modal: ¿Imprimir comprobante? — reemplazo de window.confirm nativo */}
+      {preguntaImprimir && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 10000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          onClick={() => setPreguntaImprimir(null)}>
+          <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.4)' }} />
+          <div style={{ position: 'relative', background: '#fff', borderRadius: 12, width: 380, boxShadow: '0 20px 60px rgba(0,0,0,0.25)', padding: 22 }}
+            onClick={e => e.stopPropagation()}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: '#1f2937', marginBottom: 10 }}>Gasto registrado</div>
+            <div style={{ fontSize: 13, color: '#4b5563', marginBottom: 18 }}>¿Desea imprimir el comprobante de egreso?</div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button onClick={() => setPreguntaImprimir(null)}
+                style={{ height: 34, padding: '0 16px', background: '#f3f4f6', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 13, cursor: 'pointer' }}>
+                No, gracias
+              </button>
+              <button onClick={() => {
+                  const p = preguntaImprimir;
+                  setPreguntaImprimir(null);
+                  if (p) setReciboImprimir(p);
+                }}
+                style={{ height: 34, padding: '0 18px', background: '#7c3aed', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                Imprimir
               </button>
             </div>
           </div>
