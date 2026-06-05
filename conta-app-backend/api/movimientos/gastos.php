@@ -106,6 +106,20 @@ try {
                 $db->prepare("UPDATE tblcajas SET Saldo = Saldo - ? WHERE Id_Caja = ?")->execute([$valor, $cajaId]);
             }
 
+            // Register in tblmov_banco if from banco — usa el banco predeterminado
+            // (o el primer activo si no hay predeterminado). Sin esto los gastos
+            // bancarios no aparecían en el módulo de Bancos.
+            if ($origen === 'banco') {
+                $stmt = $db->query("SELECT idBancos FROM tblbancos WHERE Activa = 1 ORDER BY Predeterminada DESC, idBancos ASC LIMIT 1");
+                $banco = $stmt->fetch();
+                if ($banco) {
+                    $db->prepare("INSERT INTO tblmov_banco (Id_Cuenta, Tipo, Valor, Descripcion, Referencia, Id_Usuario) VALUES (?, 'egreso', ?, ?, ?, ?)")
+                       ->execute([$banco['idBancos'], $valor, "Gasto: $concepto", "EGR-$nComp", $idUsuario ?: 0]);
+                    $db->prepare("UPDATE tblbancos SET Saldo = Saldo - ? WHERE idBancos = ?")
+                       ->execute([$valor, $banco['idBancos']]);
+                }
+            }
+
             $db->commit();
 
             echo json_encode([
@@ -141,6 +155,7 @@ try {
             $conceptoAnt     = $gasto['Concepto'];
             $delta           = $valorNuevo - $valorAnterior;
             $esDeCaja        = strpos((string)$gasto['Cuentas'], '51') !== false;
+            $esDeBanco       = strpos((string)$gasto['Cuentas'], '1110') !== false;
 
             $db->beginTransaction();
 
@@ -177,6 +192,36 @@ try {
                 }
             }
 
+            // 3. Si fue gasto de banco, ajustar tblmov_banco y saldo del banco.
+            //    Match por Referencia (EGR-NComprobante) si está, sino por descripción+valor.
+            if ($esDeBanco) {
+                $stmt = $db->prepare("
+                    SELECT Id_Mov, Id_Cuenta FROM tblmov_banco
+                    WHERE Tipo = 'egreso' AND Referencia = ? LIMIT 1
+                ");
+                $stmt->execute(["EGR-{$gasto['N_Comprobante']}"]);
+                $movB = $stmt->fetch();
+                if (!$movB) {
+                    $stmt = $db->prepare("
+                        SELECT Id_Mov, Id_Cuenta FROM tblmov_banco
+                        WHERE Tipo = 'egreso' AND Descripcion = ? AND ABS(Valor - ?) < 0.01
+                        ORDER BY Id_Mov DESC LIMIT 1
+                    ");
+                    $stmt->execute(["Gasto: $conceptoAnt", $valorAnterior]);
+                    $movB = $stmt->fetch();
+                }
+                if ($movB) {
+                    $db->prepare("UPDATE tblmov_banco SET Valor = ?, Descripcion = ?, Referencia = ? WHERE Id_Mov = ?")
+                       ->execute([$valorNuevo, "Gasto: $concepto", "EGR-{$gasto['N_Comprobante']}", $movB['Id_Mov']]);
+                    if (abs($delta) > 0.001) {
+                        $db->prepare("UPDATE tblbancos SET Saldo = Saldo - ? WHERE idBancos = ?")
+                           ->execute([$delta, $movB['Id_Cuenta']]);
+                    }
+                } else {
+                    $avisoMov = 'No se encontró el movimiento bancario vinculado — verifica el saldo manualmente';
+                }
+            }
+
             $db->commit();
 
             $msg = "Gasto #{$gasto['N_Comprobante']} actualizado";
@@ -199,8 +244,25 @@ try {
                 exit;
             }
 
+            $db->beginTransaction();
             $db->prepare("UPDATE tblegresos SET Estado = 'Anulada' WHERE Id_Egresos = ?")->execute([$id]);
 
+            // Si fue gasto de banco, registrar reverso (mov 'ingreso') y devolver el saldo.
+            // Asiento opuesto en vez de borrar — preserva historial.
+            if (strpos((string)$gasto['Cuentas'], '1110') !== false) {
+                $valor = floatval($gasto['Valor']);
+                $stmt = $db->prepare("SELECT Id_Cuenta FROM tblmov_banco WHERE Referencia = ? AND Tipo = 'egreso' LIMIT 1");
+                $stmt->execute(["EGR-{$gasto['N_Comprobante']}"]);
+                $movOrig = $stmt->fetch();
+                if ($movOrig) {
+                    $db->prepare("INSERT INTO tblmov_banco (Id_Cuenta, Tipo, Valor, Descripcion, Referencia) VALUES (?, 'ingreso', ?, ?, ?)")
+                       ->execute([$movOrig['Id_Cuenta'], $valor, "Reverso anulación: " . $gasto['Concepto'], "REV-EGR-{$gasto['N_Comprobante']}"]);
+                    $db->prepare("UPDATE tblbancos SET Saldo = Saldo + ? WHERE idBancos = ?")
+                       ->execute([$valor, $movOrig['Id_Cuenta']]);
+                }
+            }
+
+            $db->commit();
             echo json_encode(['success' => true, 'message' => 'Gasto anulado']);
         }
     }

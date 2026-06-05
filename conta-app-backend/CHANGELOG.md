@@ -5,6 +5,36 @@ Visible solo para administradores desde **Configuración → Acerca de → Ver h
 
 ---
 
+## 4.3.52 — 2026-06-05
+
+### Corrección crítica (Bancos)
+- **Gastos pagados con "Banco" no aparecían en el módulo de Bancos ni descontaban del saldo bancario.** El backend insertaba el egreso en `tblegresos` (con `Cuentas='1110'`) pero nunca registraba el movimiento en `tblmov_banco` ni actualizaba `tblbancos.Saldo`. Ahora:
+  - Al **crear** un gasto con origen banco: se inserta el movimiento `egreso` en `tblmov_banco` (referenciado con `EGR-<N_Comprobante>`) y se descuenta del saldo del banco predeterminado (o el primer activo).
+  - Al **editar** un gasto bancario: se ajusta el movimiento (descripción + valor) y el saldo del banco por el delta.
+  - Al **anular** un gasto bancario: se registra un asiento opuesto `ingreso` (`REV-EGR-<N_Comprobante>`) y se devuelve el saldo. Preserva historial (no se borran movimientos).
+
+### Fix retroactivo
+- Para BDs con gastos bancarios huérfanos sin movimiento en `tblmov_banco`, ejecutar el siguiente SQL una vez (idempotente — solo crea los que faltan):
+
+```sql
+INSERT INTO tblmov_banco (Id_Cuenta, Fecha, Tipo, Valor, Descripcion, Referencia, Id_Usuario)
+SELECT (SELECT idBancos FROM tblbancos WHERE Activa=1 ORDER BY Predeterminada DESC, idBancos ASC LIMIT 1),
+       e.Fecha, 'egreso', e.Valor, CONCAT('Gasto: ', e.Concepto), CONCAT('EGR-', e.N_Comprobante), COALESCE(e.id_usuario, 0)
+FROM tblegresos e
+WHERE e.Estado='Valida' AND e.Cuentas='1110'
+  AND NOT EXISTS (SELECT 1 FROM tblmov_banco m WHERE m.Referencia = CONCAT('EGR-', e.N_Comprobante));
+
+UPDATE tblbancos SET Saldo = Saldo - (
+  SELECT COALESCE(SUM(e.Valor),0) FROM tblegresos e
+  WHERE e.Estado='Valida' AND e.Cuentas='1110'
+    AND CONCAT('EGR-', e.N_Comprobante) IN (SELECT Referencia FROM tblmov_banco WHERE Tipo='egreso')
+) WHERE Activa=1 ORDER BY Predeterminada DESC, idBancos ASC LIMIT 1;
+```
+
+⚠️ El UPDATE del saldo solo se debe correr UNA vez por BD. Si se corre dos veces, el saldo bajará el doble.
+
+---
+
 ## 4.3.51 — 2026-06-04
 
 ### Nueva función
