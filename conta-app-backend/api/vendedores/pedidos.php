@@ -127,51 +127,126 @@ try {
             exit;
         }
 
-        // Lista paginada
-        $pagina = max(intval($_GET['pagina'] ?? 1), 1);
-        $porPagina = 50;
-        $offset = ($pagina - 1) * $porPagina;
+        // Lista unificada: tbl_pedidos_vendedor (pedidos sin CUFE) +
+        // electronic_documents con origen='movil' (facturas electrónicas).
+        // Filtros opcionales: estado, vendedor (id), fecha_desde/hasta.
+        // Devuelve cada fila con campo `tipo` = 'pedido' | 'factura'.
+        $estado     = trim($_GET['estado']      ?? '');
+        $vendedor   = trim($_GET['vendedor']    ?? '');
+        $fechaDesde = trim($_GET['fecha_desde'] ?? '');
+        $fechaHasta = trim($_GET['fecha_hasta'] ?? '');
 
-        $where = ["1=1"];
-        $params = [];
+        // --- Pedidos (sin CUFE) ---
+        $wherePed = ["1=1"];
+        $paramsPed = [];
+        if ($estado !== '')     { $wherePed[] = "estado = ?";              $paramsPed[] = $estado; }
+        if ($vendedor !== '')   { $wherePed[] = "id_vendedor_remoto = ?";  $paramsPed[] = intval($vendedor); }
+        if ($fechaDesde !== '') { $wherePed[] = "fecha >= ?";              $paramsPed[] = $fechaDesde; }
+        if ($fechaHasta !== '') { $wherePed[] = "fecha <= ?";              $paramsPed[] = $fechaHasta; }
+        $whereStrPed = implode(' AND ', $wherePed);
 
-        if (!empty($_GET['estado'])) {
-            $where[] = "estado = ?";
-            $params[] = $_GET['estado'];
-        }
-        if (!empty($_GET['vendedor'])) {
-            $where[] = "id_vendedor_remoto = ?";
-            $params[] = intval($_GET['vendedor']);
-        }
-        if (!empty($_GET['fecha_desde'])) {
-            $where[] = "fecha >= ?";
-            $params[] = $_GET['fecha_desde'];
-        }
-        if (!empty($_GET['fecha_hasta'])) {
-            $where[] = "fecha <= ?";
-            $params[] = $_GET['fecha_hasta'];
-        }
-
-        $whereStr = implode(' AND ', $where);
-
-        $stmt = $db->prepare("SELECT COUNT(*) FROM tbl_pedidos_vendedor WHERE $whereStr");
-        $stmt->execute($params);
-        $total = $stmt->fetchColumn();
-
-        $stmt = $db->prepare("SELECT * FROM tbl_pedidos_vendedor WHERE $whereStr ORDER BY fecha DESC, id DESC LIMIT $porPagina OFFSET $offset");
-        $stmt->execute($params);
+        $stmt = $db->prepare("SELECT *, 'pedido' AS tipo
+            FROM tbl_pedidos_vendedor
+            WHERE $whereStrPed
+            ORDER BY fecha DESC, id DESC");
+        $stmt->execute($paramsPed);
         $pedidos = $stmt->fetchAll();
-
         foreach ($pedidos as &$p) {
             $p['items'] = json_decode($p['items_json'] ?? '[]', true);
         }
+        unset($p);
+
+        // --- Facturas electrónicas con origen='movil' ---
+        // Solo si NO se está filtrando por estado != enviado (los pedidos
+        // tienen 'pendiente'/'procesado'/'anulado' que no aplican a FE).
+        $facturas = [];
+        $incluirFE = ($estado === '' || $estado === 'enviado' || $estado === 'autorizado');
+        if ($incluirFE) {
+            $whereFE = ["origen = 'movil'"];
+            $paramsFE = [];
+            if ($vendedor !== '')   { $whereFE[] = "id_vendedor_remoto = ?"; $paramsFE[] = intval($vendedor); }
+            if ($fechaDesde !== '') { $whereFE[] = "fecha >= ?";             $paramsFE[] = $fechaDesde; }
+            if ($fechaHasta !== '') { $whereFE[] = "fecha <= ?";             $paramsFE[] = $fechaHasta; }
+            $whereStrFE = implode(' AND ', $whereFE);
+
+            // Mapear columnas a la misma estructura que pedidos para que el
+            // frontend pueda renderizarlas sin diferenciar.
+            $stmt = $db->prepare("SELECT
+                    ed.id,
+                    CONCAT(IFNULL(ed.prefix,''), ed.number) AS numero_pedido,
+                    ed.cod_cliente AS id_cliente_remoto,
+                    cl.Razon_Social AS nombre_cliente,
+                    ed.customer_identification AS nit_cliente,
+                    ed.id_vendedor_remoto,
+                    ed.nombre_vendedor,
+                    ed.fecha,
+                    NULL AS subtotal,
+                    NULL AS impuestos,
+                    ed.total,
+                    CASE
+                        WHEN ed.payment_form_id = 1 THEN 'contado'
+                        WHEN ed.payment_form_id = 2 THEN 'credito'
+                        ELSE 'otro'
+                    END AS forma_pago,
+                    NULL AS observaciones,
+                    ed.status AS estado,
+                    ed.cufe,
+                    'factura' AS tipo
+                FROM electronic_documents ed
+                LEFT JOIN tblclientes cl ON cl.CodigoClien = ed.cod_cliente
+                WHERE $whereStrFE
+                ORDER BY ed.fecha DESC, ed.id DESC");
+            $stmt->execute($paramsFE);
+            $facturas = $stmt->fetchAll();
+        }
+
+        // Combinar y ordenar por fecha DESC
+        $todo = array_merge($pedidos, $facturas);
+        usort($todo, function($a, $b) {
+            $fa = $a['fecha'] ?? '';
+            $fb = $b['fecha'] ?? '';
+            if ($fa === $fb) {
+                return intval($b['id'] ?? 0) - intval($a['id'] ?? 0);
+            }
+            return strcmp($fb, $fa);
+        });
+
+        // Resumen para cuadre por vendedor
+        $resumen = [];
+        foreach ($todo as $r) {
+            $vendId   = intval($r['id_vendedor_remoto'] ?? 0);
+            $vendName = $r['nombre_vendedor'] ?? 'Sin asignar';
+            $key = $vendId . '|' . $vendName;
+            if (!isset($resumen[$key])) {
+                $resumen[$key] = [
+                    'id_vendedor'   => $vendId,
+                    'nombre_vendedor' => $vendName,
+                    'pedidos'       => 0,
+                    'facturas'      => 0,
+                    'total_contado' => 0,
+                    'total_credito' => 0,
+                    'total_otro'    => 0,
+                    'total_general' => 0,
+                ];
+            }
+            $monto = floatval($r['total'] ?? 0);
+            $fp = strtolower($r['forma_pago'] ?? 'otro');
+            if ($r['tipo'] === 'pedido') $resumen[$key]['pedidos']++; else $resumen[$key]['facturas']++;
+            if ($fp === 'contado')      $resumen[$key]['total_contado'] += $monto;
+            elseif ($fp === 'credito')  $resumen[$key]['total_credito'] += $monto;
+            else                        $resumen[$key]['total_otro']    += $monto;
+            $resumen[$key]['total_general'] += $monto;
+        }
+        $resumenLista = array_values($resumen);
+        usort($resumenLista, function($a, $b) {
+            return strcmp($a['nombre_vendedor'], $b['nombre_vendedor']);
+        });
 
         echo json_encode([
-            'success' => true,
-            'pedidos' => $pedidos,
-            'total' => (int) $total,
-            'pagina' => $pagina,
-            'por_pagina' => $porPagina,
+            'success'      => true,
+            'pedidos'      => $todo,        // mezcla pedidos + facturas
+            'resumen'      => $resumenLista, // cuadre por vendedor
+            'total_filas'  => count($todo),
         ], JSON_UNESCAPED_UNICODE);
         exit;
     }
