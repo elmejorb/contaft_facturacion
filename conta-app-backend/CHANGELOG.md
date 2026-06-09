@@ -5,6 +5,80 @@ Visible solo para administradores desde **Configuración → Acerca de → Ver h
 
 ---
 
+## 4.3.54 — 2026-06-09
+
+### Sincronización móvil completa: ediciones + clientes nuevos + automático
+
+> ⚠️ **El módulo de Vendedores Móviles SIGUE EN PRUEBAS**. Esta versión incluye el código para activarlo pero **NO** distribuye su migración SQL en `actualizacion_completa.sql`. Para clientes que NO usan vendedores móviles (default, módulo apagado en Configuración), esta versión es completamente transparente.
+>
+> Cuando un cliente contrate el módulo, aplicar `sql/modulo_vendedores_movil.sql` aparte (incluye checklist de despliegue).
+
+Cuando un vendedor edita un cliente desde la app móvil o crea uno nuevo durante una visita, los cambios bajaban a Lumen pero NUNCA llegaban al Conta FT desktop. Solo los pedidos se sincronizaban. Ahora el flujo completo está cubierto:
+
+**1. Ediciones de clientes (teléfono, GPS, dirección, etc.)** — Endpoint Lumen `GET /sync/clientes/ediciones-pendientes` + `POST /sync/clientes/ediciones-confirmadas`. El pull desde desktop aplica `UPDATE tblclientes` mapeando campos Lumen → columnas legacy VB6.
+
+**2. Clientes nuevos creados desde móvil** — Endpoints Lumen `GET /sync/clientes/nuevos` + `POST /sync/clientes/confirmar-mapeo`. El pull inserta en `tblclientes` con un `CodigoClien` siguiente y confirma a Lumen el mapeo bidireccional `id_cliente` (Lumen) ↔ `codvb6` (= `CodigoClien` desktop). Así las próximas ediciones del mismo cliente sí encuentran el vínculo.
+
+**3. Trazabilidad del vendedor** — Al insertar un cliente nuevo del móvil:
+- `CodigoEmp` se llena si el vendedor móvil tiene `id_remoto` mapeado a un empleado del desktop.
+- Si no hay mapeo, se escribe en `Cargo_C` algo como **"Móvil: V005 - Carlos Test"** para que en Conta FT se sepa quién creó al cliente.
+
+**4. Sincronización automática (silenciosa)** — Hook `useAutoSyncVendedores` corre en el Dashboard: cada `sync_intervalo_pull_min` minutos (de la config) llama al pull silenciosamente. Solo muestra toast cuando hay cambios reales. Errores de conexión NO se reportan (no spamea si el hub está caído).
+
+**5. App móvil — listado refresca al instante tras editar** — `EditClientScreen` ahora hace `clientsRepo.upsert` tras el PUT exitoso, así el listado refleja el cambio sin esperar al próximo fetch.
+
+### Nuevas columnas en tblclientes — APLICAR SOLO EN BDs CON MÓDULO MÓVIL ACTIVO
+- Archivo: `conta-app-backend/sql/modulo_vendedores_movil.sql` (separado, NO en `actualizacion_completa.sql`)
+- Columnas: `latitud DECIMAL(10,7)`, `longitud DECIMAL(10,7)`, `precision_gps_metros DECIMAL(8,2)`, `gps_capturado_at DATETIME`
+- Aplicado ya en BD de pruebas `conta_test_negocio` y en hub Lumen `conta_movil`.
+
+### Toggle global respetado
+Todo el flujo solo se activa si el cliente tiene encendido **Configuración → Vendedores Móviles → Habilitar módulo**. Sin el toggle: ningún pull, ningún tráfico, ningún cambio. Los clientes sin módulo móvil no perciben nada.
+
+### Fixes durante implementación
+- Lumen: `now()` reemplazado por `date('Y-m-d H:i:s')` (función no disponible en Lumen sin `use Carbon`).
+- Lumen: filtro `whereNotNull('codvb6')` quitado en `ediciones-pendientes` — sino bloqueaba TODAS las ediciones de clientes creados en móvil.
+- pull.php: tolera `Identificacion` int — pasa `null` cuando el documento contiene caracteres no numéricos.
+- pull.php: `Whatsapp NOT NULL` sin default → pasa cadena vacía al insert.
+- pull.php: normaliza `gps_capturado_at` de ISO con `Z` a `YYYY-MM-DD HH:MM:SS` para MySQL.
+
+### Archivos tocados
+
+Cuando un vendedor edita un cliente desde la app móvil (cambia teléfono, agrega coordenadas GPS al visitar al cliente, corrige dirección, etc.), el cambio quedaba represado en el hub Lumen y nunca llegaba al Conta FT desktop. Ahora el pull desde Configuración → Vendedores Móviles → **"⬇️ Bajar cambios"** trae ambas cosas: ventas hechas en móvil + ediciones de clientes.
+
+**Detalles:**
+- **Lumen** — endpoints nuevos `GET /sync/clientes/ediciones-pendientes` y `POST /sync/clientes/ediciones-confirmadas`. Solo entrega ediciones de clientes que ya existían en el desktop (con `codvb6`); los creados desde móvil quedan para un flujo aparte.
+- **Desktop** — `api/vendedores/pull.php` extendido: tras bajar ventas, consulta ediciones pendientes y aplica `UPDATE tblclientes` por cada una mapeando campos Lumen → columnas legacy VB6 (`telefono`→`Telefonos`, `email`→`Email`, `direccion`→`Direccion`, `latitud`/`longitud`/`precision_gps_metros`/`gps_capturado_at` → columnas nuevas). Confirma a Lumen los ids aplicados.
+- **Nuevas columnas en `tblclientes`** (idempotente, vía `actualizacion_completa.sql`): `latitud`, `longitud`, `precision_gps_metros`, `gps_capturado_at`. Solo se llenan si el negocio usa el módulo de vendedores móviles.
+- **Toggle global respetado** — todo el flujo solo se activa si el cliente tiene encendido `Habilitar módulo de vendedores móviles` en Configuración. Para clientes sin módulo móvil, nada cambia.
+
+### App móvil — listado refresca al instante tras editar
+
+Antes, al editar un cliente y volver al listado, seguía mostrando el dato anterior hasta que se salía al menú y volvía. Causa: `useCachedList` muestra primero el caché local SQLite y luego refetcha en background. Ahora `EditClientScreen` actualiza el caché SQLite del cliente inmediatamente después del PUT exitoso (`clientsRepo.upsert`), así el listado refleja el cambio apenas vuelves del modal.
+
+### Archivos tocados
+- `AppMobilFacturacion/api/app/Http/Controllers/SyncVendedorController.php` — 4 métodos nuevos (ediciones-pendientes, ediciones-confirmadas, clientes-nuevos, confirmar-mapeo)
+- `AppMobilFacturacion/api/routes/web.php` — 4 rutas nuevas en `/sync`
+- `AppMobilFacturacion/src/db/clientsRepo.ts` — método `upsert`
+- `AppMobilFacturacion/src/screens/EditClientScreen.tsx` — upsert tras save
+- `conta-app-backend/api/vendedores/pull.php` — bloque de clientes nuevos + ediciones
+- `conta-app-backend/sql/actualizacion_completa.sql` — columnas GPS en tblclientes
+- `Dashboard-Facturación/src/components/ConfiguracionSistema.tsx` — feedback "Bajar cambios"
+- `Dashboard-Facturación/src/components/Dashboard.tsx` — hook `useAutoSyncVendedores`
+- `Dashboard-Facturación/src/hooks/useAutoSyncVendedores.ts` — NUEVO (sync silencioso)
+
+### Migraciones a aplicar
+- **Desktop (BD del cliente)**: ejecutar `actualizacion_completa.sql` — agrega las 4 columnas GPS de forma idempotente.
+- **Hub Lumen** (solo en el servidor del hub):
+```sql
+ALTER TABLE cliente_ediciones_log
+  ADD COLUMN sincronizado_desktop TINYINT(1) NOT NULL DEFAULT 0 AFTER fuente,
+  ADD COLUMN fecha_sync_desktop DATETIME NULL DEFAULT NULL AFTER sincronizado_desktop,
+  ADD INDEX idx_ediciones_pendientes (sincronizado_desktop, id_empresa, id);
+```
+
+---
+
 ## 4.3.53 — 2026-06-09
 
 ### Mejoras de productividad (reportadas por usuaria de Ammi Accesorios)

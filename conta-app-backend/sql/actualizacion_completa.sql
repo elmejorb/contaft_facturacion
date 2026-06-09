@@ -982,6 +982,12 @@ LEFT JOIN (
        AND pag.NFacturaAnt = f.FacturaN
 GROUP BY f.FacturaN, f.CodigoProv, p.RazonSocial, f.Fecha, f.Dias;
 
+-- NOTA — El módulo Vendedores Móviles aún está EN PRUEBAS y su SQL NO se
+-- distribuye en este archivo a clientes en producción. Las migraciones
+-- necesarias para activar ese módulo (columnas GPS en tblclientes y
+-- migration Lumen) están en `modulo_vendedores_movil.sql` aparte, y solo
+-- se aplican cuando un cliente específico contrata la opción.
+
 -- ================================================================
 -- VERIFICACIÓN FINAL
 -- ================================================================

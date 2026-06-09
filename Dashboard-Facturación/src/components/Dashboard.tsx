@@ -77,6 +77,7 @@ import { NotasArticulo } from './NotasArticulo';
 import { LotesPorVencer } from './LotesPorVencer';
 import { PantallaInicio } from './PantallaInicio';
 import { useNotificaciones } from '../hooks/useNotificaciones';
+import { useAutoSyncVendedores } from '../hooks/useAutoSyncVendedores';
 import { InformesHub } from './informes/InformesHub';
 import { ConfiguracionSistema, saveEmpresaCache } from './ConfiguracionSistema';
 import { DatosEmpresa } from './DatosEmpresa';
@@ -141,6 +142,9 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
   const cumpleProximos = useCumpleanosHoy();
   const stockBajoCount = useStockBajoCount();
   const notif = useNotificaciones();
+  // Auto-sync silencioso con el hub móvil (solo si el módulo está habilitado).
+  // Cada N minutos según sync_intervalo_pull_min de la config.
+  useAutoSyncVendedores();
   const [notifOpen, setNotifOpen] = useState(false);
   const irA = (v: View) => { setCurrentView(v); setNotifOpen(false); };
   const [sidebarOpen, setSidebarOpen] = useState(true);

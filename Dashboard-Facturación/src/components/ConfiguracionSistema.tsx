@@ -324,25 +324,29 @@ export function ConfiguracionSistema() {
     setVendLoading(false);
   };
 
-  // Bajar las ventas que hicieron los vendedores móviles
+  // Bajar las ventas y ediciones de clientes que hicieron los vendedores móviles
   const syncPullVendedores = async () => {
     if (!vendConfig.api_url || !vendConfig.api_email || !vendConfig.api_token_empresa) {
       toast.error('Configura URL, email y token primero');
       return;
     }
     setVendLoading(true);
-    const tid = toast.loading('Bajando ventas de vendedores...');
+    const tid = toast.loading('Bajando cambios del hub móvil...');
     try {
       const r = await fetch('http://localhost:80/conta-app-backend/api/vendedores/pull.php');
       const d = await r.json();
       toast.dismiss(tid);
       if (d.success) {
-        const n = d.procesadas ?? d.total ?? 0;
-        const msg = n > 0 ? `${n} venta(s) traídas del hub` : 'Sin ventas nuevas';
+        const ventas = (d.pedidos_nuevos ?? 0) + (d.fe_nuevas ?? 0);
+        const ediciones = d.ediciones_clientes_aplicadas ?? 0;
+        const partes: string[] = [];
+        if (ventas > 0) partes.push(`${ventas} venta(s)`);
+        if (ediciones > 0) partes.push(`${ediciones} cliente(s) actualizado(s)`);
+        const msg = partes.length > 0 ? `Traídos del hub: ${partes.join(' + ')}` : 'Sin cambios nuevos';
         toast.success(msg, { duration: 5000 });
         setVendUltimoSync({ tipo: 'pull', resumen: msg, ts: new Date().toLocaleString('es-CO') });
       } else {
-        toast.error(d.message || 'Error trayendo ventas');
+        toast.error(d.message || 'Error trayendo cambios');
       }
     } catch (e) { toast.dismiss(tid); toast.error('Error de conexión al bajar'); }
     setVendLoading(false);
@@ -663,9 +667,9 @@ export function ConfiguracionSistema() {
                     ⬆️ Subir al hub
                   </button>
                   <button onClick={syncPullVendedores} disabled={vendLoading}
-                    title="Trae al Conta FT las ventas hechas por los vendedores en sus móviles"
+                    title="Trae al Conta FT las ventas hechas por los vendedores y las ediciones de clientes (teléfono, GPS, dirección) hechas en los móviles"
                     style={{ height: 32, padding: '0 12px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, cursor: 'pointer', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
-                    ⬇️ Bajar ventas
+                    ⬇️ Bajar cambios
                   </button>
                   <button onClick={syncCompletoVendedores} disabled={vendLoading}
                     title="Sube y baja en una sola acción"
