@@ -54,6 +54,29 @@ SET @sql = IF(@col_gpsat = 0,
   'SELECT 1');
 PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
 
+-- Columnas de modos en tbl_config_vendedores (qué puede hacer el vendedor
+-- desde la app móvil: solo pedidos, factura POS, factura electrónica).
+SET @col_mp = (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tbl_config_vendedores' AND COLUMN_NAME = 'modo_pedidos');
+SET @sql = IF(@col_mp = 0,
+  'ALTER TABLE tbl_config_vendedores ADD COLUMN modo_pedidos TINYINT(1) NOT NULL DEFAULT 1',
+  'SELECT 1');
+PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
+
+SET @col_mfp = (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tbl_config_vendedores' AND COLUMN_NAME = 'modo_factura_pos');
+SET @sql = IF(@col_mfp = 0,
+  'ALTER TABLE tbl_config_vendedores ADD COLUMN modo_factura_pos TINYINT(1) NOT NULL DEFAULT 0',
+  'SELECT 1');
+PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
+
+SET @col_mfe = (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tbl_config_vendedores' AND COLUMN_NAME = 'modo_factura_electronica');
+SET @sql = IF(@col_mfe = 0,
+  'ALTER TABLE tbl_config_vendedores ADD COLUMN modo_factura_electronica TINYINT(1) NOT NULL DEFAULT 0',
+  'SELECT 1');
+PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
+
 SELECT '✓ Migración módulo móvil aplicada (lado desktop)' AS resultado;
 
 
@@ -68,9 +91,13 @@ SELECT '✓ Migración módulo móvil aplicada (lado desktop)' AS resultado;
 --   ADD COLUMN fecha_sync_desktop DATETIME NULL DEFAULT NULL AFTER sincronizado_desktop,
 --   ADD INDEX idx_ediciones_pendientes (sincronizado_desktop, id_empresa, id);
 --
--- Esto le permite al hub saber qué ediciones de cliente aún no se han
--- aplicado en el desktop del cliente, y marcarlas cuando el pull las
--- confirma.
+-- ALTER TABLE empresas
+--   ADD COLUMN modo_pedidos TINYINT(1) NOT NULL DEFAULT 1,
+--   ADD COLUMN modo_factura_pos TINYINT(1) NOT NULL DEFAULT 0,
+--   ADD COLUMN modo_factura_electronica TINYINT(1) NOT NULL DEFAULT 0;
+--
+-- Estos modos los configura cada cliente desde su Conta FT desktop y
+-- se propagan al hub vía POST /sync/empresa/modos.
 
 
 -- ================================================================

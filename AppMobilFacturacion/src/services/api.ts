@@ -35,6 +35,10 @@ export interface CompanyDTO {
   direccion?: string | null;
   telefono?: string | null;
   factura_electronica_activa: boolean;
+  // Modos del vendedor móvil (configurados por el admin desde Conta FT)
+  modo_pedidos: boolean;
+  modo_factura_pos: boolean;
+  modo_factura_electronica: boolean;
 }
 
 export interface LoginResponse {

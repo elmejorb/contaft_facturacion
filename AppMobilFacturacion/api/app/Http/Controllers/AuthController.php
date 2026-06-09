@@ -78,6 +78,9 @@ class AuthController extends Controller
                 'direccion'                  => $empresa->direccion,
                 'telefono'                   => $empresa->telefono,
                 'factura_electronica_activa' => (bool) $empresa->factura_electronica_activa,
+                'modo_pedidos'               => (bool) $empresa->modo_pedidos,
+                'modo_factura_pos'           => (bool) $empresa->modo_factura_pos,
+                'modo_factura_electronica'   => (bool) $empresa->modo_factura_electronica,
             ] : null,
         ]);
     }
@@ -104,6 +107,9 @@ class AuthController extends Controller
                 'nombre'                     => $empresa->nombre_empresa,
                 'nit'                        => $empresa->nit,
                 'factura_electronica_activa' => (bool) $empresa->factura_electronica_activa,
+                'modo_pedidos'               => (bool) $empresa->modo_pedidos,
+                'modo_factura_pos'           => (bool) $empresa->modo_factura_pos,
+                'modo_factura_electronica'   => (bool) $empresa->modo_factura_electronica,
             ] : null,
         ]);
     }

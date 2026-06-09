@@ -368,6 +368,52 @@ class SyncVendedorController extends Controller
     }
 
     // ========================================================================
+    // ACTUALIZAR MODOS DE LA EMPRESA (POST /sync/empresa/modos)
+    // El desktop manda los 3 flags (pedidos / factura POS / FE) cuando el
+    // admin los cambia en Configuración. Permite que cada empresa cliente
+    // configure qué pueden hacer sus vendedores desde la app.
+    // Body: { email, token_api, modo_pedidos, modo_factura_pos, modo_factura_electronica }
+    // ========================================================================
+    public function empresaActualizarModos(Request $request): JsonResponse
+    {
+        $empresa = $this->authBatch($request);
+        if (!$empresa) return $this->unauthorized();
+
+        $modoPedidos = $request->input('modo_pedidos', null);
+        $modoFacturaPos = $request->input('modo_factura_pos', null);
+        $modoFacturaElectronica = $request->input('modo_factura_electronica', null);
+
+        $update = [];
+        if ($modoPedidos !== null)             $update['modo_pedidos'] = (int) (bool) $modoPedidos;
+        if ($modoFacturaPos !== null)          $update['modo_factura_pos'] = (int) (bool) $modoFacturaPos;
+        if ($modoFacturaElectronica !== null)  $update['modo_factura_electronica'] = (int) (bool) $modoFacturaElectronica;
+
+        if (empty($update)) {
+            return response()->json(['error' => true, 'mensaje' => 'No se enviaron campos a actualizar'], 400);
+        }
+
+        $update['updated_at'] = date('Y-m-d H:i:s');
+
+        DB::table('empresas')
+            ->where('id_empresa', $empresa->id_empresa)
+            ->update($update);
+
+        $actualizada = DB::table('empresas')
+            ->where('id_empresa', $empresa->id_empresa)
+            ->select([
+                'id_empresa', 'nombre_empresa',
+                'modo_pedidos', 'modo_factura_pos', 'modo_factura_electronica',
+                'factura_electronica_activa',
+            ])
+            ->first();
+
+        return response()->json([
+            'error'   => false,
+            'empresa' => $actualizada,
+        ]);
+    }
+
+    // ========================================================================
     // CLIENTES NUEVOS CREADOS DESDE MÓVIL (GET /sync/clientes/nuevos)
     // Devuelve clientes con codvb6 NULL — i.e. creados directamente por un
     // vendedor en la app móvil — para que el desktop los inserte en

@@ -9,10 +9,12 @@ import { DashboardScreen } from '../screens/DashboardScreen';
 import { OrdersScreen } from '../screens/OrdersScreen';
 import { InvoicesScreen } from '../screens/InvoicesScreen';
 import { MoreScreen } from '../screens/MoreScreen';
+import { useCompanyModes } from '../hooks/useCompanyModes';
 
 const Tab = createBottomTabNavigator<MainTabsParamList>();
 
 export const BottomTabs: React.FC = () => {
+  const modes = useCompanyModes();
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
@@ -41,8 +43,12 @@ export const BottomTabs: React.FC = () => {
       })}
     >
       <Tab.Screen name="Dashboard" component={DashboardScreen} options={{ tabBarLabel: 'Inicio' }} />
-      <Tab.Screen name="Orders" component={OrdersScreen} options={{ tabBarLabel: 'Pedidos' }} />
-      <Tab.Screen name="Invoices" component={InvoicesScreen} options={{ tabBarLabel: 'Facturas' }} />
+      {modes.pedidos && (
+        <Tab.Screen name="Orders" component={OrdersScreen} options={{ tabBarLabel: 'Pedidos' }} />
+      )}
+      {modes.algunaFactura && (
+        <Tab.Screen name="Invoices" component={InvoicesScreen} options={{ tabBarLabel: 'Facturas' }} />
+      )}
       <Tab.Screen name="More" component={MoreScreen} options={{ tabBarLabel: 'Más' }} />
     </Tab.Navigator>
   );

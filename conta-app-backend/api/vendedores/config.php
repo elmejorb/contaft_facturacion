@@ -39,6 +39,9 @@ try {
                     api_email = ?,
                     api_token_empresa = ?,
                     sync_intervalo_pull_min = ?,
+                    modo_pedidos = ?,
+                    modo_factura_pos = ?,
+                    modo_factura_electronica = ?,
                     fecha_mod = NOW()
                 WHERE id = 1
             ");
@@ -48,6 +51,9 @@ try {
                 $data['api_email'] ?? '',
                 $data['api_token_empresa'] ?? '',
                 intval($data['sync_intervalo_pull_min'] ?? 15),
+                intval($data['modo_pedidos'] ?? 1),
+                intval($data['modo_factura_pos'] ?? 0),
+                intval($data['modo_factura_electronica'] ?? 0),
             ]);
             echo json_encode(['success' => true, 'message' => 'Configuración guardada'], JSON_UNESCAPED_UNICODE);
             exit;

@@ -16,6 +16,7 @@ import { colors, radius, shadows, spacing, typography } from '../theme';
 import { RootStackParamList } from '../navigation/types';
 import { formatCurrency, formatDateTime, initials } from '../utils/format';
 import { dashboardApi, DashboardResumen } from '../services/api';
+import { useCompanyModes } from '../hooks/useCompanyModes';
 import { useAuthStore } from '../stores/authStore';
 import { useNetworkStore } from '../stores/networkStore';
 import { useSyncStore } from '../stores/syncStore';
@@ -27,6 +28,7 @@ type Nav = NativeStackNavigationProp<RootStackParamList>;
 
 export const DashboardScreen: React.FC = () => {
   const nav = useNavigation<Nav>();
+  const modes = useCompanyModes();
   const vendor = useAuthStore((s) => s.vendor);
   const online = useNetworkStore((s) => s.online);
   const lastSyncAt = useSyncStore((s) => s.lastSyncAt);
@@ -162,20 +164,24 @@ export const DashboardScreen: React.FC = () => {
             </View>
 
             <View style={styles.quickActions}>
-              <QuickAction
-                icon="add-circle"
-                label="Nuevo Pedido"
-                color={colors.primary}
-                bg={colors.primaryLight}
-                onPress={() => nav.navigate('CreateOrder')}
-              />
-              <QuickAction
-                icon="document-text"
-                label="Nueva Factura"
-                color={colors.success}
-                bg={colors.successLight}
-                onPress={() => nav.navigate('CreateInvoice')}
-              />
+              {modes.pedidos && (
+                <QuickAction
+                  icon="add-circle"
+                  label="Nuevo Pedido"
+                  color={colors.primary}
+                  bg={colors.primaryLight}
+                  onPress={() => nav.navigate('CreateOrder')}
+                />
+              )}
+              {modes.algunaFactura && (
+                <QuickAction
+                  icon="document-text"
+                  label="Nueva Factura"
+                  color={colors.success}
+                  bg={colors.successLight}
+                  onPress={() => nav.navigate('CreateInvoice')}
+                />
+              )}
               <QuickAction
                 icon="cube"
                 label="Productos"

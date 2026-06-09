@@ -42,6 +42,7 @@ $router->group(['prefix' => 'sync'], function () use ($router) {
     $router->post('clientes/ediciones-confirmadas',   'SyncVendedorController@clientesEdicionesConfirmadas');
     $router->get('clientes/nuevos',                   'SyncVendedorController@clientesNuevosPendientes');
     $router->post('clientes/confirmar-mapeo',         'SyncVendedorController@clientesConfirmarMapeo');
+    $router->post('empresa/modos',                    'SyncVendedorController@empresaActualizarModos');
 });
 
 $router->group(['prefix' => 'api'], function () use ($router) {

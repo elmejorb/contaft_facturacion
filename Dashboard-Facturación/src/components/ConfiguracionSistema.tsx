@@ -249,7 +249,16 @@ export function ConfiguracionSistema() {
   };
 
   // ====== Config Vendedores Móviles ======
-  const [vendConfig, setVendConfig] = useState({ habilitado: 0, api_url: '', api_email: '', api_token_empresa: '', sync_intervalo_pull_min: 15 });
+  const [vendConfig, setVendConfig] = useState({
+    habilitado: 0,
+    api_url: '',
+    api_email: '',
+    api_token_empresa: '',
+    sync_intervalo_pull_min: 15,
+    modo_pedidos: 1,
+    modo_factura_pos: 0,
+    modo_factura_electronica: 0,
+  });
   const [vendLoading, setVendLoading] = useState(false);
 
   useEffect(() => {
@@ -263,6 +272,9 @@ export function ConfiguracionSistema() {
             api_email: d.config.api_email ?? '',
             api_token_empresa: d.config.api_token_empresa ?? '',
             sync_intervalo_pull_min: d.config.sync_intervalo_pull_min ?? 15,
+            modo_pedidos: d.config.modo_pedidos ?? 1,
+            modo_factura_pos: d.config.modo_factura_pos ?? 0,
+            modo_factura_electronica: d.config.modo_factura_electronica ?? 0,
           });
         }
       })
@@ -271,14 +283,40 @@ export function ConfiguracionSistema() {
 
   const guardarVendedores = async () => {
     try {
+      // 1. Guardar localmente en tbl_config_vendedores
       const r = await fetch('http://localhost:80/conta-app-backend/api/vendedores/config.php', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'guardar', ...vendConfig }),
       });
       const d = await r.json();
-      if (d.success) toast.success('Configuración de vendedores guardada');
-      else toast.error(d.message);
+      if (!d.success) { toast.error(d.message); return; }
+
+      // 2. Propagar modos al hub Lumen para que la app móvil los reciba al login
+      if (vendConfig.habilitado === 1 && vendConfig.api_url && vendConfig.api_email && vendConfig.api_token_empresa) {
+        try {
+          const rm = await fetch(`${vendConfig.api_url.replace(/\/$/, '')}/sync/empresa/modos`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              email: vendConfig.api_email,
+              token_api: vendConfig.api_token_empresa,
+              modo_pedidos: !!vendConfig.modo_pedidos,
+              modo_factura_pos: !!vendConfig.modo_factura_pos,
+              modo_factura_electronica: !!vendConfig.modo_factura_electronica,
+            }),
+          });
+          const dm = await rm.json();
+          if (dm.error) {
+            toast.success('Guardado local. Hub: ' + (dm.mensaje || 'no se pudo propagar modos'), { duration: 6000 });
+            return;
+          }
+        } catch (eM) {
+          toast.success('Guardado local. Hub no respondió — los vendedores verán los modos viejos hasta el próximo intento', { duration: 6000 });
+          return;
+        }
+      }
+      toast.success('Configuración guardada y sincronizada con el hub');
     } catch (e) { toast.error('Error de conexión'); }
   };
 
@@ -646,6 +684,37 @@ export function ConfiguracionSistema() {
                   {[5, 10, 15, 30, 60].map(m => <option key={m} value={m}>{m} min</option>)}
                 </select>
               </div>
+              {/* Modos del vendedor — qué pueden hacer desde la app */}
+              <div style={{ marginTop: 6, padding: 12, background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#374151', marginBottom: 4 }}>¿Qué puede hacer el vendedor desde la app?</div>
+                <p style={{ fontSize: 11, color: '#6b7280', margin: '0 0 10px' }}>Marque las opciones que aplican a este negocio. Solo verán en su app lo que esté habilitado.</p>
+                {[
+                  { key: 'modo_pedidos' as const, label: 'Crear pedidos', desc: 'El vendedor toma órdenes y las envía. El admin las aprueba/factura desde Conta FT.' },
+                  { key: 'modo_factura_pos' as const, label: 'Facturar (POS, sin DIAN)', desc: 'El vendedor crea facturas inmediatas. NO se envían a DIAN. Útil para pequeño contribuyente o ventas internas.' },
+                  { key: 'modo_factura_electronica' as const, label: 'Factura electrónica DIAN', desc: 'El vendedor genera factura electrónica con CUFE. Requiere que la empresa tenga FE activa con certificado y resolución.' },
+                ].map(m => {
+                  const active = (vendConfig as any)[m.key] === 1;
+                  return (
+                    <label key={m.key}
+                      onClick={() => setVendConfig(c => ({ ...c, [m.key]: active ? 0 : 1 }))}
+                      style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '8px 10px', borderRadius: 6, cursor: 'pointer', border: `2px solid ${active ? '#7c3aed' : '#e5e7eb'}`, background: active ? '#f5f3ff' : '#fff', marginBottom: 6 }}>
+                      <div style={{
+                        width: 18, height: 18, borderRadius: 4, flexShrink: 0, marginTop: 1,
+                        border: `2px solid ${active ? '#7c3aed' : '#d1d5db'}`,
+                        background: active ? '#7c3aed' : '#fff',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      }}>
+                        {active && <span style={{ color: '#fff', fontSize: 12, fontWeight: 700, lineHeight: 1 }}>✓</span>}
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: active ? '#7c3aed' : '#374151' }}>{m.label}</div>
+                        <div style={{ fontSize: 10, color: '#6b7280', marginTop: 2 }}>{m.desc}</div>
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
+
               <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
                 <button onClick={probarConexionVendedores} disabled={vendLoading}
                   style={{ height: 32, padding: '0 14px', background: '#f3f4f6', border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -653,7 +722,7 @@ export function ConfiguracionSistema() {
                 </button>
                 <button onClick={guardarVendedores}
                   style={{ height: 32, padding: '0 14px', background: '#7c3aed', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, cursor: 'pointer', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <Save size={13} /> Guardar
+                  <Save size={13} /> Guardar y sincronizar
                 </button>
               </div>
 
