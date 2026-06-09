@@ -80,8 +80,8 @@ export function VendedoresPedidos({ onNavigate }: Props) {
       const d = await r.json();
       if (d.success) {
         setVendedores((d.vendedores || []).map((v: any) => ({
-          id: v.id_remoto || v.id, // id_remoto = CodigoEmp en desktop si hay mapeo; si no, id local
-          codigo: v.codigo,
+          id: v.id, // id local de tbl_vendedores_movil — solo para `key` de React
+          codigo: v.codigo, // <-- esto se envía al backend para filtrar
           nombre: v.nombre,
         })));
       }
@@ -311,7 +311,7 @@ export function VendedoresPedidos({ onNavigate }: Props) {
           style={{ height: 30, border: '1px solid #d1d5db', borderRadius: 6, fontSize: 12, padding: '0 8px', minWidth: 160 }}>
           <option value="">Todos los vendedores</option>
           {vendedores.map(v => (
-            <option key={v.id} value={v.id}>{v.codigo} — {v.nombre}</option>
+            <option key={v.id} value={v.codigo}>{v.codigo} — {v.nombre}</option>
           ))}
         </select>
 
