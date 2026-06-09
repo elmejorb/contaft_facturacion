@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { AgGridReact } from 'ag-grid-react';
 import { AllCommunityModule, ModuleRegistry } from 'ag-grid-community';
-import { Smartphone, RefreshCw, Filter, ArrowRight, Receipt, FileText } from 'lucide-react';
+import { Smartphone, RefreshCw, Filter, ArrowRight, Receipt, FileText, Eye, Ban } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useVendedoresConfig } from '../hooks/useVendedoresConfig';
 import { confirmar } from './ConfirmDialog';
@@ -114,7 +114,15 @@ export function VendedoresPedidos({ onNavigate }: Props) {
     return pedidos.filter(p => p.tipo === filtroTipo);
   }, [pedidos, filtroTipo]);
 
-  const convertir = (pedido: Pedido) => {
+  const convertir = async (pedido: Pedido) => {
+    const ok = await confirmar({
+      title: 'Convertir pedido a factura',
+      message: `¿Deseas facturar el pedido ${pedido.numero_pedido} de ${pedido.nombre_cliente} por ${fmt(pedido.total)}? Se abrirá la pantalla de Nueva Venta con los datos cargados para que confirmes y guardes.`,
+      type: 'info',
+      confirmText: 'Sí, facturar',
+      cancelText: 'Cancelar',
+    });
+    if (!ok) return;
     localStorage.setItem('pedido_para_venta_id', String(pedido.id));
     toast.success('Pedido cargado en pantalla de ventas');
     onNavigate?.('nueva-venta');
@@ -215,30 +223,54 @@ export function VendedoresPedidos({ onNavigate }: Props) {
       },
     },
     {
-      headerName: 'Acciones', width: 230, pinned: 'right' as any,
-      cellRenderer: (p: any) => (
-        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-          <button onClick={() => verDetalle(p.data.id)}
-            style={{ border: '1px solid #d1d5db', background: '#fff', cursor: 'pointer', color: '#374151', fontSize: 11, padding: '2px 8px', borderRadius: 4 }}>
-            Ver
-          </button>
-          {p.data.tipo === 'pedido' && p.data.estado === 'pendiente' && (
-            <>
-              <button onClick={() => convertir(p.data)}
-                style={{ border: 'none', background: '#16a34a', cursor: 'pointer', color: '#fff', fontSize: 11, padding: '3px 8px', borderRadius: 4, display: 'flex', alignItems: 'center', gap: 3, fontWeight: 600 }}>
-                <ArrowRight size={11} /> Facturar
-              </button>
-              <button onClick={() => anular(p.data.id)}
-                style={{ border: '1px solid #fecaca', background: '#fff', cursor: 'pointer', color: '#dc2626', fontSize: 11, padding: '2px 8px', borderRadius: 4 }}>
-                Anular
-              </button>
-            </>
-          )}
-          {p.data.convertido_factura_n && (
-            <span style={{ fontSize: 10, color: '#6b7280' }}>→ FV-{p.data.convertido_factura_n}</span>
-          )}
-        </div>
-      ),
+      headerName: 'Acciones', width: 160, pinned: 'right' as any,
+      cellRenderer: (p: any) => {
+        const btnBase: React.CSSProperties = {
+          width: 30, height: 30, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+          border: 'none', borderRadius: 8, cursor: 'pointer', transition: 'all 0.15s',
+        };
+        return (
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center', height: '100%' }}>
+            <button
+              onClick={() => verDetalle(p.data.id)}
+              title={p.data.tipo === 'factura' ? 'Ver factura' : 'Ver pedido'}
+              style={{ ...btnBase, background: '#eff6ff', color: '#2563eb' }}
+              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#dbeafe'; }}
+              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = '#eff6ff'; }}
+            >
+              <Eye size={15} />
+            </button>
+            {p.data.tipo === 'pedido' && p.data.estado === 'pendiente' && (
+              <>
+                <button
+                  onClick={() => convertir(p.data)}
+                  title="Convertir pedido a factura (pedirá confirmación)"
+                  style={{ ...btnBase, background: '#dcfce7', color: '#16a34a' }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#bbf7d0'; }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = '#dcfce7'; }}
+                >
+                  <ArrowRight size={15} strokeWidth={2.5} />
+                </button>
+                <button
+                  onClick={() => anular(p.data.id)}
+                  title="Anular pedido"
+                  style={{ ...btnBase, background: '#fee2e2', color: '#dc2626' }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#fecaca'; }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = '#fee2e2'; }}
+                >
+                  <Ban size={15} />
+                </button>
+              </>
+            )}
+            {p.data.convertido_factura_n && (
+              <span title="Factura creada a partir de este pedido"
+                style={{ fontSize: 10, color: '#6b7280', marginLeft: 4 }}>
+                → FV-{p.data.convertido_factura_n}
+              </span>
+            )}
+          </div>
+        );
+      },
     },
   ];
 
