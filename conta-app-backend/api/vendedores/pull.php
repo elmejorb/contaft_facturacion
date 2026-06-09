@@ -94,7 +94,8 @@ try {
                         $v['nit_cliente'] ?? '',
                         $v['total'] ?? 0,
                         $v['estado_dian'] ?? 'autorizado',
-                        $v['id_vendedor_mobile'] ?? null,
+                        $v['id_vendedor_conta'] ?? $v['id_vendedor_mobile'] ?? null, // preferir id del desktop (id_vendedor_conta); fallback al id Lumen si el hub no lo manda
+
                         $v['nombre_vendedor'] ?? '',
                         $v['cufe'],
                     ]);
@@ -111,7 +112,8 @@ try {
                         $v['total'] ?? 0,
                         $v['cufe'],
                         $v['estado_dian'] ?? 'autorizado',
-                        $v['id_vendedor_mobile'] ?? null,
+                        $v['id_vendedor_conta'] ?? $v['id_vendedor_mobile'] ?? null, // preferir id del desktop (id_vendedor_conta); fallback al id Lumen si el hub no lo manda
+
                         $v['nombre_vendedor'] ?? '',
                     ]);
                 }
@@ -138,7 +140,8 @@ try {
                         $v['id_cliente'] ?? null,
                         $v['nombre_cliente'] ?? '',
                         $v['nit_cliente'] ?? '',
-                        $v['id_vendedor_mobile'] ?? null,
+                        $v['id_vendedor_conta'] ?? $v['id_vendedor_mobile'] ?? null, // preferir id del desktop (id_vendedor_conta); fallback al id Lumen si el hub no lo manda
+
                         $v['nombre_vendedor'] ?? '',
                         $v['fecha_venta'] ?? null,
                         $v['subtotal'] ?? 0,
@@ -163,7 +166,8 @@ try {
                         $v['id_cliente'] ?? null,
                         $v['nombre_cliente'] ?? '',
                         $v['nit_cliente'] ?? '',
-                        $v['id_vendedor_mobile'] ?? null,
+                        $v['id_vendedor_conta'] ?? $v['id_vendedor_mobile'] ?? null, // preferir id del desktop (id_vendedor_conta); fallback al id Lumen si el hub no lo manda
+
                         $v['nombre_vendedor'] ?? '',
                         $v['fecha_venta'] ?? null,
                         $v['subtotal'] ?? 0,

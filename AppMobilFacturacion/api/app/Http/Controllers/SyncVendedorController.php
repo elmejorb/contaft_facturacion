@@ -183,6 +183,8 @@ class SyncVendedorController extends Controller
                 'c.nombre_razon_social as nombre_cliente',
                 'c.numero_documento as nit_cliente',
                 'v.id_vendedor_mobile',
+                'mv.id_vendedor_conta',
+                'mv.codigo as codigo_vendedor',
                 'mv.nombre as nombre_vendedor',
                 'v.subtotal',
                 'v.total_impuestos',
@@ -250,6 +252,10 @@ class SyncVendedorController extends Controller
                 'nombre_cliente'     => $v->nombre_cliente ?? 'Cliente general',
                 'nit_cliente'        => $v->nit_cliente ?? '',
                 'id_vendedor_mobile' => $v->id_vendedor_mobile ? (int) $v->id_vendedor_mobile : null,
+                // id_vendedor_conta: id del vendedor en el desktop original (tbl_vendedores_movil.id).
+                // Es el dato que debe usar el desktop para mapear, NO el id_vendedor_mobile que es de Lumen.
+                'id_vendedor_conta'  => $v->id_vendedor_conta ? (int) $v->id_vendedor_conta : null,
+                'codigo_vendedor'    => $v->codigo_vendedor ?? '',
                 'nombre_vendedor'    => $v->nombre_vendedor ?? '',
                 'subtotal'           => (float) $v->subtotal,
                 'total_impuestos'    => (float) $v->total_impuestos,
@@ -301,6 +307,7 @@ class SyncVendedorController extends Controller
                 'c.nombre_razon_social',
                 'mv.codigo as codigo_vendedor',
                 'mv.nombre as nombre_vendedor',
+                'mv.id_vendedor_conta',
             ])
             ->leftJoin('clientes as c', 'e.id_cliente', '=', 'c.id_cliente')
             ->leftJoin('mobile_vendedores as mv', 'e.id_vendedor_mobile', '=', 'mv.id')
@@ -321,6 +328,7 @@ class SyncVendedorController extends Controller
                 'nombre_razon_social'  => $e->nombre_razon_social,
                 'codigo_vendedor'      => $e->codigo_vendedor,
                 'nombre_vendedor'      => $e->nombre_vendedor,
+                'id_vendedor_conta'    => $e->id_vendedor_conta ? (int) $e->id_vendedor_conta : null,
                 'fecha'                => $e->fecha,
                 'fuente'               => $e->fuente,
                 'cambios'              => $cambios, // { campo: { antes, despues }, ... }
@@ -447,6 +455,7 @@ class SyncVendedorController extends Controller
                 'c.creado_por_vendedor_mobile',
                 'mv.codigo as codigo_vendedor',
                 'mv.nombre as nombre_vendedor',
+                'mv.id_vendedor_conta',
                 'c.created_at',
             ])
             ->leftJoin('mobile_vendedores as mv', 'c.creado_por_vendedor_mobile', '=', 'mv.id')

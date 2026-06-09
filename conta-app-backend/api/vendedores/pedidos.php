@@ -132,41 +132,19 @@ try {
         // Filtros opcionales: estado, vendedor (id), fecha_desde/hasta.
         // Devuelve cada fila con campo `tipo` = 'pedido' | 'factura'.
         $estado     = trim($_GET['estado']      ?? '');
-        $vendedor   = trim($_GET['vendedor']    ?? ''); // ahora es CÓDIGO (V005, etc.)
+        $vendedor   = trim($_GET['vendedor']    ?? ''); // id numérico = tbl_vendedores_movil.id
         $fechaDesde = trim($_GET['fecha_desde'] ?? '');
         $fechaHasta = trim($_GET['fecha_hasta'] ?? '');
 
-        // Resolver código de vendedor → (id_remoto, nombre). Si id_remoto está
-        // mapeado lo usamos; si no, caemos a nombre_vendedor (single source of
-        // truth porque ambas tablas guardan el nombre tal cual del push).
-        $vendIdRemoto = null;
-        $vendNombre   = null;
-        if ($vendedor !== '') {
-            $stmtV = $db->prepare("SELECT id_remoto, nombre FROM tbl_vendedores_movil WHERE codigo = ? LIMIT 1");
-            $stmtV->execute([$vendedor]);
-            $vRow = $stmtV->fetch();
-            if ($vRow) {
-                $vendIdRemoto = $vRow['id_remoto'] !== null ? intval($vRow['id_remoto']) : null;
-                $vendNombre   = $vRow['nombre'];
-            }
-        }
+        $vendId = $vendedor !== '' && ctype_digit($vendedor) ? intval($vendedor) : null;
 
         // --- Pedidos (sin CUFE) ---
+        // id_vendedor_remoto = id_vendedor_conta del hub = tbl_vendedores_movil.id
+        // (consistente tras los cambios de sincronización en pull.php).
         $wherePed = ["1=1"];
         $paramsPed = [];
         if ($estado !== '')     { $wherePed[] = "estado = ?";              $paramsPed[] = $estado; }
-        if ($vendedor !== '') {
-            if ($vendIdRemoto !== null) {
-                $wherePed[] = "id_vendedor_remoto = ?";
-                $paramsPed[] = $vendIdRemoto;
-            } elseif ($vendNombre !== null) {
-                $wherePed[] = "nombre_vendedor = ?";
-                $paramsPed[] = $vendNombre;
-            } else {
-                // Código no encontrado: no devolver nada
-                $wherePed[] = "1=0";
-            }
-        }
+        if ($vendId !== null)   { $wherePed[] = "id_vendedor_remoto = ?";  $paramsPed[] = $vendId; }
         if ($fechaDesde !== '') { $wherePed[] = "fecha >= ?";              $paramsPed[] = $fechaDesde; }
         if ($fechaHasta !== '') { $wherePed[] = "fecha <= ?";              $paramsPed[] = $fechaHasta; }
         $whereStrPed = implode(' AND ', $wherePed);
@@ -190,19 +168,9 @@ try {
         if ($incluirFE) {
             $whereFE = ["origen = 'movil'"];
             $paramsFE = [];
-            if ($vendedor !== '') {
-                if ($vendIdRemoto !== null) {
-                    $whereFE[] = "ed.id_vendedor_remoto = ?";
-                    $paramsFE[] = $vendIdRemoto;
-                } elseif ($vendNombre !== null) {
-                    $whereFE[] = "ed.nombre_vendedor = ?";
-                    $paramsFE[] = $vendNombre;
-                } else {
-                    $whereFE[] = "1=0";
-                }
-            }
-            if ($fechaDesde !== '') { $whereFE[] = "ed.fecha >= ?";          $paramsFE[] = $fechaDesde; }
-            if ($fechaHasta !== '') { $whereFE[] = "ed.fecha <= ?";          $paramsFE[] = $fechaHasta; }
+            if ($vendId !== null)   { $whereFE[] = "ed.id_vendedor_remoto = ?"; $paramsFE[] = $vendId; }
+            if ($fechaDesde !== '') { $whereFE[] = "ed.fecha >= ?";             $paramsFE[] = $fechaDesde; }
+            if ($fechaHasta !== '') { $whereFE[] = "ed.fecha <= ?";             $paramsFE[] = $fechaHasta; }
             $whereStrFE = implode(' AND ', $whereFE);
 
             // Mapear columnas a la misma estructura que pedidos para que el
