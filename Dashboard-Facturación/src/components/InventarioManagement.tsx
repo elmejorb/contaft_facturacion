@@ -19,6 +19,7 @@ import api from '../services/api';
 import { Kardex } from './Kardex';
 import { DetalleProductoModal } from './DetalleProductoModal';
 import { EditarArticuloModal } from './EditarArticuloModal';
+import { AG_GRID_LOCALE_ES } from '../utils/agGridLocaleEs';
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
@@ -350,6 +351,26 @@ export function InventarioManagement() {
     setBusqueda(e.target.value);
   }, []);
 
+  // Orden inteligente: cuando hay búsqueda, los productos cuyo Código o
+  // Descripción EMPIEZA con el término aparecen primero, luego los que solo
+  // lo contienen. Sin búsqueda, conserva el orden recibido del backend.
+  const articulosOrdenados = useMemo(() => {
+    const term = (busqueda || '').toLowerCase().trim();
+    if (!term) return articulos;
+    const rank = (a: Articulo) => {
+      const cod = (a.Codigo || '').toLowerCase();
+      const desc = (a.Descripcion || '').toLowerCase();
+      if (cod.startsWith(term) || desc.startsWith(term)) return 0;
+      if (cod.includes(term) || desc.includes(term)) return 1;
+      return 2;
+    };
+    return [...articulos].sort((a, b) => {
+      const ra = rank(a), rb = rank(b);
+      if (ra !== rb) return ra - rb;
+      return (a.Descripcion || '').localeCompare(b.Descripcion || '');
+    });
+  }, [articulos, busqueda]);
+
   // Exporta el inventario filtrado a un archivo .xlsx real (no CSV).
   // Las columnas numéricas quedan como números (no strings) — Excel les aplica
   // formato de moneda/porcentaje al abrirse y permite SUMA, filtros, etc.
@@ -534,7 +555,8 @@ export function InventarioManagement() {
         <div className="bg-white rounded-xl shadow-sm overflow-hidden" style={{ height: 'calc(100vh - 480px)', minHeight: '380px' }}>
           <AgGridReact
             theme={myTheme}
-            rowData={articulos}
+            localeText={AG_GRID_LOCALE_ES}
+            rowData={articulosOrdenados}
             columnDefs={columnDefs}
             defaultColDef={defaultColDef}
             quickFilterText={busqueda}

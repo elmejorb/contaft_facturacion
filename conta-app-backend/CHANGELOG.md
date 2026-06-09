@@ -5,6 +5,37 @@ Visible solo para administradores desde **Configuración → Acerca de → Ver h
 
 ---
 
+## 4.3.53 — 2026-06-09
+
+### Mejoras de productividad (reportadas por usuaria de Ammi Accesorios)
+
+**1. Búsqueda inteligente de productos.** Al escribir un término en el buscador de Inventario, Productos o en el dropdown de búsqueda dentro de Compras/Ventas, los productos cuyo código o descripción **empieza** con el término ahora aparecen **primero**, antes de los que solo lo contienen. Ejemplo: al buscar "Bolsos", los productos que se llaman "Bolsos cuero", "Bolsos pequeños" aparecen arriba; los que solo contienen la palabra (ej. "Cinturón para bolsos") quedan abajo. Aplicado tanto en frontend (orden) como en backend (SQL `CASE` priorizando `LIKE 'término%'`).
+
+**2. Filtros de AG Grid en español.** Las tablas con filtros de columna (encabezado → menú filtro) ahora muestran las opciones en español: "Contiene", "Empieza con", "Termina con", "Igual a", "Distinto de", "En blanco", "Entre", botones "Aplicar"/"Limpiar", paginación "Página X de Y", "Filas por página", etc. Aplicado a Inventario (más usado). Localización compartida en `src/utils/agGridLocaleEs.ts` reutilizable para otras tablas.
+
+**3. Manejo de lotes / fechas de vencimiento ahora es una opción global de la app.** Antes era forzoso para cualquier producto con `requiere_lote=1` y bloqueaba el guardado. Ahora se controla desde **Configuración → Módulos opcionales del negocio → "Fechas de vencimiento / Lotes"**:
+- Apagado por defecto. Apropiado para boutique, ferretería, accesorios, papelería, distribuidoras no perecederos.
+- Cuando está **apagado**:
+  - El modal de producto **oculta** el checkbox "Requiere fecha de vencimiento (perecedero)".
+  - En Nueva Compra, los productos con `requiere_lote=1` en catálogo se tratan como NO perecederos: NO aparece la fila de Lote/Vencimiento, ni el badge "PERECEDERO", ni se valida nada.
+- Cuando está **encendido** (farmacias, droguerías, alimentos, lácteos):
+  - Aparece el checkbox en el modal de producto.
+  - En Nueva Compra, los productos marcados muestran la fila Lote/Vencimiento (ahora etiquetada como **opcional** — si no se ingresa fecha, simplemente no se crea el lote; la compra se guarda igual).
+
+**4. Campo Fecha en formulario de Compras.** El header de Nueva Compra ahora incluye un input **FECHA FACTURA** (`type="date"`) con default a hoy. Permite registrar facturas de proveedores que llegaron tarde (con fecha pasada) o programadas. Se persiste en `localStorage` y se envía al backend, que ya aceptaba el parámetro `fecha` opcional desde 4.3.x.
+
+### Archivos tocados
+- `Dashboard-Facturación/src/components/ConfiguracionSistema.tsx` — nuevo setting `usarLotes` (default OFF)
+- `Dashboard-Facturación/src/components/InventarioManagement.tsx` — orden inteligente + localeText
+- `Dashboard-Facturación/src/components/ProductsManagement.tsx` — orden inteligente
+- `Dashboard-Facturación/src/components/NuevaCompra.tsx` — campo fecha + lote opcional + respeta `usarLotes`
+- `Dashboard-Facturación/src/components/EditarArticuloModal.tsx` — checkbox perecedero solo si `usarLotes`
+- `Dashboard-Facturación/src/utils/agGridLocaleEs.ts` — NUEVO (localización compartida)
+- `conta-app-backend/api/compras/nueva.php` — ORDER BY con CASE startsWith primero
+- `conta-app-backend/api/ventas/nueva.php` — idem
+
+---
+
 ## 4.3.52 — 2026-06-05
 
 ### Corrección crítica (Bancos)

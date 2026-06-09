@@ -3,6 +3,7 @@ import { Search, Trash2, Plus, Save, X, Package } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { EditarArticuloModal } from './EditarArticuloModal';
 import { useAuth } from '../contexts/AuthContext';
+import { getConfigImpresion } from './ConfiguracionSistema';
 
 const API = 'http://localhost:80/conta-app-backend/api/compras/nueva.php';
 const fmtMon = (v: number) => {
@@ -42,11 +43,17 @@ function loadSaved() {
 
 export function NuevaCompra({ pedidoEditar, onClose }: { pedidoEditar?: number; onClose?: () => void } = {}) {
   const { user } = useAuth();
+  // Si el negocio NO maneja lotes/vencimientos (boutique, ferretería, accesorios),
+  // ignoramos completamente el flag requiere_lote del catálogo: no se muestra
+  // la fila de vencimiento ni el badge "PERECEDERO". Se activa en
+  // Configuración → Módulos opcionales del negocio → "Fechas de vencimiento / Lotes".
+  const usarLotes = getConfigImpresion().usarLotes;
   const saved = pedidoEditar ? null : loadSaved();
   const [pedidoN, setPedidoN] = useState(pedidoEditar || 0);
   const [modoEdicion, setModoEdicion] = useState(!!pedidoEditar);
   const [tipo, setTipo] = useState(saved?.tipo || 'Crédito');
   const [dias, setDias] = useState(saved?.dias || 30);
+  const [fecha, setFecha] = useState<string>(saved?.fecha || new Date().toISOString().slice(0, 10));
   const [facturaCompra, setFacturaCompra] = useState(saved?.facturaCompra || '');
   const [proveedor, setProveedor] = useState(saved?.proveedor || { id: 0, nombre: '', nit: '' });
   const [proveedores, setProveedores] = useState<any[]>([]);
@@ -68,9 +75,9 @@ export function NuevaCompra({ pedidoEditar, onClose }: { pedidoEditar?: number; 
 
   // Persistir en localStorage
   useEffect(() => {
-    const data = { tipo, dias, facturaCompra, proveedor, opcionIva, lineas, flete, descuento, retencion };
+    const data = { tipo, dias, fecha, facturaCompra, proveedor, opcionIva, lineas, flete, descuento, retencion };
     localStorage.setItem(LS_KEY, JSON.stringify(data));
-  }, [tipo, dias, facturaCompra, proveedor, opcionIva, lineas, flete, descuento, retencion]);
+  }, [tipo, dias, fecha, facturaCompra, proveedor, opcionIva, lineas, flete, descuento, retencion]);
 
   useEffect(() => {
     fetch(`${API}?proveedores=1`).then(r => r.json()).then(d => { if (d.success) setProveedores(d.proveedores); });
@@ -85,6 +92,7 @@ export function NuevaCompra({ pedidoEditar, onClose }: { pedidoEditar?: number; 
       setPedidoN(c.Pedido_N);
       setTipo(c.TipoPedido);
       setDias(c.Dias);
+      if (c.Fecha) setFecha(String(c.Fecha).slice(0, 10));
       setFacturaCompra(c.FacturaCompra_N);
       setProveedor({ id: c.CodigoPro, nombre: c.RazonSocial || '', nit: c.ProvNit || '' });
       setOpcionIva(c.opcion_factura || 0);
@@ -149,7 +157,7 @@ export function NuevaCompra({ pedidoEditar, onClose }: { pedidoEditar?: number; 
       CostoPromedio: costoAntConIva,
       PrecioVenta: art.Precio_Venta || 0,
       Subtotal: costoAntConIva,
-      RequiereLote: art.requiere_lote ? 1 : 0,
+      RequiereLote: (usarLotes && art.requiere_lote) ? 1 : 0,
       FechaVencimiento: '',
       NumeroLote: '',
     };
@@ -373,15 +381,15 @@ export function NuevaCompra({ pedidoEditar, onClose }: { pedidoEditar?: number; 
     }
     if (lineas.length === 0) { toast.error('Agregue al menos un producto'); return; }
     if (!facturaCompra) { toast.error('Ingrese el Nº de factura del proveedor'); return; }
-    const sinFecha = lineas.filter(l => l.RequiereLote && !l.FechaVencimiento);
-    if (sinFecha.length > 0) {
-      toast.error(`Falta fecha de vencimiento en: ${sinFecha.map(l => l.Codigo).join(', ')}`, { duration: 5000 });
-      return;
-    }
+    if (!fecha) { toast.error('Ingrese la fecha de la compra'); return; }
+    // La fecha de vencimiento ya no es obligatoria. Si el producto está marcado
+    // como perecedero pero no se ingresa fecha, simplemente NO se crea el lote
+    // (la compra se guarda igual). Esto permite registrar compras de productos
+    // que NO son realmente perecederos sin tener que ir a desactivar el flag.
     setGuardando(true);
     try {
       const body: any = {
-        tipo, dias, proveedor_id: proveedor.id, factura_compra: facturaCompra,
+        tipo, dias, fecha, proveedor_id: proveedor.id, factura_compra: facturaCompra,
         flete, descuento, retencion, opcion_factura: opcionIva,
         id_usuario: user?.id || 0, // para egreso automático en compra contado
         items: lineas.map(l => ({
@@ -428,6 +436,7 @@ export function NuevaCompra({ pedidoEditar, onClose }: { pedidoEditar?: number; 
           setLineas([]); setFacturaCompra(''); setFlete(0); setDescuento(0); setRetencion(0);
           setProveedor({ id: 0, nombre: '', nit: '' });
           setPedidoN(0); setModoEdicion(false);
+          setFecha(new Date().toISOString().slice(0, 10));
           localStorage.removeItem(LS_KEY);
         }
       } else toast.error(d.message);
@@ -473,6 +482,11 @@ export function NuevaCompra({ pedidoEditar, onClose }: { pedidoEditar?: number; 
             <label style={lbl}>Nº FACT. COMPRA</label>
             <input type="text" value={facturaCompra} onChange={e => setFacturaCompra(e.target.value)}
               style={{ ...inp, width: 120, fontWeight: 700 }} placeholder="Nº factura" />
+          </div>
+          <div title="Fecha de la factura del proveedor. Por defecto es hoy, pero puedes ingresar una fecha pasada si la factura llega tarde.">
+            <label style={lbl}>FECHA FACTURA</label>
+            <input type="date" value={fecha} onChange={e => setFecha(e.target.value)}
+              style={{ ...inp, width: 130, fontWeight: 600 }} />
           </div>
           <div>
             <label style={lbl}>TIPO</label>
@@ -640,19 +654,18 @@ export function NuevaCompra({ pedidoEditar, onClose }: { pedidoEditar?: number; 
                 {l.RequiereLote ? (
                   <tr style={{ borderBottom: '1px solid #f3f4f6', background: '#fffbeb' }}>
                     <td colSpan={2} style={{ padding: '3px 6px 5px 24px', fontSize: 10, color: '#92400e', fontWeight: 600 }}>
-                      ↳ Lote / Vencimiento
+                      ↳ Lote / Vencimiento <span style={{ color: '#9ca3af', fontWeight: 400 }}>(opcional)</span>
                     </td>
                     <td colSpan={11} style={{ padding: '3px 6px 5px 6px' }}>
                       <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center', fontSize: 10 }}>
                         <span style={{ color: '#92400e', fontWeight: 600 }}>Vence:</span>
                         <input type="date" value={l.FechaVencimiento || ''}
                           onChange={e => actualizarLote(l.id, 'FechaVencimiento', e.target.value)}
-                          style={{ height: 22, padding: '0 4px', border: l.FechaVencimiento ? '1px solid #d1d5db' : '1px solid #f59e0b', borderRadius: 4, fontSize: 11 }} />
+                          style={{ height: 22, padding: '0 4px', border: '1px solid #d1d5db', borderRadius: 4, fontSize: 11 }} />
                         <span style={{ color: '#92400e', fontWeight: 600, marginLeft: 6 }}>N° Lote:</span>
                         <input type="text" placeholder="(opcional)" value={l.NumeroLote || ''}
                           onChange={e => actualizarLote(l.id, 'NumeroLote', e.target.value)}
                           style={{ width: 120, height: 22, padding: '0 6px', border: '1px solid #d1d5db', borderRadius: 4, fontSize: 11 }} />
-                        {!l.FechaVencimiento && <span style={{ color: '#dc2626', fontWeight: 600 }}>⚠ Fecha requerida</span>}
                       </span>
                     </td>
                   </tr>

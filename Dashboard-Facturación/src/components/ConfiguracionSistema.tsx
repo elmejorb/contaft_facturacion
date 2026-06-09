@@ -45,6 +45,7 @@ export interface ConfigImpresion {
   modoPruebaFE: boolean; // si está activo, las FE no van a DIAN sino a preview-xml para validar el XML
   usarCotizaciones: boolean;
   usarConteoInventario: boolean;
+  usarLotes: boolean; // activa el manejo de fechas de vencimiento / lotes para productos perecederos (farmacias, alimentos)
   tipoNegocio: string; // Tienda, Farmacia, Boutique, etc.
   // Seguridad — autorización admin para acciones sensibles
   autorizarDevoluciones: boolean;     // pide clave admin para devolver
@@ -90,6 +91,7 @@ const defaultConfig: ConfigImpresion = {
   modoPruebaFE: false,
   usarCotizaciones: true,
   usarConteoInventario: true,
+  usarLotes: false,
   tipoNegocio: '',
   autorizarDevoluciones: false,
   autorizarAnulaciones: false,
@@ -293,6 +295,63 @@ export function ConfiguracionSistema() {
       else toast.error(d.message);
     } catch (e) { toast.error('Error de conexión'); }
     setVendLoading(false);
+  };
+
+  // Estado del último sync para mostrar en pantalla
+  const [vendUltimoSync, setVendUltimoSync] = useState<{ tipo: 'push' | 'pull'; resumen: string; ts: string } | null>(null);
+
+  // Subir catálogos + clientes + vendedores al hub (Lumen)
+  const syncPushVendedores = async () => {
+    if (!vendConfig.api_url || !vendConfig.api_email || !vendConfig.api_token_empresa) {
+      toast.error('Configura URL, email y token primero');
+      return;
+    }
+    setVendLoading(true);
+    const tid = toast.loading('Subiendo catálogos al hub...');
+    try {
+      const r = await fetch('http://localhost:80/conta-app-backend/api/vendedores/push-all.php', { method: 'POST' });
+      const d = await r.json();
+      toast.dismiss(tid);
+      if (d.success) {
+        const s = d.secciones || {};
+        const resumen = `Cat: ${s.categorias?.enviados ?? 0} · Prod: ${s.productos?.enviados ?? 0} · Cli: ${s.clientes?.enviados ?? 0} · Vend: ${s.vendedores?.enviados ?? 0}`;
+        toast.success(`Subido correctamente — ${resumen}`, { duration: 6000 });
+        setVendUltimoSync({ tipo: 'push', resumen, ts: new Date().toLocaleString('es-CO') });
+      } else {
+        toast.error(d.message || 'Error subiendo al hub');
+      }
+    } catch (e) { toast.dismiss(tid); toast.error('Error de conexión al subir'); }
+    setVendLoading(false);
+  };
+
+  // Bajar las ventas que hicieron los vendedores móviles
+  const syncPullVendedores = async () => {
+    if (!vendConfig.api_url || !vendConfig.api_email || !vendConfig.api_token_empresa) {
+      toast.error('Configura URL, email y token primero');
+      return;
+    }
+    setVendLoading(true);
+    const tid = toast.loading('Bajando ventas de vendedores...');
+    try {
+      const r = await fetch('http://localhost:80/conta-app-backend/api/vendedores/pull.php');
+      const d = await r.json();
+      toast.dismiss(tid);
+      if (d.success) {
+        const n = d.procesadas ?? d.total ?? 0;
+        const msg = n > 0 ? `${n} venta(s) traídas del hub` : 'Sin ventas nuevas';
+        toast.success(msg, { duration: 5000 });
+        setVendUltimoSync({ tipo: 'pull', resumen: msg, ts: new Date().toLocaleString('es-CO') });
+      } else {
+        toast.error(d.message || 'Error trayendo ventas');
+      }
+    } catch (e) { toast.dismiss(tid); toast.error('Error de conexión al bajar'); }
+    setVendLoading(false);
+  };
+
+  // Push + Pull en cascada — el botón "todo en uno"
+  const syncCompletoVendedores = async () => {
+    await syncPushVendedores();
+    await syncPullVendedores();
   };
 
   const seccion = (titulo: string, icon: React.ReactNode, children: React.ReactNode) => (
@@ -514,6 +573,7 @@ export function ConfiguracionSistema() {
             { key: 'modoPruebaFE', label: 'Modo prueba FE (no enviar a DIAN)', desc: 'Las facturas electrónicas se envían a un endpoint de previsualización en vez de la DIAN. NO gasta consecutivo, NO firma, NO contacta DIAN. Útil para validar el XML sin generar movimiento real. APAGAR EN PRODUCCIÓN.' },
             { key: 'usarCotizaciones', label: 'Cotizaciones', desc: 'Crear y guardar cotizaciones para clientes antes de facturar.' },
             { key: 'usarConteoInventario', label: 'Conteo de inventario', desc: 'Realizar conteos físicos de inventario con compensación automática de ventas durante el conteo.' },
+            { key: 'usarLotes', label: 'Fechas de vencimiento / Lotes', desc: 'Activa el manejo de lotes y fechas de vencimiento en compras y productos. Para farmacias, droguerías, alimentos, lácteos. Si está apagado, las compras NO piden fecha de vencimiento ni muestran productos perecederos aunque estén marcados así en el catálogo.' },
           ].map(m => (
             <label key={m.key}
               onClick={() => set(m.key as keyof ConfigImpresion, !(config as any)[m.key])}
@@ -591,6 +651,33 @@ export function ConfiguracionSistema() {
                   style={{ height: 32, padding: '0 14px', background: '#7c3aed', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, cursor: 'pointer', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
                   <Save size={13} /> Guardar
                 </button>
+              </div>
+
+              {/* Sincronización manual */}
+              <div style={{ marginTop: 12, padding: 12, background: '#fff', border: '1px dashed #c4b5fd', borderRadius: 8 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#6b21a8', marginBottom: 8 }}>Sincronización</div>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  <button onClick={syncPushVendedores} disabled={vendLoading}
+                    title="Sube catálogos, clientes y vendedores del Conta FT al hub"
+                    style={{ height: 32, padding: '0 12px', background: '#10b981', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, cursor: 'pointer', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    ⬆️ Subir al hub
+                  </button>
+                  <button onClick={syncPullVendedores} disabled={vendLoading}
+                    title="Trae al Conta FT las ventas hechas por los vendedores en sus móviles"
+                    style={{ height: 32, padding: '0 12px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, cursor: 'pointer', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    ⬇️ Bajar ventas
+                  </button>
+                  <button onClick={syncCompletoVendedores} disabled={vendLoading}
+                    title="Sube y baja en una sola acción"
+                    style={{ height: 32, padding: '0 12px', background: '#7c3aed', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, cursor: 'pointer', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    🔄 Sincronizar todo
+                  </button>
+                </div>
+                {vendUltimoSync && (
+                  <div style={{ fontSize: 11, color: '#6b7280', marginTop: 8 }}>
+                    Última sincronización ({vendUltimoSync.tipo === 'push' ? 'subida' : 'bajada'}): <b>{vendUltimoSync.resumen}</b> · {vendUltimoSync.ts}
+                  </div>
+                )}
               </div>
             </div>
           )}

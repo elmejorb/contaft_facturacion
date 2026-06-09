@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Save, X, Layers } from 'lucide-react';
 import api from '../services/api';
 import { ComponentesModal } from './ComponentesModal';
+import { getConfigImpresion } from './ConfiguracionSistema';
 
 interface Articulo {
   Items: number; Codigo: string; Descripcion: string; Existencia: number;
@@ -245,16 +246,20 @@ export function EditarArticuloModal({ isOpen, onClose, articulo, onGuardado, mod
               </div>
             </fieldset>
             <fieldset style={{ ...s.fieldset, marginBottom: 0 }}>
-              <legend style={s.legend}>Ubicación / Lote</legend>
+              <legend style={s.legend}>Ubicación{getConfigImpresion().usarLotes ? ' / Lote' : ''}</legend>
               <div>
                 <label style={s.label}>Estante</label>
                 <input value={form.Estante} onChange={e => set('Estante', e.target.value)} style={s.input} />
               </div>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#374151', marginTop: 6, cursor: 'pointer' }}>
-                <input type="checkbox" checked={!!form.requiere_lote}
-                  onChange={e => set('requiere_lote', e.target.checked ? 1 : 0)} />
-                <span>Requiere fecha de vencimiento (perecedero)</span>
-              </label>
+              {/* El checkbox de "perecedero" solo aparece si el negocio maneja lotes/vencimientos
+                  (Configuración → Módulos opcionales → Fechas de vencimiento / Lotes). */}
+              {getConfigImpresion().usarLotes && (
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#374151', marginTop: 6, cursor: 'pointer' }}>
+                  <input type="checkbox" checked={!!form.requiere_lote}
+                    onChange={e => set('requiere_lote', e.target.checked ? 1 : 0)} />
+                  <span>Requiere fecha de vencimiento (perecedero)</span>
+                </label>
+              )}
             </fieldset>
           </div>
 

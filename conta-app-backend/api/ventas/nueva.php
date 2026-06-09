@@ -57,11 +57,21 @@ try {
             FROM tblarticulos a
             LEFT JOIN tblcategoria c ON a.Id_Categoria = c.Id_Categoria
             WHERE a.Estado = 1 AND (a.Codigo LIKE :cod OR a.Nombres_Articulo LIKE :nom)
-            ORDER BY a.Nombres_Articulo
+            ORDER BY
+                CASE
+                    WHEN a.Codigo LIKE :pref_cod THEN 0
+                    WHEN a.Nombres_Articulo LIKE :pref_nom THEN 1
+                    ELSE 2
+                END,
+                a.Nombres_Articulo
             LIMIT 20
         ");
         $buscarLike = "%$buscar%";
-        $stmt->execute([':cod' => $buscarLike, ':nom' => $buscarLike]);
+        $buscarPref = "$buscar%";
+        $stmt->execute([
+            ':cod' => $buscarLike, ':nom' => $buscarLike,
+            ':pref_cod' => $buscarPref, ':pref_nom' => $buscarPref
+        ]);
         $articulos = $stmt->fetchAll();
 
         foreach ($articulos as &$a) {

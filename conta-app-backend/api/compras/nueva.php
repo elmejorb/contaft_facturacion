@@ -32,10 +32,21 @@ try {
                 FROM tblarticulos a
                 LEFT JOIN tblcategoria c ON a.Id_Categoria = c.Id_Categoria
                 WHERE a.Estado = 1 AND (a.Codigo LIKE :cod OR a.Nombres_Articulo LIKE :nom)
-                ORDER BY a.Nombres_Articulo LIMIT 20
+                ORDER BY
+                    CASE
+                        WHEN a.Codigo LIKE :pref_cod THEN 0
+                        WHEN a.Nombres_Articulo LIKE :pref_nom THEN 1
+                        ELSE 2
+                    END,
+                    a.Nombres_Articulo
+                LIMIT 20
             ");
             $like = "%$q%";
-            $stmt->execute([':cod' => $like, ':nom' => $like]);
+            $pref = "$q%";
+            $stmt->execute([
+                ':cod' => $like, ':nom' => $like,
+                ':pref_cod' => $pref, ':pref_nom' => $pref
+            ]);
             $arts = $stmt->fetchAll();
             foreach ($arts as &$a) {
                 $a['Existencia'] = floatval($a['Existencia']);

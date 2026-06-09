@@ -66,16 +66,24 @@ export function ProductsManagement() {
     }
   };
 
-  const productosFiltrados = productos.filter((producto) => {
-    if (!busqueda) return true;
+  const productosFiltrados = (() => {
+    if (!busqueda) return productos;
     const term = busqueda.toLowerCase();
-    return (
+    const filtrados = productos.filter((producto) =>
       producto.Codigo?.toLowerCase().includes(term) ||
       producto.Descripcion?.toLowerCase().includes(term) ||
       producto.Categoria?.toLowerCase().includes(term) ||
       producto.Proveedor?.toLowerCase().includes(term)
     );
-  });
+    // Priorizar los que empiezan con el término sobre los que solo lo contienen
+    const rank = (p: any) => {
+      const cod = (p.Codigo || '').toLowerCase();
+      const desc = (p.Descripcion || '').toLowerCase();
+      if (cod.startsWith(term) || desc.startsWith(term)) return 0;
+      return 1;
+    };
+    return filtrados.sort((a, b) => rank(a) - rank(b));
+  })();
 
   const formatearMoneda = (valor: number) => {
     return '$ ' + new Intl.NumberFormat('es-CO', {
