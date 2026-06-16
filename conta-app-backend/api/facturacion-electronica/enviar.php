@@ -179,10 +179,23 @@ function buildInvoiceJSON($db, $factura, $items, $companyId) {
     $totalBase = 0;
     $totalIva = 0;
 
+    // Régimen de la empresa: si NO es responsable de IVA (Simplificado / No
+    // Responsable), forzamos IVA=0 en todas las líneas sin importar el campo
+    // Iva del catálogo de productos. DIAN rechaza facturas con IVA cobrado
+    // por una empresa no responsable.
+    $empInfo = $db->query("SELECT Regimen FROM tbldatosempresa LIMIT 1")->fetch();
+    $regimenLower = strtolower(trim($empInfo['Regimen'] ?? 'común'));
+    $noResponsableIva = (
+        strpos($regimenLower, 'simpl')        !== false ||
+        strpos($regimenLower, 'no responsab') !== false ||
+        strpos($regimenLower, 'no resp')      !== false ||
+        $regimenLower === 'no'
+    );
+
     foreach ($items as $item) {
         $cant = floatval($item['Cantidad']);
         $precio = floatval($item['PrecioV']);
-        $iva = floatval($item['IVA'] ?? 0);
+        $iva = $noResponsableIva ? 0 : floatval($item['IVA'] ?? 0);
         $desc = floatval($item['Descuento'] ?? 0);
         $lineAmount = ($cant * $precio) - $desc;
 
@@ -203,7 +216,10 @@ function buildInvoiceJSON($db, $factura, $items, $companyId) {
             'allowance_charges' => $desc > 0 ? [['charge_indicator' => false, 'allowance_charge_reason' => 'Descuento', 'amount' => number_format($desc, 2, '.', ''), 'base_amount' => number_format($cant * $precio, 2, '.', '')]] : [],
             'tax_totals' => [[
                 'tax_id' => 1,
-                'tax_amount' => number_format($ivaAmount / max($cant, 1) * $cant, 2, '.', ''),
+                // $ivaAmount ya incluye la cantidad (se calculó sobre lineAmount = cant*precio),
+                // así que es el tax_amount total de la línea. NO multiplicar por $cant otra vez.
+                // El bug anterior dividía el IVA por 2 cuando cant<1 (max($cant,1)/$cant).
+                'tax_amount' => number_format($ivaAmount, 2, '.', ''),
                 'taxable_amount' => number_format($baseAmount, 2, '.', ''),
                 'percent' => number_format($iva, 2, '.', '')
             ]],
@@ -591,10 +607,19 @@ try {
                 $stmtCost->execute($itemIds);
                 foreach ($stmtCost->fetchAll() as $r) $costos[$r['Items']] = floatval($r['Precio_Costo']);
             }
+            // Guardar también respetando régimen (idéntico criterio que buildInvoiceJSON)
+            $empInfoDet = $db->query("SELECT Regimen FROM tbldatosempresa LIMIT 1")->fetch();
+            $regimenLowDet = strtolower(trim($empInfoDet['Regimen'] ?? 'común'));
+            $noRespIvaDet = (
+                strpos($regimenLowDet, 'simpl')        !== false ||
+                strpos($regimenLowDet, 'no responsab') !== false ||
+                strpos($regimenLowDet, 'no resp')      !== false ||
+                $regimenLowDet === 'no'
+            );
             foreach ($items as $item) {
                 $cant = floatval($item['Cantidad']);
                 $precioV = floatval($item['PrecioV']);
-                $iva = floatval($item['IVA'] ?? 0);
+                $iva = $noRespIvaDet ? 0 : floatval($item['IVA'] ?? 0);
                 $desc = floatval($item['Descuento'] ?? 0);
                 $lineAmount = ($cant * $precioV) - $desc;
                 $ivaAmount = $iva > 0 ? round($lineAmount * ($iva / (100 + $iva)), 2) : 0;

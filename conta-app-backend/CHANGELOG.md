@@ -5,6 +5,23 @@ Visible solo para administradores desde **Configuración → Acerca de → Ver h
 
 ---
 
+## 4.3.55 — 2026-06-16
+
+### Fix crítico — Factura electrónica DIAN
+
+Dos correcciones en `api/facturacion-electronica/enviar.php` que provocaban que DIAN rechazara la factura con el error *"Los totales de la factura no cuadran correctamente"*:
+
+**1. Cálculo de IVA por línea con cantidades fraccionarias.** La fórmula `$ivaAmount / max($cant, 1) * $cant` dividía el IVA por 2 cuando la cantidad era menor a 1 (ej. 0.50 kg, 0.25 libras). Solo se manifestaba al vender productos a granel o por peso — con cantidades enteras (1, 2, etc.) pasaba inadvertido. Ejemplo real reportado: factura con 0.50 kg de pollo, DIAN esperaba `tax_amount=2119.05` y Conta FT enviaba `1059.53`. Ahora `tax_amount = $ivaAmount` directo, sin multiplicar de nuevo por cantidad.
+
+**2. Régimen Simplificado / No Responsable de IVA.** Si la empresa estaba registrada como no responsable de IVA pero sus productos en el catálogo tenían IVA configurado (5%, 19%), el JSON salía con IVA cobrado, lo cual DIAN rechaza (un no responsable no puede cobrar IVA). Ahora `buildInvoiceJSON()` lee `tbldatosempresa.Regimen` y fuerza IVA=0 en todas las líneas si detecta: "Simplificado", "No responsable", "No resp" o simplemente "no". Empresas con régimen "Común" se comportan igual que antes.
+
+Mismo ajuste aplicado en el INSERT a `tbldetalle_documento_electronico` para que el guardado local también respete el régimen.
+
+### Archivos tocados
+- `conta-app-backend/api/facturacion-electronica/enviar.php` — fix tax_amount + detección de régimen.
+
+---
+
 ## 4.3.54 — 2026-06-09
 
 ### Sincronización móvil completa: ediciones + clientes nuevos + automático
