@@ -17,8 +17,19 @@ Dos correcciones en `api/facturacion-electronica/enviar.php` que provocaban que 
 
 Mismo ajuste aplicado en el INSERT a `tbldetalle_documento_electronico` para que el guardado local también respete el régimen.
 
+### Eliminar documentos rechazados desde la UI
+
+En el listado de Facturación Electrónica, los documentos que DIAN rechaza quedaban ocupando espacio sin poder hacer nada con ellos. Ahora:
+
+- **Icono de basura por fila**: aparece solo en documentos con estado *rechazado* o *error* y sin CUFE. Pide confirmación antes de eliminar.
+- **Botón "Limpiar rechazados"** en el header: aparece cuando hay al menos 1 rechazado. Elimina todos los del listado de una sola vez, mostrando el conteo.
+- **Endpoint protegido**: `POST /api/facturacion-electronica/eliminar.php` valida en backend que el documento NO tenga CUFE y que su estado sea rechazado/error. Si el frontend envía un id de un documento autorizado lo ignora silenciosamente — los autorizados son inmutables ante DIAN y se manejan vía nota crédito.
+- Elimina también el detalle (`tbldetalle_documento_electronico`) en la misma transacción.
+
 ### Archivos tocados
 - `conta-app-backend/api/facturacion-electronica/enviar.php` — fix tax_amount + detección de régimen.
+- `conta-app-backend/api/facturacion-electronica/eliminar.php` — NUEVO endpoint protegido.
+- `Dashboard-Facturación/src/components/FacturacionElectronica.tsx` — icono basura por fila + botón masivo en header.
 
 ---
 

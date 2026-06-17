@@ -3,7 +3,7 @@ import { AgGridReact } from 'ag-grid-react';
 import { AllCommunityModule, ModuleRegistry, ColDef } from 'ag-grid-community';
 import {
   Search, RefreshCw, FileText, CheckCircle, XCircle, AlertTriangle,
-  Clock, Send, Eye, Printer, Globe, Mail, MailCheck, MailOpen, MailX, FileMinus, X, Copy
+  Clock, Send, Eye, Printer, Globe, Mail, MailCheck, MailOpen, MailX, FileMinus, X, Copy, Trash2
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { DetalleDocElectronico } from './DetalleDocElectronico';
@@ -309,6 +309,48 @@ export function FacturacionElectronica({ onNavigate }: Props = {}) {
     } catch (e) { /* silencioso */ }
   };
 
+  // Elimina un documento electrónico rechazado por DIAN. Backend filtra y
+  // solo permite borrar los que NO tienen CUFE y tienen status rechazado/error.
+  const eliminarRechazado = async (id: number, label: string) => {
+    const ok = await confirmar({
+      title: 'Eliminar documento rechazado',
+      message: `¿Eliminar el documento ${label}? Solo se permite eliminar documentos rechazados por DIAN — no afecta documentos autorizados.`,
+      type: 'danger',
+      confirmText: 'Eliminar',
+    });
+    if (!ok) return;
+    try {
+      const r = await fetch(`${API}/eliminar.php`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }),
+      });
+      const d = await r.json();
+      if (d.success) { toast.success(d.message); cargar(); }
+      else toast.error(d.message || 'No se pudo eliminar');
+    } catch (e) { toast.error('Error de conexión'); }
+  };
+
+  const eliminarTodosRechazados = async () => {
+    const total = resumen.rechazados || 0;
+    if (total === 0) { toast('No hay documentos rechazados'); return; }
+    const ok = await confirmar({
+      title: 'Eliminar todos los rechazados',
+      message: `¿Eliminar los ${total} documento(s) rechazado(s) por DIAN? Esta acción no afecta a documentos autorizados ni a ventas locales — solo limpia el listado de FE.`,
+      type: 'danger',
+      confirmText: `Sí, eliminar ${total}`,
+    });
+    if (!ok) return;
+    try {
+      const r = await fetch(`${API}/eliminar.php`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ eliminar_todos_rechazados: true }),
+      });
+      const d = await r.json();
+      if (d.success) { toast.success(d.message); cargar(); }
+      else toast.error(d.message || 'No se pudo eliminar');
+    } catch (e) { toast.error('Error de conexión'); }
+  };
+
   const reenviarUnaContingencia = async (factN: number) => {
     try {
       const r = await fetch(`${API}/enviar.php`, {
@@ -500,6 +542,15 @@ export function FacturacionElectronica({ onNavigate }: Props = {}) {
               <FileMinus size={13} color="#dc2626" />
             </button>
           )}
+          {/* Solo aparece para documentos rechazados o con error (sin CUFE).
+              Los autorizados no se pueden eliminar — para esos hay Nota Crédito arriba. */}
+          {(p.data.status === 'rechazado' || p.data.status === 'error') && !p.data.cufe && (
+            <button title="Eliminar documento rechazado"
+              onClick={() => eliminarRechazado(p.data.id, `${p.data.prefix || ''}${p.data.number}`)}
+              style={{ width: 26, height: 24, border: '1px solid #fca5a5', borderRadius: 4, cursor: 'pointer', background: '#fef2f2', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Trash2 size={13} color="#dc2626" />
+            </button>
+          )}
         </div>
       )
     }
@@ -545,6 +596,13 @@ export function FacturacionElectronica({ onNavigate }: Props = {}) {
             <button onClick={() => setShowContingencias(true)} title="Facturas pendientes de reenviar a DIAN"
               style={{ height: 30, padding: '0 12px', background: '#fef3c7', color: '#92400e', border: '1px solid #fde68a', borderRadius: 8, fontSize: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5, fontWeight: 600 }}>
               <AlertTriangle size={14} /> Contingencias ({contingencias.length})
+            </button>
+          )}
+          {(resumen.rechazados || 0) > 0 && (
+            <button onClick={eliminarTodosRechazados}
+              title="Eliminar todos los documentos rechazados (solo limpia el listado, no afecta a autorizados)"
+              style={{ height: 30, padding: '0 12px', background: '#fef2f2', color: '#dc2626', border: '1px solid #fecaca', borderRadius: 8, fontSize: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5, fontWeight: 600 }}>
+              <Trash2 size={14} /> Limpiar rechazados ({resumen.rechazados})
             </button>
           )}
           <button onClick={() => { cargarResoluciones(); setShowResoluciones(true); }}
