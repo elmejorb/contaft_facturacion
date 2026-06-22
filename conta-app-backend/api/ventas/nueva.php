@@ -300,6 +300,36 @@ try {
         }
     }
 
+    // Si es venta a crédito con abono inicial > 0, registrar también en
+    // tblpagos para que el módulo de Cartera/Pagar y la vista de saldos vea
+    // el abono. Antes solo se guardaba en tblventas.Abono y el saldo cacheado,
+    // pero la vista vw_saldos_por_factura calcula sobre tblpagos → mostraba
+    // saldo completo y permitía cobrar el abono de nuevo.
+    if ($tipo !== 'Contado' && $abono > 0) {
+        $stmtRecCaja = $db->query("SELECT COALESCE(MAX(RecCajaN), 0) + 1 AS next_rec FROM tblpagos");
+        $recCajaN = intval($stmtRecCaja->fetch()['next_rec']);
+
+        $stmtAbonoPago = $db->prepare("
+            INSERT INTO tblpagos (RecCajaN, Codigo, Fact_N, ValorPago, Fecha, DetallePago,
+                ValorFact, SaldoAct, Descuento, Retencion, Estado, Afectada, id_mediopago,
+                NFactAnt, Nfact_electronica, FechaMod, id_usuario)
+            VALUES (:rec, :codigo, :fact_n, :valor, NOW(), :detalle,
+                :valor_fact, :saldo_act, 0, 0, 'Valida', '1110', :medio,
+                '', '', NOW(), :id_user)
+        ");
+        $stmtAbonoPago->execute([
+            ':rec'        => $recCajaN,
+            ':codigo'     => $clienteId,
+            ':fact_n'     => $factN,
+            ':valor'      => $abono,
+            ':detalle'    => "Abono inicial al crear factura N° $factN",
+            ':valor_fact' => $total,
+            ':saldo_act'  => max($total - $abono, 0),
+            ':medio'      => $medioPago,
+            ':id_user'    => $vendedor,
+        ]);
+    }
+
     // Guardar retenciones aplicadas a esta factura (snapshot)
     if (!empty($data->retenciones) && is_array($data->retenciones)) {
         $stmtRet = $db->prepare("

@@ -31,6 +31,17 @@ En el listado de Facturación Electrónica, los documentos que DIAN rechaza qued
 - `conta-app-backend/api/facturacion-electronica/eliminar.php` — NUEVO endpoint protegido.
 - `Dashboard-Facturación/src/components/FacturacionElectronica.tsx` — icono basura por fila + botón masivo en header.
 
+### Fix: abono inicial en venta a crédito no quedaba en tblpagos
+
+Cuando se creaba una factura **a crédito** y se ingresaba un abono inicial desde el modal de cobro (campo "Valor Efectivo" del cierre de venta), el sistema guardaba el monto en `tblventas.Abono` y descontaba del `Saldo`, pero **NO** insertaba la fila correspondiente en `tblpagos`. Resultado:
+
+- El detalle de la factura mostraba el saldo descontado (correcto, lee `tblventas.Saldo`).
+- Pero el módulo de **Pagar / Cartera del cliente** mostraba el saldo COMPLETO (lee desde `vw_saldos_por_factura` que calcula `Total - SUM(tblpagos)`), permitiendo cobrar el abono otra vez.
+
+Ahora `api/ventas/nueva.php` inserta una fila en `tblpagos` (con `DetallePago = "Abono inicial al crear factura N° X"`, `RecCajaN = MAX+1`, `id_mediopago` y `Codigo` del cliente) cuando `tipo != 'Contado' && abono > 0`.
+
+Backfill aplicado para casos detectados en producción (`conta_nutrigranos`): factura 598 (Pedro Guerra, abono $40.000).
+
 ---
 
 ## 4.3.54 — 2026-06-09
