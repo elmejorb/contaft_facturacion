@@ -5,6 +5,24 @@ Visible solo para administradores desde **Configuración → Acerca de → Ver h
 
 ---
 
+## 4.3.56 — 2026-06-22
+
+### Fix Nueva Venta: IVA se sumaba dos veces cuando el precio ya lo incluía
+
+Si la empresa tenía configurado **"Precio con IVA incluido"** (Configuración → Sistema → IvaIncluido=1), Nueva Venta tomaba el `Precio_Venta` del catálogo (que ya contiene IVA) y le **sumaba el IVA otra vez** al calcular el total. El cliente reportó que un producto de $13.000 con IVA 19% terminaba mostrando $15.470 en lugar de $13.000.
+
+**Fix en `NuevaVenta.tsx`**:
+- Lee `getConfigImpresion().precioIvaIncluido`.
+- Si está activo: el IVA por línea se **separa** del subtotal con fórmula `iva/(100+iva)` y el `totalFactura = subtotal − descuento` (sin sumar IVA encima). Se muestra "IVA incluido: $X" como informativo.
+- Si NO está activo: comportamiento previo intacto — IVA se calcula con `iva/100` y se suma al subtotal.
+
+Comportamiento retrocompatible: clientes con `IvaIncluido=0` no perciben cambios.
+
+### Archivos tocados
+- `Dashboard-Facturación/src/components/NuevaVenta.tsx` — cálculo de `totalIvaBase` y `totalFactura` según flag.
+
+---
+
 ## 4.3.55 — 2026-06-16
 
 ### Fix crítico — Factura electrónica DIAN

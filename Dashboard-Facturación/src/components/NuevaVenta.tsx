@@ -539,10 +539,24 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
   const esResponsableIVA = empresaRegimen.includes('común') || empresaRegimen.includes('comun')
     || empresaRegimen.includes('responsable');
 
+  // ¿El catálogo guarda Precio_Venta con IVA incluido? Lo lee de la config
+  // de la empresa. Si sí (caso típico de retail), el Subtotal de la línea
+  // YA contiene el IVA dentro y NO se le suma encima.
+  const precioIvaIncluido = !!getConfigImpresion().precioIvaIncluido;
+
   // Totales "base" (si no hubiera retención)
   const subtotalBase = lineas.reduce((s, l) => s + l.Subtotal, 0);
+  // IVA total. Si el precio YA incluye IVA, lo SEPARAMOS del subtotal con
+  // la fórmula iva/(100+iva). Si el precio NO incluye IVA, lo SUMAMOS con
+  // la fórmula iva/100. Antes siempre se sumaba — eso inflaba el total
+  // para clientes con IvaIncluido=1.
   const totalIvaBase = esResponsableIVA
-    ? lineas.reduce((s, l) => s + (l.Subtotal * (l.Iva / 100)), 0)
+    ? lineas.reduce((s, l) => {
+        if (l.Iva <= 0) return s;
+        return precioIvaIncluido
+          ? s + l.Subtotal * (l.Iva / (100 + l.Iva))   // separa IVA del subtotal
+          : s + l.Subtotal * (l.Iva / 100);            // suma IVA al subtotal
+      }, 0)
     : 0;
   const ivaFrac = subtotalBase > 0 ? totalIvaBase / subtotalBase : 0;
 
@@ -558,7 +572,10 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
 
   const subtotal = subtotalBase * factorGrossUp;
   const totalIva = totalIvaBase * factorGrossUp;
-  const totalFactura = subtotal + totalIva - descuentoGlobal;
+  // Si el precio YA incluye IVA, el subtotal mostrado ya contiene el IVA dentro
+  // → total = subtotal − descuento. Si NO lo incluye, el IVA va por encima
+  // → total = subtotal + iva − descuento.
+  const totalFactura = (precioIvaIncluido ? subtotal : subtotal + totalIva) - descuentoGlobal;
   const retencionesCalc = retencionesCliente.map((r: any) => {
     const pct = parseFloat(r.Porcentaje) || 0;
     const base = subtotal;
@@ -1391,7 +1408,7 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
         </div>
         <div style={{ display: 'flex', gap: 16, alignItems: 'center', fontSize: 12 }}>
           {descuentoGlobal > 0 && <div><span style={{ color: '#6b7280' }}>Desc:</span> <span style={{ color: '#d97706', fontWeight: 600 }}>-{fmtMon(descuentoGlobal)}</span></div>}
-          {totalIva > 0 && <div><span style={{ color: '#6b7280' }}>IVA:</span> <span style={{ fontWeight: 600 }}>{fmtMon(totalIva)}</span></div>}
+          {totalIva > 0 && <div><span style={{ color: '#6b7280' }}>{precioIvaIncluido ? 'IVA incluido:' : 'IVA:'}</span> <span style={{ fontWeight: 600 }}>{fmtMon(totalIva)}</span></div>}
           <div style={{ fontSize: 22, fontWeight: 800, color: '#16a34a' }}>{fmtMon(total)}</div>
         </div>
         <div style={{ display: 'flex', gap: 6 }}>
