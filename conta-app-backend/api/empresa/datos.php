@@ -17,6 +17,7 @@ try {
                 Empresa = ?, Propietario = ?, Nit = ?, Direccion = ?, Telefono = ?,
                 Detalle = ?, Regimen = ?, AgentesRet = ?, IvaIncluido = ?,
                 Resolucion = ?, FechaR = ?, Rango = ?, Rango2 = ?, IniciarFacturaEn = ?,
+                Prefijo = ?,
                 Porcentajes = ?, email = ?, api_token = ?,
                 email_factelect = ?, password_factelect = ?
             WHERE Id_Empresa = 1
@@ -29,6 +30,7 @@ try {
             $data['Resolucion'] ?? '0', $data['FechaR'] ?? null,
             $data['Rango'] ?? '1', $data['Rango2'] ?? '20000',
             intval($data['IniciarFacturaEn'] ?? 1),
+            $data['Prefijo'] ?? null,
             $data['Porcentajes'] ?? 'No', $data['email'] ?? '',
             $data['api_token'] ?? '', $data['email_factelect'] ?? '',
             $data['password_factelect'] ?? ''

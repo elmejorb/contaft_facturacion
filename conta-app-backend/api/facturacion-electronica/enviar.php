@@ -694,8 +694,17 @@ try {
 
                 $emailSent = ($emailResult && isset($emailResult['success']) && $emailResult['success']) ? 1 : 0;
 
-                $db->prepare("UPDATE electronic_documents SET status = 'autorizado', number = ?, cufe = ?, dian_response = ?, email_sent = ?, email_sent_at = ? WHERE id = ?")
-                   ->execute([$consecutive, $cufe, json_encode($result), $emailSent, $emailSent ? date('Y-m-d H:i:s') : null, $docElecId]);
+                // Prefix asignado por DIAN (de la resolución registrada en la API).
+                // Antes quedaba siempre 'FCON' (hardcoded en el INSERT inicial) y eso
+                // hacía que el PDF mostrara "FCON1" aunque DIAN haya emitido "IE1".
+                $prefixDian = $result['prefix'] ?? $result['respuesta_dian']['prefix'] ?? null;
+                if ($prefixDian) {
+                    $db->prepare("UPDATE electronic_documents SET status = 'autorizado', prefix = ?, number = ?, cufe = ?, dian_response = ?, email_sent = ?, email_sent_at = ? WHERE id = ?")
+                       ->execute([$prefixDian, $consecutive, $cufe, json_encode($result), $emailSent, $emailSent ? date('Y-m-d H:i:s') : null, $docElecId]);
+                } else {
+                    $db->prepare("UPDATE electronic_documents SET status = 'autorizado', number = ?, cufe = ?, dian_response = ?, email_sent = ?, email_sent_at = ? WHERE id = ?")
+                       ->execute([$consecutive, $cufe, json_encode($result), $emailSent, $emailSent ? date('Y-m-d H:i:s') : null, $docElecId]);
+                }
             } else {
                 // Falló: actualizar status a rechazado con el mensaje de error
                 $db->prepare("UPDATE electronic_documents SET status = 'rechazado', dian_response = ? WHERE id = ?")
