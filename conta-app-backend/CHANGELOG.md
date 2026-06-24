@@ -5,6 +5,33 @@ Visible solo para administradores desde **Configuración → Acerca de → Ver h
 
 ---
 
+## 4.3.57 — 2026-06-24
+
+### Fixes FE — onboarding de cliente nuevo (INVERSIONES EBENEZER)
+
+Cliente nuevo destapó 4 problemas en FE que se acumularon en este parche. **Cero impacto para clientes con Régimen Simple/Simplificado** — todos los cambios se ejecutan solo en flujo de FE o son cosméticos del PDF de FE.
+
+**1. SQL: defaults en `electronic_documents`** (`actualizacion_completa.sql`)
+- BDs viejas tenían `descuento`, `abono`, `efectivo`, `valorpagado1`, `codigoEmp`, `id_mediopago` como `NOT NULL` sin default. INSERT desde `enviar.php` fallaba con *"Field 'X' doesn't have a default value"*. Ahora `actualizacion_completa.sql` aplica los defaults idempotentemente.
+
+**2. SQL: AUTO_INCREMENT en `detalle_document_electronic`** (`actualizacion_completa.sql`)
+- La PK `id_detalle_document` quedaba `NOT NULL` sin `AUTO_INCREMENT` en esquemas viejos. Cada INSERT de línea de FE fallaba. Migración idempotente: si la columna no tiene auto_increment, bumpea filas con id=0 y aplica el ALTER.
+
+**3. Prefijo de FE**
+- **Bug A** — `api/empresa/datos.php` no incluía la columna `Prefijo` en su UPDATE. Al guardarlo desde Datos de Empresa, el backend lo ignoraba y al recargar aparecía vacío. Fix: agregar `Prefijo = ?` al UPDATE.
+- **Bug B** — `enviar.php` insertaba `electronic_documents.prefix='FCON'` hardcoded. Tras autorización DIAN, actualizaba `number` y `cufe` pero **olvidaba** actualizar `prefix`. Resultado: factura emitida por DIAN como "IE1" se mostraba en Conta FT como "FCON1". Fix: leer `result.prefix` y actualizarlo en el UPDATE post-autorización.
+
+**4. PDF FE — bloque final se desbordaba a segunda página**
+- En `api/facturacion-electronica/pdf.php`, `$alturaBloqueF = 65` no contemplaba el "Total de líneas" ni los `Ln`. Resultado: factura de 1 línea quedaba con QR+totales en página 1 y "Total de líneas: 1" solito en página 2. Ahora `$alturaBloqueF = 80` para que todo quepa en una hoja.
+
+### Archivos tocados
+- `conta-app-backend/sql/actualizacion_completa.sql` — migraciones idempotentes
+- `conta-app-backend/api/empresa/datos.php` — Prefijo en UPDATE
+- `conta-app-backend/api/facturacion-electronica/enviar.php` — prefix de DIAN al UPDATE
+- `conta-app-backend/api/facturacion-electronica/pdf.php` — alturaBloqueF=80
+
+---
+
 ## 4.3.56 — 2026-06-22
 
 ### Fix Nueva Venta: IVA se sumaba dos veces cuando el precio ya lo incluía
