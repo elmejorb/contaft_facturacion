@@ -975,6 +975,24 @@ SET @sql = IF(@tb=1, "
 ", 'SELECT 1');
 PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
 
+-- detalle_document_electronic.id_detalle_document debe ser AUTO_INCREMENT.
+-- BDs viejas la tienen como PK normal sin auto-incremento → INSERT desde
+-- enviar.php (que no envía id) falla. Solo aplica si la tabla existe.
+SET @tb = (SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='detalle_document_electronic');
+SET @is_ai = IFNULL((SELECT IF(EXTRA LIKE '%auto_increment%', 1, 0) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='detalle_document_electronic' AND COLUMN_NAME='id_detalle_document'), 0);
+-- Bumpear filas con id=0 antes del ALTER (si existen) para no romper la PK
+SET @sql = IF(@tb=1 AND @is_ai=0, "
+  UPDATE detalle_document_electronic
+  SET id_detalle_document = (SELECT next_id FROM (SELECT IFNULL(MAX(id_detalle_document),0)+1 AS next_id FROM detalle_document_electronic WHERE id_detalle_document > 0) t)
+  WHERE id_detalle_document = 0
+", 'SELECT 1');
+PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
+SET @sql = IF(@tb=1 AND @is_ai=0,
+  "ALTER TABLE detalle_document_electronic MODIFY id_detalle_document INT(11) NOT NULL AUTO_INCREMENT",
+  'SELECT 1');
+PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
+
 DROP VIEW IF EXISTS vw_prov_facturas_anteriores_saldos;
 CREATE VIEW vw_prov_facturas_anteriores_saldos AS
 SELECT
