@@ -959,6 +959,22 @@ SET @col = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=D
 SET @sql = IF(@col=0, "ALTER TABLE electronic_documents ADD COLUMN email_recipient VARCHAR(500) NULL", 'SELECT 1');
 PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
 
+-- Defaults para columnas NOT NULL de electronic_documents.
+-- Sin estos defaults, INSERTs desde enviar.php fallan con
+-- "Field 'X' doesn't have a default value" en BDs creadas con esquema
+-- viejo de Conta FT (caso INVERSIONES EBENEZER, 4.3.56).
+SET @tb = (SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='electronic_documents');
+SET @sql = IF(@tb=1, "
+  ALTER TABLE electronic_documents
+    MODIFY descuento DECIMAL(19,4) NOT NULL DEFAULT 0.0000,
+    MODIFY abono DECIMAL(19,4) NOT NULL DEFAULT 0.0000,
+    MODIFY efectivo DECIMAL(19,4) NOT NULL DEFAULT 0.0000,
+    MODIFY valorpagado1 DECIMAL(19,4) NOT NULL DEFAULT 0.0000,
+    MODIFY codigoEmp INT(11) NOT NULL DEFAULT 0,
+    MODIFY id_mediopago INT(11) NOT NULL DEFAULT 0
+", 'SELECT 1');
+PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
+
 DROP VIEW IF EXISTS vw_prov_facturas_anteriores_saldos;
 CREATE VIEW vw_prov_facturas_anteriores_saldos AS
 SELECT
