@@ -276,7 +276,11 @@ EOD;
     $alturaPagina = $pdf->getPageHeight();
     $margenFooter = 30; // espacio del footer TCPDF
     $alturaMaxima = $alturaPagina - $margenFooter;
-    $alturaBloqueF = 65; // alto del bloque QR+totales (sin firmas)
+    // Alto total del bloque: QR (32) + Ln + texto legal/totales (~30) +
+    // "Total de líneas" (~5) + márgenes = ~80mm. Antes era 65, lo que
+    // dejaba el contenido muy abajo y empujaba "Total de líneas" a una
+    // segunda página vacía.
+    $alturaBloqueF = 80;
 
     // Si no cabe, nueva página
     if (($alturaActual + $alturaBloqueF) > $alturaMaxima) {
