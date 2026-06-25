@@ -219,7 +219,7 @@ try {
         $r = $db->prepare("
             SELECT COALESCE(cg.Nombre, 'Sin categoría') AS Categoria, SUM(e.Valor) AS total
             FROM tblegresos e
-            LEFT JOIN tblcategorias_gasto cg ON e.categoria_gasto = cg.Id_Categoria
+            LEFT JOIN tblcategorias_gasto cg ON e.categoria_gasto = cg.Nombre
             WHERE Fecha BETWEEN ? AND CONCAT(?, ' 23:59:59') AND Estado='Valida' AND CodigoPro=0
             GROUP BY cg.Nombre
             ORDER BY total DESC
@@ -592,7 +592,7 @@ try {
             SELECT e.Id_Egresos, e.N_Comprobante, e.Fecha, e.Concepto, e.Valor, e.TipoPago,
                    COALESCE(cg.Nombre, 'Sin categoría') AS categoria
             FROM tblegresos e
-            LEFT JOIN tblcategorias_gasto cg ON cg.Id_Categoria = e.categoria_gasto
+            LEFT JOIN tblcategorias_gasto cg ON cg.Nombre = e.categoria_gasto
             WHERE DATE(e.Fecha) BETWEEN ? AND ?
               AND e.Estado = 'Valida' AND e.CodigoPro = 0
             ORDER BY e.Fecha, e.N_Comprobante
@@ -776,7 +776,7 @@ try {
         $r = $db->prepare("
             SELECT COALESCE(cg.Nombre, 'Sin categoría') AS categoria, SUM(e.Valor) AS total
             FROM tblegresos e
-            LEFT JOIN tblcategorias_gasto cg ON cg.Id_Categoria = e.categoria_gasto
+            LEFT JOIN tblcategorias_gasto cg ON cg.Nombre = e.categoria_gasto
             WHERE YEAR(e.Fecha) = ? AND e.Estado='Valida' AND e.CodigoPro=0
             GROUP BY cg.Nombre
             ORDER BY total DESC
