@@ -5,6 +5,22 @@ Visible solo para administradores desde **Configuración → Acerca de → Ver h
 
 ---
 
+## 4.3.58 — 2026-06-25
+
+### Fixes módulo Gastos
+
+**1. Informe del periodo — todos los gastos aparecían "Sin categoría"** (`api/informes/resumen.php`)
+- `tblegresos.categoria_gasto` es VARCHAR(50) y guarda el nombre de la categoría (ej. "Arriendo"). El JOIN del informe comparaba contra `cg.Id_Categoria` (INT) → nunca matcheaba. Fix: JOIN por `cg.Nombre` en los 3 lugares donde aparece.
+
+**2. Listado de gastos duplicaba el último** (`api/movimientos/gastos.php`)
+- Bug clásico PHP: el primer `foreach ($gastos as &$g)` dejaba `$g` como referencia al último elemento. El siguiente `foreach ($gastos as $g)` sobrescribía ese último elemento en cada iteración, corrompiendo el array. Síntoma reportado: con 2 gastos (Arriendo $1.500.000 + Aseo $45.000) la tabla mostraba el de Aseo dos veces y el total por categoría decía "Aseo: $90.000". Fix: `unset($g)` después del primer foreach por referencia.
+
+### Archivos tocados
+- `conta-app-backend/api/informes/resumen.php` — JOIN por nombre
+- `conta-app-backend/api/movimientos/gastos.php` — unset tras foreach con &
+
+---
+
 ## 4.3.57 — 2026-06-24
 
 ### Fixes FE — onboarding de cliente nuevo (INVERSIONES EBENEZER)
