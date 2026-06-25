@@ -175,9 +175,39 @@ export function EditarArticuloModal({ isOpen, onClose, articulo, onGuardado, mod
 
         {/* Body - key fuerza re-mount al cambiar de artículo */}
         <div key={esNuevo ? 'nuevo' : `${form.Items}-${form.Precio_Venta}-${form.Precio_Costo}`} style={s.body}>
+          {/* Tipo: Producto / Servicio — primera decisión del formulario.
+              Lo que se elija aquí oculta o muestra las secciones de
+              Existencias, Ubicación y Costo. */}
+          <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+            {[
+              { val: 0, label: 'Producto físico', desc: 'descuenta inventario al vender' },
+              { val: 1, label: 'Servicio', desc: 'sin inventario, concepto editable al facturar' },
+            ].map(t => {
+              const active = (form.Servicio ? 1 : 0) === t.val;
+              return (
+                <button
+                  key={t.val}
+                  type="button"
+                  onClick={() => set('Servicio', t.val)}
+                  style={{
+                    flex: 1, padding: '8px 12px', borderRadius: 8, cursor: 'pointer',
+                    border: `2px solid ${active ? '#7c3aed' : '#e5e7eb'}`,
+                    background: active ? '#f5f3ff' : '#fff',
+                    textAlign: 'left',
+                    transition: 'all 0.12s',
+                  }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: active ? '#7c3aed' : '#374151' }}>
+                    {t.label}
+                  </div>
+                  <div style={{ fontSize: 10, color: '#6b7280', marginTop: 2 }}>{t.desc}</div>
+                </button>
+              );
+            })}
+          </div>
+
           {/* Datos del Producto */}
           <fieldset style={s.fieldset}>
-            <legend style={s.legend}>Datos del Producto</legend>
+            <legend style={s.legend}>Datos del {form.Servicio ? 'Servicio' : 'Producto'}</legend>
             <div style={{ ...s.row, gridTemplateColumns: '80px 1fr 130px' }}>
               <div>
                 <label style={s.label}>Items</label>
@@ -224,57 +254,65 @@ export function EditarArticuloModal({ isOpen, onClose, articulo, onGuardado, mod
             </div>
           </fieldset>
 
-          {/* Existencias + Ubicación */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 10 }}>
-            <fieldset style={{ ...s.fieldset, marginBottom: 0 }}>
-              <legend style={s.legend}>Existencias</legend>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                <div>
-                  <label style={s.label}>Cantidad {esNuevo ? '(inicial)' : '(actual)'}</label>
-                  <input type="text" defaultValue={form.Existencia}
-                    onKeyDown={soloNumeros}
-                    onBlur={e => set('Existencia', toNum(e.target.value))}
-                    placeholder="0"
-                    title={esNuevo ? "Stock inicial — genera entrada de Carga Inicial en el kárdex" : "Si lo cambias se registrará la diferencia como Entrada/Salida en el kárdex"}
-                    style={{ ...s.input, background: '#f0fdf4', borderColor: '#bbf7d0', color: '#166534', fontWeight: 600 }} />
+          {/* Existencias + Ubicación — solo para productos físicos.
+              Los servicios no descuentan inventario ni se ubican en estante. */}
+          {!form.Servicio && (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 10 }}>
+              <fieldset style={{ ...s.fieldset, marginBottom: 0 }}>
+                <legend style={s.legend}>Existencias</legend>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                  <div>
+                    <label style={s.label}>Cantidad {esNuevo ? '(inicial)' : '(actual)'}</label>
+                    <input type="text" defaultValue={form.Existencia}
+                      onKeyDown={soloNumeros}
+                      onBlur={e => set('Existencia', toNum(e.target.value))}
+                      placeholder="0"
+                      title={esNuevo ? "Stock inicial — genera entrada de Carga Inicial en el kárdex" : "Si lo cambias se registrará la diferencia como Entrada/Salida en el kárdex"}
+                      style={{ ...s.input, background: '#f0fdf4', borderColor: '#bbf7d0', color: '#166534', fontWeight: 600 }} />
+                  </div>
+                  <div>
+                    <label style={s.label}>Exist. Mínima</label>
+                    <input type="text" defaultValue={form.Existencia_minima}
+                      onKeyDown={soloNumeros}
+                      onBlur={e => set('Existencia_minima', toNum(e.target.value))}
+                      style={{ ...s.input, background: '#fef2f2', borderColor: '#fecaca' }} />
+                  </div>
                 </div>
+              </fieldset>
+              <fieldset style={{ ...s.fieldset, marginBottom: 0 }}>
+                <legend style={s.legend}>Ubicación{getConfigImpresion().usarLotes ? ' / Lote' : ''}</legend>
                 <div>
-                  <label style={s.label}>Exist. Mínima</label>
-                  <input type="text" defaultValue={form.Existencia_minima}
-                    onKeyDown={soloNumeros}
-                    onBlur={e => set('Existencia_minima', toNum(e.target.value))}
-                    style={{ ...s.input, background: '#fef2f2', borderColor: '#fecaca' }} />
+                  <label style={s.label}>Estante</label>
+                  <input value={form.Estante} onChange={e => set('Estante', e.target.value)} style={s.input} />
                 </div>
-              </div>
-            </fieldset>
-            <fieldset style={{ ...s.fieldset, marginBottom: 0 }}>
-              <legend style={s.legend}>Ubicación{getConfigImpresion().usarLotes ? ' / Lote' : ''}</legend>
-              <div>
-                <label style={s.label}>Estante</label>
-                <input value={form.Estante} onChange={e => set('Estante', e.target.value)} style={s.input} />
-              </div>
-              {/* El checkbox de "perecedero" solo aparece si el negocio maneja lotes/vencimientos
-                  (Configuración → Módulos opcionales → Fechas de vencimiento / Lotes). */}
-              {getConfigImpresion().usarLotes && (
-                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#374151', marginTop: 6, cursor: 'pointer' }}>
-                  <input type="checkbox" checked={!!form.requiere_lote}
-                    onChange={e => set('requiere_lote', e.target.checked ? 1 : 0)} />
-                  <span>Requiere fecha de vencimiento (perecedero)</span>
-                </label>
-              )}
-              <label
-                title="Si está marcado: en la pantalla de Venta podrás editar el concepto/descripción línea por línea, y NO se descuenta inventario ni se afecta kardex. Útil para servicios (mantenimientos, consultorías, instalaciones, etc.)."
-                style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#374151', marginTop: 6, cursor: 'pointer' }}>
-                <input type="checkbox" checked={!!form.Servicio}
-                  onChange={e => set('Servicio', e.target.checked ? 1 : 0)} />
-                <span>Es un <b>servicio</b> (no descuenta inventario, concepto editable al facturar)</span>
-              </label>
-            </fieldset>
-          </div>
+                {/* El checkbox de "perecedero" solo aparece si el negocio maneja lotes/vencimientos
+                    (Configuración → Módulos opcionales → Fechas de vencimiento / Lotes). */}
+                {getConfigImpresion().usarLotes && (
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#374151', marginTop: 6, cursor: 'pointer' }}>
+                    <input type="checkbox" checked={!!form.requiere_lote}
+                      onChange={e => set('requiere_lote', e.target.checked ? 1 : 0)} />
+                    <span>Requiere fecha de vencimiento (perecedero)</span>
+                  </label>
+                )}
+              </fieldset>
+            </div>
+          )}
 
-          {/* Detalle */}
+          {/* Detalle. Para servicios solo mostramos el IVA y los precios de
+              venta — no hay costo de inventario aplicable. */}
           <fieldset style={s.fieldset}>
-            <legend style={s.legend}>Detalle</legend>
+            <legend style={s.legend}>{form.Servicio ? 'Precios e IVA' : 'Detalle'}</legend>
+            {form.Servicio ? (
+              <div style={{ marginBottom: 8 }}>
+                <label style={s.label}>IVA %</label>
+                <select value={form.Iva} onChange={e => set('Iva', parseFloat(e.target.value))}
+                  style={{ ...s.select, maxWidth: 200 }}>
+                  <option value={0}>Exento (0%)</option>
+                  <option value={5}>HR (5%)</option>
+                  <option value={19}>IVA (19%)</option>
+                </select>
+              </div>
+            ) : (
             <div style={{ ...s.row, gridTemplateColumns: '1fr 1fr 1fr', marginBottom: 8 }}>
               {/*
                 Precio_Costo en BD está CON IVA.
@@ -341,14 +379,17 @@ export function EditarArticuloModal({ isOpen, onClose, articulo, onGuardado, mod
                   style={{ ...s.input, background: '#f0fdf4', borderColor: '#86efac', color: '#16a34a', fontWeight: 600 }} />
               </div>
             </div>
+            )}
 
-            {/* Tabla precios: % incremento | Precio Venta | Utilidad $ */}
-            <div style={{ display: 'grid', gridTemplateColumns: '85px 65px 1fr 80px', gap: '4px 6px', alignItems: 'center', fontSize: 11 }}>
+            {/* Tabla precios: para servicios solo precio (no hay costo → no
+                hay % incremento ni utilidad).
+                Productos: % incremento | Precio Venta | Utilidad $ */}
+            <div style={{ display: 'grid', gridTemplateColumns: form.Servicio ? '95px 1fr' : '85px 65px 1fr 80px', gap: '4px 6px', alignItems: 'center', fontSize: 11 }}>
               {/* Header */}
               <span style={{ fontSize: 9, color: '#9ca3af', fontWeight: 600, textTransform: 'uppercase' }}></span>
-              <span style={{ fontSize: 9, color: '#9ca3af', fontWeight: 600, textTransform: 'uppercase', textAlign: 'center' }}>% Increm.</span>
+              {!form.Servicio && <span style={{ fontSize: 9, color: '#9ca3af', fontWeight: 600, textTransform: 'uppercase', textAlign: 'center' }}>% Increm.</span>}
               <span style={{ fontSize: 9, color: '#9ca3af', fontWeight: 600, textTransform: 'uppercase', textAlign: 'center' }}>Precio Venta</span>
-              <span style={{ fontSize: 9, color: '#9ca3af', fontWeight: 600, textTransform: 'uppercase', textAlign: 'right' }}>Utilidad $</span>
+              {!form.Servicio && <span style={{ fontSize: 9, color: '#9ca3af', fontWeight: 600, textTransform: 'uppercase', textAlign: 'right' }}>Utilidad $</span>}
 
               {[
                 { label: 'P. al Público 1', field: 'Precio_Venta', val: form.Precio_Venta, main: true },
@@ -377,21 +418,28 @@ export function EditarArticuloModal({ isOpen, onClose, articulo, onGuardado, mod
                   }
                 };
 
-                return [
-                  <span key={row.field + '_l'} style={{ fontSize: 11, color: '#6b7280', fontWeight: row.main ? 600 : 400 }}>{row.label}</span>,
-                  <input key={row.field + '_pct'} type="text" data-precio="true" data-pct={row.field}
-                    defaultValue={pct > 0 ? pct.toFixed(2) + '%' : '0.00%'}
-                    onKeyDown={soloNumeros}
-                    onFocus={(e) => { e.target.value = pct > 0 ? pct.toFixed(2) : ''; e.target.select(); }}
-                    onBlur={(e) => {
-                      const newPct = toNum(e.target.value);
-                      const newPrice = Math.round(cIva * (1 + newPct / 100));
-                      set(row.field, newPrice);
-                      e.target.value = newPct.toFixed(2) + '%';
-                      const fs = e.target.closest('fieldset');
-                      if (fs) syncSiblings(fs, newPrice);
-                    }}
-                    style={{ ...s.input, height: 26, fontSize: 11, textAlign: 'center', background: '#f9fafb' }} />,
+                const cells: any[] = [];
+                cells.push(
+                  <span key={row.field + '_l'} style={{ fontSize: 11, color: '#6b7280', fontWeight: row.main ? 600 : 400 }}>{row.label}</span>
+                );
+                if (!form.Servicio) {
+                  cells.push(
+                    <input key={row.field + '_pct'} type="text" data-precio="true" data-pct={row.field}
+                      defaultValue={pct > 0 ? pct.toFixed(2) + '%' : '0.00%'}
+                      onKeyDown={soloNumeros}
+                      onFocus={(e) => { e.target.value = pct > 0 ? pct.toFixed(2) : ''; e.target.select(); }}
+                      onBlur={(e) => {
+                        const newPct = toNum(e.target.value);
+                        const newPrice = Math.round(cIva * (1 + newPct / 100));
+                        set(row.field, newPrice);
+                        e.target.value = newPct.toFixed(2) + '%';
+                        const fs = e.target.closest('fieldset');
+                        if (fs) syncSiblings(fs, newPrice);
+                      }}
+                      style={{ ...s.input, height: 26, fontSize: 11, textAlign: 'center', background: '#f9fafb' }} />
+                  );
+                }
+                cells.push(
                   <input key={row.field + '_price'} type="text" data-precio="true" data-price={row.field}
                     defaultValue={fmtMoneda(row.val)}
                     onKeyDown={soloNumeros}
@@ -403,12 +451,17 @@ export function EditarArticuloModal({ isOpen, onClose, articulo, onGuardado, mod
                       const fs = e.target.closest('fieldset');
                       if (fs) syncSiblings(fs, num);
                     }}
-                    style={{ ...s.input, height: 26, fontSize: 11, fontWeight: row.main ? 600 : 400, background: row.main ? '#fff' : '#f9fafb', borderColor: row.main ? '#7c3aed' : '#d1d5db' }} />,
-                  <span key={row.field + '_g'} data-util={row.field} style={{
-                    textAlign: 'right', fontSize: 11, fontWeight: 500,
-                    color: ganancia >= 0 ? '#16a34a' : '#dc2626'
-                  }}>{fmt(ganancia)}</span>,
-                ];
+                    style={{ ...s.input, height: 26, fontSize: 11, fontWeight: row.main ? 600 : 400, background: row.main ? '#fff' : '#f9fafb', borderColor: row.main ? '#7c3aed' : '#d1d5db' }} />
+                );
+                if (!form.Servicio) {
+                  cells.push(
+                    <span key={row.field + '_g'} data-util={row.field} style={{
+                      textAlign: 'right', fontSize: 11, fontWeight: 500,
+                      color: ganancia >= 0 ? '#16a34a' : '#dc2626'
+                    }}>{fmt(ganancia)}</span>
+                  );
+                }
+                return cells;
               })}
             </div>
           </fieldset>
