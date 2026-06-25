@@ -531,7 +531,14 @@ export function buildDatosFactura(
                            regimenLower.includes('responsable');
 
   const items = lineas.map(l => ({
-    codigo: l.Codigo, nombre: l.Nombre, cantidad: l.Cantidad,
+    codigo: l.Codigo,
+    // Si la línea es servicio con concepto editado, ese texto reemplaza al
+    // nombre del catálogo en la tirilla impresa. Cuando se imprime desde la
+    // reimpresión (DetalleFacturaModal) el backend ya manda Nombres_Articulo
+    // con el COALESCE; este branch cubre la impresión inmediata tras guardar
+    // la venta donde l viene directo del state de NuevaVenta.
+    nombre: l.DescripcionTemp || l.Nombre,
+    cantidad: l.Cantidad,
     precio: l.PrecioVenta,
     iva: esResponsableIVA ? l.Iva : 0,
     descuento: l.Descuento,
