@@ -89,6 +89,12 @@ interface LineaVenta {
   Iva: number;
   Descuento: number;
   Subtotal: number;
+  // Si el producto es servicio (tblarticulos.Servicio=1): se permite editar
+  // el concepto (descripción) por venta, no se descuenta inventario y NO se
+  // valida existencia. La descripción editada se guarda en
+  // tbldetalle_venta.DescripcionTemp y se muestra en el PDF en vez del nombre.
+  EsServicio?: boolean;
+  DescripcionTemp?: string;
 }
 
 export interface TabState {
@@ -233,17 +239,20 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
 
   const agregarProducto = (art: any) => {
     const cfg = getConfigImpresion();
-    const existente = lineas.find(l => l.Items === art.Items);
+    const esServicio = !!art.Servicio;
 
-    // Cantidad ya comprometida de este producto en toda la grilla (suma de todas las líneas)
-    const cantTotalEnGrid = lineas
+    // Servicios: cada selección crea una línea nueva (no se acumula cantidad)
+    // para que el usuario pueda dar un concepto distinto a cada instancia.
+    const existente = esServicio ? undefined : lineas.find(l => l.Items === art.Items);
+
+    // Cantidad ya comprometida de este producto en toda la grilla (suma de todas las líneas).
+    // Para servicios no aplica — no hay control de stock.
+    const cantTotalEnGrid = esServicio ? 0 : lineas
       .filter(l => l.Items === art.Items)
       .reduce((s, l) => s + (l.Cantidad || 0), 0);
 
     if (existente && !cfg.permitirRepetirProducto) {
       // Comportamiento clásico: incrementar la cantidad de la línea existente.
-      // El paso es 1, salvo que solo quede un fraccionario < 1 disponible: en ese
-      // caso incrementa por lo que reste (ej. completar a 1.5 desde 1 con 0.5 libre).
       const dispRestante = existente.Existencia - existente.Cantidad;
       const paso = (!cfg.permitirFacturarNegativo && dispRestante > 0 && dispRestante < 1)
         ? dispRestante : 1;
@@ -254,24 +263,26 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
       }
       setLineas(prev => prev.map(l => l.id === existente.id ? { ...l, Cantidad: nuevaCant, Subtotal: nuevaCant * l.PrecioVenta - l.Descuento } : l));
     } else {
-      // Línea nueva (producto fresco, o producto repetido si el toggle está activo).
-      // Cantidad inicial = 1, salvo que el stock restante sea fraccionario < 1 (ej.
-      // medio bulto 0.5): en ese caso arranca con lo disponible para no bloquear la
-      // venta del fraccionario. El usuario puede ajustar luego.
-      const dispRestante = (art.Existencia || 0) - cantTotalEnGrid;
-      const cantInicial = (!cfg.permitirFacturarNegativo && dispRestante > 0 && dispRestante < 1)
-        ? dispRestante : 1;
-      // Tolerancia epsilon por aritmética de punto flotante (0.1+0.2 etc.)
-      if (!cfg.permitirFacturarNegativo && (cantTotalEnGrid + cantInicial) > (art.Existencia || 0) + 1e-9) {
-        toast.error(`No hay existencia suficiente de ${art.Codigo} ${art.Nombres_Articulo} (disponible: ${art.Existencia}, ya en factura: ${cantTotalEnGrid})`, { duration: 5000 });
-        return;
+      // Línea nueva. Para servicios saltamos toda la validación de stock
+      // (Existencia=0, sin controles). Para productos normales aplican las reglas.
+      let cantInicial = 1;
+      if (!esServicio) {
+        const dispRestante = (art.Existencia || 0) - cantTotalEnGrid;
+        cantInicial = (!cfg.permitirFacturarNegativo && dispRestante > 0 && dispRestante < 1)
+          ? dispRestante : 1;
+        if (!cfg.permitirFacturarNegativo && (cantTotalEnGrid + cantInicial) > (art.Existencia || 0) + 1e-9) {
+          toast.error(`No hay existencia suficiente de ${art.Codigo} ${art.Nombres_Articulo} (disponible: ${art.Existencia}, ya en factura: ${cantTotalEnGrid})`, { duration: 5000 });
+          return;
+        }
       }
       const precio = listaPrecio === 2 ? (art.Precio_Venta2 || art.Precio_Venta) : listaPrecio === 3 ? (art.Precio_Venta3 || art.Precio_Venta) : art.Precio_Venta;
       const nueva: LineaVenta = {
         id: ++lineaId, Items: art.Items, Codigo: art.Codigo, Nombre: art.Nombres_Articulo,
-        Existencia: art.Existencia, Cantidad: cantInicial, PrecioCosto: art.Precio_Costo,
+        Existencia: esServicio ? 0 : art.Existencia, Cantidad: cantInicial, PrecioCosto: art.Precio_Costo,
         PrecioMinimo: art.Precio_Minimo || 0,
         PrecioVenta: precio, Iva: art.Iva || 0, Descuento: 0, Subtotal: cantInicial * precio,
+        EsServicio: esServicio,
+        DescripcionTemp: esServicio ? art.Nombres_Articulo : undefined,
       };
       setLineas(prev => [...prev, nueva]);
     }
@@ -789,6 +800,11 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
         items: lineasFinal.map(l => ({
           items: l.Items, cantidad: l.Cantidad, precio: l.PrecioVenta,
           precio_costo: l.PrecioCosto, iva: l.Iva, descuento: l.Descuento,
+          // Si es servicio, mandar la descripción editada (lo que el usuario
+          // tipeó en la celda Nombre). El backend la guarda en
+          // tbldetalle_venta.DescripcionTemp y NO descuenta inventario.
+          es_servicio: l.EsServicio ? 1 : 0,
+          descripcion_temp: l.EsServicio ? (l.DescripcionTemp || l.Nombre) : null,
         })),
         retenciones: retencionesCalc,
       };
@@ -1233,9 +1249,22 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
             <tbody>
               {lineas.map(l => (
                 <tr key={l.id} style={{ borderBottom: '1px solid #f3f4f6' }}>
-                  <td style={{ padding: '4px 8px', width: 100, color: '#6b7280', fontSize: 11 }}>{l.Codigo}</td>
-                  <td style={{ padding: '4px 8px', fontWeight: 500 }}>{l.Nombre}</td>
-                  <td style={{ padding: '4px 8px', textAlign: 'center', width: 55, color: l.Existencia < l.Cantidad ? '#dc2626' : '#16a34a', fontWeight: 600, fontSize: 11 }}>{l.Existencia}</td>
+                  <td style={{ padding: '4px 8px', width: 100, color: '#6b7280', fontSize: 11 }}>
+                    {l.Codigo}
+                    {l.EsServicio && <span style={{ display: 'block', fontSize: 9, fontWeight: 700, color: '#7c3aed', marginTop: 2 }}>SERVICIO</span>}
+                  </td>
+                  <td style={{ padding: '4px 8px', fontWeight: 500 }}>
+                    {l.EsServicio ? (
+                      <input type="text" defaultValue={l.DescripcionTemp || l.Nombre}
+                        onBlur={e => {
+                          const txt = e.target.value.trim() || l.Nombre;
+                          setLineas(prev => prev.map(x => x.id === l.id ? { ...x, DescripcionTemp: txt } : x));
+                        }}
+                        title="Editable: este servicio permite cambiar el concepto en cada factura"
+                        style={{ width: '100%', height: 26, border: '1px dashed #c4b5fd', borderRadius: 4, fontSize: 12, padding: '0 6px', background: '#faf5ff', outline: 'none', fontWeight: 500 }} />
+                    ) : l.Nombre}
+                  </td>
+                  <td style={{ padding: '4px 8px', textAlign: 'center', width: 55, color: l.EsServicio ? '#9ca3af' : (l.Existencia < l.Cantidad ? '#dc2626' : '#16a34a'), fontWeight: 600, fontSize: 11 }}>{l.EsServicio ? '—' : l.Existencia}</td>
                   <td style={{ padding: '3px 4px', textAlign: 'center', width: 65 }}>
                     <input type="text" defaultValue={String(l.Cantidad)} data-venta-cant={l.id}
                       onBlur={e => { const v = parseFloat(e.target.value) || 1; actualizarLinea(l.id, 'Cantidad', v); }}

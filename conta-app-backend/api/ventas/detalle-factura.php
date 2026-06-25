@@ -27,9 +27,14 @@ try {
         $factura = $stmt->fetch();
         if (!$factura) { echo json_encode(['success' => false, 'message' => 'Factura no encontrada']); exit; }
 
-        // Items con nombre del artículo
+        // Items con nombre del artículo. Si la línea tiene DescripcionTemp
+        // (servicio con concepto editado), ese texto reemplaza al nombre
+        // del catálogo en la impresión y reimpresión.
         $stmt2 = $db->prepare("
-            SELECT d.*, a.Codigo, a.Nombres_Articulo, a.Existencia, a.Precio_Costo
+            SELECT d.*, a.Codigo,
+                   COALESCE(NULLIF(d.DescripcionTemp, ''), a.Nombres_Articulo) AS Nombres_Articulo,
+                   a.Existencia, a.Precio_Costo,
+                   COALESCE(a.Servicio, 0) AS Servicio
             FROM tbldetalle_venta d
             LEFT JOIN tblarticulos a ON d.Items = a.Items
             WHERE d.Factura_N = ?

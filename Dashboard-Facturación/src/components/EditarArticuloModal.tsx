@@ -10,6 +10,7 @@ interface Articulo {
   Precio3: number; PrecioMinimo: number; Categoria: string; Proveedor: string; Estado: string;
   Id_Categoria?: number; CodigoPro?: number; Estante?: string; Existencia_minima?: number;
   requiere_lote?: number;
+  Servicio?: number;
   Id_Etiqueta?: number | null;
 }
 
@@ -29,7 +30,7 @@ export function EditarArticuloModal({ isOpen, onClose, articulo, onGuardado, mod
     Items: 0, Codigo: '', Nombres_Articulo: '',
     Precio_Costo: 0, Precio_Venta: 0, Precio_Venta2: 0, Precio_Venta3: 0,
     Precio_Minimo: 0, Iva: 0, Existencia: 0, Existencia_minima: 0,
-    Id_Categoria: 0, CodigoPro: 0, Estante: '', Estado: 1, requiere_lote: 0, Id_Etiqueta: 0,
+    Id_Categoria: 0, CodigoPro: 0, Estante: '', Estado: 1, requiere_lote: 0, Servicio: 0, Id_Etiqueta: 0,
   };
 
   const formDesdeArticulo = (a: Articulo) => ({
@@ -44,6 +45,7 @@ export function EditarArticuloModal({ isOpen, onClose, articulo, onGuardado, mod
     Estante: a.Estante || '',
     Estado: a.Estado === 'Activo' ? 1 : 0,
     requiere_lote: a.requiere_lote ? 1 : 0,
+    Servicio: a.Servicio ? 1 : 0,
     Id_Etiqueta: a.Id_Etiqueta || 0,
   });
 
@@ -260,6 +262,13 @@ export function EditarArticuloModal({ isOpen, onClose, articulo, onGuardado, mod
                   <span>Requiere fecha de vencimiento (perecedero)</span>
                 </label>
               )}
+              <label
+                title="Si está marcado: en la pantalla de Venta podrás editar el concepto/descripción línea por línea, y NO se descuenta inventario ni se afecta kardex. Útil para servicios (mantenimientos, consultorías, instalaciones, etc.)."
+                style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#374151', marginTop: 6, cursor: 'pointer' }}>
+                <input type="checkbox" checked={!!form.Servicio}
+                  onChange={e => set('Servicio', e.target.checked ? 1 : 0)} />
+                <span>Es un <b>servicio</b> (no descuenta inventario, concepto editable al facturar)</span>
+              </label>
             </fieldset>
           </div>
 

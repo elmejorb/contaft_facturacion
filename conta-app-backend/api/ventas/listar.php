@@ -31,9 +31,11 @@ try {
             exit;
         }
 
-        // Items
+        // Items. Si la línea es servicio con descripción editada
+        // (DescripcionTemp), ese texto reemplaza al nombre del catálogo.
         $stmt = $db->prepare("
-            SELECT d.*, a.Codigo, a.Nombres_Articulo
+            SELECT d.*, a.Codigo,
+                   COALESCE(NULLIF(d.DescripcionTemp, ''), a.Nombres_Articulo) AS Nombres_Articulo
             FROM tbldetalle_venta d
             LEFT JOIN tblarticulos a ON d.Items = a.Items
             WHERE d.Factura_N = :id

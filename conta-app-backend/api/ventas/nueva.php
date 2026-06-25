@@ -53,6 +53,7 @@ try {
         $stmt = $db->prepare("
             SELECT a.Items, a.Codigo, a.Nombres_Articulo, a.Existencia, a.Precio_Costo,
                    a.Precio_Venta, a.Precio_Venta2, a.Precio_Venta3, a.Iva, a.Precio_Minimo,
+                   COALESCE(a.Servicio, 0) AS Servicio,
                    COALESCE(c.Categoria, 'VARIOS') as Categoria
             FROM tblarticulos a
             LEFT JOIN tblcategoria c ON a.Id_Categoria = c.Id_Categoria
@@ -193,10 +194,12 @@ try {
 
     $factN = $db->lastInsertId();
 
-    // Insert detail + update stock + kardex
+    // Insert detail + update stock + kardex.
+    // Para servicios se incluye DescripcionTemp con el concepto editado en
+    // pantalla; para productos normales esa columna queda NULL.
     $stmtDetalle = $db->prepare("
-        INSERT INTO tbldetalle_venta (Factura_N, Items, Cantidad, PrecioC, PrecioV, Impuesto, Subtotal, IVA, Descuento, Entregado)
-        VALUES (:fact, :items, :cant, :pc, :pv, :imp, :sub, :iva, :desc, 'S')
+        INSERT INTO tbldetalle_venta (Factura_N, Items, Cantidad, PrecioC, PrecioV, Impuesto, Subtotal, IVA, Descuento, Entregado, DescripcionTemp)
+        VALUES (:fact, :items, :cant, :pc, :pv, :imp, :sub, :iva, :desc, 'S', :desc_temp)
     ");
 
     $stmtStock = $db->prepare("UPDATE tblarticulos SET Existencia = Existencia - :cant WHERE Items = :items");
@@ -216,6 +219,10 @@ try {
         $precioV = floatval($item->precio);
         $desc = floatval($item->descuento ?? 0);
         $iva = floatval($item->iva ?? 0);
+        // Servicio: el item NO descuenta inventario ni mueve kardex. Permite
+        // editar el concepto por venta (DescripcionTemp).
+        $esServicio = !empty($item->es_servicio);
+        $descTemp = $esServicio ? (string)($item->descripcion_temp ?? '') : null;
         $lineaSubtotal = ($cant * $precioV) - $desc;
         // Mismo gate que el cálculo de totales arriba: si NO es Responsable IVA,
         // el Impuesto de la línea queda en 0 aunque el producto tenga IVA en catálogo.
@@ -224,8 +231,13 @@ try {
         $stmtDetalle->execute([
             ':fact' => $factN, ':items' => $itemId, ':cant' => $cant,
             ':pc' => $precioC, ':pv' => $precioV, ':imp' => $lineaIva,
-            ':sub' => $lineaSubtotal, ':iva' => $iva, ':desc' => $desc
+            ':sub' => $lineaSubtotal, ':iva' => $iva, ':desc' => $desc,
+            ':desc_temp' => $descTemp,
         ]);
+
+        // Servicios: saltar TODO el bloque de stock/kardex/componentes. Solo
+        // se registra el detalle y se pasa al siguiente item.
+        if ($esServicio) continue;
 
         // ¿El producto tiene componentes? Si sí, descontar componentes en vez del padre.
         $stmtComp = $db->prepare("

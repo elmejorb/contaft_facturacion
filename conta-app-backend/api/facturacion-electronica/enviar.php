@@ -223,7 +223,10 @@ function buildInvoiceJSON($db, $factura, $items, $companyId) {
                 'taxable_amount' => number_format($baseAmount, 2, '.', ''),
                 'percent' => number_format($iva, 2, '.', '')
             ]],
-            'description' => $item['Nombres_Articulo'] ?? $item['DescripcionTemp'] ?? 'Producto',
+            // Priorizar DescripcionTemp (concepto editado en venta para servicios)
+            // sobre Nombres_Articulo (nombre fijo del catálogo).
+            'description' => (!empty($item['DescripcionTemp']) ? $item['DescripcionTemp']
+                              : ($item['Nombres_Articulo'] ?? 'Producto')),
             'code' => $item['Codigo'] ?? strval($item['Items']),
             'type_item_identification_id' => 3,
             'price_amount' => number_format($precio, 2, '.', ''),
@@ -437,7 +440,7 @@ try {
         if (!$factura) { echo json_encode(['success' => false, 'message' => 'Factura no encontrada']); exit; }
 
         $stmt = $db->prepare("
-            SELECT d.*, a.Codigo, a.Nombres_Articulo, a.unit_measure_id
+            SELECT d.*, a.Codigo, a.Nombres_Articulo, a.unit_measure_id, d.DescripcionTemp
             FROM tbldetalle_venta d
             LEFT JOIN tblarticulos a ON d.Items = a.Items
             WHERE d.Factura_N = ?
@@ -634,7 +637,11 @@ try {
                 $stmtDet->execute([
                     $docElecId, $item['Items'], $unitMeasure,
                     number_format($cant, 2, '.', ''), number_format($baseAmount, 2, '.', ''),
-                    $item['Nombres_Articulo'] ?? 'Producto',
+                    // DescripcionTemp tiene prioridad: si el item fue facturado
+                    // como servicio con concepto editado, se persiste ese texto
+                    // en el detalle local de FE.
+                    (!empty($item['DescripcionTemp']) ? $item['DescripcionTemp']
+                        : ($item['Nombres_Articulo'] ?? 'Producto')),
                     number_format($precioV, 2, '.', ''),
                     number_format($precioCosto, 4, '.', ''),
                     number_format($desc, 2, '.', ''),

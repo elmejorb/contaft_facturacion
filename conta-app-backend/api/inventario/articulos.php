@@ -61,6 +61,8 @@ try {
                 a.CodigoPro as CodigoPro,
                 a.Estante,
                 a.Existencia_minima,
+                COALESCE(a.requiere_lote, 0) AS requiere_lote,
+                COALESCE(a.Servicio, 0) AS Servicio,
                 a.Id_Etiqueta,
                 COALESCE(e.Nombre, '') as Etiqueta,
                 COALESCE(e.Color, '') as Etiqueta_Color

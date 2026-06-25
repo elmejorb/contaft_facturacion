@@ -45,11 +45,11 @@ try {
     $query = "INSERT INTO tblarticulos (
         Items, Codigo, Nombres_Articulo, Id_Categoria, Existencia, Existencia_minima,
         Precio_Costo, Precio_Venta, Precio_Venta2, Precio_Venta3, Precio_Minimo,
-        Iva, CodigoPro, Estante, Estado, requiere_lote, Id_Etiqueta, FechaMod
+        Iva, CodigoPro, Estante, Estado, requiere_lote, Servicio, Id_Etiqueta, FechaMod
     ) VALUES (
         :items, :codigo, :nombre, :categoria, :existencia, :existenciaMinima,
         :costo, :precio1, :precio2, :precio3, :precioMinimo,
-        :iva, :proveedor, :estante, :estado, :requiereLote, :etiqueta, NOW()
+        :iva, :proveedor, :estante, :estado, :requiereLote, :servicio, :etiqueta, NOW()
     )";
 
     $stmt = $db->prepare($query);
@@ -70,6 +70,7 @@ try {
         ':estante' => $input['Estante'] ?? '',
         ':estado' => $input['Estado'] ?? 1,
         ':requiereLote' => !empty($input['requiere_lote']) ? 1 : 0,
+        ':servicio' => !empty($input['Servicio']) ? 1 : 0,
         ':etiqueta' => !empty($input['Id_Etiqueta']) ? intval($input['Id_Etiqueta']) : null,
     ]);
 
