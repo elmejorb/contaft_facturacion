@@ -37,6 +37,7 @@ interface Articulo {
   Categoria: string;
   Proveedor: string;
   Estado: string;
+  Servicio?: number;
   Id_Etiqueta?: number | null;
   Etiqueta?: string;
   Etiqueta_Color?: string;
@@ -61,6 +62,10 @@ export function InventarioManagement() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busqueda, setBusqueda] = useState('');
+  // Filtro de tipo: 'todos' (default) | 'producto' | 'servicio'.
+  // Útil para el negocio que vende servicios mezclados con productos: si
+  // quiere ver solo sus servicios cargados en catálogo, los filtra arriba.
+  const [filtroTipo, setFiltroTipo] = useState<'todos' | 'producto' | 'servicio'>('todos');
   const [estado, setEstado] = useState('Activos');
   const [kardexModal, setKardexModal] = useState<{ isOpen: boolean; producto: Articulo | null }>({
     isOpen: false,
@@ -354,9 +359,16 @@ export function InventarioManagement() {
   // Orden inteligente: cuando hay búsqueda, los productos cuyo Código o
   // Descripción EMPIEZA con el término aparecen primero, luego los que solo
   // lo contienen. Sin búsqueda, conserva el orden recibido del backend.
+  // El filtro de tipo (producto/servicio) se aplica ANTES del orden.
   const articulosOrdenados = useMemo(() => {
+    // 1) Filtrar por tipo
+    const tipoFiltrado = filtroTipo === 'todos'
+      ? articulos
+      : articulos.filter(a => filtroTipo === 'servicio' ? !!a.Servicio : !a.Servicio);
+
+    // 2) Ordenar inteligente por búsqueda
     const term = (busqueda || '').toLowerCase().trim();
-    if (!term) return articulos;
+    if (!term) return tipoFiltrado;
     const rank = (a: Articulo) => {
       const cod = (a.Codigo || '').toLowerCase();
       const desc = (a.Descripcion || '').toLowerCase();
@@ -364,12 +376,16 @@ export function InventarioManagement() {
       if (cod.includes(term) || desc.includes(term)) return 1;
       return 2;
     };
-    return [...articulos].sort((a, b) => {
+    return [...tipoFiltrado].sort((a, b) => {
       const ra = rank(a), rb = rank(b);
       if (ra !== rb) return ra - rb;
       return (a.Descripcion || '').localeCompare(b.Descripcion || '');
     });
-  }, [articulos, busqueda]);
+  }, [articulos, busqueda, filtroTipo]);
+
+  // Conteos para mostrar en los botones del filtro
+  const totalProductos = useMemo(() => articulos.filter(a => !a.Servicio).length, [articulos]);
+  const totalServicios = useMemo(() => articulos.filter(a => !!a.Servicio).length, [articulos]);
 
   // Exporta el inventario filtrado a un archivo .xlsx real (no CSV).
   // Las columnas numéricas quedan como números (no strings) — Excel les aplica
@@ -494,6 +510,41 @@ export function InventarioManagement() {
 
       {/* Filtros */}
       <div className="bg-white rounded-xl shadow-sm p-4">
+        {/* Filtro por tipo: Todos / Productos / Servicios. Solo aparece si el
+            negocio tiene al menos un servicio en catálogo (si no hay servicios,
+            ocultarlo evita ruido visual para negocios que solo venden productos). */}
+        {totalServicios > 0 && (
+          <div style={{ display: 'flex', gap: 4, marginBottom: 10, flexWrap: 'wrap' }}>
+            {[
+              { val: 'todos', label: 'Todos', count: totalProductos + totalServicios },
+              { val: 'producto', label: 'Productos', count: totalProductos },
+              { val: 'servicio', label: 'Servicios', count: totalServicios },
+            ].map(opt => {
+              const active = filtroTipo === opt.val;
+              return (
+                <button
+                  key={opt.val}
+                  type="button"
+                  onClick={() => setFiltroTipo(opt.val as any)}
+                  style={{
+                    height: 32, padding: '0 14px', borderRadius: 8,
+                    border: `1px solid ${active ? '#7c3aed' : '#e5e7eb'}`,
+                    background: active ? '#7c3aed' : '#fff',
+                    color: active ? '#fff' : '#374151',
+                    fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                    display: 'flex', alignItems: 'center', gap: 6,
+                  }}>
+                  <span>{opt.label}</span>
+                  <span style={{
+                    fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 10,
+                    background: active ? 'rgba(255,255,255,0.25)' : '#f3f4f6',
+                    color: active ? '#fff' : '#6b7280',
+                  }}>{opt.count}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
         <div className="flex flex-wrap items-center gap-2">
           <div style={{ position: 'relative', flex: 1, minWidth: 200 }}>
             <Search style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', width: 16, height: 16, color: '#9ca3af', pointerEvents: 'none' }} />
