@@ -302,8 +302,9 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
       if (!lineaActual) return prev;
       const cfg = getConfigImpresion();
 
-      // Validar stock al cambiar cantidad (suma todas las líneas del mismo Items)
-      if (field === 'Cantidad' && !cfg.permitirFacturarNegativo) {
+      // Validar stock al cambiar cantidad (suma todas las líneas del mismo Items).
+      // Servicios saltan toda validación de stock — su existencia no aplica.
+      if (field === 'Cantidad' && !cfg.permitirFacturarNegativo && !lineaActual.EsServicio) {
         const cantSumandoEsta = prev
           .filter(l => l.Items === lineaActual.Items && l.id !== id)
           .reduce((s, l) => s + (l.Cantidad || 0), 0) + value;
