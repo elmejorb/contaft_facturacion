@@ -31,6 +31,10 @@ try {
             $g['Valor'] = floatval($g['Valor']);
             $g['Descuento'] = floatval($g['Descuento']);
         }
+        unset($g); // CRÍTICO: romper la referencia. Sin esto el siguiente
+                   // foreach por valor sobrescribía el último elemento del
+                   // array en cada iteración, dejando todas las filas
+                   // iguales a la última iterada.
 
         $totalValidos = array_sum(array_map(fn($g) => $g['Estado'] === 'Valida' ? $g['Valor'] : 0, $gastos));
         $anios = $db->query("SELECT DISTINCT YEAR(Fecha) as a FROM tblegresos WHERE FactN = '-1' ORDER BY a DESC")->fetchAll(PDO::FETCH_COLUMN);
