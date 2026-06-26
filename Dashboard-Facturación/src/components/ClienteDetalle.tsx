@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { AgGridReact } from 'ag-grid-react';
 import { AllCommunityModule, ModuleRegistry, ColDef } from 'ag-grid-community';
-import { X, FileText, ShoppingBag, BarChart3, DollarSign, Receipt, CreditCard, Wallet, Save, CheckCircle, Search, Ban, Pencil, Printer } from 'lucide-react';
+import { X, FileText, ShoppingBag, BarChart3, DollarSign, Receipt, CreditCard, Wallet, Save, CheckCircle, Search, Ban, Pencil, Printer, Info } from 'lucide-react';
 import { ReciboImpresion } from './ReciboImpresion';
 import { DetalleFacturaModal } from './DetalleFacturaModal';
 import { getConfigImpresion } from './ConfiguracionSistema';
@@ -459,6 +459,17 @@ export function ClienteDetalle({ clienteId, onClose, tabInicial = 'ventas' }: Pr
               {pagoError && <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 6, padding: '6px 12px', color: '#dc2626', fontSize: 12 }}>{pagoError}</div>}
               {pagoSuccess && <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 6, padding: '6px 12px', color: '#16a34a', fontSize: 12 }}>{pagoSuccess}</div>}
 
+              {/* Banda explicativa: aclara la diferencia entre Paga y Rebaja.
+                  Usuario reportó que se confundía pensando que la rebaja se
+                  restaba del campo Paga, cuando en realidad son independientes
+                  y AMBOS reducen el saldo. */}
+              <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 6, padding: '6px 12px', fontSize: 11, color: '#1e40af', display: 'flex', alignItems: 'center', gap: 6, lineHeight: 1.4 }}>
+                <Info size={14} style={{ flexShrink: 0 }} />
+                <span>
+                  En <b>Paga</b> escribe solo lo que el cliente te entrega en plata. La <b>Rebaja</b> es lo que tú le perdonas sin recibir dinero. <b>Saldo nuevo = saldo anterior − Paga − Rebaja</b>.
+                </span>
+              </div>
+
               {/* Toolbar pagos */}
               <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, flexShrink: 0, whiteSpace: 'nowrap' }}>
                 <div>
@@ -474,12 +485,16 @@ export function ClienteDetalle({ clienteId, onClose, tabInicial = 'ventas' }: Pr
                   </select>
                 </div>
                 <div>
-                  <label style={{ fontSize: 9, color: '#6b7280', display: 'block', marginBottom: 2 }}>PAGO GLOBAL</label>
+                  <label title="Dinero que el cliente te entrega ahora. Si lo distribuyes con el botón, se reparte entre las facturas pendientes empezando por la más antigua."
+                    style={{ fontSize: 9, color: '#6b7280', display: 'block', marginBottom: 2 }}>
+                    PAGA EN TOTAL
+                  </label>
                   <input
-                    type="text" placeholder="Valor"
+                    type="text" placeholder="$ recibido"
                     value={pagoGlobal}
                     onChange={e => setPagoGlobal(e.target.value.replace(/[^0-9]/g, ''))}
                     onKeyDown={e => { if (e.key === 'Enter' && pagoGlobal) distribuirPagoGlobal(parseInt(pagoGlobal)); }}
+                    title="Dinero que el cliente te entrega ahora (sin contar descuento)"
                     style={{ height: 28, width: 110, padding: '0 8px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 12 }}
                   />
                 </div>
@@ -492,18 +507,26 @@ export function ClienteDetalle({ clienteId, onClose, tabInicial = 'ventas' }: Pr
                   Todo
                 </button>
                 <div>
-                  <label style={{ fontSize: 9, color: '#6b7280', display: 'block', marginBottom: 2 }}>DESC.</label>
+                  <label title="Descuento o rebaja que tú le PERDONAS al cliente. NO es dinero recibido. Reduce el saldo sin entrar a caja. Se aplica además del valor que paga."
+                    style={{ fontSize: 9, color: '#6b7280', display: 'block', marginBottom: 2 }}>
+                    REBAJA <span style={{ color: '#9ca3af', textTransform: 'none' }}>(sin recibir $)</span>
+                  </label>
                   <input type="text" placeholder="$ 0" value={descuentoGlobal}
                     onChange={e => setDescuentoGlobal(e.target.value.replace(/[^0-9]/g, ''))}
-                    style={{ height: 28, width: 80, padding: '0 6px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 12, textAlign: 'right' }}
+                    title="Rebaja al saldo — no se cobra al cliente"
+                    style={{ height: 28, width: 80, padding: '0 6px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 12, textAlign: 'right', background: descGlobal > 0 ? '#fefce8' : '#fff' }}
                   />
                 </div>
                 <div style={{ flex: 1, minWidth: 4 }} />
                 {totalAbonos > 0 && (
                   <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                    <div style={{ fontSize: 9, color: '#6b7280' }}>TOTAL</div>
+                    <div style={{ fontSize: 9, color: '#6b7280' }}>RECIBE</div>
                     <div style={{ fontSize: 16, fontWeight: 700, color: '#7c3aed', lineHeight: 1 }}>{fmtMon(totalAbonos)}</div>
-                    {descGlobal > 0 && <div style={{ fontSize: 9, color: '#d97706' }}>+Desc: {fmtMon(descGlobal)}</div>}
+                    {descGlobal > 0 && (
+                      <div style={{ fontSize: 9, color: '#d97706', marginTop: 1 }}>
+                        + rebaja {fmtMon(descGlobal)} = cubre {fmtMon(totalAbonos + descGlobal)}
+                      </div>
+                    )}
                   </div>
                 )}
                 <button
@@ -538,9 +561,9 @@ export function ClienteDetalle({ clienteId, onClose, tabInicial = 'ventas' }: Pr
                         <th style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 600 }}>Total</th>
                         <th style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 600 }}>Saldo</th>
                         <th style={{ padding: '6px 8px', textAlign: 'center', fontWeight: 600 }}>Días</th>
-                        <th style={{ padding: '6px 8px', textAlign: 'center', fontWeight: 600, width: 130 }}>Abono</th>
-                        <th style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 600 }}>Desc.</th>
-                        <th style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 600 }}>Nvo. Saldo</th>
+                        <th title="Dinero que recibes del cliente para esta factura" style={{ padding: '6px 8px', textAlign: 'center', fontWeight: 600, width: 130 }}>Paga</th>
+                        <th title="Rebaja aplicada — sin recibir dinero" style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 600 }}>Rebaja</th>
+                        <th title="Saldo después de aplicar pago + rebaja" style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 600 }}>Nvo. Saldo</th>
                       </tr>
                     </thead>
                     <tbody>
