@@ -631,8 +631,19 @@ export function ClienteDetalle({ clienteId, onClose, tabInicial = 'ventas' }: Pr
                             <td style={{ padding: '5px 8px', textAlign: 'right', fontSize: 11, color: '#d97706' }}>
                               {descFact > 0 ? fmtMon(descFact) : '-'}
                             </td>
-                            <td style={{ padding: '5px 8px', textAlign: 'right', fontWeight: 600, color: nuevoSaldo <= 0 ? '#16a34a' : '#374151' }}>
-                              {(abono > 0 || descFact > 0) ? fmtMon(Math.max(nuevoSaldo, 0)) : '-'}
+                            <td style={{ padding: '5px 8px', textAlign: 'right' }}>
+                              {(abono > 0 || descFact > 0) ? (
+                                <>
+                                  <div style={{ fontWeight: 700, color: nuevoSaldo <= 0 ? '#16a34a' : '#374151' }}>
+                                    {fmtMon(Math.max(nuevoSaldo, 0))}
+                                  </div>
+                                  <div style={{ fontSize: 9, color: '#9ca3af', marginTop: 1, fontFamily: 'monospace' }}>
+                                    {fmtMon(f.Saldo)}
+                                    {abono > 0 && ` − ${fmtMon(abono)}`}
+                                    {descFact > 0 && ` − ${fmtMon(descFact)}`}
+                                  </div>
+                                </>
+                              ) : '-'}
                             </td>
                           </tr>
                         );
