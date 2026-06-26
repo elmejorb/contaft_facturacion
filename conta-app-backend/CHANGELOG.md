@@ -5,6 +5,24 @@ Visible solo para administradores desde **Configuración → Acerca de → Ver h
 
 ---
 
+## 4.3.60 — 2026-06-26
+
+### Cartera/Pagar — UI más limpia + confirmación de pago
+
+- Tabla con nombres simples: `Abono | Descuento | Saldo Nuevo` (volvió a estos labels después de probar variantes más descriptivas).
+- Indicador derecho ahora dice **TOTAL A PAGAR**.
+- Campo arriba renombrado a **DESCUENTO**.
+- Se removieron extras visuales que distraían: banda azul explicativa, fórmula "60.000 − 45.000 − 15.000" debajo de Saldo Nuevo, sublabel "+ rebaja $Y = cubre $Z". El cálculo lo refleja la propia columna Saldo Nuevo.
+- **Confirmación antes de guardar**: el botón Guardar ahora abre un diálogo con resumen:
+  > *"Recibirás $45.000 en efectivo/banco y aplicarás $15.000 de descuento a 1 factura(s)."*
+  
+  con botones `Cancelar` / `Sí, guardar`. Evita guardados accidentales.
+
+### Archivos tocados
+- `Dashboard-Facturación/src/components/ClienteDetalle.tsx`
+
+---
+
 ## 4.3.59 — 2026-06-26
 
 ### Productos tipo Servicio (reintroduce funcionalidad del sistema anterior)
