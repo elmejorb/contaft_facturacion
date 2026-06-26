@@ -5,6 +5,44 @@ Visible solo para administradores desde **Configuración → Acerca de → Ver h
 
 ---
 
+## 4.3.61 — 2026-06-26
+
+### Fix CRÍTICO — Total inflado en facturas con IVA Incluido
+
+**Síntoma reportado**: Cliente INVERSIONES EBENEZER (Régimen Común, IvaIncluido=1) generaba factura electrónica IE2 donde DIAN aceptaba bien ($887.000), pero el PDF local mostraba **Total: $979.530** — un valor inflado en exactamente el 19% sobre el precio bruto que ya tenía IVA incluido.
+
+**Diagnóstico**:
+- `api/ventas/nueva.php` calculaba el total como `subtotal + (subtotal × iva/100)` ignorando que cuando `IvaIncluido=1` el precio del catálogo YA contiene el IVA. Resultado: se sumaba IVA encima del precio ya inflado, y `tblventas.Total` quedaba con el monto duplicado.
+- `api/facturacion-electronica/enviar.php` insertaba `electronic_documents.total` leyendo `$factura['Total']` directamente, propagando el valor inflado.
+- `api/facturacion-electronica/pdf.php` leía `$doc['total']` sin recalcular, así el PDF mostraba el valor inflado aunque las líneas (line_extension_amount + tax_amount) estaban correctas.
+
+A DIAN sí se enviaba el valor correcto porque `buildInvoiceJSON()` ya respetaba IvaIncluido al calcular `payable_amount = totalBase + totalIva - descGlobal`. Por eso la factura era aceptada con CUFE válido, pero el PDF mostraba inconsistencia.
+
+**Cambios**:
+- `api/ventas/nueva.php`: lee `IvaIncluido` de `tbldatosempresa`. Si está activo, extrae IVA del bruto con la fórmula `lineAmount × iva/(100+iva)` en vez de agregarlo. Aplica a ambos loops (totales de cabecera + detalle por línea). `tbldetalle_venta.Subtotal` se mantiene como bruto (compatibilidad con informes), pero `Impuesto` ahora trae el monto correcto.
+- `api/facturacion-electronica/enviar.php`: nueva función `calcularTotalDocFE()` que computa el total desde las líneas respetando régimen + IvaIncluido. Usada en ambos INSERTs de `electronic_documents` (caso normal y reenvío por contingencia).
+- `api/facturacion-electronica/pdf.php`: `$total` ya no se lee de `$doc['total']`, se recalcula como `subtotal + totalIva - descuento`. Esto permite que **facturas antiguas emitidas con el bug** muestren el total correcto al regenerarse el PDF, sin necesidad de reenviar a DIAN.
+
+### Fix — Validación correo cliente (dos capas)
+
+Reportado: cliente con email malformado (`rafaelgonzalez517@` sin dominio) emitió factura electrónica con `send_email=true`. El backend rechazaba el envío del correo silenciosamente (filter_var FALSE) y el cliente no recibía el correo aunque la UI lo prometía. Se cierra el agujero con DOS validaciones bloqueantes:
+
+**1. Al guardar/editar cliente** (`CustomersManagement.tsx`):
+   El campo Email es opcional, pero si se llena debe pasar el regex `/^[^\s@]+@[^\s@]+\.[^\s@]+$/`. Soporta varios correos separados por `,` o `;` — todos deben ser válidos. Si alguno falla, se muestra mensaje "Correo inválido: X. Use formato usuario@dominio.com" y NO se guarda.
+
+**2. Al emitir factura electrónica** (`NuevaVenta.tsx`):
+   - Al seleccionar cliente: si ningún token del campo Email pasa el regex completo (no solo `includes('@')` como antes), se desactiva `enviarEmailFE` automáticamente.
+   - Al ejecutar venta: si `tipoDocumento === 'electronica' && enviarEmailFE` pero el cliente no tiene ningún correo válido, se bloquea la emisión con `toast.error` y se pide editar el cliente o destildar "Enviar a correo".
+
+### Archivos tocados
+- `conta-app-backend/api/ventas/nueva.php`
+- `conta-app-backend/api/facturacion-electronica/enviar.php`
+- `conta-app-backend/api/facturacion-electronica/pdf.php`
+- `Dashboard-Facturación/src/components/NuevaVenta.tsx`
+- `Dashboard-Facturación/src/components/CustomersManagement.tsx`
+
+---
+
 ## 4.3.60 — 2026-06-26
 
 ### Cartera/Pagar — UI más limpia + confirmación de pago

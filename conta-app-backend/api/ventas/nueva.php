@@ -115,16 +115,24 @@ try {
     $valorPagado = floatval($data->valor_pagado ?? 0);
     $abono = floatval($data->abono ?? 0);
 
-    // Si la empresa NO es Responsable de IVA (Régimen Simplificado/Simple),
-    // no genera IVA en sus ventas. El IVA por línea queda en 0 para no
-    // contaminar el Saldo/Total con un valor que el cliente no debe pagar.
-    $stmtEmp = $db->query("SELECT Regimen FROM tbldatosempresa LIMIT 1");
-    $empresaRegimen = strtolower((string)($stmtEmp->fetchColumn() ?: ''));
+    // Régimen + IvaIncluido. Si NO es Responsable de IVA → IVA=0 siempre.
+    // IvaIncluido=1 (default) → el precio del catálogo YA incluye IVA, hay
+    // que extraerlo para no inflar el Total (bug previo: sumaba IVA encima
+    // del bruto, una factura de $887.000 quedaba como $979.530).
+    $stmtEmp = $db->query("SELECT Regimen, IvaIncluido FROM tbldatosempresa LIMIT 1");
+    $empresaCfg = $stmtEmp->fetch();
+    $empresaRegimen = strtolower((string)($empresaCfg['Regimen'] ?? ''));
     $esResponsableIVA = (strpos($empresaRegimen, 'común') !== false)
         || (strpos($empresaRegimen, 'comun') !== false)
         || (strpos($empresaRegimen, 'responsable') !== false);
+    $ivaIncluidoCfg = intval($empresaCfg['IvaIncluido'] ?? 1) === 1;
 
     // Calculate totals
+    // Mantenemos `subtotal` como suma de los brutos por línea (cant×precio-desc),
+    // que es el SUBTOTAL clásico que muestra el sistema y que los informes
+    // existentes asumen. Para el IVA y el TOTAL final sí respetamos
+    // IvaIncluido: cuando el precio ya tiene IVA dentro, $totalIva se calcula
+    // separando ese IVA del bruto (no se suma encima).
     $subtotal = 0;
     $totalIva = 0;
     $totalDescuento = $descuentoGlobal;
@@ -133,15 +141,23 @@ try {
         $cant = floatval($item->cantidad);
         $precio = floatval($item->precio);
         $desc = floatval($item->descuento ?? 0);
-        $iva = floatval($item->iva ?? 0);
-        $lineaSubtotal = ($cant * $precio) - $desc;
-        $lineaIva = $esResponsableIVA ? $lineaSubtotal * ($iva / 100) : 0;
-        $subtotal += $lineaSubtotal;
+        $iva = $esResponsableIVA ? floatval($item->iva ?? 0) : 0;
+        $lineAmount = ($cant * $precio) - $desc;
+        if ($ivaIncluidoCfg && $iva > 0) {
+            // Precio con IVA dentro: el IVA se extrae del bruto, NO se agrega.
+            $lineaIva = round($lineAmount * ($iva / (100 + $iva)), 2);
+        } else {
+            $lineaIva = $iva > 0 ? round($lineAmount * ($iva / 100), 2) : 0;
+        }
+        $subtotal += $lineAmount;
         $totalIva += $lineaIva;
         $totalDescuento += $desc;
     }
 
-    $total = $subtotal + $totalIva;
+    // Total a pagar: cuando IvaIncluido=1 el IVA ya está dentro del subtotal,
+    // así que el total ES el subtotal. Cuando IvaIncluido=0 el IVA se agrega
+    // al subtotal para llegar al total.
+    $total = $ivaIncluidoCfg ? $subtotal : ($subtotal + $totalIva);
     $saldo = $tipo === 'Contado' ? 0 : max($total - $abono, 0);
     $pagada = $tipo === 'Contado' ? '1' : ($saldo <= 0 ? '1' : '');
     $pago = $tipo === 'Contado' ? ($efectivo + $valorPagado) : $abono;
@@ -218,15 +234,19 @@ try {
         $precioC = floatval($item->precio_costo);
         $precioV = floatval($item->precio);
         $desc = floatval($item->descuento ?? 0);
-        $iva = floatval($item->iva ?? 0);
+        $iva = $esResponsableIVA ? floatval($item->iva ?? 0) : 0;
         // Servicio: el item NO descuenta inventario ni mueve kardex. Permite
         // editar el concepto por venta (DescripcionTemp).
         $esServicio = !empty($item->es_servicio);
         $descTemp = $esServicio ? (string)($item->descripcion_temp ?? '') : null;
         $lineaSubtotal = ($cant * $precioV) - $desc;
-        // Mismo gate que el cálculo de totales arriba: si NO es Responsable IVA,
-        // el Impuesto de la línea queda en 0 aunque el producto tenga IVA en catálogo.
-        $lineaIva = $esResponsableIVA ? $lineaSubtotal * ($iva / 100) : 0;
+        // Misma fórmula que arriba: respeta IvaIncluido para que el monto del
+        // IMPUESTO no se infle cuando el precio ya trae IVA dentro.
+        if ($ivaIncluidoCfg && $iva > 0) {
+            $lineaIva = round($lineaSubtotal * ($iva / (100 + $iva)), 2);
+        } else {
+            $lineaIva = $iva > 0 ? round($lineaSubtotal * ($iva / 100), 2) : 0;
+        }
 
         $stmtDetalle->execute([
             ':fact' => $factN, ':items' => $itemId, ':cant' => $cant,

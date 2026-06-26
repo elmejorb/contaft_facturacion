@@ -202,8 +202,13 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
       tel: c.Telefono || '0', dir: c.Direccion || '-',
       cupo: parseFloat(c.Cupo) || 0, esCliente: true, email
     });
-    // Si no tiene email válido, desactivar envío
-    if (!email || !email.includes('@')) setEnviarEmailFE(false);
+    // Si no tiene email válido completo (algo@dominio.tld), desactivar envío.
+    // Antes solo verificaba "include('@')" → permitía pasar "abc@" (sin dominio)
+    // y la factura salía sin correo a la DIAN sin avisar al usuario.
+    const emailRegexValido = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const tokensCheck = email.split(/[;,]+/).map((s: string) => s.trim()).filter((s: string) => s.length > 0);
+    const hayValido = tokensCheck.some((t: string) => emailRegexValido.test(t));
+    if (!hayValido) setEnviarEmailFE(false);
     setClienteBusqueda('');
     setShowClienteDropdown(false);
     productoInputRef.current?.focus();
@@ -760,6 +765,23 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
   };
 
   const ejecutarVenta = async () => {
+    // Si la factura es electrónica y el usuario marcó "Enviar a correo",
+    // exigimos que al menos un correo del cliente sea válido. Bloquea el
+    // caso donde el cliente tenía un email del tipo "abc@" guardado: la
+    // FE iba a DIAN bien pero el correo se silenciaba sin avisar.
+    if (tipoDocumento === 'electronica' && enviarEmailFE) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      const tokensEmail = (cliente.email || '')
+        .split(/[;,]+/)
+        .map((s: string) => s.trim())
+        .filter((s: string) => s.length > 0);
+      const hayValido = tokensEmail.some((t: string) => emailRegex.test(t));
+      if (!hayValido) {
+        toast.error('El cliente no tiene un correo válido. Edite el cliente o destilde "Enviar a correo".', { duration: 6000 });
+        return;
+      }
+    }
+
     // Validación de cupo: SIEMPRE requiere autorización admin si supera el cupo
     if (tipo === 'Crédito' && cliente.id && cliente.id !== 130500 && infoCredito?.credito?.tiene_cupo && !authCupoAdmin) {
       const cred = infoCredito.credito;

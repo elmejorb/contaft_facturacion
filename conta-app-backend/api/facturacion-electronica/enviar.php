@@ -326,6 +326,39 @@ function buildInvoiceJSON($db, $factura, $items, $companyId) {
     return $result;
 }
 
+// Total correcto a partir de las líneas, respetando el régimen y descuento
+// global. Se usa para guardar `electronic_documents.total` en lugar de leer
+// `tblventas.Total` directamente: en versiones <4.3.61 ese campo quedaba
+// inflado cuando IvaIncluido=1 (se sumaba IVA encima del precio que ya lo
+// tenía dentro) y eso hacía que el PDF mostrara, p.ej., $979.530 cuando el
+// total real DIAN era $887.000.
+function calcularTotalDocFE($db, $factura, $items) {
+    $empInfo = $db->query("SELECT Regimen FROM tbldatosempresa LIMIT 1")->fetch();
+    $regimenLower = strtolower(trim($empInfo['Regimen'] ?? 'común'));
+    $noResponsableIva = (
+        strpos($regimenLower, 'simpl')        !== false ||
+        strpos($regimenLower, 'no responsab') !== false ||
+        strpos($regimenLower, 'no resp')      !== false ||
+        $regimenLower === 'no'
+    );
+
+    $totalBase = 0;
+    $totalIva = 0;
+    foreach ($items as $item) {
+        $cant = floatval($item['Cantidad']);
+        $precio = floatval($item['PrecioV']);
+        $iva = $noResponsableIva ? 0 : floatval($item['IVA'] ?? 0);
+        $desc = floatval($item['Descuento'] ?? 0);
+        $lineAmount = ($cant * $precio) - $desc;
+        $ivaAmount = $iva > 0 ? round($lineAmount * ($iva / (100 + $iva)), 2) : 0;
+        $baseAmount = $lineAmount - $ivaAmount;
+        $totalBase += $baseAmount;
+        $totalIva += $ivaAmount;
+    }
+    $descGlobal = floatval($factura['Descuento'] ?? 0);
+    return round($totalBase + $totalIva - $descGlobal, 2);
+}
+
 // Calculate DV (dígito de verificación)
 function calculateDV($nit) {
     $nit = preg_replace('/[^0-9]/', '', $nit);
@@ -578,6 +611,10 @@ try {
             ")->execute();
 
             $notaFactura = $factura['Comentario'] ?? '-';
+            // Recalculamos el total desde las líneas (respeta IvaIncluido y
+            // régimen) en lugar de leer tblventas.Total, que puede venir
+            // inflado en BDs migradas desde versiones <4.3.61.
+            $totalDocFE = calcularTotalDocFE($db, $factura, $items);
             $stmtDoc = $db->prepare("
                 INSERT INTO electronic_documents
                 (fecha, cod_cliente, customer_identification, type_document_id, prefix, number, status, total, cufe, dian_response, id_usuario, id_mediopago, efectivo, valorpagado1, pagada, EstadoFact, email_sent, nota)
@@ -585,7 +622,7 @@ try {
             ");
             $stmtDoc->execute([
                 $factura['Fecha'], $factura['CodigoCli'], $factura['Identificacion'],
-                $factura['Total'], $factura['Id_Usuario'],
+                $totalDocFE, $factura['Id_Usuario'],
                 $factura['id_mediopago'], $factura['efectivo'], $factura['valorpagado1'],
                 $factura['pagada'] ?: 'N', $notaFactura
             ]);
@@ -989,8 +1026,9 @@ try {
             }
 
             // Crear/buscar registro en electronic_documents (si ya existe uno pendiente para esta factura, reusarlo)
+            $totalDocFE = calcularTotalDocFE($db, $factura, $items);
             $stmt = $db->prepare("SELECT id FROM electronic_documents WHERE number = 0 AND total = ? AND customer_identification = ? AND status IN ('pendiente','rechazado') ORDER BY id DESC LIMIT 1");
-            $stmt->execute([$factura['Total'], $factura['Identificacion']]);
+            $stmt->execute([$totalDocFE, $factura['Identificacion']]);
             $existing = $stmt->fetch();
             if ($existing) {
                 $docElecId = $existing['id'];
@@ -1011,7 +1049,7 @@ try {
                     VALUES (?, ?, ?, 1, 'FCON', 0, 'pendiente', ?, '', '{}', ?, ?, ?, ?, ?, 1, 0, ?)
                 ")->execute([
                     $factura['Fecha'], $factura['CodigoCli'], $factura['Identificacion'],
-                    $factura['Total'], $factura['Id_Usuario'],
+                    $totalDocFE, $factura['Id_Usuario'],
                     $factura['id_mediopago'], $factura['efectivo'], $factura['valorpagado1'],
                     $factura['pagada'] ?: 'N', $notaFactura
                 ]);

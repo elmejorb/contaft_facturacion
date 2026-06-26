@@ -126,6 +126,20 @@ export function CustomersManagement() {
 
   const guardar = async () => {
     if (!form.Razon_Social?.trim()) { setError('Razón social es requerida'); return; }
+    // Validar Email: opcional, pero si se llena debe ser válido. Soporta varios
+    // correos separados por coma o punto y coma — todos deben pasar el regex.
+    // Si entra un correo malformado tipo "rafaelgonzalez517@" la FE saldría
+    // con send_email pero el correo no se envía a la DIAN.
+    const emailRaw = (form.Email || '').trim();
+    if (emailRaw) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      const tokens = emailRaw.split(/[;,]+/).map((s: string) => s.trim()).filter((s: string) => s.length > 0);
+      const invalidos = tokens.filter((t: string) => !emailRegex.test(t));
+      if (invalidos.length > 0) {
+        setError(`Correo inválido: ${invalidos.join(', ')}. Use formato usuario@dominio.com`);
+        return;
+      }
+    }
     setError('');
     try {
       const isEdit = modal === 'editar';

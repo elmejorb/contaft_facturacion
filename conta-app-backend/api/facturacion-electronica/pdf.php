@@ -101,15 +101,22 @@ try {
         'prefix' => $empresa['Prefijo'] ?? $doc['prefix'] ?? 'FCON',
     ];
 
-    // Calculate totals
+    // Calculate totals.
+    // Subtotal e IVA salen de las líneas (line_extension_amount = base sin IVA,
+    // tax_amount = monto del IVA por línea). El TOTAL se recalcula a partir
+    // de estos en lugar de leer $doc['total'] porque ese campo viene de
+    // tblventas.Total y en versiones <4.3.61 podía estar inflado cuando la
+    // empresa usaba IvaIncluido=1 (sumaba IVA encima del precio que ya lo
+    // tenía dentro). Recalcular acá garantiza que el PDF de facturas viejas
+    // muestre el total correcto sin reenviar.
     $subtotal = 0;
     $totalIva = 0;
     foreach ($items as $item) {
         $subtotal += floatval($item['line_extension_amount']);
         $totalIva += floatval($item['tax_amount']);
     }
-    $total = floatval($doc['total']);
     $descuento = floatval($doc['descuento']);
+    $total = $subtotal + $totalIva - $descuento;
 
     $dv = calcularDV(preg_replace('/[^0-9]/', '', $empresa['Nit']));
     $dvCliente = calcularDV(preg_replace('/[^0-9]/', '', $cliente['Nit'] ?? $doc['customer_identification']));
