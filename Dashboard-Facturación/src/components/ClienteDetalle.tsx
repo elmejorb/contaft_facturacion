@@ -95,6 +95,23 @@ export function ClienteDetalle({ clienteId, onClose, tabInicial = 'ventas' }: Pr
       .filter(([_, v]) => v > 0)
       .map(([factN, valor]) => ({ factura_n: factN, valor, descuento: calcDescuentoPorFactura(factN) }));
     if (pagosArr.length === 0) { setPagoError('Ingrese al menos un valor'); return; }
+
+    // Confirmación con resumen del pago para evitar guardados accidentales.
+    // Muestra cuántas facturas se afectan, total recibido y descuento.
+    const totalAbono = pagosArr.reduce((s, p) => s + p.valor, 0);
+    const totalDesc = pagosArr.reduce((s, p) => s + p.descuento, 0);
+    const detalle = totalDesc > 0
+      ? `Recibirás ${fmtMon(totalAbono)} en efectivo/banco y aplicarás ${fmtMon(totalDesc)} de descuento a ${pagosArr.length} factura(s).`
+      : `Recibirás ${fmtMon(totalAbono)} aplicado a ${pagosArr.length} factura(s).`;
+    const ok = await confirmar({
+      title: '¿Guardar el pago?',
+      message: detalle,
+      type: 'question',
+      confirmText: 'Sí, guardar',
+      cancelText: 'Cancelar',
+    });
+    if (!ok) return;
+
     setGuardandoPago(true); setPagoError('');
     try {
       const r = await fetch(API_PAGOS, {
