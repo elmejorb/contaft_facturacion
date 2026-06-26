@@ -5,6 +5,42 @@ Visible solo para administradores desde **Configuración → Acerca de → Ver h
 
 ---
 
+## 4.3.59 — 2026-06-26
+
+### Productos tipo Servicio (reintroduce funcionalidad del sistema anterior)
+
+La BD ya tenía las columnas `tblarticulos.Servicio` y `tbldetalle_venta.DescripcionTemp`, faltaba cablearlas. Ahora un producto se puede marcar como **servicio**, y al venderlo:
+
+- Su Existencia NO se descuenta (no afecta kardex ni inventario).
+- El concepto/descripción del producto es **editable por venta** — útil para conceptos largos como "Mantenimiento preventivo de equipo Dell Latitude con cambio de pasta térmica" que cambian por cliente.
+- La descripción editada se guarda en `tbldetalle_venta.DescripcionTemp` y aparece en el PDF impreso (tirilla y carta), en el detalle de la factura, en reimpresiones, en la copia a nueva venta y en la FE enviada a DIAN (campo `description`).
+
+**Modal de producto reorganizado**: el primer paso ahora es elegir "Producto físico" vs "Servicio" con dos botones grandes. Cuando se elige Servicio, se ocultan las secciones que no aplican (Existencias, Ubicación, Costo) y la tabla de precios se reduce a 2 columnas en vez de 4.
+
+**Listado de inventario**: nuevo filtro de tipo arriba `[Todos N] [Productos N] [Servicios N]`. Solo aparece si el negocio tiene al menos un servicio en catálogo.
+
+### Cartera/Pagar — labels más claros, banda explicativa
+
+Usuario reportó confusión: pensaba que la "Rebaja" se restaba del campo "Abono", cuando en realidad son independientes. Mejoras de UI (sin cambio de lógica):
+
+- Banda azul arriba del módulo Pagar: *"En Paga escribe solo lo que el cliente te entrega en plata. La Rebaja es lo que tú le perdonas sin recibir dinero. Saldo nuevo = saldo anterior − Paga − Rebaja"*.
+- Renombrados: "PAGO GLOBAL" → "PAGA EN TOTAL", "DESC." → "REBAJA (sin recibir $)", columnas "Abono"/"Desc." → "Paga"/"Rebaja".
+- Indicador derecho cuando hay rebaja muestra: `RECIBE $45.000 + rebaja $15.000 = cubre $60.000` — deja claro que ambos suman para reducir el saldo.
+
+### Archivos tocados
+- `Dashboard-Facturación/src/components/EditarArticuloModal.tsx` — selector Producto/Servicio + campos condicionales
+- `Dashboard-Facturación/src/components/InventarioManagement.tsx` — filtro por tipo
+- `Dashboard-Facturación/src/components/NuevaVenta.tsx` — input editable para servicios + salta validación de stock
+- `Dashboard-Facturación/src/components/ImpresionFactura.tsx` — usa DescripcionTemp
+- `Dashboard-Facturación/src/components/ClienteDetalle.tsx` — labels claros en módulo Pagar
+- `conta-app-backend/api/inventario/crear-articulo.php` + `actualizar-articulo.php` — persistir Servicio
+- `conta-app-backend/api/inventario/articulos.php` — devolver Servicio
+- `conta-app-backend/api/ventas/nueva.php` — guardar DescripcionTemp, saltar stock/kardex si servicio
+- `conta-app-backend/api/ventas/detalle-factura.php` + `listar.php` + `copiar.php` — COALESCE DescripcionTemp
+- `conta-app-backend/api/facturacion-electronica/enviar.php` — usar DescripcionTemp en JSON DIAN
+
+---
+
 ## 4.3.58 — 2026-06-25
 
 ### Fixes módulo Gastos
