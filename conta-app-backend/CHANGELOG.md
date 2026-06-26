@@ -5,6 +5,28 @@ Visible solo para administradores desde **Configuración → Acerca de → Ver h
 
 ---
 
+## 4.3.62 — 2026-06-26
+
+### Fix — Total inflado también aparecía en la vista previa de FE y en el listado
+
+Después de 4.3.61 el PDF impreso ya salía bien, pero el **modal de detalle de FE** (vista previa con CUFE + ítems + totales) seguía mostrando `$ 979.530` arriba en "Total:" y abajo en "TOTAL:". También el listado de facturas electrónicas y el resumen "Total Facturado" leían el campo cacheado.
+
+Causa: 4 lugares más leían `doc.total` / `e.total` directamente:
+- `DetalleDocElectronico.tsx` — `totalDoc = parseFloat(doc.total)` → ahora `totalBase + totalIva - descuento`.
+- `FacturacionElectronica.tsx` (`buildDatosFE` al copiar/imprimir desde el grid) — fallback al cálculo desde líneas.
+- `api/facturacion-electronica/listar.php` — JOIN con `detalle_document_electronic` agrupado, total recalculado por fila (afecta grid + resumen).
+- `api/facturacion-electronica/detalle.php` — `$doc['total']` y `$notas[*]['total']` se recalculan desde sus respectivos detalles.
+
+Con esto, las facturas viejas (emitidas antes de 4.3.61, con `electronic_documents.total` inflado en la BD) **se ven bien sin migración**: la UI y el PDF reconstruyen el total al vuelo desde las líneas correctas. Si en el futuro se quiere normalizar la BD, basta con `UPDATE electronic_documents SET total = ... FROM (SUM line_extension_amount + SUM tax_amount - descuento)`.
+
+### Archivos tocados
+- `Dashboard-Facturación/src/components/DetalleDocElectronico.tsx`
+- `Dashboard-Facturación/src/components/FacturacionElectronica.tsx`
+- `conta-app-backend/api/facturacion-electronica/listar.php`
+- `conta-app-backend/api/facturacion-electronica/detalle.php`
+
+---
+
 ## 4.3.61 — 2026-06-26
 
 ### Fix CRÍTICO — Total inflado en facturas con IVA Incluido

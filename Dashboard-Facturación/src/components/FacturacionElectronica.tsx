@@ -72,7 +72,9 @@ function mapFEtoDatosFactura(doc: any, items: any[], empresa?: any): DatosFactur
     subtotal,
     descuento: items.reduce((s, i) => s + (parseFloat(i.discount_amount) || 0), 0),
     iva,
-    total: parseFloat(doc.total) || (subtotal + iva),
+    // Recalculamos siempre desde subtotal+iva para evitar el doc.total
+    // inflado de facturas viejas emitidas con el bug pre-4.3.61.
+    total: subtotal + iva - (items.reduce((s, i) => s + (parseFloat(i.discount_amount) || 0), 0)),
     efectivo: 0, transferencia: 0, cambio: 0, abono: 0, saldo: 0,
     medioPago: doc.payment_method_name || '',
     vendedor: '',

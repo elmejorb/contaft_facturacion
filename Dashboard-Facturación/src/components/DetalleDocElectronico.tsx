@@ -131,7 +131,11 @@ export function DetalleDocElectronico({ docId, onClose, onUpdate, onCopiar }: Pr
 
   const totalBase = items.reduce((s, i) => s + i.line_extension_amount, 0);
   const totalIva = items.reduce((s, i) => s + i.tax_amount, 0);
-  const totalDoc = parseFloat(doc.total) || 0;
+  // NO leemos doc.total del backend: en BDs con facturas viejas emitidas
+  // antes de 4.3.61 ese campo quedaba inflado (cuando IvaIncluido=1 se
+  // sumaba IVA encima del precio que ya lo tenía dentro). Recalculamos
+  // siempre desde las líneas para que la vista previa cuadre con DIAN.
+  const totalDoc = totalBase + totalIva - (parseFloat(doc.descuento) || 0);
   const isFactura = parseInt(doc.type_document_id) === 1;
   const isAutorizado = doc.status === 'autorizado';
 

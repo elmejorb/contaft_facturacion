@@ -24,17 +24,30 @@ try {
         $params[':tipo'] = $tipo;
     }
 
+    // El total que se muestra en el listado se RECALCULA desde las líneas
+    // (line_extension_amount + tax_amount - descuento). Antes de 4.3.61 el
+    // campo e.total quedaba inflado cuando IvaIncluido=1 (sumaba IVA encima
+    // del precio bruto que ya lo tenía dentro). Con este cambio, las
+    // facturas viejas también se ven con el total correcto sin migración.
     $stmt = $db->prepare("
         SELECT e.id, e.fecha, e.cod_cliente, e.customer_identification,
                e.type_document_id, td.name as tipo_documento,
-               e.prefix, e.number, e.status, e.total, e.cufe, e.invoice_cufe,
+               e.prefix, e.number, e.status, e.total, e.descuento, e.cufe, e.invoice_cufe,
                e.sent_at, e.nota, e.EstadoFact, e.email_sent,
                c.Razon_Social as cliente_nombre,
-               v.Factura_N as factura_n_local
+               v.Factura_N as factura_n_local,
+               det.sum_base, det.sum_iva
         FROM electronic_documents e
         LEFT JOIN type_documents td ON e.type_document_id = td.id
         LEFT JOIN tblclientes c ON e.cod_cliente = c.CodigoClien
         LEFT JOIN tblventas v ON v.cufe = e.cufe
+        LEFT JOIN (
+            SELECT factura_n,
+                   SUM(line_extension_amount) AS sum_base,
+                   SUM(tax_amount)            AS sum_iva
+            FROM detalle_document_electronic
+            GROUP BY factura_n
+        ) det ON det.factura_n = e.id
         WHERE $where
         ORDER BY e.id DESC
     ");
@@ -42,8 +55,17 @@ try {
     $docs = $stmt->fetchAll();
 
     foreach ($docs as &$d) {
-        $d['total'] = floatval($d['total']);
+        $sumBase = isset($d['sum_base']) ? floatval($d['sum_base']) : 0;
+        $sumIva  = isset($d['sum_iva'])  ? floatval($d['sum_iva'])  : 0;
+        $desc    = floatval($d['descuento'] ?? 0);
+        // Si hay detalle, total = base + iva - descuento. Si no (caso raro
+        // de docs sin líneas guardadas), caer al campo cacheado.
+        $d['total'] = ($sumBase > 0 || $sumIva > 0)
+            ? round($sumBase + $sumIva - $desc, 2)
+            : floatval($d['total']);
+        unset($d['sum_base'], $d['sum_iva']);
     }
+    unset($d);
 
     // Resumen
     $totalDocs = count($docs);
