@@ -7,6 +7,24 @@ try {
     if ($_SERVER['REQUEST_METHOD'] === 'GET') {
         $stmt = $db->query("SELECT * FROM tbldatosempresa LIMIT 1");
         $empresa = $stmt->fetch();
+
+        // Logo: si tbldatosempresa.Logo guarda un path relativo (`uploads/logo.png`)
+        // y el archivo existe, devolvemos URL pública para que el frontend la
+        // muestre. La URL se construye dinámicamente para funcionar tanto en
+        // conta-app-backend como en conta-app-api u otras instalaciones.
+        $logoUrl = null;
+        if ($empresa && !empty($empresa['Logo'])) {
+            $backendRoot = realpath(__DIR__ . '/../..');
+            $abs = $backendRoot . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $empresa['Logo']);
+            if (file_exists($abs)) {
+                $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+                $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+                $appName = basename($backendRoot);
+                $logoUrl = "$scheme://$host/$appName/" . str_replace('\\', '/', $empresa['Logo']);
+            }
+        }
+        if ($empresa !== false) $empresa['Logo_url'] = $logoUrl;
+
         echo json_encode(['success' => true, 'empresa' => $empresa], JSON_UNESCAPED_UNICODE);
 
     } elseif ($_SERVER['REQUEST_METHOD'] === 'POST') {

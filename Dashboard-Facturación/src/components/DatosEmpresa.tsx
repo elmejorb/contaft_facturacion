@@ -4,19 +4,39 @@ import toast from 'react-hot-toast';
 import { getConfigImpresion, saveConfigImpresion, saveEmpresaCache } from './ConfiguracionSistema';
 
 const API = 'http://localhost:80/conta-app-backend/api/empresa/datos.php';
+const API_LOGO = 'http://localhost:80/conta-app-backend/api/empresa/logo.php';
 
 export function DatosEmpresa() {
   const [form, setForm] = useState<any>({});
   const [loading, setLoading] = useState(true);
   const [guardando, setGuardando] = useState(false);
-  const [logo, setLogo] = useState(() => getConfigImpresion().logo || '');
+  // logo del servidor (URL pública con cache-buster) — null si no hay
+  const [logoServerUrl, setLogoServerUrl] = useState<string | null>(null);
+  // logo pendiente de subir: data:image/...;base64,... (cuando el usuario eligió archivo)
+  const [logoNuevoB64, setLogoNuevoB64] = useState<string | null>(null);
+  // flag: el usuario quitó el logo y todavía no guardó
+  const [logoEliminado, setLogoEliminado] = useState(false);
+
+  // src para el <img>: prioridad al nuevo (preview), si no al del servidor.
+  const logoSrc = logoNuevoB64 || (logoEliminado ? '' : (logoServerUrl || ''));
 
   const cargar = async () => {
     setLoading(true);
     try {
       const r = await fetch(API);
       const d = await r.json();
-      if (d.success) { setForm(d.empresa); saveEmpresaCache(d.empresa); }
+      if (d.success) {
+        setForm(d.empresa);
+        saveEmpresaCache(d.empresa);
+        // El logo ahora vive en el servidor — actualizar cache local con URL del backend.
+        const url: string | null = d.empresa?.Logo_url ?? null;
+        setLogoServerUrl(url);
+        setLogoNuevoB64(null);
+        setLogoEliminado(false);
+        const cfg = getConfigImpresion();
+        cfg.logo = url || '';
+        saveConfigImpresion(cfg);
+      }
     } catch (e) {}
     setLoading(false);
   };
@@ -28,21 +48,44 @@ export function DatosEmpresa() {
   const guardar = async () => {
     setGuardando(true);
     try {
+      // 1) Datos generales
       const r = await fetch(API, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(form)
       });
       const d = await r.json();
-      if (d.success) {
-        // Guardar logo en config de impresión
-        const cfg = getConfigImpresion();
-        cfg.logo = logo;
-        saveConfigImpresion(cfg);
-        // Refrescar caché global de empresa para que recibos/informes lo usen
-        saveEmpresaCache(form);
-        toast.success(d.message);
+      if (!d.success) { toast.error(d.message); setGuardando(false); return; }
+
+      // 2) Logo: tres caminos posibles
+      //    - eliminado: DELETE
+      //    - nuevo b64: POST (sube archivo)
+      //    - sin cambios: no toca el endpoint
+      let nuevaUrl: string | null = logoServerUrl;
+      if (logoNuevoB64) {
+        const rL = await fetch(API_LOGO, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ logo_base64: logoNuevoB64 })
+        });
+        const dL = await rL.json();
+        if (!dL.success) { toast.error('Logo: ' + (dL.message || 'error')); setGuardando(false); return; }
+        // Cache buster para que el navegador y el cache del servidor lo refresquen
+        nuevaUrl = (dL.url || null) + (dL.url ? `?v=${Date.now()}` : '');
+      } else if (logoEliminado && logoServerUrl) {
+        await fetch(API_LOGO, { method: 'DELETE' });
+        nuevaUrl = null;
       }
-      else toast.error(d.message);
+
+      // 3) Cache local — las impresiones (recibos, informes, tirilla, etc.)
+      //    leen `getConfigImpresion().logo` para mostrar el logo.
+      const cfg = getConfigImpresion();
+      cfg.logo = nuevaUrl || '';
+      saveConfigImpresion(cfg);
+      saveEmpresaCache(form);
+
+      setLogoServerUrl(nuevaUrl);
+      setLogoNuevoB64(null);
+      setLogoEliminado(false);
+      toast.success(d.message);
     } catch (e) { toast.error('Error al guardar'); }
     setGuardando(false);
   };
@@ -142,12 +185,12 @@ export function DatosEmpresa() {
             <div style={{
               width: 150, height: 150, border: '2px dashed #d1d5db', borderRadius: 12,
               display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
-              background: logo ? '#fff' : '#f9fafb', position: 'relative'
+              background: logoSrc ? '#fff' : '#f9fafb', position: 'relative'
             }}>
-              {logo ? (
+              {logoSrc ? (
                 <>
-                  <img src={logo} style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} alt="Logo" />
-                  <button onClick={() => setLogo('')}
+                  <img src={logoSrc} style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} alt="Logo" />
+                  <button onClick={() => { setLogoNuevoB64(null); setLogoEliminado(true); }}
                     style={{ position: 'absolute', top: 4, right: 4, width: 22, height: 22, background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 6, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     <X size={12} color="#dc2626" />
                   </button>
@@ -164,16 +207,22 @@ export function DatosEmpresa() {
               border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 11, fontWeight: 600,
               cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4
             }}>
-              <Camera size={13} /> {logo ? 'Cambiar' : 'Subir logo'}
-              <input type="file" accept="image/*" style={{ display: 'none' }} onChange={e => {
+              <Camera size={13} /> {logoSrc ? 'Cambiar' : 'Subir logo'}
+              <input type="file" accept="image/png,image/jpeg,image/gif" style={{ display: 'none' }} onChange={e => {
                 const file = e.target.files?.[0];
                 if (!file) return;
                 const reader = new FileReader();
-                reader.onload = ev => { if (ev.target?.result) setLogo(ev.target.result as string); };
+                reader.onload = ev => {
+                  if (!ev.target?.result) return;
+                  setLogoNuevoB64(ev.target.result as string);
+                  setLogoEliminado(false);
+                };
                 reader.readAsDataURL(file);
               }} />
             </label>
-            <div style={{ fontSize: 9, color: '#9ca3af', textAlign: 'center' }}>Aparece en facturas,<br/>cotizaciones y recibos</div>
+            <div style={{ fontSize: 9, color: '#9ca3af', textAlign: 'center' }}>
+              Se sube al servidor al guardar.<br/>Aparece en PDF, recibos e informes.
+            </div>
           </div>
         </div>
       ))}

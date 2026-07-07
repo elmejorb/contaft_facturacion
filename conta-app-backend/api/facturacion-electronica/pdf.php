@@ -149,9 +149,17 @@ try {
     if ($diasVenc > 0) $fechaVenc->modify("+$diasVenc days");
     $fechaVencStr = $fechaVenc->format('d/m/Y');
 
-    // Logo
-    $logoPath = 'C:/xampp/htdocs/facturacion-electronica/img/logo_2_innovacion.png';
-    if (!file_exists($logoPath)) $logoPath = null;
+    // Logo: tomamos el path guardado en tbldatosempresa.Logo (gestionado desde
+    // Datos de Empresa → endpoint /empresa/logo.php). Resolvemos la ruta
+    // absoluta del filesystem para que TCPDF la pueda leer. Si no hay logo
+    // configurado o el archivo no existe, el PDF se imprime sin imagen.
+    $logoPath = null;
+    if (!empty($empresa['Logo'])) {
+        // __DIR__ = api/facturacion-electronica → subir 2 niveles a conta-app-backend
+        $backendRoot = realpath(__DIR__ . '/../..');
+        $candidate = $backendRoot . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $empresa['Logo']);
+        if (file_exists($candidate)) $logoPath = $candidate;
+    }
 
     // ======= GENERATE PDF =======
     class MYPDF extends TCPDF {
