@@ -33,6 +33,7 @@ try {
         SELECT e.id, e.fecha, e.cod_cliente, e.customer_identification,
                e.type_document_id, td.name as tipo_documento,
                e.prefix, e.number, e.status, e.total, e.descuento, e.cufe, e.invoice_cufe,
+               e.payment_form_id,
                e.sent_at, e.nota, e.EstadoFact, e.email_sent,
                c.Razon_Social as cliente_nombre,
                v.Factura_N as factura_n_local,

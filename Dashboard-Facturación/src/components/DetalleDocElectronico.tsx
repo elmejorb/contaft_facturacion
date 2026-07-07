@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { X, CheckCircle, XCircle, Clock, Send, Copy, FileText, AlertTriangle, Printer } from 'lucide-react';
+import { X, CheckCircle, XCircle, Clock, Send, Copy, FileText, AlertTriangle, Printer, RefreshCw, Inbox, PackageCheck, ThumbsUp, ThumbsDown, Ban } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { getConfigImpresion } from './ConfiguracionSistema';
 import { AutorizacionAdminModal, AdminAutorizado } from './AutorizacionAdminModal';
@@ -30,6 +30,12 @@ export function DetalleDocElectronico({ docId, onClose, onUpdate, onCopiar }: Pr
   const [ndDescripcion, setNdDescripcion] = useState('');
   const [autDevolucion, setAutDevolucion] = useState<{ motivo: string } | null>(null);
   const [autAnulacion, setAutAnulacion] = useState<{ motivo: string } | null>(null);
+  // Eventos DIAN (aplica solo a facturas a crédito autorizadas).
+  // Se carga al abrir el modal via /eventos-estado (rápido, lee BD Lumen).
+  // El botón "Consultar DIAN" fuerza /eventos que actualiza el estado en
+  // tiempo real contra la DIAN.
+  const [eventos, setEventos] = useState<any>(null);
+  const [eventosLoading, setEventosLoading] = useState(false);
 
   // Calculate total a devolver en NC parcial
   const ncTotalDev = Object.entries(ncItems).reduce((s, [idx, val]) => {
@@ -53,6 +59,38 @@ export function DetalleDocElectronico({ docId, onClose, onUpdate, onCopiar }: Pr
   };
 
   useEffect(() => { cargar(); }, [docId]);
+
+  // Consulta el estado actual de los eventos del CUFE. Modo `refresh=false`
+  // (default) usa /eventos-estado (BD Lumen, rápido). Modo refresh=true usa
+  // /eventos que consulta a DIAN en tiempo real y actualiza la BD remota.
+  const consultarEventos = async (refresh: boolean = false) => {
+    if (!doc?.cufe) return;
+    setEventosLoading(true);
+    if (refresh) toast.loading('Consultando DIAN...', { id: 'evt-modal' });
+    try {
+      const url = `${API}/eventos.php?cufe=${encodeURIComponent(doc.cufe)}${refresh ? '&refresh=1' : ''}`;
+      const r = await fetch(url);
+      const d = await r.json();
+      if (d.success !== false) {
+        setEventos(d);
+        if (refresh) toast.success('Estado actualizado', { id: 'evt-modal' });
+      } else if (refresh) {
+        toast.error(d.message || 'No se pudo consultar', { id: 'evt-modal' });
+      }
+    } catch (e) {
+      if (refresh) toast.error('Error de conexión', { id: 'evt-modal' });
+    }
+    setEventosLoading(false);
+  };
+
+  // Auto-cargar eventos al abrir el modal si la factura es crédito autorizada.
+  useEffect(() => {
+    if (doc && doc.cufe && doc.status === 'autorizado' && parseInt(doc.payment_form_id) === 2) {
+      consultarEventos(false);
+    } else {
+      setEventos(null);
+    }
+  }, [doc?.cufe, doc?.status, doc?.payment_form_id]);
 
   const enviarNC = async (adminAuth?: AdminAutorizado) => {
     // Verificar autorización admin antes de procesar — el motivo determina qué casilla aplica
@@ -138,6 +176,20 @@ export function DetalleDocElectronico({ docId, onClose, onUpdate, onCopiar }: Pr
   const totalDoc = totalBase + totalIva - (parseFloat(doc.descuento) || 0);
   const isFactura = parseInt(doc.type_document_id) === 1;
   const isAutorizado = doc.status === 'autorizado';
+  const esCredito = parseInt(doc.payment_form_id) === 2;
+  const puedeConsultarEventos = isFactura && isAutorizado && esCredito && !!doc.cufe;
+
+  // Descripción y color por event_status
+  const eventoStyle = (status: string | null | undefined) => {
+    switch (status) {
+      case 'aceptada':   return { bg: '#dcfce7', fg: '#15803d', label: 'Aceptada', desc: 'Cliente aceptó formalmente (033) — es título valor' };
+      case 'tacita':     return { bg: '#d1fae5', fg: '#047857', label: 'Aceptación Tácita', desc: '3 días hábiles sin rechazo — título valor automático' };
+      case 'recibido':   return { bg: '#dbeafe', fg: '#1d4ed8', label: 'Recibido', desc: 'Cliente confirmó recibo del bien/servicio (032)' };
+      case 'acuse':      return { bg: '#fef3c7', fg: '#a16207', label: 'Acuse recibo', desc: 'Cliente recibió el correo (030)' };
+      case 'rechazada':  return { bg: '#fee2e2', fg: '#b91c1c', label: 'Rechazada', desc: 'Cliente rechazó (031)' };
+      default:           return { bg: '#f3f4f6', fg: '#6b7280', label: 'Pendiente', desc: 'Sin eventos aún' };
+    }
+  };
 
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 99999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -154,6 +206,13 @@ export function DetalleDocElectronico({ docId, onClose, onUpdate, onCopiar }: Pr
             </span>
           </div>
           <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            {puedeConsultarEventos && (
+              <button onClick={() => consultarEventos(true)} disabled={eventosLoading}
+                title="Consultar estado de aceptación en la DIAN en tiempo real"
+                style={{ height: 28, padding: '0 10px', background: '#0ea5e9', color: '#fff', border: 'none', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: eventosLoading ? 'default' : 'pointer', display: 'flex', alignItems: 'center', gap: 4, opacity: eventosLoading ? 0.6 : 1 }}>
+                <RefreshCw size={13} style={eventosLoading ? { animation: 'spin 1s linear infinite' } : undefined} /> Consultar eventos
+              </button>
+            )}
             <button onClick={() => window.open(`${API}/pdf.php?id=${docId}`, 'PDF_Viewer', 'width=900,height=700,menubar=no,toolbar=no,location=no,status=no')} title="Imprimir PDF"
               style={{ height: 28, padding: '0 10px', background: '#7c3aed', color: '#fff', border: 'none', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
               <Printer size={13} /> PDF
@@ -182,6 +241,17 @@ export function DetalleDocElectronico({ docId, onClose, onUpdate, onCopiar }: Pr
             <div style={{ background: '#f9fafb', borderRadius: 8, padding: 10 }}>
               <div style={{ fontSize: 10, color: '#6b7280', marginBottom: 4 }}>DOCUMENTO</div>
               <div>Fecha: <b>{new Date(doc.fecha).toLocaleDateString('es-CO')}</b></div>
+              {/* Forma de pago — solo se muestra si viene definida. Ayuda al
+                  usuario a distinguir de un vistazo cuándo aplica Consultar
+                  eventos DIAN (solo aplica a créditos). */}
+              {parseInt(doc.payment_form_id) > 0 && (
+                <div>Término:{' '}
+                  <b style={{ color: esCredito ? '#1d4ed8' : '#16a34a' }}>
+                    {esCredito ? 'Crédito' : 'Contado'}
+                  </b>
+                  {esCredito && doc.payment_due_days ? <span style={{ fontSize: 11, color: '#6b7280' }}> · {doc.payment_due_days} días</span> : null}
+                </div>
+              )}
               <div>Total: <b style={{ color: '#16a34a', fontSize: 16 }}>{fmtMon(totalDoc)}</b></div>
               {doc.cufe && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 4 }}>
@@ -231,6 +301,62 @@ export function DetalleDocElectronico({ docId, onClose, onUpdate, onCopiar }: Pr
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: 20, fontSize: 14, fontWeight: 800, borderTop: '2px solid #000', paddingTop: 4 }}><span>TOTAL:</span><span>{fmtMon(totalDoc)}</span></div>
             </div>
           </div>
+
+          {/* Eventos DIAN — solo facturas a crédito autorizadas */}
+          {puedeConsultarEventos && (() => {
+            const s = eventoStyle(eventos?.event_status);
+            const ev = eventos?.eventos || {};
+            const items: { key: string; label: string; icon: any; fecha: string | null; color: string }[] = [
+              { key: 'acuse_recibo', label: 'Acuse de recibo (030)', icon: Inbox, fecha: ev.acuse_recibo || null, color: '#a16207' },
+              { key: 'recibo_bien',  label: 'Recibo del bien/servicio (032)', icon: PackageCheck, fecha: ev.recibo_bien || null, color: '#1d4ed8' },
+              { key: 'aceptacion',   label: eventos?.event_status === 'tacita' ? 'Aceptación tácita' : 'Aceptación (033)', icon: ThumbsUp, fecha: ev.aceptacion || null, color: '#15803d' },
+              { key: 'rechazo',      label: 'Rechazo (031)', icon: ThumbsDown, fecha: ev.rechazo || null, color: '#b91c1c' },
+            ];
+            return (
+              <div style={{ marginBottom: 16, border: '1px solid #e5e7eb', borderRadius: 10, overflow: 'hidden' }}>
+                <div style={{ padding: '10px 14px', background: '#f9fafb', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #e5e7eb' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: '#1f2937' }}>Eventos DIAN — Factura a crédito</span>
+                    <span title={s.desc} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 10px', borderRadius: 6, fontSize: 11, fontWeight: 700, background: s.bg, color: s.fg }}>
+                      {s.label}
+                    </span>
+                  </div>
+                  {eventos?.ultima_consulta && (
+                    <span style={{ fontSize: 10, color: '#9ca3af' }}>Última consulta: {new Date(eventos.ultima_consulta).toLocaleString('es-CO')}</span>
+                  )}
+                </div>
+                <div style={{ padding: '10px 14px' }}>
+                  {/* Timeline visual de eventos */}
+                  {items.map(it => {
+                    const IconEl = it.icon;
+                    const activo = !!it.fecha;
+                    return (
+                      <div key={it.key} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '4px 0', opacity: activo ? 1 : 0.4 }}>
+                        <div style={{ width: 26, height: 26, borderRadius: 6, background: activo ? it.color + '22' : '#f3f4f6', color: activo ? it.color : '#9ca3af', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          <IconEl size={14} />
+                        </div>
+                        <div style={{ flex: 1, fontSize: 12 }}>
+                          <div style={{ fontWeight: activo ? 600 : 500, color: activo ? '#1f2937' : '#9ca3af' }}>{it.label}</div>
+                          {activo && <div style={{ fontSize: 10, color: '#6b7280' }}>{new Date(it.fecha!).toLocaleString('es-CO')}</div>}
+                        </div>
+                        {activo ? <CheckCircle size={14} color={it.color} /> : <Clock size={13} color="#d1d5db" />}
+                      </div>
+                    );
+                  })}
+                  {/* Motivo del rechazo si aplica */}
+                  {eventos?.eventos?.rechazo_motivo && (
+                    <div style={{ marginTop: 8, padding: '8px 10px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 6, fontSize: 11, color: '#b91c1c', display: 'flex', gap: 6, alignItems: 'flex-start' }}>
+                      <Ban size={13} style={{ flexShrink: 0, marginTop: 1 }} />
+                      <div><b>Motivo del rechazo:</b> {eventos.eventos.rechazo_motivo}</div>
+                    </div>
+                  )}
+                  {!eventos && !eventosLoading && (
+                    <div style={{ fontSize: 11, color: '#9ca3af', textAlign: 'center', padding: 6 }}>Consulta el estado con el botón del encabezado.</div>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
 
           {/* Notas Crédito / Débito asociadas */}
           {notas.length > 0 && (

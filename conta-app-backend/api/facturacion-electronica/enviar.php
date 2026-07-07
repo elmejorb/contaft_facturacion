@@ -615,16 +615,30 @@ try {
             // régimen) en lugar de leer tblventas.Total, que puede venir
             // inflado en BDs migradas desde versiones <4.3.61.
             $totalDocFE = calcularTotalDocFE($db, $factura, $items);
+            // Metadata de pago que persiste en electronic_documents.
+            // Bug histórico: estos 3 campos quedaban NULL, lo que impedía
+            // saber si una factura era Contado/Crédito, con qué medio de
+            // pago, ni cuántos días de plazo. Sin esto, no funciona la
+            // consulta de eventos DIAN ni el listado tiene sentido.
+            $paymentFormLocal   = ($factura['Tipo'] === 'Contado') ? 1 : 2;
+            $paymentDueDaysLocal = ($paymentFormLocal === 2) ? intval($factura['Dias'] ?? 0) : 0;
+            // payment_method_id mapea id_mediopago local → catálogo DIAN:
+            // 0=Efectivo(10), 1=Tarjeta(14), 2+=Transferencia(30). Misma
+            // regla que usa buildInvoiceJSON al armar el JSON para DIAN.
+            $medioPagoLocal = intval($factura['id_mediopago'] ?? 0);
+            $paymentMethodLocal = ($medioPagoLocal === 1) ? 14
+                                  : (($medioPagoLocal >= 2) ? 30 : 10);
             $stmtDoc = $db->prepare("
                 INSERT INTO electronic_documents
-                (fecha, cod_cliente, customer_identification, type_document_id, prefix, number, status, total, cufe, dian_response, id_usuario, id_mediopago, efectivo, valorpagado1, pagada, EstadoFact, email_sent, nota)
-                VALUES (?, ?, ?, 1, 'FCON', 0, 'pendiente', ?, '', '{}', ?, ?, ?, ?, ?, 1, 0, ?)
+                (fecha, cod_cliente, customer_identification, type_document_id, prefix, number, status, total, cufe, dian_response, id_usuario, id_mediopago, efectivo, valorpagado1, pagada, EstadoFact, email_sent, nota, payment_form_id, payment_method_id, payment_due_days)
+                VALUES (?, ?, ?, 1, 'FCON', 0, 'pendiente', ?, '', '{}', ?, ?, ?, ?, ?, 1, 0, ?, ?, ?, ?)
             ");
             $stmtDoc->execute([
                 $factura['Fecha'], $factura['CodigoCli'], $factura['Identificacion'],
                 $totalDocFE, $factura['Id_Usuario'],
                 $factura['id_mediopago'], $factura['efectivo'], $factura['valorpagado1'],
-                $factura['pagada'] ?: 'N', $notaFactura
+                $factura['pagada'] ?: 'N', $notaFactura,
+                $paymentFormLocal, $paymentMethodLocal, $paymentDueDaysLocal
             ]);
             $docElecId = $db->lastInsertId();
 
@@ -1043,15 +1057,24 @@ try {
                 ")->execute();
 
                 $notaFactura = $factura['Comentario'] ?? '-';
+                // Mismos 3 campos de pago que el flujo normal — sin esto el
+                // listado no puede distinguir Contado/Crédito de facturas
+                // reenviadas desde contingencia.
+                $paymentFormLocalC   = ($factura['Tipo'] === 'Contado') ? 1 : 2;
+                $paymentDueDaysLocalC = ($paymentFormLocalC === 2) ? intval($factura['Dias'] ?? 0) : 0;
+                $medioPagoLocalC = intval($factura['id_mediopago'] ?? 0);
+                $paymentMethodLocalC = ($medioPagoLocalC === 1) ? 14
+                                       : (($medioPagoLocalC >= 2) ? 30 : 10);
                 $db->prepare("
                     INSERT INTO electronic_documents
-                    (fecha, cod_cliente, customer_identification, type_document_id, prefix, number, status, total, cufe, dian_response, id_usuario, id_mediopago, efectivo, valorpagado1, pagada, EstadoFact, email_sent, nota)
-                    VALUES (?, ?, ?, 1, 'FCON', 0, 'pendiente', ?, '', '{}', ?, ?, ?, ?, ?, 1, 0, ?)
+                    (fecha, cod_cliente, customer_identification, type_document_id, prefix, number, status, total, cufe, dian_response, id_usuario, id_mediopago, efectivo, valorpagado1, pagada, EstadoFact, email_sent, nota, payment_form_id, payment_method_id, payment_due_days)
+                    VALUES (?, ?, ?, 1, 'FCON', 0, 'pendiente', ?, '', '{}', ?, ?, ?, ?, ?, 1, 0, ?, ?, ?, ?)
                 ")->execute([
                     $factura['Fecha'], $factura['CodigoCli'], $factura['Identificacion'],
                     $totalDocFE, $factura['Id_Usuario'],
                     $factura['id_mediopago'], $factura['efectivo'], $factura['valorpagado1'],
-                    $factura['pagada'] ?: 'N', $notaFactura
+                    $factura['pagada'] ?: 'N', $notaFactura,
+                    $paymentFormLocalC, $paymentMethodLocalC, $paymentDueDaysLocalC
                 ]);
                 $docElecId = $db->lastInsertId();
             }
