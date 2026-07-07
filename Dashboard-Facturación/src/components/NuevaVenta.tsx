@@ -104,6 +104,10 @@ export interface TabState {
   descuentoGlobal: number;
   cliente: { id: number; nombre: string; nit: string; tel: string; dir: string; cupo: number; esCliente: boolean };
   lineas: LineaVenta[];
+  // Tipo de documento de la pestaña: pos | electronica | soporte | cotizacion.
+  // Se persiste en el state para que VentasTabs pueda cambiarlo desde fuera
+  // (botón "Nueva Cotización") y NuevaVenta lo refleje.
+  tipoDocumento?: string;
 }
 
 let lineaId = Date.now();
@@ -112,14 +116,34 @@ interface NuevaVentaProps {
   onFacturaCreada?: (factN: number) => void;
   initialState?: TabState;
   onStateChange?: (state: TabState) => void;
+  // Llamado cuando el usuario está en modo cotización y pulsa "Guardar
+  // Cotización" (sustituye al flujo de venta normal). VentasTabs lo conecta
+  // a `guardarCotizacion()` que persiste en BD e imprime.
+  onCotizar?: () => Promise<void> | void;
 }
 
 const API_CAJA = 'http://localhost:80/conta-app-backend/api/caja/sesion.php';
 
-export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: NuevaVentaProps) {
+export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCotizar }: NuevaVentaProps) {
   const { user } = useAuth();
   const init = initialState || { tipo: 'Contado', dias: 0, listaPrecio: 1, descuentoGlobal: 0, cliente: { id: 130500, nombre: 'VENTAS AL CONTADO', nit: '0', tel: '0', dir: '-', cupo: 0, esCliente: false, email: '' }, lineas: [] };
-  const [tipoDocumento, setTipoDocumento] = useState('pos'); // pos, electronica, soporte
+  // Modos disponibles: pos (factura POS), electronica (FE DIAN), soporte
+  // (documento soporte) y cotizacion (no genera venta — solo guarda en
+  // tblcotizaciones e imprime). Cotización omite todas las validaciones de
+  // stock/crédito/caja porque no es una operación real.
+  // El modo inicial puede venir desde initialState — VentasTabs lo usa para
+  // arrancar una pestaña directamente como Cotización al pulsar el botón
+  // "Nueva Cotización" de la barra superior.
+  const [tipoDocumento, setTipoDocumento] = useState<string>((init as any).tipoDocumento || 'pos');
+
+  // Sincroniza el modo cuando el padre cambia initialState.tipoDocumento
+  // (caso: el usuario presiona "Nueva Cotización" estando ya en una pestaña
+  // que tenía modo "pos" o "electronica"). Solo se ejecuta cuando el valor
+  // externo cambia y difiere del interno → no entra en loop.
+  useEffect(() => {
+    const ext = (initialState as any)?.tipoDocumento;
+    if (ext && ext !== tipoDocumento) setTipoDocumento(ext);
+  }, [(initialState as any)?.tipoDocumento]);
   // Fecha de la venta. Default = hoy. Solo se muestra/edita si Configuración →
   // Reglas de Venta → "Permitir cambiar la fecha de la venta" está activo.
   const hoyISO = () => new Date().toISOString().slice(0, 10);
@@ -607,9 +631,16 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
   const netoEsperado = total - totalRetenciones;
   const cambio = tipo === 'Contado' && efectivo ? Math.max(parseInt(efectivo) - total, 0) : 0;
 
-  // Abrir modal de pago
-  const finalizar = () => {
+  // Abrir modal de pago (o guardar cotización si está en ese modo)
+  const finalizar = async () => {
     if (lineas.length === 0) { setError('Agregue al menos un producto'); return; }
+    // Cotización: ruta corta — no abre modal de pago, no exige cliente real,
+    // no toca stock/kardex. Solo persiste e imprime vía onCotizar.
+    if (tipoDocumento === 'cotizacion') {
+      setError('');
+      await onCotizar?.();
+      return;
+    }
     if (tipo === 'Crédito' && cliente.id === 130500) {
       setError('El cliente genérico "VENTAS AL CONTADO" no puede usarse en ventas a crédito. Seleccione un cliente real para que la deuda aparezca en Cuentas por Cobrar.');
       return;
@@ -1014,12 +1045,19 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
             style={{
               height: 28, border: '1px solid #d1d5db', borderRadius: 6, fontSize: 12, padding: '0 4px', width: 150,
               fontWeight: 600,
-              color: tipoDocumento === 'electronica' ? '#2563eb' : tipoDocumento === 'soporte' ? '#d97706' : '#374151',
-              background: tipoDocumento === 'electronica' ? '#eff6ff' : tipoDocumento === 'soporte' ? '#fffbeb' : '#fff'
+              color: tipoDocumento === 'electronica' ? '#2563eb'
+                   : tipoDocumento === 'soporte' ? '#d97706'
+                   : tipoDocumento === 'cotizacion' ? '#1d4ed8'
+                   : '#374151',
+              background: tipoDocumento === 'electronica' ? '#eff6ff'
+                       : tipoDocumento === 'soporte' ? '#fffbeb'
+                       : tipoDocumento === 'cotizacion' ? '#dbeafe'
+                       : '#fff'
             }}>
             <option value="pos">Factura POS</option>
             {getConfigImpresion().usarFacturacionElectronica && <option value="electronica">Factura Electrónica</option>}
             <option value="soporte">Doc. Soporte</option>
+            <option value="cotizacion">Cotización</option>
           </select>
         </div>
         <div>
@@ -1468,8 +1506,14 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
             <Plus size={14} /> Nueva
           </button>
           <button onClick={finalizar} disabled={guardando || lineas.length === 0}
-            style={{ height: 32, padding: '0 16px', background: lineas.length > 0 ? '#16a34a' : '#d1d5db', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: lineas.length > 0 ? 'pointer' : 'default', display: 'flex', alignItems: 'center', gap: 6, opacity: guardando ? 0.6 : 1 }}>
-            <Save size={14} /> Finalizar (F9)
+            style={{ height: 32, padding: '0 16px',
+              background: lineas.length === 0 ? '#d1d5db'
+                        : tipoDocumento === 'cotizacion' ? '#2563eb'
+                        : '#16a34a',
+              color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600,
+              cursor: lineas.length > 0 ? 'pointer' : 'default',
+              display: 'flex', alignItems: 'center', gap: 6, opacity: guardando ? 0.6 : 1 }}>
+            <Save size={14} /> {tipoDocumento === 'cotizacion' ? 'Guardar Cotización (F9)' : 'Finalizar (F9)'}
           </button>
         </div>
       </div>

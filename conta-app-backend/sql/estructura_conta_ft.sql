@@ -22,7 +22,7 @@
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `detalle_cotizacion` (
-  `id_detalle_cotiza` int(11) NOT NULL,
+  `id_detalle_cotiza` int(11) NOT NULL AUTO_INCREMENT,
   `item_pro` int(11) NOT NULL,
   `cant_pro` float NOT NULL,
   `precio_v` double NOT NULL,
@@ -283,7 +283,7 @@ CREATE TABLE `tblcontrolcaja` (
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `tblcotizaciones` (
-  `id_cotizacion` int(11) NOT NULL,
+  `id_cotizacion` int(11) NOT NULL AUTO_INCREMENT,
   `codigo_cli` int(11) NOT NULL,
   `nombre_cliente` varchar(50) NOT NULL,
   `telefono_cli` varchar(25) NOT NULL,
@@ -1246,29 +1246,29 @@ SET character_set_client = @saved_cs_client;
 /*!50003 SET collation_connection  = utf8mb4_general_ci */ ;
 DELIMITER ;;
 CREATE DEFINER=`root`@`localhost` PROCEDURE `InsertarDetalleVenta`(IN `FacturaN` INT, IN `Items` VARCHAR(50), IN `Cantidad` DECIMAL(10,2), IN `PrecioC` DECIMAL(10,2), IN `PrecioV` DECIMAL(10,2), IN `Iva` DECIMAL(10,2), IN `Impuesto` DECIMAL(10,2), IN `Subtotal` DECIMAL(10,2), IN `Descuento` DECIMAL(10,2), IN `Entregado` CHAR(1), IN `FacturarNegativo` BOOLEAN, IN `ActivarEntregados` BOOLEAN)
-BEGIN
-    DECLARE StockActual DECIMAL(10,2);
-
-    START TRANSACTION;
-
-    -- Verificar existencia si la empresa no permite stock negativo
-    IF FacturarNegativo = FALSE THEN
-        SELECT Existencia INTO StockActual FROM tblarticulos WHERE Items = Items;
-        IF StockActual < Cantidad THEN
-            SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Stock insuficiente para este producto';
-        END IF;
-    END IF;
-
-    -- Insertar detalle de la venta
-    INSERT INTO tbldetalle_venta (Factura_N, Items, Cantidad, PrecioC, PrecioV, Iva, Impuesto, Subtotal, Descuento, Entregado)
-    VALUES (FacturaN, Items, Cantidad, PrecioC, PrecioV, Iva, Impuesto, Subtotal, Descuento, Entregado);
-
-    -- Si los productos se entregan, actualizar inventario
-    IF ActivarEntregados = 0 OR Entregado = 'S' THEN
-        UPDATE tblarticulos SET Existencia = Existencia - Cantidad WHERE Items = Items;
-    END IF;
-
-    COMMIT;
+BEGIN
+    DECLARE StockActual DECIMAL(10,2);
+
+    START TRANSACTION;
+
+    -- Verificar existencia si la empresa no permite stock negativo
+    IF FacturarNegativo = FALSE THEN
+        SELECT Existencia INTO StockActual FROM tblarticulos WHERE Items = Items;
+        IF StockActual < Cantidad THEN
+            SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Stock insuficiente para este producto';
+        END IF;
+    END IF;
+
+    -- Insertar detalle de la venta
+    INSERT INTO tbldetalle_venta (Factura_N, Items, Cantidad, PrecioC, PrecioV, Iva, Impuesto, Subtotal, Descuento, Entregado)
+    VALUES (FacturaN, Items, Cantidad, PrecioC, PrecioV, Iva, Impuesto, Subtotal, Descuento, Entregado);
+
+    -- Si los productos se entregan, actualizar inventario
+    IF ActivarEntregados = 0 OR Entregado = 'S' THEN
+        UPDATE tblarticulos SET Existencia = Existencia - Cantidad WHERE Items = Items;
+    END IF;
+
+    COMMIT;
 END ;;
 DELIMITER ;
 /*!50003 SET sql_mode              = @saved_sql_mode */ ;
@@ -1285,25 +1285,25 @@ DELIMITER ;
 /*!50003 SET collation_connection  = utf8mb4_general_ci */ ;
 DELIMITER ;;
 CREATE DEFINER=`root`@`localhost` PROCEDURE `InsertarVenta`(OUT `Nun_Factura` INT, IN `Fecha` VARCHAR(10), IN `N_Mes` VARCHAR(2), IN `Anio` VARCHAR(4), IN `Tipo` VARCHAR(20), IN `Dias` VARCHAR(4), IN `CodigoCli` VARCHAR(20), IN `A_nombre` VARCHAR(100), IN `Identificacion` VARCHAR(20), IN `Direccion` VARCHAR(100), IN `Telefono` VARCHAR(20), IN `Impuesto` VARCHAR(20), IN `Descuento` VARCHAR(20), IN `Total` VARCHAR(20), IN `Id_Usuario` INT, IN `CodigoEmp` INT, IN `EstadoPedido` VARCHAR(20), IN `Comentario` VARCHAR(100), IN `EstadoFact` VARCHAR(20), IN `Hora` VARCHAR(20), IN `Pago` VARCHAR(20), IN `Cambio` VARCHAR(20), IN `Abono` VARCHAR(20), IN `Saldo` VARCHAR(20), IN `id_mediopago` INT, IN `efectivo` VARCHAR(20), IN `valorpagado1` VARCHAR(20))
-BEGIN
-    DECLARE Nun_Factura INT;
-
-    INSERT INTO tblventas (
-        Fecha, N_Mes, Anio, Tipo, Dias, CodigoCli, A_nombre, Identificacion, Direccion, Telefono,
-        Impuesto, Descuento, Total, Id_Usuario, CodigoEmp, EstadoPedido, Comentario, EstadoFact,
-        Hora, Pago, Cambio, Abono, Saldo, id_mediopago, efectivo, valorpagado1
-    )
-    VALUES (
-        Fecha, N_Mes, Anio, Tipo, Dias, CodigoCli, A_nombre, Identificacion, Direccion, Telefono,
-        Impuesto, Descuento, Total, Id_Usuario, CodigoEmp, EstadoPedido, Comentario, EstadoFact,
-        Hora, Pago, Cambio, Abono, Saldo, id_mediopago, efectivo, valorpagado1
-    );
-
-    -- Obtener el ID de la factura recién insertada
-    SET Nun_Factura = LAST_INSERT_ID();
-
-    -- Retornar el número de factura generado
-    SELECT Nun_Factura AS FacturaN;
+BEGIN
+    DECLARE Nun_Factura INT;
+
+    INSERT INTO tblventas (
+        Fecha, N_Mes, Anio, Tipo, Dias, CodigoCli, A_nombre, Identificacion, Direccion, Telefono,
+        Impuesto, Descuento, Total, Id_Usuario, CodigoEmp, EstadoPedido, Comentario, EstadoFact,
+        Hora, Pago, Cambio, Abono, Saldo, id_mediopago, efectivo, valorpagado1
+    )
+    VALUES (
+        Fecha, N_Mes, Anio, Tipo, Dias, CodigoCli, A_nombre, Identificacion, Direccion, Telefono,
+        Impuesto, Descuento, Total, Id_Usuario, CodigoEmp, EstadoPedido, Comentario, EstadoFact,
+        Hora, Pago, Cambio, Abono, Saldo, id_mediopago, efectivo, valorpagado1
+    );
+
+    -- Obtener el ID de la factura recién insertada
+    SET Nun_Factura = LAST_INSERT_ID();
+
+    -- Retornar el número de factura generado
+    SELECT Nun_Factura AS FacturaN;
 END ;;
 DELIMITER ;
 /*!50003 SET sql_mode              = @saved_sql_mode */ ;

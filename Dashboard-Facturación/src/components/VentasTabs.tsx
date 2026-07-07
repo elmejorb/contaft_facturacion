@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Plus, X, FileText, BookOpen, FolderOpen, Trash2, ShoppingCart, ArrowRight, Search } from 'lucide-react';
+import { Plus, X, FileText, BookOpen, FolderOpen, Trash2, ShoppingCart, ArrowRight, Search, Printer } from 'lucide-react';
 import { NuevaVenta, type TabState } from './NuevaVenta';
 import toast from 'react-hot-toast';
 import { getConfigImpresion } from './ConfiguracionSistema';
@@ -85,11 +85,22 @@ export function VentasTabs() {
   const onStateChange = useCallback((newState: any) => {
     setTabs(prev => prev.map(t => {
       if (t.id !== activeTabIdRef.current) return t;
-      const updated = { ...t, state: newState };
+      const updated: Tab = { ...t, state: newState };
+      // Sincroniza el label de la pestaña con el tipo de documento elegido.
+      // Si ya está persistida en BD (dbId), respetamos su label fijo (#id).
       if (newState.tipoDocumento && !t.dbId) {
-        const docLabels: Record<string, string> = { pos: 'Factura', electronica: 'F. Electrónica', soporte: 'Doc. Soporte' };
+        const docLabels: Record<string, string> = {
+          pos: 'Factura',
+          electronica: 'F. Electrónica',
+          soporte: 'Doc. Soporte',
+          cotizacion: 'Cotización',
+        };
         const num = t.label.match(/\d+$/)?.[0] || '';
         updated.label = `${docLabels[newState.tipoDocumento] || 'Factura'} ${num}`.trim();
+        // Si arrancó a editar como cotización, marcamos el `tipo` de tab
+        // para que el botón "Imprimir" y el flujo de guardar usen la lógica
+        // correcta aunque todavía no exista la fila en BD.
+        if (newState.tipoDocumento === 'cotizacion') updated.tipo = 'cotizacion';
       }
       return updated;
     }));
@@ -123,6 +134,46 @@ export function VentasTabs() {
     } catch (e) { toast.error('Error al guardar'); }
   };
 
+  // Cambia el modo de la pestaña activa a "cotización" sin guardar nada.
+  // NuevaVenta lee tipoDocumento de initialState y reacciona al cambio:
+  // - El selector DOCUMENTO arriba pasa a "Cotización".
+  // - El botón Finalizar pasa a "Guardar Cotización" (azul).
+  // - Se omiten validaciones de cupo, stock, FE, etc.
+  // El guardado real ocurre cuando el usuario pulsa el botón Finalizar
+  // (que llama a onCotizar → guardarCotizacion).
+  const iniciarCotizacion = () => {
+    if (!activeTab) return;
+    // Si ya está en modo cotización y tiene líneas, llamamos directamente
+    // a guardar — el usuario ya conoce el atajo y espera que guarde.
+    if (activeTab.state.tipoDocumento === 'cotizacion' && activeTab.state.lineas.length > 0) {
+      guardarCotizacion();
+      return;
+    }
+    setTabs(prev => prev.map(t => {
+      if (t.id !== activeTabId) return t;
+      const num = t.label.match(/\d+$/)?.[0] || '';
+      return {
+        ...t,
+        state: { ...t.state, tipoDocumento: 'cotizacion' } as TabState,
+        tipo: 'cotizacion',
+        label: `Cotización ${num}`.trim(),
+      };
+    }));
+  };
+
+  // Imprime una cotización a partir de su state + dbId (el "número" de la
+  // cotización es el id_cotizacion de la BD). Se usa desde 3 lugares: tras
+  // guardar si el toggle de auto-imprimir está activo, desde el botón
+  // "Imprimir" de la pestaña activa, y desde el listado de Cotizaciones.
+  const imprimirCotizacionDeState = (state: TabState, dbId: number) => {
+    const datosImp = buildDatosFactura(
+      dbId, state.lineas, state.cliente,
+      state.tipo, state.dias, state.descuentoGlobal,
+      0, 0, 0, 0, 'Efectivo', true
+    );
+    imprimirFactura(datosImp);
+  };
+
   // Guardar como cotización
   const guardarCotizacion = async () => {
     if (!activeTab || activeTab.state.lineas.length === 0) return;
@@ -142,13 +193,52 @@ export function VentasTabs() {
       if (d.success) {
         setTabs(prev => prev.map(t => t.id === activeTabId ? { ...t, dbId: d.id, tipo: 'cotizacion', label: `Cotización #${d.id}` } : t));
         toast.success('Cotización guardada');
-        const cfg = getConfigImpresion();
-        if (cfg.imprimirCotizacion) {
-          const datosImp = buildDatosFactura(d.id, s.lineas, s.cliente, s.tipo, s.dias, s.descuentoGlobal, 0, 0, 0, 0, 'Efectivo', true);
-          imprimirFactura(datosImp);
+        if (getConfigImpresion().imprimirCotizacion) {
+          imprimirCotizacionDeState(s, d.id);
         }
       }
     } catch (e) { toast.error('Error al guardar'); }
+  };
+
+  // Imprimir directamente desde el listado de Cotizaciones guardadas.
+  // El listado solo trae cabeceras → necesitamos fetch del detalle.
+  const imprimirCotizacionPorId = async (id: number) => {
+    try {
+      const r = await fetch(`${API}/cotizaciones.php?id=${id}`);
+      const d = await r.json();
+      if (!d.success) { toast.error('No se pudo cargar la cotización'); return; }
+      const fac = d.cotizacion;
+      const detalle = d.detalle || [];
+      const lineas = detalle.map((det: any, i: number) => ({
+        id: Date.now() + i,
+        Items: det.item_pro,
+        Codigo: det.Codigo || '',
+        Nombre: det.Nombres_Articulo || '',
+        Existencia: parseFloat(det.Existencia) || 0,
+        Cantidad: parseFloat(det.cant_pro) || 1,
+        PrecioCosto: parseFloat(det.Precio_Costo) || 0,
+        PrecioVenta: parseFloat(det.precio_v) || 0,
+        Iva: parseFloat(det.Iva) || 0,
+        Descuento: parseFloat(det.descuento) || 0,
+        Subtotal: (parseFloat(det.cant_pro) || 1) * (parseFloat(det.precio_v) || 0) - (parseFloat(det.descuento) || 0)
+      }));
+      const clienteId = parseInt(fac.codigo_cli) || 130500;
+      const state: TabState = {
+        tipo: parseInt(fac.termino) === 1 ? 'Crédito' : 'Contado',
+        dias: parseInt(fac.dias) || 0,
+        listaPrecio: 1,
+        descuentoGlobal: 0,
+        cliente: {
+          id: clienteId,
+          nombre: fac.nombre_cliente || 'VENTAS AL CONTADO',
+          nit: fac.identificacion_cli || '0',
+          tel: fac.telefono_cli || '0',
+          dir: '-', cupo: 0, esCliente: clienteId !== 130500
+        },
+        lineas
+      };
+      imprimirCotizacionDeState(state, id);
+    } catch (e) { toast.error('Error al imprimir'); }
   };
 
   // Cargar guardada (abierta o cotización)
@@ -274,10 +364,27 @@ export function VentasTabs() {
             title="Guardar como factura temporal" style={btnStyle()}>
             <FolderOpen size={13} /> Guardar Temp.
           </button>
-          <button onClick={guardarCotizacion} disabled={!activeTab || activeTab.state.lineas.length === 0}
-            title="Guardar como cotización" style={btnStyle()}>
-            <BookOpen size={13} /> Nueva Cotización
+          <button onClick={iniciarCotizacion} disabled={!activeTab}
+            title={
+              activeTab?.state.tipoDocumento === 'cotizacion'
+                ? (activeTab.state.lineas.length > 0 ? 'Guardar esta cotización' : 'Ya estás en modo cotización')
+                : 'Cambiar esta pestaña a modo cotización'
+            }
+            style={btnStyle(activeTab?.state.tipoDocumento === 'cotizacion')}>
+            <BookOpen size={13} /> {
+              activeTab?.state.tipoDocumento === 'cotizacion' && activeTab.state.lineas.length > 0
+                ? 'Guardar Cotización'
+                : 'Nueva Cotización'
+            }
           </button>
+          {activeTab?.tipo === 'cotizacion' && activeTab.dbId && (
+            <button onClick={() => imprimirCotizacionDeState(activeTab.state, activeTab.dbId!)}
+              disabled={activeTab.state.lineas.length === 0}
+              title="Imprimir esta cotización"
+              style={{ ...btnStyle(), background: '#dbeafe', color: '#1d4ed8', borderColor: '#bfdbfe' }}>
+              <Printer size={13} /> Imprimir
+            </button>
+          )}
           <button onClick={() => abrirListaGuardadas('abiertas')}
             title="Facturas abiertas guardadas" style={btnStyle()}>
             <FolderOpen size={13} /> Abiertas
@@ -296,6 +403,7 @@ export function VentasTabs() {
           initialState={activeTab.state}
           onStateChange={onStateChange}
           onFacturaCreada={onFacturaCreada}
+          onCotizar={guardarCotizacion}
         />
       )}
 
@@ -387,6 +495,13 @@ export function VentasTabs() {
 
                         {/* Acciones */}
                         <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                          {showGuardadas === 'cotizaciones' && (
+                            <button onClick={e => { e.stopPropagation(); imprimirCotizacionPorId(id); }}
+                              title="Imprimir cotización"
+                              style={{ height: 30, width: 30, background: '#dbeafe', border: '1px solid #bfdbfe', borderRadius: 8, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                              <Printer size={13} color="#1d4ed8" />
+                            </button>
+                          )}
                           <button onClick={e => { e.stopPropagation(); cargarGuardada(showGuardadas!, id); }}
                             title="Abrir en nueva pestaña"
                             style={{ height: 30, padding: '0 12px', background: '#7c3aed', color: '#fff', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
