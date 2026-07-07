@@ -53,6 +53,7 @@ import { PurchasesManagement } from './PurchasesManagement';
 import { SalesManagement } from './SalesManagement';
 import { VentasPorTipoPago } from './VentasPorTipoPago';
 import { FacturacionElectronica } from './FacturacionElectronica';
+import { FacturasRecibidas } from './FacturasRecibidas';
 import { CajaRegistradora } from './CajaRegistradora';
 import { HistorialCajas } from './HistorialCajas';
 import { ListadoPagosClientes, ListadoPagosProveedores } from './ListadoPagos';
@@ -111,7 +112,7 @@ interface DashboardProps {
   user?: UserData | null;
 }
 
-type View = 'overview' | 'products' | 'customers' | 'suppliers' | 'purchases' | 'sales' | 'inventario' | 'diagnostico' | 'auditoria' | 'categorias' | 'conteo' | 'configuracion' | 'cuentas-cobrar' | 'top-clientes' | 'cumpleanos' | 'cuentas-pagar' | 'productos-proveedor' | 'nueva-venta' | 'ventas-tipo-pago' | 'datos-empresa' | 'usuarios' | 'nueva-compra' | 'facturacion-electronica' | 'caja' | 'caja-historial' | 'pagos-clientes' | 'pagos-proveedores' | 'gastos' | 'bancos' | 'config-categorias-gasto' | 'config-cajas' | 'config-servidor' | 'config-permisos' | 'familias' | 'distribuir' | 'stock-bajo' | 'config-retenciones' | 'informes-hub' | 'notas-articulo' | 'lotes-vencer' | 'inicio' | 'config-etiquetas' | 'vendedores-gestion' | 'vendedores-pedidos';
+type View = 'overview' | 'products' | 'customers' | 'suppliers' | 'purchases' | 'sales' | 'inventario' | 'diagnostico' | 'auditoria' | 'categorias' | 'conteo' | 'configuracion' | 'cuentas-cobrar' | 'top-clientes' | 'cumpleanos' | 'cuentas-pagar' | 'productos-proveedor' | 'nueva-venta' | 'ventas-tipo-pago' | 'datos-empresa' | 'usuarios' | 'nueva-compra' | 'facturacion-electronica' | 'facturas-recibidas' | 'caja' | 'caja-historial' | 'pagos-clientes' | 'pagos-proveedores' | 'gastos' | 'bancos' | 'config-categorias-gasto' | 'config-cajas' | 'config-servidor' | 'config-permisos' | 'familias' | 'distribuir' | 'stock-bajo' | 'config-retenciones' | 'informes-hub' | 'notas-articulo' | 'lotes-vencer' | 'inicio' | 'config-etiquetas' | 'vendedores-gestion' | 'vendedores-pedidos';
 
 interface MenuItem {
   id: string;
@@ -228,6 +229,7 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
       children: [
         { id: 'new-purchase', label: 'Nueva Compra', view: 'nueva-compra' as View },
         { id: 'purchase-list', label: 'Listado de Compras', view: 'purchases' },
+        { id: 'received-invoices', label: 'Facturas Recibidas (FE)', view: 'facturas-recibidas' as View },
       ]
     },
     { 
@@ -693,6 +695,7 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
           {currentView === 'ventas-tipo-pago' && <VentasPorTipoPago />}
           {currentView === 'nueva-venta' && <VentasTabs />}
           {currentView === 'facturacion-electronica' && <FacturacionElectronica onNavigate={(v) => setCurrentView(v as View)} />}
+          {currentView === 'facturas-recibidas' && <FacturasRecibidas />}
           {currentView === 'caja' && <CajaRegistradora />}
           {currentView === 'caja-historial' && <HistorialCajas />}
           {currentView === 'informes-hub' && <InformesHub />}
