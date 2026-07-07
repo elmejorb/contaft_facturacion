@@ -5,6 +5,54 @@ Visible solo para administradores desde **Configuración → Acerca de → Ver h
 
 ---
 
+## 4.3.63 — 2026-07-02
+
+### Logo de la empresa desde el servidor (no más hardcode)
+
+Antes el PDF de FE usaba un path hardcoded del logo de Innovación. Y el logo que el usuario subía en Datos de la Empresa solo se guardaba en `localStorage`, así que servía en la máquina donde se subió pero NO llegaba al PDF (que se genera server-side).
+
+- Nuevo endpoint `api/empresa/logo.php` — POST base64 sube y guarda en `conta-app-backend/uploads/logo.{ext}`, DELETE lo borra, GET devuelve URL pública. Crea la columna `tbldatosempresa.Logo` idempotentemente.
+- `api/empresa/datos.php` — GET devuelve `Logo_url` (absoluta) para que el frontend la muestre y las impresiones la reutilicen.
+- `api/facturacion-electronica/pdf.php` — toma el logo del path guardado en BD; si no existe archivo, imprime sin logo (adiós al logo de Innovación por default).
+- `DatosEmpresa.tsx` — al guardar sube al backend; al cargar trae desde el servidor.
+
+### Cotizaciones — nuevo modo de documento + botones de imprimir
+
+Se puede elegir "Cotización" desde el selector DOCUMENTO al inicio (no como acción posterior). En ese modo el botón Finalizar cambia a "Guardar Cotización" en azul, se omiten validaciones de stock/crédito/caja y no toca kardex/inventario.
+
+- Botón "Nueva Cotización" de la barra ahora **activa el modo** (antes solo intentaba guardar y no hacía nada sin líneas). Label de la pestaña cambia a "Cotización N" inmediatamente. Cuando ya está en modo cotización con líneas, el botón muta a "Guardar Cotización".
+- 🖨️ **Imprimir cotización**: botón nuevo en la barra superior cuando la pestaña activa ya es una cotización guardada, y otro botón en cada fila del listado **Cotizaciones guardadas** — permite reimprimir sin abrir la cotización en una pestaña.
+- Fix crítico SQL: `tblcotizaciones.id_cotizacion` y `detalle_cotizacion.id_detalle_cotiza` en BDs viejas venían sin AUTO_INCREMENT, causando `1364 Field 'id_cotizacion' doesn't have a default value` al guardar. `actualizacion_completa.sql` ahora aplica el ALTER idempotentemente. También corregido en `estructura_conta_ft.sql` y `conta_template_cliente_nuevo.sql` para nuevas instalaciones.
+
+### Facturación electrónica — consulta de eventos DIAN (facturas a crédito)
+
+En Colombia, una factura a crédito se convierte en título valor cuando el cliente la acepta formalmente (evento 033) o pasan 3 días hábiles sin rechazo (aceptación tácita). Se agregó visibilidad de estos eventos:
+
+- Nuevo endpoint proxy `api/facturacion-electronica/eventos.php`:
+  - `GET ?cufe=X` → consulta rápida a `/eventos-estado` (BD Lumen).
+  - `GET ?cufe=X&refresh=1` → consulta DIAN en tiempo real via `/eventos`.
+  - `POST { cufes: [...] }` → batch con `curl_multi_init` en paralelo (max 100 cufes).
+- Listado FE — nueva columna **Evento** con badge coloreado por estado (Pendiente / Acuse / Recibido / Aceptada / Aceptación Tácita / Rechazada). Solo muestra badge en facturas crédito autorizadas. Botón 🔄 por fila fuerza consulta DIAN. Carga en batch al abrir el módulo.
+- Modal de detalle de FE — botón azul **Consultar eventos** en el header y bloque nuevo con timeline visual de los 4 pasos (acuse → recibido → aceptación → rechazo) con fechas. Muestra motivo de rechazo si aplica. Auto-carga estado al abrir el modal.
+- `listar.php` incluye `payment_form_id` para que el frontend pueda filtrar créditos.
+
+### Archivos tocados
+- `conta-app-backend/api/empresa/logo.php` (nuevo)
+- `conta-app-backend/api/empresa/datos.php`
+- `conta-app-backend/api/facturacion-electronica/pdf.php`
+- `conta-app-backend/api/facturacion-electronica/eventos.php` (nuevo)
+- `conta-app-backend/api/facturacion-electronica/listar.php`
+- `conta-app-backend/sql/actualizacion_completa.sql`
+- `conta-app-backend/sql/estructura_conta_ft.sql`
+- `conta-app-backend/sql/conta_template_cliente_nuevo.sql`
+- `Dashboard-Facturación/src/components/DatosEmpresa.tsx`
+- `Dashboard-Facturación/src/components/NuevaVenta.tsx`
+- `Dashboard-Facturación/src/components/VentasTabs.tsx`
+- `Dashboard-Facturación/src/components/FacturacionElectronica.tsx`
+- `Dashboard-Facturación/src/components/DetalleDocElectronico.tsx`
+
+---
+
 ## 4.3.62 — 2026-06-26
 
 ### Fix — Total inflado también aparecía en la vista previa de FE y en el listado

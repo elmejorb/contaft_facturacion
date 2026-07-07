@@ -777,6 +777,14 @@ WHERE COALESCE(Fact_N, 0) = 0
 -- 2a. Recrear vw_facturas_cliente_saldos (módulo nuevo, tblventas)
 -- IMPORTANTE: en BDs legacy la columna Tipo tiene encoding latin1 ("Cr_dito"
 -- con bytes raros). Usamos Tipo != 'Contado' para ser robustos al encoding.
+--
+-- v4.3.63 — Descuentos en pagos: `tblpagos.Descuento` es la rebaja que el
+-- vendedor otorga junto con el abono (ej. "Te descuento $15.000"). Antes la
+-- vista sumaba solo `ValorPago`, dejando el descuento sin restarse del saldo
+-- y mostrando saldo fantasma. Ahora se suman ambos: la factura queda en $0
+-- cuando (abonos + descuentos) igualan el Total. Caso AMMI Fact 932: Yonis
+-- Guerra con Total 160.000, pagos 145.000 + desc 15.000 aparecía con saldo
+-- 15.000 en cartera aunque el cache de tblventas ya estaba en 0.
 DROP VIEW IF EXISTS vw_facturas_cliente_saldos;
 CREATE VIEW vw_facturas_cliente_saldos AS
 SELECT
@@ -796,10 +804,11 @@ LEFT JOIN (
     SELECT
         COALESCE(NULLIF(tp.Fact_N, 0),
                  CASE WHEN tp.NFactAnt REGEXP '^[0-9]+$' THEN CAST(tp.NFactAnt AS UNSIGNED) END) AS Fact_N,
-        SUM(tp.ValorPago) AS TotalPagos
+        SUM(tp.ValorPago + COALESCE(tp.Descuento, 0)) AS TotalPagos
     FROM tblpagos tp
     WHERE COALESCE(tp.Estado, 'Valida') = 'Valida'
-      AND tp.ValorPago > 0  -- defensivo: ignora reversos mal hechos (ValorPago<0) que envenenan el SUM y devuelven Saldo > Total
+      AND tp.ValorPago >= 0
+      AND COALESCE(tp.Descuento, 0) >= 0  -- defensivo: ignora reversos mal hechos (negativos) que envenenan el SUM
     GROUP BY COALESCE(NULLIF(tp.Fact_N, 0),
              CASE WHEN tp.NFactAnt REGEXP '^[0-9]+$' THEN CAST(tp.NFactAnt AS UNSIGNED) END)
 ) p ON p.Fact_N = v.Factura_N
@@ -828,10 +837,11 @@ FROM tblfacturasanteriores fa
 LEFT JOIN (
     SELECT tp.Codigo AS CodigoCli,
            COALESCE(NULLIF(tp.NFactAnt, ''), CAST(tp.Fact_N AS CHAR)) AS FacturaN,
-           SUM(tp.ValorPago) AS TotalPagos
+           SUM(tp.ValorPago + COALESCE(tp.Descuento, 0)) AS TotalPagos
     FROM tblpagos tp
     WHERE COALESCE(tp.Estado, 'Valida') = 'Valida'
-      AND tp.ValorPago > 0  -- defensivo: ignora reversos mal hechos (ValorPago<0)
+      AND tp.ValorPago >= 0
+      AND COALESCE(tp.Descuento, 0) >= 0  -- defensivo: ignora reversos mal hechos (negativos)
       AND ((tp.NFactAnt IS NOT NULL AND tp.NFactAnt <> '') OR tp.Fact_N IS NOT NULL)
     GROUP BY tp.Codigo, COALESCE(NULLIF(tp.NFactAnt, ''), CAST(tp.Fact_N AS CHAR))
 ) p ON p.CodigoCli = fa.CodigoCli AND p.FacturaN = fa.FacturaN
@@ -871,10 +881,11 @@ JOIN tblclientes c ON c.CodigoClien = v.cod_cliente
 LEFT JOIN (
     SELECT tp.Codigo AS CodigoCli,
            CAST(NULLIF(tp.Nfact_electronica, '') AS UNSIGNED) AS DocID,
-           SUM(tp.ValorPago) AS TotalPagos
+           SUM(tp.ValorPago + COALESCE(tp.Descuento, 0)) AS TotalPagos
     FROM tblpagos tp
     WHERE tp.Estado = 'Valida'
-      AND tp.ValorPago > 0  -- defensivo: ignora reversos mal hechos
+      AND tp.ValorPago >= 0
+      AND COALESCE(tp.Descuento, 0) >= 0  -- defensivo: ignora reversos mal hechos (negativos)
       AND tp.Nfact_electronica IS NOT NULL
     GROUP BY tp.Codigo, CAST(NULLIF(tp.Nfact_electronica, '') AS UNSIGNED)
 ) p ON p.CodigoCli = v.cod_cliente AND p.DocID = v.id
@@ -1016,11 +1027,194 @@ LEFT JOIN (
        AND pag.NFacturaAnt = f.FacturaN
 GROUP BY f.FacturaN, f.CodigoProv, p.RazonSocial, f.Fecha, f.Dias;
 
+-- ================================================================
+-- v4.3.63 — Backfill electronic_documents: payment_form_id,
+-- payment_method_id, payment_due_days
+--
+-- Estos 3 campos quedaban en NULL en versiones anteriores porque el
+-- INSERT del enviar.php no los persistía, aunque se calculaban para el
+-- JSON hacia DIAN. Sin esto:
+--   - El listado no puede mostrar Contado/Crédito.
+--   - La consulta de eventos DIAN (aplica solo a créditos) no se activa.
+--   - No hay forma de saber el plazo de pago desde la factura local.
+--
+-- Backfill idempotente: solo actualiza filas donde el campo está NULL,
+-- vinculando por CUFE con tblventas (que sí tiene Tipo, Dias, id_mediopago).
+-- ================================================================
+UPDATE electronic_documents e
+JOIN tblventas v ON v.cufe = e.cufe
+SET e.payment_form_id = CASE WHEN v.Tipo = 'Contado' THEN 1 ELSE 2 END
+WHERE e.payment_form_id IS NULL AND e.type_document_id = 1 AND e.cufe <> '';
+
+UPDATE electronic_documents e
+JOIN tblventas v ON v.cufe = e.cufe
+SET e.payment_due_days = COALESCE(v.Dias, 0)
+WHERE e.payment_due_days IS NULL AND e.type_document_id = 1 AND e.cufe <> ''
+  AND e.payment_form_id = 2;  -- solo créditos
+
+UPDATE electronic_documents e
+JOIN tblventas v ON v.cufe = e.cufe
+SET e.payment_method_id = CASE
+    WHEN v.id_mediopago = 1  THEN 14  -- Tarjeta
+    WHEN v.id_mediopago >= 2 THEN 30  -- Transferencia
+    ELSE                          10  -- Efectivo (0 o NULL)
+END
+WHERE e.payment_method_id IS NULL AND e.type_document_id = 1 AND e.cufe <> '';
+
+-- ================================================================
+-- v4.3.63 — Cotizaciones: AUTO_INCREMENT en PK (fix bug 1364)
+-- En BDs viejas tblcotizaciones.id_cotizacion y detalle_cotizacion.
+-- id_detalle_cotiza están como NOT NULL sin AUTO_INCREMENT, lo que
+-- impide hacer INSERT desde el módulo de cotizaciones.
+-- Aplicamos AUTO_INCREMENT idempotentemente — solo si no lo tienen ya.
+-- ================================================================
+SET @is_autoinc = (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tblcotizaciones'
+      AND COLUMN_NAME = 'id_cotizacion' AND EXTRA LIKE '%auto_increment%');
+SET @sql = IF(@is_autoinc = 0,
+    'ALTER TABLE tblcotizaciones MODIFY id_cotizacion INT(11) NOT NULL AUTO_INCREMENT',
+    'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @is_autoinc = (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'detalle_cotizacion'
+      AND COLUMN_NAME = 'id_detalle_cotiza' AND EXTRA LIKE '%auto_increment%');
+SET @sql = IF(@is_autoinc = 0,
+    'ALTER TABLE detalle_cotizacion MODIFY id_detalle_cotiza INT(11) NOT NULL AUTO_INCREMENT',
+    'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
 -- NOTA — El módulo Vendedores Móviles aún está EN PRUEBAS y su SQL NO se
 -- distribuye en este archivo a clientes en producción. Las migraciones
 -- necesarias para activar ese módulo (columnas GPS en tblclientes y
 -- migration Lumen) están en `modulo_vendedores_movil.sql` aparte, y solo
 -- se aplican cuando un cliente específico contrata la opción.
+
+-- ================================================================
+-- v4.3.63 — Facturas Recibidas + Eventos DIAN de acuse
+--
+-- El cliente RECIBE facturas electrónicas de sus proveedores (por
+-- correo, en ZIP). Debe emitir eventos DIAN sobre ellas dentro de
+-- 3 días hábiles (030 acuse) para cumplir norma. Este módulo maneja:
+--   - Persistir la FE recibida (cabecera + líneas)
+--   - Historial de eventos aplicados (030/031/032/033/034)
+--   - Vincular con tblcompras cuando se registra la compra contable
+--
+-- Reglas DIAN implementadas:
+--   - Idempotencia por CUFE — UNIQUE key en facturas_recibidas
+--   - No reenviar el mismo evento aprobado — UNIQUE compuesto
+-- ================================================================
+CREATE TABLE IF NOT EXISTS facturas_recibidas (
+    id                       INT AUTO_INCREMENT PRIMARY KEY,
+    cufe                     VARCHAR(200) NOT NULL,
+    tipo_documento           VARCHAR(20)  NOT NULL DEFAULT 'invoice',    -- invoice / credit-note / debit-note
+    document_type_code       VARCHAR(4)   DEFAULT '01',                  -- 01=FE, 91=NC, 92=ND
+    numero                   VARCHAR(50)  NULL,
+    prefijo                  VARCHAR(10)  NULL,
+    fecha_emision            DATE         NULL,
+    fecha_recepcion          DATETIME     DEFAULT CURRENT_TIMESTAMP,
+    emisor_nit               VARCHAR(30)  NULL,
+    emisor_dv                VARCHAR(2)   NULL,
+    emisor_nombre            VARCHAR(200) NULL,
+    emisor_organization_type VARCHAR(2)   DEFAULT '1',                    -- 1=Jurídica, 2=Natural
+    receptor_nit             VARCHAR(30)  NULL,
+    receptor_nombre          VARCHAR(200) NULL,
+    subtotal                 DECIMAL(15,2) DEFAULT 0,
+    total_iva                DECIMAL(15,2) DEFAULT 0,
+    total                    DECIMAL(15,2) DEFAULT 0,
+    moneda                   VARCHAR(3)   DEFAULT 'COP',
+    archivo_original_nombre  VARCHAR(255) NULL,
+    xml_filename             VARCHAR(255) NULL,
+    xml_path                 VARCHAR(500) NULL,
+    compra_id                INT          NULL,                            -- FK a tblcompras (opcional)
+    created_at               TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uq_cufe (cufe),
+    KEY idx_fecha_emision (fecha_emision),
+    KEY idx_compra (compra_id),
+    KEY idx_emisor (emisor_nit)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE IF NOT EXISTS detalle_factura_recibida (
+    id                   INT AUTO_INCREMENT PRIMARY KEY,
+    factura_recibida_id  INT NOT NULL,
+    linea_num            INT DEFAULT 1,
+    codigo               VARCHAR(60)  NULL,
+    descripcion          VARCHAR(500) NULL,
+    unidad_medida        VARCHAR(20)  NULL,
+    cantidad             DECIMAL(15,3) DEFAULT 1,
+    precio_unitario      DECIMAL(15,2) DEFAULT 0,
+    descuento            DECIMAL(15,2) DEFAULT 0,
+    iva_pct              DECIMAL(5,2)  DEFAULT 0,
+    iva_monto            DECIMAL(15,2) DEFAULT 0,
+    subtotal             DECIMAL(15,2) DEFAULT 0,
+    total_linea          DECIMAL(15,2) DEFAULT 0,
+    KEY idx_factura (factura_recibida_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE IF NOT EXISTS eventos_factura_recibida (
+    id                    INT AUTO_INCREMENT PRIMARY KEY,
+    factura_recibida_id   INT NOT NULL,
+    event_code            VARCHAR(4) NOT NULL,        -- 030 / 031 / 032 / 033 / 034
+    event_label           VARCHAR(120) NULL,
+    cude_evento           VARCHAR(200) NULL,          -- CUDE devuelto por la API
+    event_id_remoto       INT NULL,                   -- ID en electronic_document_events (API Lumen)
+    dian_status           VARCHAR(10) NULL,           -- '00' = aceptado
+    dian_message          TEXT NULL,
+    rejection_code        VARCHAR(10)  NULL,          -- solo 031
+    rejection_description VARCHAR(500) NULL,          -- solo 031
+    note                  TEXT NULL,                  -- solo 034 (declaración jurada)
+    api_response          LONGTEXT NULL,              -- JSON completo de la API (debug)
+    estado                ENUM('pendiente','aprobado','rechazado') DEFAULT 'pendiente',
+    enviado_at            DATETIME NULL,
+    usuario_id            INT NULL,
+    created_at            TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    -- Marker generado: solo tiene valor cuando el evento fue APROBADO. En
+    -- combinación con el UNIQUE de abajo, esto permite:
+    --   * UN solo evento aprobado por (factura, code)  → previene duplicar
+    --     aprobados que ya son título valor en DIAN.
+    --   * VARIOS pendientes/rechazados por (factura, code)  → permite
+    --     reintentar sin chocar con intentos anteriores fallidos.
+    -- MySQL trata múltiples NULL como distintos en un UNIQUE.
+    aprobado_marker       VARCHAR(4) GENERATED ALWAYS AS
+        (CASE WHEN estado = 'aprobado' THEN event_code ELSE NULL END) STORED,
+    KEY idx_factura (factura_recibida_id),
+    KEY idx_estado (estado),
+    UNIQUE KEY uq_solo_aprobado (factura_recibida_id, aprobado_marker)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- Fix retroactivo: BDs que ya tienen la tabla con el UNIQUE viejo
+-- `uq_evento_aprobado (factura_recibida_id, event_code, estado)` deben
+-- migrar al nuevo UNIQUE parcial. Idempotente.
+SET @has_bad_uq = (SELECT COUNT(*) FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME  = 'eventos_factura_recibida'
+      AND INDEX_NAME  = 'uq_evento_aprobado');
+SET @sql = IF(@has_bad_uq > 0,
+    'ALTER TABLE eventos_factura_recibida DROP INDEX uq_evento_aprobado',
+    'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @has_marker = (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME  = 'eventos_factura_recibida'
+      AND COLUMN_NAME = 'aprobado_marker');
+SET @sql = IF(@has_marker = 0,
+    "ALTER TABLE eventos_factura_recibida ADD COLUMN aprobado_marker VARCHAR(4) GENERATED ALWAYS AS (CASE WHEN estado = 'aprobado' THEN event_code ELSE NULL END) STORED",
+    'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @has_new_uq = (SELECT COUNT(*) FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME  = 'eventos_factura_recibida'
+      AND INDEX_NAME  = 'uq_solo_aprobado');
+SET @sql = IF(@has_new_uq = 0,
+    'ALTER TABLE eventos_factura_recibida ADD UNIQUE KEY uq_solo_aprobado (factura_recibida_id, aprobado_marker)',
+    'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- FK opcional a tblcompras si aún no existe la relación (idempotente).
+-- No la creamos como constraint dura porque compra_id puede ser NULL hasta
+-- que el usuario decide convertir la FE recibida en compra contable.
 
 -- ================================================================
 -- VERIFICACIÓN FINAL
