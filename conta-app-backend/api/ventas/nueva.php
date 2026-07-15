@@ -23,6 +23,7 @@ try {
             $stmt = $db->prepare("
                 SELECT a.Items, a.Codigo, a.Nombres_Articulo, a.Existencia, a.Precio_Costo,
                        a.Precio_Venta, a.Precio_Venta2, a.Precio_Venta3, a.Iva, a.Precio_Minimo,
+                       COALESCE(a.Servicio, 0) AS Servicio,
                        COALESCE(c.Categoria, 'VARIOS') as Categoria
                 FROM tblarticulos a
                 LEFT JOIN tblcategoria c ON a.Id_Categoria = c.Id_Categoria
@@ -237,7 +238,22 @@ try {
         $iva = $esResponsableIVA ? floatval($item->iva ?? 0) : 0;
         // Servicio: el item NO descuenta inventario ni mueve kardex. Permite
         // editar el concepto por venta (DescripcionTemp).
+        //
+        // DEFENSA CRUZADA (v4.3.66): si el frontend manda es_servicio=1 pero
+        // el catálogo dice tblarticulos.Servicio=0, prevalece el catálogo.
+        // Evita que un flujo raro del cliente (versión vieja, cache stale,
+        // pedido móvil malformado) marque un producto como servicio y deje
+        // el stock desincronizado. Caso real: 5 ventas de Ammi (jul-2026)
+        // corregidas manualmente por este mismo síntoma.
         $esServicio = !empty($item->es_servicio);
+        if ($esServicio) {
+            $stmtSrv = $db->prepare("SELECT COALESCE(Servicio, 0) FROM tblarticulos WHERE Items = ?");
+            $stmtSrv->execute([$itemId]);
+            $servicioCatalogo = intval($stmtSrv->fetchColumn());
+            if ($servicioCatalogo === 0) {
+                $esServicio = false;  // catálogo manda — es producto, descuenta
+            }
+        }
         $descTemp = $esServicio ? (string)($item->descripcion_temp ?? '') : null;
         $lineaSubtotal = ($cant * $precioV) - $desc;
         // Misma fórmula que arriba: respeta IvaIncluido para que el monto del

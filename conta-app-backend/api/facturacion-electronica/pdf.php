@@ -80,9 +80,16 @@ try {
     $stmt = $db->query("SELECT * FROM tbldatosempresa LIMIT 1");
     $empresa = $stmt->fetch();
 
-    // Get items
+    // Get items.
+    // Prioridad de descripción: el `d.description` es el concepto que se
+    // envía a la DIAN (viene del DescripcionTemp del detalle de venta cuando
+    // es servicio con concepto editado). Si está vacío, cae al nombre del
+    // catálogo. Antes solo se leía Nombres_Articulo y en las FE con concepto
+    // largo salía el nombre corto del servicio en el PDF.
     $stmt = $db->prepare("
-        SELECT d.*, a.Codigo, a.Nombres_Articulo, COALESCE(um.name, 'Unidad') as unidad_nombre
+        SELECT d.*, a.Codigo,
+               COALESCE(NULLIF(d.description, ''), a.Nombres_Articulo) AS Nombres_Articulo,
+               COALESCE(um.name, 'Unidad') as unidad_nombre
         FROM detalle_document_electronic d
         LEFT JOIN tblarticulos a ON d.items = a.Items
         LEFT JOIN unit_measures um ON d.unit_measure_id = um.id
