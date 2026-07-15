@@ -46,6 +46,7 @@ export interface ConfigImpresion {
   usarCotizaciones: boolean;
   usarConteoInventario: boolean;
   usarLotes: boolean; // activa el manejo de fechas de vencimiento / lotes para productos perecederos (farmacias, alimentos)
+  usarFinanciaciones: boolean; // activa el módulo de financiaciones (crédito con cuotas) — típico venta de motos
   tipoNegocio: string; // Tienda, Farmacia, Boutique, etc.
   // Seguridad — autorización admin para acciones sensibles
   autorizarDevoluciones: boolean;     // pide clave admin para devolver
@@ -92,6 +93,7 @@ const defaultConfig: ConfigImpresion = {
   usarCotizaciones: true,
   usarConteoInventario: true,
   usarLotes: false,
+  usarFinanciaciones: false,
   tipoNegocio: '',
   autorizarDevoluciones: false,
   autorizarAnulaciones: false,
@@ -578,6 +580,7 @@ export function ConfiguracionSistema() {
             { key: 'usarCotizaciones', label: 'Cotizaciones', desc: 'Crear y guardar cotizaciones para clientes antes de facturar.' },
             { key: 'usarConteoInventario', label: 'Conteo de inventario', desc: 'Realizar conteos físicos de inventario con compensación automática de ventas durante el conteo.' },
             { key: 'usarLotes', label: 'Fechas de vencimiento / Lotes', desc: 'Activa el manejo de lotes y fechas de vencimiento en compras y productos. Para farmacias, droguerías, alimentos, lácteos. Si está apagado, las compras NO piden fecha de vencimiento ni muestran productos perecederos aunque estén marcados así en el catálogo.' },
+            { key: 'usarFinanciaciones', label: 'Financiaciones (créditos con cuotas)', desc: 'Activa el módulo de Financiaciones para negocios que venden a plazos (motos, electrodomésticos, muebles). Permite registrar contratos con cronograma de cuotas de fechas y valores libres, y llevar el cobro por cliente.' },
           ].map(m => (
             <label key={m.key}
               onClick={() => set(m.key as keyof ConfigImpresion, !(config as any)[m.key])}

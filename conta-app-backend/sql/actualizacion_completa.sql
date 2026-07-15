@@ -1239,6 +1239,85 @@ SET @sql = IF(@col_exists = 0,
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 -- ================================================================
+-- v4.3.70 — Módulo de Financiaciones (opcional, activado por empresa)
+--
+-- Sistema simple de crédito con cuotas para negocios como venta de motos:
+-- - Registrar financiación de una venta con cronograma de cuotas
+-- - Cuotas de valor variable, fechas editables
+-- - Registrar pagos parciales o totales; el pago va a tblpagos también
+--
+-- El módulo NO se muestra por default. Se activa por empresa vía
+-- tbldatosempresa.modulo_financiaciones = 1. Todo el resto del sistema
+-- ignora las tablas nuevas si el módulo no está activo.
+-- ================================================================
+
+-- Flag en tbldatosempresa
+SET @col_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tbldatosempresa'
+      AND COLUMN_NAME = 'modulo_financiaciones');
+SET @sql = IF(@col_exists = 0,
+    "ALTER TABLE tbldatosempresa ADD COLUMN modulo_financiaciones TINYINT(1) NOT NULL DEFAULT 0",
+    'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- Contrato de financiación (1 fila por venta financiada)
+CREATE TABLE IF NOT EXISTS tblfinanciaciones (
+    Id_Financiacion INT AUTO_INCREMENT PRIMARY KEY,
+    Consecutivo     VARCHAR(20) NULL COMMENT 'Ej. F-001 o consecutivo por resolución',
+    Fecha           DATE NOT NULL,
+    Codigo          INT NOT NULL COMMENT 'CodigoClien del cliente',
+    Descripcion     VARCHAR(300) NULL COMMENT 'Ej. Moto Hero NKD 125 Placa XXX',
+    MontoTotal      DECIMAL(15,2) NOT NULL DEFAULT 0,
+    CuotaInicial    DECIMAL(15,2) NOT NULL DEFAULT 0,
+    MontoFinanciado DECIMAL(15,2) NOT NULL DEFAULT 0,
+    NumCuotas       INT NOT NULL DEFAULT 1,
+    FrecuenciaDias  INT NOT NULL DEFAULT 30,
+    FechaPrimeraCuota DATE NULL,
+    Factura_N       INT NULL COMMENT 'Vínculo opcional con tblventas.Factura_N',
+    Id_Usuario      INT NULL COMMENT 'Vendedor',
+    Estado          VARCHAR(15) NOT NULL DEFAULT 'Activa' COMMENT 'Activa | Pagada | Anulada',
+    Comentario      TEXT NULL,
+    FechaCreacion   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FechaMod        TIMESTAMP NULL ON UPDATE CURRENT_TIMESTAMP,
+    KEY idx_cliente (Codigo),
+    KEY idx_estado (Estado),
+    KEY idx_fecha (Fecha)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Cuotas del cronograma (N filas por contrato)
+CREATE TABLE IF NOT EXISTS tblfinanciacion_cuotas (
+    Id_Cuota        INT AUTO_INCREMENT PRIMARY KEY,
+    Id_Financiacion INT NOT NULL,
+    NumCuota        INT NOT NULL,
+    FechaVencimiento DATE NOT NULL,
+    ValorCuota      DECIMAL(15,2) NOT NULL DEFAULT 0,
+    ValorPagado     DECIMAL(15,2) NOT NULL DEFAULT 0,
+    Saldo           DECIMAL(15,2) NOT NULL DEFAULT 0 COMMENT 'ValorCuota - ValorPagado',
+    Estado          VARCHAR(15) NOT NULL DEFAULT 'Pendiente' COMMENT 'Pendiente | Parcial | Pagada',
+    FechaUltimoPago DATE NULL,
+    KEY idx_financ (Id_Financiacion),
+    KEY idx_vencimiento (FechaVencimiento),
+    KEY idx_estado (Estado)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Vínculo pago ↔ cuota (permite pagos parciales y múltiples pagos por cuota)
+CREATE TABLE IF NOT EXISTS tblfinanciacion_pagos (
+    Id_FinancPago   INT AUTO_INCREMENT PRIMARY KEY,
+    Id_Cuota        INT NOT NULL,
+    Id_Financiacion INT NOT NULL,
+    Id_Pagos        INT NULL COMMENT 'FK opcional a tblpagos para trazabilidad contable',
+    Fecha           DATE NOT NULL,
+    Valor           DECIMAL(15,2) NOT NULL,
+    id_mediopago    INT NOT NULL DEFAULT 0 COMMENT '0=Efectivo 1=Tarjeta 2=Bancolombia 3=Nequi',
+    Id_Usuario      INT NULL,
+    Estado          VARCHAR(10) NOT NULL DEFAULT 'Valida' COMMENT 'Valida | Anulada',
+    FechaCreacion   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_cuota (Id_Cuota),
+    KEY idx_financ (Id_Financiacion),
+    KEY idx_fecha (Fecha)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ================================================================
 -- VERIFICACIÓN FINAL
 -- ================================================================
 SELECT '✓ Actualización completa Conta FT aplicada' AS resultado;

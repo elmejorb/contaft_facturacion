@@ -41,7 +41,8 @@ import {
   CalendarClock,
   AlertTriangle,
   Gift,
-  Smartphone
+  Smartphone,
+  CalendarDays
 } from 'lucide-react';
 import { IncomeOverview } from './IncomeOverview';
 import { ProductsManagement } from './ProductsManagement';
@@ -80,7 +81,8 @@ import { PantallaInicio } from './PantallaInicio';
 import { useNotificaciones } from '../hooks/useNotificaciones';
 import { useAutoSyncVendedores } from '../hooks/useAutoSyncVendedores';
 import { InformesHub } from './informes/InformesHub';
-import { ConfiguracionSistema, saveEmpresaCache } from './ConfiguracionSistema';
+import { ConfiguracionSistema, saveEmpresaCache, getConfigImpresion } from './ConfiguracionSistema';
+import { FinanciacionesManagement } from './FinanciacionesManagement';
 import { DatosEmpresa } from './DatosEmpresa';
 import { NuevaCompra } from './NuevaCompra';
 import { UsuariosManagement } from './UsuariosManagement';
@@ -112,7 +114,7 @@ interface DashboardProps {
   user?: UserData | null;
 }
 
-type View = 'overview' | 'products' | 'customers' | 'suppliers' | 'purchases' | 'sales' | 'inventario' | 'diagnostico' | 'auditoria' | 'categorias' | 'conteo' | 'configuracion' | 'cuentas-cobrar' | 'top-clientes' | 'cumpleanos' | 'cuentas-pagar' | 'productos-proveedor' | 'nueva-venta' | 'ventas-tipo-pago' | 'datos-empresa' | 'usuarios' | 'nueva-compra' | 'facturacion-electronica' | 'facturas-recibidas' | 'caja' | 'caja-historial' | 'pagos-clientes' | 'pagos-proveedores' | 'gastos' | 'bancos' | 'config-categorias-gasto' | 'config-cajas' | 'config-servidor' | 'config-permisos' | 'familias' | 'distribuir' | 'stock-bajo' | 'config-retenciones' | 'informes-hub' | 'notas-articulo' | 'lotes-vencer' | 'inicio' | 'config-etiquetas' | 'vendedores-gestion' | 'vendedores-pedidos';
+type View = 'overview' | 'products' | 'customers' | 'suppliers' | 'purchases' | 'sales' | 'inventario' | 'diagnostico' | 'auditoria' | 'categorias' | 'conteo' | 'configuracion' | 'cuentas-cobrar' | 'top-clientes' | 'cumpleanos' | 'cuentas-pagar' | 'productos-proveedor' | 'nueva-venta' | 'ventas-tipo-pago' | 'datos-empresa' | 'usuarios' | 'nueva-compra' | 'facturacion-electronica' | 'facturas-recibidas' | 'caja' | 'caja-historial' | 'pagos-clientes' | 'pagos-proveedores' | 'gastos' | 'bancos' | 'config-categorias-gasto' | 'config-cajas' | 'config-servidor' | 'config-permisos' | 'familias' | 'distribuir' | 'stock-bajo' | 'config-retenciones' | 'informes-hub' | 'notas-articulo' | 'lotes-vencer' | 'inicio' | 'config-etiquetas' | 'vendedores-gestion' | 'vendedores-pedidos' | 'financiaciones';
 
 interface MenuItem {
   id: string;
@@ -154,6 +156,10 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
   const esAdmin = user?.tipoUsuario === 1 || user?.tipoUsuario === '1';
   const esVendedor = user?.tipoUsuario === 2 || user?.tipoUsuario === '2';
   const { habilitado: vendedoresHabilitado, pedidosPendientes } = useVendedoresConfig();
+  // Módulo opcional Financiaciones — solo se muestra si el admin lo activó
+  // en Configuración → Módulos opcionales del negocio (`usarFinanciaciones`).
+  // Sin este flag, ni el ítem del menú ni las tablas se tocan.
+  const financiacionesHabilitado = !!getConfigImpresion().usarFinanciaciones;
   const [showCambiarClave, setShowCambiarClave] = useState(false);
   const [claveActual, setClaveActual] = useState('');
   const [claveNueva, setClaveNueva] = useState('');
@@ -232,14 +238,20 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
         { id: 'received-invoices', label: 'Facturas Recibidas (FE)', view: 'facturas-recibidas' as View },
       ]
     },
-    { 
-      id: 'portfolio', 
-      label: 'Cartera', 
+    {
+      id: 'portfolio',
+      label: 'Cartera',
       icon: Wallet,
       children: [
         { id: 'accounts-receivable', label: 'Cartera de Clientes', view: 'cuentas-cobrar' as View },
         { id: 'accounts-payable', label: 'Cuentas por Pagar', view: 'cuentas-pagar' as View },
       ]
+    },
+    {
+      id: 'financiaciones',
+      label: 'Financiaciones',
+      icon: CalendarDays,
+      view: 'financiaciones' as View,
     },
     {
       id: 'movimientos-menu',
@@ -306,6 +318,7 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
     'new-sale': 'ventas', 'sales-list': 'ventas_listado',
     'sales-by-payment': 'ventas_tipo_pago', 'fe-panel': 'facturacion_electronica',
     'purchases': 'compras', 'new-purchase': 'compras_editar', 'purchase-list': 'compras',
+    'financiaciones': 'financiaciones',
     'caja-actual': 'caja', 'caja-historial': 'caja_historial',
     'pagos-clientes': 'pagos_listado', 'pagos-proveedores': 'pagos_listado',
     'gastos': 'gastos', 'bancos': 'bancos',
@@ -316,7 +329,9 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
   };
 
   // Filtrar menú por permisos y habilitación de módulos
-  const baseMenuItems = allMenuItems.filter(item => item.id !== 'vendedores' || vendedoresHabilitado);
+  const baseMenuItems = allMenuItems
+    .filter(item => item.id !== 'vendedores' || vendedoresHabilitado)
+    .filter(item => item.id !== 'financiaciones' || financiacionesHabilitado);
   const menuItems = esAdmin ? baseMenuItems : baseMenuItems
     .map(item => {
       if (item.children) {
@@ -708,6 +723,7 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
           {currentView === 'config-cajas' && <ConfigCajas />}
           {currentView === 'config-servidor' && <ConfigServidor />}
           {currentView === 'config-permisos' && <ConfigPermisos />}
+          {currentView === 'financiaciones' && <FinanciacionesManagement />}
         </div>
       </main>
 
