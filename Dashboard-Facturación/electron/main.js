@@ -324,13 +324,27 @@ ipcMain.handle('subscription:setApiToken', async (_, token) => {
 });
 
 // ============================================================
-// Config file: config.json en la carpeta de instalación
+// Config file: config.json en userData
+//
+// HISTORIA: hasta 4.3.63 se guardaba junto al .exe. En Windows con NSIS,
+// eso es `C:\Program Files\Conta FT 4.3\` que Windows protege — el proceso
+// normal NO puede escribir ahí y writeConfig fallaba silenciosamente. Al
+// hacer reload el config.json quedaba con los defaults del instalador
+// (o vacío) y la app volvía a pedir "Configurar Servidor" indefinidamente.
+//
+// FIX 4.3.65: guardar en app.getPath('userData') = %APPDATA%/Roaming/<app>/
+// que es la carpeta del usuario, siempre escribible. Se migra el config
+// viejo automáticamente la primera vez.
 // ============================================================
 function getConfigPath() {
   if (process.env.NODE_ENV === 'development') {
     return path.join(__dirname, '..', 'config.json');
   }
-  // En producción: junto al .exe
+  return path.join(app.getPath('userData'), 'config.json');
+}
+
+// Path del config antiguo (junto al .exe) — solo para migrar una vez.
+function getLegacyConfigPath() {
   return path.join(path.dirname(app.getPath('exe')), 'config.json');
 }
 
@@ -349,6 +363,8 @@ function readConfig() {
 function writeConfig(data) {
   try {
     const configPath = getConfigPath();
+    // Asegurar carpeta padre (userData suele existir, pero por si acaso)
+    fs.mkdirSync(path.dirname(configPath), { recursive: true });
     const existing = readConfig();
     const merged = { ...existing, ...data };
     fs.writeFileSync(configPath, JSON.stringify(merged, null, 2), 'utf8');
@@ -359,20 +375,36 @@ function writeConfig(data) {
   }
 }
 
-// Crea config.json con valores por defecto si no existe (típicamente
-// tras una instalación nueva o reinstalación). Sin esto, getApiTokenFromBackend
-// falla con 'no-api-url' y la suscripción nunca puede validarse.
+// Crea config.json con valores por defecto si no existe. Si hay uno legacy
+// junto al .exe (instalaciones previas a 4.3.65), lo copia a userData
+// para que el cliente NO pierda su apiUrl al actualizar.
 function ensureConfigExists() {
   try {
     const configPath = getConfigPath();
-    if (!fs.existsSync(configPath)) {
-      const defaults = {
-        apiUrl: 'http://localhost/conta-app-backend/api',
-        backendPath: 'C:\\xampp\\htdocs\\conta-app-backend',
-      };
-      fs.writeFileSync(configPath, JSON.stringify(defaults, null, 2), 'utf8');
-      console.log('[config] config.json creado con defaults en:', configPath);
+    if (fs.existsSync(configPath)) return; // ya existe, nada que hacer
+
+    // Migración: intentar leer el config viejo del path junto al .exe.
+    // Si el usuario ya tenía apiUrl configurado allí, lo respetamos.
+    const legacyPath = getLegacyConfigPath();
+    if (fs.existsSync(legacyPath)) {
+      try {
+        const legacy = JSON.parse(fs.readFileSync(legacyPath, 'utf8'));
+        fs.mkdirSync(path.dirname(configPath), { recursive: true });
+        fs.writeFileSync(configPath, JSON.stringify(legacy, null, 2), 'utf8');
+        console.log('[config] Migrado config.json legacy →', configPath);
+        return;
+      } catch (e) {
+        console.warn('[config] no se pudo migrar legacy config:', e);
+      }
     }
+
+    const defaults = {
+      apiUrl: 'http://localhost:80/conta-app-backend/api',
+      backendPath: 'C:\\xampp\\htdocs\\conta-app-backend',
+    };
+    fs.mkdirSync(path.dirname(configPath), { recursive: true });
+    fs.writeFileSync(configPath, JSON.stringify(defaults, null, 2), 'utf8');
+    console.log('[config] config.json creado con defaults en:', configPath);
   } catch (e) {
     console.error('[config] no se pudo crear config.json:', e);
   }

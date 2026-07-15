@@ -1217,6 +1217,28 @@ PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 -- que el usuario decide convertir la FE recibida en compra contable.
 
 -- ================================================================
+-- v4.3.64 — DescripcionTemp de tbldetalle_venta a VARCHAR(500)
+-- Conceptos largos (servicios profesionales de FE) rompían con el
+-- VARCHAR(100) original: "SQLSTATE[22001] Data too long".
+-- Idempotente: MODIFY es seguro correrlo N veces.
+-- ================================================================
+ALTER TABLE tbldetalle_venta MODIFY COLUMN DescripcionTemp VARCHAR(500) NULL;
+
+-- ================================================================
+-- v4.3.64 — id_mediopago en tblegresos
+-- Los pagos de compras al contado ahora registran el medio de pago
+-- (Efectivo/Tarjeta/Bancolombia/Nequi) igual que ventas. Los códigos
+-- coinciden con tblmedios_pago (0=Efectivo, 1=Tarjeta, 2=Bancolombia, 3=Nequi).
+-- Solo el medio_pago = 0 (efectivo) descuenta de tblcajas.
+-- ================================================================
+SET @col_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tblegresos' AND COLUMN_NAME = 'id_mediopago');
+SET @sql = IF(@col_exists = 0,
+    "ALTER TABLE tblegresos ADD COLUMN id_mediopago INT NOT NULL DEFAULT 0, ADD KEY idx_egr_medio (id_mediopago)",
+    'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- ================================================================
 -- VERIFICACIÓN FINAL
 -- ================================================================
 SELECT '✓ Actualización completa Conta FT aplicada' AS resultado;

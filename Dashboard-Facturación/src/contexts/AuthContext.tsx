@@ -64,6 +64,35 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       sessionStorage.setItem('user', JSON.stringify(data.user));
       setUser(data.user);
 
+      // Auto-aplicar migraciones de BD si la versión de la app cambió
+      // respecto a la última vez que se corrió el SQL en este cliente.
+      // No bloquea el login — corre en background. El endpoint es
+      // idempotente y solo aplica si detecta un cambio de versión
+      // guardada en tbldatosempresa.version_sql_aplicada.
+      try {
+        const pkg = await import('../../package.json');
+        const appVersion = (pkg as any).default?.version ?? (pkg as any).version ?? '0.0.0';
+        fetch(`${API_URL}/actualizacion/aplicar-sql.php`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ version: appVersion }),
+        })
+          .then(r => r.json())
+          .then(res => {
+            if (res.aplicado && res.statements_ok > 0) {
+              setTimeout(() => {
+                import('react-hot-toast').then(({ default: toast }) => {
+                  toast.success(`Base de datos actualizada a v${appVersion}`, { duration: 4000 });
+                });
+              }, 800);
+            }
+            if (res.errores?.length > 0) {
+              console.warn('[actualizacion-bd] migraciones con errores parciales:', res.errores);
+            }
+          })
+          .catch(err => console.warn('[actualizacion-bd] no se pudo aplicar SQL:', err));
+      } catch { /* silent — no queremos que un fallo aquí impida el login */ }
+
       return { success: true };
     } catch (error: any) {
       return {
