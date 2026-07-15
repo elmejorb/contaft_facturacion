@@ -5,6 +5,130 @@ Visible solo para administradores desde **Configuración → Acerca de → Ver h
 
 ---
 
+## 4.3.69 — 2026-07-14
+
+### Flete en compras: input global y prorrateo por línea sincronizados
+
+Se agruparon varios problemas del flete en Nueva Compra que quedaron pendientes desde versiones anteriores:
+
+- **Re-prorrateo automático al cambiar el flete global**: antes al modificar el input "FLETE" del footer, las columnas "Flete/u" de las líneas no se actualizaban aunque el backend sí lo prorrateaba al guardar. Resultado: pantalla y BD mostraban valores distintos. Ahora un `useEffect([flete])` re-prorratea todas las líneas no-manuales al instante.
+- **Flete no se limpiaba al Guardar / "+ Nueva"**: el input FLETE usaba `defaultValue` que ignora cambios posteriores del state. Se le agregó `key={flete-${flete}}` para forzar re-mount cuando `setFlete(0)` corre desde botones.
+- **FleteUnit ahora siempre editable**: antes se deshabilitaba cuando el flete global era 0. Impedía el patrón "flete por peso" donde cada ítem lleva su propio costo de transporte.
+- **Flete global sincroniza con la suma real al editar manualmente**: si el usuario tipea manualmente `Flete/u` en las líneas, el flete global del footer refleja `SUM(FleteUnit × Cantidad)` de todas las líneas — no acumula sobre valores residuales del state anterior.
+
+### Decimales en Costo del inventario
+
+Los costos promedio con flete prorrateado quedan con decimales en BD (ej. `Precio_Costo = 98748.47`), pero varias pantallas los truncaban a entero, causando confusión ("¿por qué en la compra se ve $98.748,47 y en el inventario $98.748?").
+
+- **InventarioManagement**: `formatearMoneda` ahora muestra decimales si existen, entero si no.
+- **EditarArticuloModal**: `fmtMoneda`/`fmt` respetan decimales; al hacer focus en los campos de Costo sin IVA / Costo con IVA se muestra el valor con 2 decimales (antes truncaba con `Math.round`).
+
+---
+
+## 4.3.68 — 2026-07-11
+
+### Regla de negocio: anular egreso NO revive la compra
+
+Al anular un pago a proveedor, la compra queda intacta con su saldo original — solo el egreso se marca como Anulada y deja de contar en reportes. Antes, la 4.3.66 recalculaba `tblpedidos.Saldo` y hacía que la compra volviera a Cuentas por Pagar como si estuviera impaga, confundiendo al usuario.
+
+- `api/movimientos/pagos-proveedores.php action=anular` — se removió el bloque que recalculaba el saldo de la compra. Ahora el flujo es: (1) marcar egreso Anulada; (2) si el pago fue efectivo, devolver el valor a la caja abierta actual. La compra no se toca.
+
+### Modales de confirmación en el listado de Pagos
+
+Los botones "Anular" del listado de Pagos de Clientes y Pagos a Proveedores usaban `confirm()` nativo del navegador, que en algunos entornos rompía el foco del grid u ocultaba modales encima. Migrado al componente reusable `<ConfirmDialog>` que ya usa el resto del sistema (facturas recibidas, cerrar caja, etc.).
+
+- El diálogo de anular egreso ahora indica dinámicamente si el pago era en efectivo (→ "se devolverá a la caja") o transferencia (→ "no afecta caja"). Ayuda al usuario a saber qué esperar antes de confirmar.
+
+---
+
+## 4.3.67 — 2026-07-11
+
+### Fix crítico: anular pago de proveedor lanzaba "tblcompras doesn't exist"
+
+Al anular un egreso desde el listado de Pagos a Proveedores, el sistema fallaba con `SQLSTATE[42S02] Base table or view not found: 1146 Table 'X.tblcompras' doesn't exist`. El endpoint que agregué en 4.3.64 consultaba una tabla llamada `tblcompras` que en el sistema NO existe — el nombre real (heredado del legacy VB6) es `tblpedidos`.
+
+- `api/movimientos/pagos-proveedores.php` — reemplazado `tblcompras` por `tblpedidos` en el `SELECT`/`UPDATE` que recalcula el saldo de la compra al anular el egreso. Ahora la anulación revierte correctamente el saldo en Cuentas por Pagar.
+
+---
+
+## 4.3.66 — 2026-07-11
+
+### Defensa cruzada Producto vs Servicio en la venta
+
+Un cliente reportó que varios productos se estaban registrando como servicios (sin descontar inventario) aunque en el catálogo tenían `Servicio=0`. Investigación: el flujo estándar del frontend actual (4.3.64+) NO puede producirlo, pero flujos antiguos o cache stale podían dejar `es_servicio=1` en el payload y el backend lo aceptaba sin verificar.
+
+- `api/ventas/nueva.php` — antes de tratar una línea como servicio, ahora consulta `tblarticulos.Servicio` del catálogo. Si el catálogo dice que es producto (=0), el flag `es_servicio=1` del payload se ignora y la venta descuenta stock + registra kárdex normalmente. El catálogo siempre manda.
+
+### Fix: "Pagos a Proveedores" mezclaba gastos operativos
+
+El listado de Pagos a Proveedores repetía los mismos registros que aparecían en Gastos (papelería, aseo, arriendo). Ambos endpoints leen de `tblegresos` pero solo Gastos filtraba por `FactN = '-1'` (marca del módulo de gastos operativos); Pagos a Proveedores no filtraba y mezclaba todo.
+
+- `api/movimientos/pagos-proveedores.php` — se agregó `AND e.FactN <> '-1'` al `WHERE`. Ahora solo salen los egresos vinculados a una factura de compra real.
+
+### Fix: servicio no se agregaba al buscar por código exacto
+
+Al tipear el código exacto de un servicio + Enter, el sistema decía "no hay existencia suficiente" — porque el endpoint `?codigo=` no devolvía el flag `Servicio`, el frontend lo trataba como producto y validaba stock (existencia siempre 0 para servicios).
+
+- `api/ventas/nueva.php` — la búsqueda exacta por código ahora también incluye `COALESCE(a.Servicio, 0) AS Servicio` en el `SELECT`, igual que la búsqueda por texto.
+
+---
+
+## 4.3.65 — 2026-07-11
+
+### Fix crítico: "Configurar Servidor" en loop tras actualizar
+
+Después de actualizar a 4.3.64, algunos clientes cayeron en un bucle: la app mostraba "Configurar Servidor", indicaban `localhost`, la prueba decía "Conexión exitosa", pero al Guardar volvía al mismo modal.
+
+Causa: `config.json` se guardaba en la carpeta del `.exe` (`C:\Program Files\Conta FT 4.3\`), que Windows protege — sin permisos elevados el escrito fallaba silenciosamente y al reload el archivo seguía sin `apiUrl`.
+
+Además: el handler `Guardar` no esperaba a que la escritura IPC del config resolviera antes de hacer `window.location.reload()`, así que aunque hubiera permisos, el reload podía ganar la carrera.
+
+- `electron/main.js` — `getConfigPath()` ahora usa `app.getPath('userData')` (`%APPDATA%/Roaming/Conta FT 4.3/`) que siempre es escribible por el usuario. La primera vez que arranca la 4.3.65, si detecta un `config.json` legacy junto al `.exe`, lo migra automáticamente al nuevo path preservando el `apiUrl` del cliente.
+- `ConfigurarServidor.tsx` — `guardar` y `usarLocal` ahora hacen `await setApiUrl(...)` antes de `onConfigured()`, garantizando que el archivo se persistió antes del reload.
+
+Workaround temporal para clientes bloqueados (funciona antes de instalar 4.3.65): abrir la app clic derecho → "Ejecutar como administrador", configurar servidor una vez, cerrar. Los próximos arranques leen el `config.json` recién creado sin problemas.
+
+---
+
+## 4.3.64 — 2026-07-11
+
+### Auto-actualización de la base de datos
+
+Antes: cada upgrade de la app requería que el cliente aplicara manualmente `actualizacion_completa.sql` en phpMyAdmin. Riesgo alto de saltar el paso y romper funciones.
+
+- Nuevo endpoint `api/actualizacion/aplicar-sql.php`. Al iniciar sesión, el frontend le envía la versión de la app; si `tbldatosempresa.version_sql_aplicada` es distinta, corre el `.sql` consolidado con `mysqli::multi_query` (libera cursores de `PREPARE/EXECUTE` que PDO deja abiertos) y actualiza la versión.
+- 100% en background — no bloquea el login. Si algo falla queda logueado en el response sin impedir usar la app.
+- Idempotente: cada `ALTER TABLE` del `.sql` se salta si la columna ya existe. Reejecutar es seguro.
+
+### Compras al Contado: medio de pago
+
+Antes al hacer una compra al contado no se distinguía si el pago fue efectivo, tarjeta, Bancolombia o Nequi — todo pasaba por caja. Ahora:
+
+- Al confirmar la compra al contado se abre un modal con las 4 tarjetas de medio de pago (mismo esquema que ventas: 0=Efectivo · 1=Tarjeta · 2=Bancolombia · 3=Nequi).
+- Solo Efectivo descuenta la caja. Los demás quedan como egreso registrado con `id_mediopago` en `tblegresos` — la caja física no se afecta.
+- Nueva columna `tblegresos.id_mediopago INT NOT NULL DEFAULT 0`.
+
+### Pagos: Anular + Ver comprobante desde el listado
+
+Pagos de Clientes y Pagos a Proveedores tienen columna Acciones con:
+
+- 🖨️ Ver / Imprimir comprobante — reutiliza `ReciboImpresion` cambiando `tipoTercero` ("COMPROBANTE DE EGRESO" para proveedor).
+- 🚫 Anular — endpoint POST en `pagos-proveedores.php` con `action=anular`: marca egreso `Estado='Anulada'`, recalcula el saldo de la compra afectada (vuelve a Cuentas por Pagar), y si era efectivo devuelve el valor a la caja abierta actual (respetando cajas cerradas).
+
+### POS Ventas: botón Anular en el listado
+
+Botón `Ban` rojo por fila. Reusa el flujo existente de `detalle-factura.php action=anular` incluyendo `AutorizacionAdminModal` cuando el backend responde `requiere_autorizacion` y toast cuando responde `requiere_caja_abierta`.
+
+### PDF de FE con concepto largo
+
+El PDF de la Factura Electrónica mostraba el nombre del artículo del catálogo ("HORA PROGRAMACIÓN") aunque el concepto enviado a la DIAN fuera largo ("Prestación de servicios profesionales…"). Ahora el `SELECT` de items en `facturacion-electronica/pdf.php` hace `COALESCE(NULLIF(d.description, ''), a.Nombres_Articulo)` — el concepto DIAN gana si viene con contenido.
+
+### Descripción temporal ampliada
+
+`tbldetalle_venta.DescripcionTemp` pasó de `VARCHAR(100)` a `VARCHAR(500)` — antes conceptos largos rompían con `SQLSTATE[22001] Data too long`.
+
+---
+
 ## 4.3.63 — 2026-07-02
 
 ### Logo de la empresa desde el servidor (no más hardcode)
