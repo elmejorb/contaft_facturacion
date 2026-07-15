@@ -164,11 +164,16 @@ export function InventarioManagement() {
     }
   };
 
+  // Muestra decimales solo si el número los tiene (ej. costo promedio con
+  // flete prorrateado). Los enteros salen limpios. Mismo patrón que fmtMon
+  // en NuevaCompra/NuevaVenta para consistencia visual entre pantallas.
   const formatearMoneda = (valor: number) => {
-    return '$ ' + new Intl.NumberFormat('es-CO', {
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
-    }).format(valor || 0);
+    const v = valor || 0;
+    const tieneDecimales = v % 1 !== 0;
+    return '$ ' + v.toLocaleString('es-CO', {
+      minimumFractionDigits: tieneDecimales ? 2 : 0,
+      maximumFractionDigits: tieneDecimales ? 2 : 0,
+    });
   };
 
   const calcularUtilidad = (precio: number, costo: number) => {

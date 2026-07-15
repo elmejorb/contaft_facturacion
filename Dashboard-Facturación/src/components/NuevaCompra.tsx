@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, Fragment } from 'react';
-import { Search, Trash2, Plus, Save, X, Package } from 'lucide-react';
+import { Search, Trash2, Plus, Save, X, Package, Landmark, CreditCard, Smartphone, Banknote } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { EditarArticuloModal } from './EditarArticuloModal';
 import { useAuth } from '../contexts/AuthContext';
@@ -69,6 +69,11 @@ export function NuevaCompra({ pedidoEditar, onClose }: { pedidoEditar?: number; 
   const [showProdDrop, setShowProdDrop] = useState(false);
   const [guardando, setGuardando] = useState(false);
   const [showCrearProducto, setShowCrearProducto] = useState(false);
+  // Medio de pago para compras al contado (mismo esquema que ventas).
+  // 0=Efectivo, 1=Tarjeta, 2=Bancolombia, 3=Nequi. Solo el efectivo
+  // descuenta la caja; los demás quedan como egreso registrado.
+  const [showPagoModal, setShowPagoModal] = useState(false);
+  const [medioPago, setMedioPago] = useState(0);
   const searchTimer = useRef<any>(null);
   const codigoRef = useRef<HTMLInputElement>(null);
   const buscarInputRef = useRef<HTMLInputElement>(null);
@@ -216,9 +221,57 @@ export function NuevaCompra({ pedidoEditar, onClose }: { pedidoEditar?: number; 
         return { ...l, FleteUnit: fleteU, CostoFinal: cf, CostoPromedio: prom };
       });
 
+      // Cuando el usuario edita manualmente FleteUnit, el flete global debe
+      // reflejar la suma real de las líneas — no acumular sobre el residual
+      // del state anterior. Programamos setFlete en microtask para que corra
+      // después de este setLineas y el useEffect([flete]) no genere loop
+      // (las líneas manual conservan su FleteUnit, las auto respetan
+      // fleteAuto = flete - fleteManualTotal → 0 cuando todas son manuales).
+      if (field === 'FleteUnit') {
+        const nuevoTotal = Math.round(
+          updated.reduce((s, l) => s + (l.FleteUnit || 0) * (l.Cantidad || 0), 0)
+        );
+        queueMicrotask(() => setFlete(nuevoTotal));
+      }
+
       return updated;
     });
   };
+
+  // Re-prorrateo del flete cuando cambia el valor global (input "FLETE" del
+  // footer). Antes: se cambiaba `flete` pero las líneas guardaban su
+  // FleteUnit viejo → la pantalla mostraba prorrateo desactualizado hasta
+  // que el usuario tocaba una línea; sin embargo el backend recalculaba con
+  // el flete nuevo, así que quedaba discrepancia visible entre UI y BD.
+  // Ahora cuando `flete` cambia, se re-prorratea el FleteUnit de todas las
+  // líneas no-manuales, igual que hace `actualizarLinea` en su second pass.
+  useEffect(() => {
+    setLineas(prev => {
+      if (prev.length === 0) return prev;
+      const fleteManualTotal = prev.reduce((s, l) =>
+        s + (l.FleteManual ? (l.FleteUnit || 0) * (l.Cantidad || 0) : 0), 0);
+      const fleteAuto = Math.max(0, flete - fleteManualTotal);
+      const totalSubAuto = prev.reduce((s, l) =>
+        s + (l.FleteManual ? 0 : l.Subtotal), 0);
+      return prev.map(l => {
+        let fleteU = l.FleteUnit || 0;
+        if (!l.FleteManual) {
+          fleteU = 0;
+          if (fleteAuto > 0 && totalSubAuto > 0 && l.Cantidad > 0) {
+            const prop = l.Subtotal / totalSubAuto;
+            fleteU = Math.round(((fleteAuto * prop) / l.Cantidad) * 100) / 100;
+          }
+        }
+        const cf = Math.round((l.CostoConIva + fleteU) * 100) / 100;
+        const nuevaExist = l.Existencia + l.Cantidad;
+        const prom = nuevaExist > 0
+          ? Math.round(((l.Existencia * l.CostoAnterior + l.Cantidad * cf) / nuevaExist) * 100) / 100
+          : cf;
+        return { ...l, FleteUnit: fleteU, CostoFinal: cf, CostoPromedio: prom };
+      });
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [flete]);
 
   // Reinterpretar precios al cambiar Modo IVA — evita re-digitar cada precio.
   //   0 → 1 (sin → con IVA): lo que estaba en "Costo s/IVA" pasa a "Costo c/IVA"
@@ -392,6 +445,7 @@ export function NuevaCompra({ pedidoEditar, onClose }: { pedidoEditar?: number; 
         tipo, dias, fecha, proveedor_id: proveedor.id, factura_compra: facturaCompra,
         flete, descuento, retencion, opcion_factura: opcionIva,
         id_usuario: user?.id || 0, // para egreso automático en compra contado
+        medio_pago: tipo === 'Contado' ? medioPago : 0,
         items: lineas.map(l => ({
           id_detalle: l.IdDetalle || 0,
           items: l.Items, cantidad: l.Cantidad, costo_sin_iva: l.CostoSinIva,
@@ -629,14 +683,18 @@ export function NuevaCompra({ pedidoEditar, onClose }: { pedidoEditar?: number; 
                           onClick={() => resetFleteAuto(l.id)}
                           style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#d97706', padding: 0, fontSize: 10 }}>📌</button>
                       )}
+                      {/* FleteUnit siempre habilitado: el usuario puede meter flete
+                          por línea aunque el flete global sea 0 (patrón "flete por peso"
+                          donde cada ítem tiene su propio costo de transporte). Al
+                          editar manualmente, el flete global se sincroniza para
+                          reflejar el total (ver actualizarLinea). */}
                       <input type="text" key={`flu-${l.id}-${l.FleteUnit}-${l.FleteManual ? 'm' : 'a'}`}
                         {...moneyInputHandlers(l.FleteUnit, v => actualizarLinea(l.id, 'FleteUnit', v))}
-                        disabled={flete <= 0}
                         style={{
                           width: 60, height: 22, textAlign: 'right',
                           border: l.FleteManual ? '1px solid #d97706' : '1px solid #d1d5db',
-                          background: l.FleteManual ? '#fffbeb' : (flete > 0 ? '#fff' : '#f9fafb'),
-                          color: flete > 0 ? (l.FleteManual ? '#92400e' : '#d97706') : '#d1d5db',
+                          background: l.FleteManual ? '#fffbeb' : '#fff',
+                          color: l.FleteManual ? '#92400e' : '#d97706',
                           borderRadius: 4, fontSize: 10, fontWeight: l.FleteManual ? 700 : 400,
                         }} />
                     </div>
@@ -735,7 +793,11 @@ export function NuevaCompra({ pedidoEditar, onClose }: { pedidoEditar?: number; 
         <div style={{ fontSize: 12, color: '#6b7280' }}><b>{lineas.length}</b> producto(s)</div>
         <div>
           <label style={lbl}>FLETE</label>
-          <input type="text" defaultValue={flete || ''} placeholder="0"
+          {/* key={flete} fuerza re-mount cuando `flete` cambia externamente
+              (ej. tras Guardar Compra o botón "+ Nueva" que hacen setFlete(0)
+              o cuando se edita FleteUnit manual y el total se sincroniza).
+              Con solo `defaultValue` el input mostraba el valor viejo. */}
+          <input type="text" key={`flete-${flete}`} defaultValue={flete || ''} placeholder="0"
             onBlur={e => setFlete(parseInt(e.target.value.replace(/[^0-9]/g, '')) || 0)}
             onKeyDown={e => { soloNum(e); if (e.key === 'Enter') { setFlete(parseInt((e.target as HTMLInputElement).value.replace(/[^0-9]/g, '')) || 0); (e.target as HTMLInputElement).blur(); } }}
             style={{ ...inp, width: 80, textAlign: 'right', fontSize: 11 }} />
@@ -762,12 +824,143 @@ export function NuevaCompra({ pedidoEditar, onClose }: { pedidoEditar?: number; 
             style={{ height: 30, padding: '0 10px', background: '#f3f4f6', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 11, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
             <Plus size={13} /> Nueva
           </button>
-          <button onClick={guardar} disabled={guardando || lineas.length === 0}
+          <button
+            onClick={() => {
+              // Validaciones básicas antes de abrir el modal de pago
+              if (!proveedor.id) { toast.error('Seleccione un proveedor'); return; }
+              if (lineas.length === 0) { toast.error('Agregue al menos un producto'); return; }
+              if (!facturaCompra) { toast.error('Ingrese el N° de factura del proveedor'); return; }
+              // Modo edición o crédito: guarda directo. Contado nuevo:
+              // abre modal para elegir medio de pago (efectivo/banco/etc).
+              if (modoEdicion || tipo !== 'Contado') { guardar(); return; }
+              setShowPagoModal(true);
+            }}
+            disabled={guardando || lineas.length === 0}
             style={{ height: 30, padding: '0 14px', background: lineas.length > 0 ? '#dc2626' : '#d1d5db', color: '#fff', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: lineas.length > 0 ? 'pointer' : 'default', display: 'flex', alignItems: 'center', gap: 5 }}>
-            <Save size={13} /> {modoEdicion ? 'Actualizar Compra' : 'Guardar Compra'}
+            <Save size={13} /> {modoEdicion ? 'Actualizar Compra' : (tipo === 'Contado' ? 'Registrar Pago' : 'Guardar Compra')}
           </button>
         </div>
       </div>
+
+      {/* Modal Confirmar Pago (solo compras contado nuevas) */}
+      {showPagoModal && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.45)' }}
+               onClick={() => { if (!guardando) setShowPagoModal(false); }} />
+          <div style={{
+            position: 'relative', background: '#fff', borderRadius: 14, width: 460,
+            boxShadow: '0 25px 60px rgba(0,0,0,0.30)', overflow: 'hidden',
+          }}>
+            {/* Header */}
+            <div style={{
+              padding: '12px 18px',
+              background: 'linear-gradient(135deg, #dc2626, #b91c1c)',
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            }}>
+              <div>
+                <div style={{ color: '#fff', fontSize: 14, fontWeight: 700 }}>Registrar Pago de la Compra</div>
+                <div style={{ color: '#fecaca', fontSize: 11, marginTop: 2 }}>
+                  {proveedor.nombre} · Factura {facturaCompra}
+                </div>
+              </div>
+              <button
+                onClick={() => { if (!guardando) setShowPagoModal(false); }}
+                disabled={guardando}
+                style={{ background: 'rgba(255,255,255,0.15)', border: 'none', color: '#fff', borderRadius: 6, width: 28, height: 28, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div style={{ padding: '18px 20px' }}>
+              {/* Total a pagar */}
+              <div style={{ textAlign: 'center', marginBottom: 16, padding: '14px 0', background: '#fef2f2', borderRadius: 10, border: '1px solid #fecaca' }}>
+                <div style={{ fontSize: 10, color: '#7f1d1d', letterSpacing: 1.5, fontWeight: 700 }}>TOTAL A PAGAR</div>
+                <div style={{ fontSize: 30, fontWeight: 800, color: '#dc2626', letterSpacing: -0.5, marginTop: 2 }}>{fmtMon(totalCompra)}</div>
+              </div>
+
+              {/* Medio de pago */}
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#374151', marginBottom: 8, letterSpacing: 0.3 }}>
+                ¿Con qué medio se pagó?
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 4 }}>
+                {[
+                  { id: 0, label: 'Efectivo',    hint: 'Descuenta caja',      Icon: Banknote,   color: '#16a34a', bg: '#f0fdf4', border: '#86efac' },
+                  { id: 1, label: 'Tarjeta',     hint: 'Débito o crédito',    Icon: CreditCard, color: '#2563eb', bg: '#eff6ff', border: '#93c5fd' },
+                  { id: 2, label: 'Bancolombia', hint: 'Transferencia',       Icon: Landmark,   color: '#d97706', bg: '#fffbeb', border: '#fcd34d' },
+                  { id: 3, label: 'Nequi',       hint: 'Transferencia móvil', Icon: Smartphone, color: '#7c3aed', bg: '#faf5ff', border: '#c4b5fd' },
+                ].map((m) => {
+                  const active = medioPago === m.id;
+                  const Icon = m.Icon;
+                  return (
+                    <button
+                      key={m.id}
+                      onClick={() => setMedioPago(m.id)}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 10,
+                        padding: '10px 12px', borderRadius: 10,
+                        background: active ? m.bg : '#fff',
+                        border: `2px solid ${active ? m.color : '#e5e7eb'}`,
+                        cursor: 'pointer', textAlign: 'left', transition: 'all 0.15s',
+                      }}
+                    >
+                      <div style={{
+                        width: 34, height: 34, borderRadius: 8,
+                        background: m.bg, border: `1px solid ${m.border}`,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                      }}>
+                        <Icon size={18} color={m.color} />
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: active ? m.color : '#111827', lineHeight: 1.1 }}>{m.label}</div>
+                        <div style={{ fontSize: 10, color: '#6b7280', marginTop: 2 }}>{m.hint}</div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Aviso según el medio */}
+              <div style={{
+                marginTop: 10, padding: '8px 12px',
+                background: medioPago === 0 ? '#f0fdf4' : '#eff6ff',
+                borderRadius: 8, fontSize: 11,
+                color: medioPago === 0 ? '#166534' : '#1e40af',
+                border: `1px solid ${medioPago === 0 ? '#bbf7d0' : '#bfdbfe'}`,
+              }}>
+                {medioPago === 0
+                  ? '💵 Se descontará el valor de tu caja abierta y quedará el egreso registrado.'
+                  : '🏦 Queda como egreso registrado con el medio elegido. La caja física NO se afecta.'}
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div style={{
+              padding: '10px 18px', background: '#f9fafb', borderTop: '1px solid #e5e7eb',
+              display: 'flex', justifyContent: 'flex-end', gap: 8,
+            }}>
+              <button
+                onClick={() => { if (!guardando) setShowPagoModal(false); }}
+                disabled={guardando}
+                style={{ height: 34, padding: '0 14px', background: '#fff', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 12, fontWeight: 600, color: '#374151', cursor: guardando ? 'not-allowed' : 'pointer' }}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={async () => {
+                  await guardar();
+                  setShowPagoModal(false);
+                }}
+                disabled={guardando}
+                style={{ height: 34, padding: '0 16px', background: 'linear-gradient(135deg, #dc2626, #b91c1c)', color: '#fff', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: guardando ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', gap: 6, opacity: guardando ? 0.7 : 1 }}
+              >
+                <Save size={13} /> {guardando ? 'Registrando…' : 'Confirmar Pago'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal buscar proveedor */}
       {showProvModal && (

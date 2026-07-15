@@ -82,8 +82,17 @@ export function EditarArticuloModal({ isOpen, onClose, articulo, onGuardado, mod
   // dividiendo por (1+IVA%). Esto cuadra con la base de Precio_Venta (también
   // con IVA cuando precioIvaIncluido=true), así la resta Venta-Costo da margen real.
   const util = (pv: number) => (!form.Precio_Costo || !pv) ? '0.0' : (((pv - form.Precio_Costo) / pv) * 100).toFixed(1);
-  const costoSinIva = () => (form.Iva > 0 ? form.Precio_Costo / (1 + form.Iva / 100) : form.Precio_Costo).toFixed(0);
-  const fmt = (v: number) => '$ ' + Math.round(v || 0).toLocaleString('es-CO');
+  const costoSinIva = () => (form.Iva > 0 ? form.Precio_Costo / (1 + form.Iva / 100) : form.Precio_Costo).toFixed(2);
+  // Muestra decimales solo cuando existen: costos promedio con flete
+  // prorrateado (ej. $ 98.748,47) los conservan. Los enteros salen limpios.
+  const fmt = (v: number) => {
+    const val = v || 0;
+    const hasDec = val % 1 !== 0;
+    return '$ ' + val.toLocaleString('es-CO', {
+      minimumFractionDigits: hasDec ? 2 : 0,
+      maximumFractionDigits: hasDec ? 2 : 0,
+    });
+  };
 
   const handleGuardar = async () => {
     if (esNuevo && (!form.Codigo || !form.Nombres_Articulo)) {
@@ -123,7 +132,17 @@ export function EditarArticuloModal({ isOpen, onClose, articulo, onGuardado, mod
   };
 
   const toNum = (v: string) => parseFloat(v.replace(/[^0-9.]/g, '')) || 0;
-  const fmtMoneda = (valor: number) => '$ ' + Math.round(valor || 0).toLocaleString('es-CO');
+  // fmtMoneda respeta decimales si el valor los tiene — importante para que
+  // costos como $ 98.748,47 (promedio con flete prorrateado) no se muestren
+  // truncados. Los enteros mantienen formato limpio sin ,00 al final.
+  const fmtMoneda = (valor: number) => {
+    const v = valor || 0;
+    const hasDec = v % 1 !== 0;
+    return '$ ' + v.toLocaleString('es-CO', {
+      minimumFractionDigits: hasDec ? 2 : 0,
+      maximumFractionDigits: hasDec ? 2 : 0,
+    });
+  };
 
   // Input que muestra formato moneda sin foco, número crudo con foco
   // Usa el DOM directamente para evitar re-renders que mueven el cursor
@@ -327,7 +346,9 @@ export function EditarArticuloModal({ isOpen, onClose, articulo, onGuardado, mod
                   onKeyDown={soloNumeros}
                   onFocus={e => {
                     const sinIva = form.Iva > 0 ? form.Precio_Costo / (1 + form.Iva / 100) : form.Precio_Costo;
-                    e.target.value = String(Math.round(sinIva) || '');
+                    // Preservar decimales significativos al editar (ej. costo
+                    // promedio 97828.47) sin arrastrar residuos flotantes.
+                    e.target.value = sinIva ? String(+sinIva.toFixed(2)) : '';
                     e.target.select();
                   }}
                   onBlur={e => {
@@ -366,7 +387,7 @@ export function EditarArticuloModal({ isOpen, onClose, articulo, onGuardado, mod
                 <input data-precio="true" data-costo-con-iva="true"
                   defaultValue={fmtMoneda(form.Precio_Costo)}
                   onKeyDown={soloNumeros}
-                  onFocus={e => { e.target.value = String(Math.round(form.Precio_Costo) || ''); e.target.select(); }}
+                  onFocus={e => { e.target.value = form.Precio_Costo ? String(+form.Precio_Costo.toFixed(2)) : ''; e.target.select(); }}
                   onBlur={e => {
                     const conIva = toNum(e.target.value);
                     set('Precio_Costo', conIva);

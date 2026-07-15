@@ -172,6 +172,37 @@ try {
     $facturaCompra = trim($data['factura_compra'] ?? '');
     $idUsuario = intval($data['id_usuario'] ?? 0) ?: null;
     $cajaIdCompra = intval($data['caja_id'] ?? 0); // de qué caja sale el dinero (compra contado)
+
+    // Defensa server-side: solo admins o usuarios con permiso `compras_editar`
+    // pueden crear/editar compras. Frontend ya oculta el botón, pero un
+    // POST manual (Postman, script) también debe rechazarse.
+    if ($idUsuario) {
+        $stmtPerm = $db->prepare("
+            SELECT u.Id_TiposUsuario, t.permisos
+            FROM tblusuarios u
+            LEFT JOIN tbltiposusuario t ON t.Id_TiposUsuario = u.Id_TiposUsuario
+            WHERE u.Id_Usuario = ?
+        ");
+        $stmtPerm->execute([$idUsuario]);
+        $rowUser = $stmtPerm->fetch();
+        $tipoUser = intval($rowUser['Id_TiposUsuario'] ?? 0);
+        if ($tipoUser !== 1) {  // 1 = admin siempre puede
+            $permisosArr = $rowUser['permisos'] ? json_decode($rowUser['permisos'], true) : [];
+            if (!is_array($permisosArr) || !in_array('compras_editar', $permisosArr, true)) {
+                http_response_code(403);
+                echo json_encode([
+                    'success' => false,
+                    'message' => 'Este usuario no tiene permisos para crear o modificar compras. Solicita al administrador el permiso "Crear/Editar compras".'
+                ]);
+                exit;
+            }
+        }
+    }
+    // Medio de pago (compra contado). Códigos: 0=Efectivo · 1=Tarjeta · 2=Bancolombia · 3=Nequi.
+    // Coinciden con tblmedios_pago y con id_mediopago de ventas.
+    // Solo el efectivo (0) descuenta de tblcajas; el resto son transferencias
+    // que quedan solo como egreso registrado con el medio.
+    $medioPago = intval($data['medio_pago'] ?? 0);
     if ($facturaCompra === '') {
         echo json_encode(['success' => false, 'message' => 'El N° de factura del proveedor es obligatorio']);
         exit;
@@ -556,18 +587,21 @@ try {
             $db->prepare("
                 INSERT INTO tblegresos
                   (N_Comprobante, Fecha, Cedula, Orden, Suma, Concepto, Valor, Descuento, Estado,
-                   Cuentas, FactN, CodigoPro, NFacturaAnt, ValorFact, Saldoact, TipoPago, id_usuario)
-                VALUES (?, ?, ?, ?, '-', ?, ?, 0, 'Valida', ?, ?, ?, ?, ?, 0, 0, ?)
+                   Cuentas, FactN, CodigoPro, NFacturaAnt, ValorFact, Saldoact, TipoPago, id_usuario, id_mediopago)
+                VALUES (?, ?, ?, ?, '-', ?, ?, 0, 'Valida', ?, ?, ?, ?, ?, 0, 0, ?, ?)
             ")->execute([
                 $nCompEgreso, $fecha, $provNit, $provNombre,
                 $concepto, $totalCompra,
                 $cuentas, strval($facturaCompra), $codigoPro,
                 strval($facturaCompra), $totalCompra,
-                $idUsuario
+                $idUsuario, $medioPago
             ]);
 
-            // Movimiento de caja para descontar el efectivo
-            if ($cajaSeleccionada) {
+            // Movimiento de caja SOLO cuando el pago es efectivo (medio_pago=0).
+            // Los otros medios (Tarjeta/Bancolombia/Nequi) no tocan la caja física;
+            // quedan como egreso registrado con el id_mediopago para que los
+            // informes financieros los clasifiquen aparte.
+            if ($medioPago === 0 && $cajaSeleccionada) {
                 $db->prepare("
                     INSERT INTO tblmov_caja (Id_Sesion, Id_Caja_Origen, Id_Usuario, Valor, Tipo, Descripcion)
                     VALUES (?, ?, ?, ?, 'compra', ?)

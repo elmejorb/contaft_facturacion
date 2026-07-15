@@ -1,19 +1,32 @@
 import { useState, useEffect, useRef } from 'react';
 import { AgGridReact } from 'ag-grid-react';
-import { Search, RefreshCw, Edit2, Eye, Printer, Package } from 'lucide-react';
+import { Search, RefreshCw, Edit2, Eye } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { NuevaCompra } from './NuevaCompra';
+import { DetalleCompraModal } from './DetalleCompraModal';
+import { useAuth } from '../contexts/AuthContext';
 
 const API = 'http://localhost:80/conta-app-backend/api/compras/nueva.php';
 const fmtMon = (v: number) => '$ ' + Math.round(v).toLocaleString('es-CO');
 
 export function PurchasesManagement() {
+  const { user } = useAuth();
+  const esAdmin = user?.tipoUsuario === 1 || user?.tipoUsuario === '1';
+  // Permiso granular: admin siempre puede; para otros roles depende de que
+  // el permiso `compras_editar` esté marcado desde Config → Permisos.
+  // Sin este permiso el usuario ve el listado (icono ojo) pero no puede
+  // crear ni editar compras.
+  const permisos: string[] = (user as any)?.permisos || [];
+  const puedeEditar = esAdmin || permisos.includes('compras_editar');
+
   const [compras, setCompras] = useState<any[]>([]);
   const [anio, setAnio] = useState(new Date().getFullYear());
   const [mes, setMes] = useState(0);
   const [buscar, setBuscar] = useState('');
   const [cargando, setCargando] = useState(false);
   const [editarPedido, setEditarPedido] = useState<number | null>(null);
+  const [verPedido, setVerPedido] = useState<number | null>(null);
+  const [nuevaCompra, setNuevaCompra] = useState(false);
   const gridRef = useRef<any>(null);
 
   const meses = ['Todos','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
@@ -39,8 +52,11 @@ export function PurchasesManagement() {
 
   const totalCompras = filtradas.reduce((s, c) => s + c.Total, 0);
 
-  if (editarPedido !== null) {
+  if (editarPedido !== null && puedeEditar) {
     return <NuevaCompra pedidoEditar={editarPedido} onClose={() => { setEditarPedido(null); cargar(); }} />;
+  }
+  if (nuevaCompra && puedeEditar) {
+    return <NuevaCompra onClose={() => { setNuevaCompra(false); cargar(); }} />;
   }
 
   // Anchos calibrados para que ningún header/valor se trunque:
@@ -67,13 +83,19 @@ export function PurchasesManagement() {
     { field: 'Flete', headerName: 'Flete', width: 100, cellStyle: { textAlign: 'right' },
       valueFormatter: (p: any) => p.value > 0 ? fmtMon(p.value) : '-' },
     {
-      headerName: '', width: 50, sortable: false, filter: false,
+      headerName: '', width: puedeEditar ? 85 : 50, sortable: false, filter: false,
       cellRenderer: (p: any) => (
-        <div style={{ display: 'flex', gap: 4, alignItems: 'center', justifyContent: 'center', height: '100%' }}>
-          <button onClick={() => setEditarPedido(p.data.Pedido_N)} title="Editar compra"
-            style={{ background: 'none', border: 'none', cursor: 'pointer' }}>
-            <Edit2 size={14} color="#7c3aed" />
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center', justifyContent: 'center', height: '100%' }}>
+          <button onClick={() => setVerPedido(p.data.Pedido_N)} title="Ver detalle"
+            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2 }}>
+            <Eye size={15} color="#2563eb" />
           </button>
+          {puedeEditar && (
+            <button onClick={() => setEditarPedido(p.data.Pedido_N)} title="Editar compra"
+              style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2 }}>
+              <Edit2 size={14} color="#7c3aed" />
+            </button>
+          )}
         </div>
       )
     }
@@ -132,6 +154,11 @@ export function PurchasesManagement() {
           overlayNoRowsTemplate="<span style='font-size:13px;color:#6b7280'>No hay compras para mostrar</span>"
         />
       </div>
+
+      {/* Modal de visualización (solo lectura) */}
+      {verPedido !== null && (
+        <DetalleCompraModal pedidoN={verPedido} onClose={() => setVerPedido(null)} />
+      )}
     </div>
   );
 }

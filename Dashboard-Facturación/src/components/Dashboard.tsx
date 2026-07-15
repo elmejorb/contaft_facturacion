@@ -305,7 +305,7 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
     'suppliers': 'proveedores', 'supplier-list': 'proveedores', 'supplier-products': 'proveedores',
     'new-sale': 'ventas', 'sales-list': 'ventas_listado',
     'sales-by-payment': 'ventas_tipo_pago', 'fe-panel': 'facturacion_electronica',
-    'purchases': 'compras', 'new-purchase': 'compras', 'purchase-list': 'compras',
+    'purchases': 'compras', 'new-purchase': 'compras_editar', 'purchase-list': 'compras',
     'caja-actual': 'caja', 'caja-historial': 'caja_historial',
     'pagos-clientes': 'pagos_listado', 'pagos-proveedores': 'pagos_listado',
     'gastos': 'gastos', 'bancos': 'bancos',
