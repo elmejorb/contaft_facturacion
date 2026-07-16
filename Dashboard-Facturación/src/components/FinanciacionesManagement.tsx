@@ -34,6 +34,7 @@ export function FinanciacionesManagement() {
   const [anio, setAnio] = useState(new Date().getFullYear());
   const [mes, setMes] = useState(0);
   const [estado, setEstado] = useState('Activa');
+  const [moraBucket, setMoraBucket] = useState<'todas' | 'sin' | '1-30' | '31-60' | '61-90' | '+90'>('todas');
   const [busqueda, setBusqueda] = useState('');
   const [anios, setAnios] = useState<number[]>([]);
 
@@ -104,8 +105,20 @@ export function FinanciacionesManagement() {
 
   // ---- Listado ----
   const meses = ['Todos','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
-  const totalSaldo = financs.reduce((s, f) => s + Number(f.saldo_pendiente || 0), 0);
-  const totalVencidas = financs.filter(f => f.cuotas_vencidas > 0).length;
+
+  // Filtro por bucket de mora (aging) — se aplica client-side sobre lo que trae el backend.
+  const enBucket = (dias: number, b: typeof moraBucket) => {
+    if (b === 'todas') return true;
+    if (b === 'sin')   return dias <= 0;
+    if (b === '1-30')  return dias >= 1 && dias <= 30;
+    if (b === '31-60') return dias >= 31 && dias <= 60;
+    if (b === '61-90') return dias >= 61 && dias <= 90;
+    return dias > 90;
+  };
+  const financsFiltradas = financs.filter(f => enBucket(Number(f.dias_mora || 0), moraBucket));
+
+  const totalSaldo = financsFiltradas.reduce((s, f) => s + Number(f.saldo_pendiente || 0), 0);
+  const totalVencidas = financsFiltradas.filter(f => f.cuotas_vencidas > 0).length;
 
   const inp: React.CSSProperties = { height: 28, border: '1px solid #d1d5db', borderRadius: 6, fontSize: 12, padding: '0 8px', outline: 'none' };
 
@@ -152,6 +165,15 @@ export function FinanciacionesManagement() {
           <option value="Pagada">Pagadas</option>
           <option value="Anulada">Anuladas</option>
         </select>
+        <select value={moraBucket} onChange={e => setMoraBucket(e.target.value as any)} style={{ ...inp, width: 130 }}
+          title="Filtrar por antigüedad de la cuota más vieja vencida">
+          <option value="todas">Mora: todas</option>
+          <option value="sin">Sin mora</option>
+          <option value="1-30">1 a 30 días</option>
+          <option value="31-60">31 a 60 días</option>
+          <option value="61-90">61 a 90 días</option>
+          <option value="+90">+90 días</option>
+        </select>
         <div style={{ position: 'relative', flex: 1, maxWidth: 320 }}>
           <Search size={13} style={{ position: 'absolute', left: 8, top: 8, color: '#9ca3af' }} />
           <input type="text" placeholder="Buscar cliente, NIT o consecutivo..." value={busqueda}
@@ -171,7 +193,7 @@ export function FinanciacionesManagement() {
           <div style={{ padding: 40, textAlign: 'center', color: '#9ca3af' }}>
             <Loader2 size={24} className="animate-spin" style={{ marginBottom: 6 }} /><br />Cargando…
           </div>
-        ) : financs.length === 0 ? (
+        ) : financsFiltradas.length === 0 ? (
           <div style={{ padding: 40, textAlign: 'center', color: '#9ca3af', fontSize: 13 }}>Sin financiaciones para mostrar</div>
         ) : (
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
@@ -190,7 +212,8 @@ export function FinanciacionesManagement() {
               </tr>
             </thead>
             <tbody>
-              {financs.map(f => {
+              {financsFiltradas.map(f => {
+                const dias = Number(f.dias_mora || 0);
                 const vencida = f.cuotas_vencidas > 0 && f.Estado !== 'Pagada';
                 const pagada = f.Estado === 'Pagada';
                 const anulada = f.Estado === 'Anulada';
@@ -218,7 +241,10 @@ export function FinanciacionesManagement() {
                         : pagada
                         ? <span style={badge('#dcfce7', '#166534')}>Pagada</span>
                         : vencida
-                        ? <span style={badge('#fef2f2', '#dc2626')}>Mora ({f.cuotas_vencidas})</span>
+                        ? <span style={badge(dias > 90 ? '#7f1d1d' : '#fef2f2', dias > 90 ? '#fff' : '#dc2626')}
+                            title={`Cuota más vieja vencida hace ${dias} días · ${f.cuotas_vencidas} cuota(s) en mora`}>
+                            Mora {dias}d ({f.cuotas_vencidas})
+                          </span>
                         : <span style={badge('#eff6ff', '#1d4ed8')}>Al día</span>}
                     </td>
                     <td style={td}>

@@ -65,10 +65,15 @@ try {
                     $r[$k] = floatval($r[$k]);
                 }
                 // Marca en mora si al menos una cuota está vencida (fecha < hoy) sin pagar
-                $stmtMora = $db->prepare("SELECT COUNT(*) FROM tblfinanciacion_cuotas
+                // dias_mora = antigüedad de la cuota MÁS vieja vencida (para bucketing 30/60/90+)
+                $stmtMora = $db->prepare("SELECT COUNT(*) AS c,
+                        COALESCE(MAX(DATEDIFF(CURDATE(), FechaVencimiento)),0) AS dias
+                    FROM tblfinanciacion_cuotas
                     WHERE Id_Financiacion = ? AND Estado <> 'Pagada' AND FechaVencimiento < CURDATE()");
                 $stmtMora->execute([$r['Id_Financiacion']]);
-                $r['cuotas_vencidas'] = intval($stmtMora->fetchColumn());
+                $m = $stmtMora->fetch();
+                $r['cuotas_vencidas'] = intval($m['c']);
+                $r['dias_mora'] = intval($m['dias']);
             }
 
             $anios = $db->query("SELECT DISTINCT YEAR(Fecha) AS a FROM tblfinanciaciones ORDER BY a DESC")
@@ -195,14 +200,18 @@ try {
     }
 
     // ---- REGISTRAR pago de una cuota ----
+    // Recibe el pago de capital (valor) y opcionalmente el interés de mora
+    // (interes_mora) — se guardan como filas separadas en tblfinanciacion_pagos
+    // con `EsInteresMora`, de modo que el interés NO afecta el saldo de capital.
     if ($action === 'pagar') {
-        $idCuota = intval($data['id_cuota'] ?? 0);
-        $valor   = floatval($data['valor'] ?? 0);
-        $medio   = intval($data['medio_pago'] ?? 0);
-        $usu     = !empty($data['id_usuario']) ? intval($data['id_usuario']) : null;
-        $fechaP  = $data['fecha'] ?? date('Y-m-d');
+        $idCuota  = intval($data['id_cuota'] ?? 0);
+        $valor    = floatval($data['valor'] ?? 0);           // abono a capital
+        $interes  = floatval($data['interes_mora'] ?? 0);    // interés de mora (aparte)
+        $medio    = intval($data['medio_pago'] ?? 0);
+        $usu      = !empty($data['id_usuario']) ? intval($data['id_usuario']) : null;
+        $fechaP   = $data['fecha'] ?? date('Y-m-d');
 
-        if (!$idCuota || $valor <= 0) {
+        if (!$idCuota || ($valor <= 0 && $interes <= 0)) {
             echo json_encode(['success' => false, 'message' => 'Cuota y valor requeridos']); exit;
         }
 
@@ -210,7 +219,7 @@ try {
         $stmt->execute([$idCuota]);
         $cuota = $stmt->fetch();
         if (!$cuota) { echo json_encode(['success' => false, 'message' => 'Cuota no encontrada']); exit; }
-        if ($cuota['Estado'] === 'Pagada') {
+        if ($cuota['Estado'] === 'Pagada' && $valor > 0) {
             echo json_encode(['success' => false, 'message' => 'La cuota ya está pagada']); exit;
         }
         if ($valor > floatval($cuota['Saldo']) + 0.01) {
@@ -220,19 +229,30 @@ try {
         }
 
         $db->beginTransaction();
-        $db->prepare("
+        $ins = $db->prepare("
             INSERT INTO tblfinanciacion_pagos
-              (Id_Cuota, Id_Financiacion, Fecha, Valor, id_mediopago, Id_Usuario, Estado)
-            VALUES (?, ?, ?, ?, ?, ?, 'Valida')
-        ")->execute([$idCuota, intval($cuota['Id_Financiacion']), $fechaP, $valor, $medio, $usu]);
+              (Id_Cuota, Id_Financiacion, Fecha, Valor, id_mediopago, Id_Usuario, EsInteresMora, Estado)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'Valida')
+        ");
+        if ($valor > 0) {
+            $ins->execute([$idCuota, intval($cuota['Id_Financiacion']), $fechaP, $valor, $medio, $usu, 0]);
+        }
+        if ($interes > 0) {
+            $ins->execute([$idCuota, intval($cuota['Id_Financiacion']), $fechaP, $interes, $medio, $usu, 1]);
+        }
 
-        // Recalcular la cuota
+        // Recalcular la cuota (solo cuenta pagos de capital)
         recalcularCuota($db, $idCuota);
         // Y el estado global de la financiación
         recalcularFinanciacion($db, intval($cuota['Id_Financiacion']));
 
         $db->commit();
-        echo json_encode(['success' => true, 'message' => "Pago registrado por $ " . number_format($valor, 0, ',', '.')]);
+        $total = $valor + $interes;
+        $detalle = $interes > 0
+            ? " (capital $ " . number_format($valor,0,',','.') . " + mora $ " . number_format($interes,0,',','.') . ")"
+            : "";
+        echo json_encode(['success' => true,
+            'message' => "Pago registrado por $ " . number_format($total,0,',','.') . $detalle]);
         exit;
     }
 
@@ -290,10 +310,12 @@ try {
  * de tblfinanciacion_pagos válidos. Fuente de verdad = pagos, no delta.
  */
 function recalcularCuota(PDO $db, int $idCuota): void {
+    // Solo cuentan pagos de CAPITAL (EsInteresMora=0). Los intereses de mora
+    // se guardan como pagos aparte y NO reducen el saldo de la cuota.
     $stmt = $db->prepare("
         SELECT ValorCuota,
                (SELECT COALESCE(SUM(Valor),0) FROM tblfinanciacion_pagos
-                WHERE Id_Cuota = ? AND Estado='Valida') AS pagado,
+                WHERE Id_Cuota = ? AND Estado='Valida' AND EsInteresMora = 0) AS pagado,
                (SELECT MAX(Fecha) FROM tblfinanciacion_pagos
                 WHERE Id_Cuota = ? AND Estado='Valida') AS ultimo_pago
         FROM tblfinanciacion_cuotas WHERE Id_Cuota = ?

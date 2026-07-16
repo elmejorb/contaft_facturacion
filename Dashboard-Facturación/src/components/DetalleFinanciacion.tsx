@@ -3,6 +3,23 @@ import { ArrowLeft, CreditCard, Loader2, X, Ban, Landmark, Banknote, Smartphone,
 import toast from 'react-hot-toast';
 import { useAuth } from '../contexts/AuthContext';
 import { confirmar } from './ConfirmDialog';
+import { getConfigImpresion } from './ConfiguracionSistema';
+
+// Calcula interés de mora sobre una cuota vencida.
+// Fórmula: valor_cuota × (tasa_mensual/100) × (dias_mora/30).
+// Sobre la parte NO pagada (Saldo) — si el cliente ya abonó algo, la mora
+// se calcula solo sobre lo que falta, no sobre el valor original.
+function calcMora(saldo: number, diasMora: number, tasaMensual: number): number {
+  if (tasaMensual <= 0 || diasMora <= 0 || saldo <= 0) return 0;
+  return saldo * (tasaMensual / 100) * (diasMora / 30);
+}
+function diasVencidos(fechaVenc: string): number {
+  if (!fechaVenc) return 0;
+  const hoy = new Date(); hoy.setHours(0,0,0,0);
+  const f = new Date(fechaVenc + 'T12:00:00');
+  const d = Math.floor((hoy.getTime() - f.getTime()) / 86400000);
+  return Math.max(d, 0);
+}
 
 const API = 'http://localhost:80/conta-app-backend/api/financiaciones/';
 const fmt = (v: number) => '$ ' + Math.round(v || 0).toLocaleString('es-CO');
@@ -24,11 +41,14 @@ export function DetalleFinanciacion({ id, onVolver }: Props) {
   const [cuotas, setCuotas] = useState<any[]>([]);
   const [pagos, setPagos] = useState<any[]>([]);
 
-  const [pagoModal, setPagoModal] = useState<{ cuota: any } | null>(null);
+  const [pagoModal, setPagoModal] = useState<{ cuota: any, moraSugerida: number } | null>(null);
   const [pagoValor, setPagoValor] = useState('');
+  const [pagoInteres, setPagoInteres] = useState('');
   const [pagoMedio, setPagoMedio] = useState(0);
   const [pagoFecha, setPagoFecha] = useState(new Date().toISOString().slice(0, 10));
   const [guardandoPago, setGuardandoPago] = useState(false);
+
+  const tasaMora = Number(getConfigImpresion().tasaMoraMensual) || 0;
 
   const cargar = async () => {
     setLoading(true);
@@ -43,8 +63,11 @@ export function DetalleFinanciacion({ id, onVolver }: Props) {
   useEffect(() => { cargar(); /* eslint-disable-next-line */ }, [id]);
 
   const abrirPago = (cuota: any) => {
-    setPagoModal({ cuota });
+    const dias = diasVencidos(cuota.FechaVencimiento);
+    const mora = Math.round(calcMora(Number(cuota.Saldo), dias, tasaMora));
+    setPagoModal({ cuota, moraSugerida: mora });
     setPagoValor(String(Math.round(Number(cuota.Saldo))));
+    setPagoInteres(mora > 0 ? String(mora) : '');
     setPagoMedio(0);
     setPagoFecha(new Date().toISOString().slice(0, 10));
   };
@@ -53,7 +76,8 @@ export function DetalleFinanciacion({ id, onVolver }: Props) {
   const confirmarPago = async () => {
     if (!pagoModal) return;
     const val = parseFloat(pagoValor.replace(/\D/g, '')) || 0;
-    if (val <= 0) { toast.error('Ingrese un valor'); return; }
+    const inter = parseFloat(pagoInteres.replace(/\D/g, '')) || 0;
+    if (val <= 0 && inter <= 0) { toast.error('Ingrese un valor'); return; }
     setGuardandoPago(true);
     try {
       const r = await fetch(API, {
@@ -62,6 +86,7 @@ export function DetalleFinanciacion({ id, onVolver }: Props) {
           action: 'pagar',
           id_cuota: pagoModal.cuota.Id_Cuota,
           valor: val,
+          interes_mora: inter,
           medio_pago: pagoMedio,
           fecha: pagoFecha,
           id_usuario: user?.id || null,
@@ -164,6 +189,7 @@ export function DetalleFinanciacion({ id, onVolver }: Props) {
               <th style={{ ...th, textAlign: 'right' }}>Valor</th>
               <th style={{ ...th, textAlign: 'right' }}>Pagado</th>
               <th style={{ ...th, textAlign: 'right' }}>Saldo</th>
+              {tasaMora > 0 && <th style={{ ...th, textAlign: 'right' }} title={`Interés ${tasaMora}% mensual`}>Mora</th>}
               <th style={{ ...th, textAlign: 'center' }}>Estado</th>
               <th style={{ ...th, width: 80 }}></th>
             </tr>
@@ -171,16 +197,23 @@ export function DetalleFinanciacion({ id, onVolver }: Props) {
           <tbody>
             {cuotas.map(c => {
               const vencida = c.Estado !== 'Pagada' && c.FechaVencimiento < hoy;
+              const dias = vencida ? diasVencidos(c.FechaVencimiento) : 0;
+              const mora = calcMora(Number(c.Saldo), dias, tasaMora);
               return (
                 <tr key={c.Id_Cuota} style={{ borderBottom: '1px solid #f3f4f6', background: vencida ? '#fef2f210' : undefined }}>
                   <td style={{ ...td, textAlign: 'center', fontWeight: 700, color: '#7c3aed' }}>{c.NumCuota}</td>
                   <td style={{ ...td, fontWeight: 500 }}>
                     {fmtDate(c.FechaVencimiento)}
-                    {vencida && <span style={{ marginLeft: 6, fontSize: 9, background: '#fee2e2', color: '#991b1b', padding: '1px 5px', borderRadius: 4, fontWeight: 700 }}>VENCIDA</span>}
+                    {vencida && <span style={{ marginLeft: 6, fontSize: 9, background: '#fee2e2', color: '#991b1b', padding: '1px 5px', borderRadius: 4, fontWeight: 700 }} title={`${dias} días de mora`}>VENCIDA {dias}d</span>}
                   </td>
                   <td style={{ ...td, textAlign: 'right', fontWeight: 600 }}>{fmt(Number(c.ValorCuota))}</td>
                   <td style={{ ...td, textAlign: 'right', color: '#16a34a' }}>{Number(c.ValorPagado) > 0 ? fmt(Number(c.ValorPagado)) : '-'}</td>
                   <td style={{ ...td, textAlign: 'right', fontWeight: 700, color: Number(c.Saldo) > 0 ? '#dc2626' : '#16a34a' }}>{fmt(Number(c.Saldo))}</td>
+                  {tasaMora > 0 && (
+                    <td style={{ ...td, textAlign: 'right', color: mora > 0 ? '#b45309' : '#9ca3af', fontWeight: mora > 0 ? 700 : 400 }}>
+                      {mora > 0 ? fmt(mora) : '-'}
+                    </td>
+                  )}
                   <td style={{ ...td, textAlign: 'center' }}>
                     {c.Estado === 'Pagada'
                       ? <span style={badge('#dcfce7', '#166534')}>Pagada</span>
@@ -220,11 +253,15 @@ export function DetalleFinanciacion({ id, onVolver }: Props) {
             <tbody>
               {pagos.map(p => {
                 const cuota = cuotas.find(c => c.Id_Cuota === p.Id_Cuota);
+                const esMora = Number(p.EsInteresMora) === 1;
                 return (
-                  <tr key={p.Id_FinancPago} style={{ borderBottom: '1px solid #f3f4f6' }}>
+                  <tr key={p.Id_FinancPago} style={{ borderBottom: '1px solid #f3f4f6', background: esMora ? '#fffbeb' : undefined }}>
                     <td style={td}>{fmtDate(p.Fecha)}</td>
-                    <td style={{ ...td, textAlign: 'center', color: '#7c3aed', fontWeight: 700 }}>#{cuota?.NumCuota || '?'}</td>
-                    <td style={{ ...td, textAlign: 'right', fontWeight: 700, color: '#16a34a' }}>{fmt(Number(p.Valor))}</td>
+                    <td style={{ ...td, textAlign: 'center', color: '#7c3aed', fontWeight: 700 }}>
+                      #{cuota?.NumCuota || '?'}
+                      {esMora && <span style={{ marginLeft: 4, fontSize: 9, background: '#fbbf24', color: '#78350f', padding: '1px 5px', borderRadius: 4, fontWeight: 700 }}>MORA</span>}
+                    </td>
+                    <td style={{ ...td, textAlign: 'right', fontWeight: 700, color: esMora ? '#b45309' : '#16a34a' }}>{fmt(Number(p.Valor))}</td>
                     <td style={{ ...td, textAlign: 'center', fontSize: 11 }}>{medioLabel(Number(p.id_mediopago))}</td>
                     <td style={{ ...td, textAlign: 'center' }}>
                       {puedePagar && (
@@ -259,12 +296,34 @@ export function DetalleFinanciacion({ id, onVolver }: Props) {
             </div>
             <div style={{ padding: 18 }}>
               <div style={{ marginBottom: 12 }}>
-                <label style={label}>Valor a pagar</label>
+                <label style={label}>Abono a capital</label>
                 <input type="text" value={pagoValor}
                   onChange={e => setPagoValor(e.target.value.replace(/\D/g, ''))}
                   autoFocus
                   style={{ width: '100%', height: 40, padding: '0 12px', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 20, fontWeight: 700, color: '#16a34a', textAlign: 'right', boxSizing: 'border-box' }} />
               </div>
+              {(tasaMora > 0 || pagoModal.moraSugerida > 0) && (
+                <div style={{ marginBottom: 12, padding: 10, background: '#fef3c7', borderRadius: 8, border: '1px solid #fcd34d' }}>
+                  <label style={{ ...label, color: '#92400e' }}>
+                    Interés de mora {pagoModal.moraSugerida > 0 && <span style={{ fontWeight: 500 }}>(sugerido {fmt(pagoModal.moraSugerida)})</span>}
+                  </label>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <input type="text" value={pagoInteres}
+                      onChange={e => setPagoInteres(e.target.value.replace(/\D/g, ''))}
+                      placeholder="0"
+                      style={{ flex: 1, height: 34, padding: '0 10px', border: '1px solid #fcd34d', borderRadius: 6, fontSize: 15, fontWeight: 700, color: '#b45309', textAlign: 'right', boxSizing: 'border-box' }} />
+                    {pagoInteres && (
+                      <button onClick={() => setPagoInteres('')} type="button"
+                        style={{ height: 34, padding: '0 8px', background: '#fff', border: '1px solid #fcd34d', borderRadius: 6, color: '#92400e', fontSize: 11, cursor: 'pointer' }}>
+                        No cobrar
+                      </button>
+                    )}
+                  </div>
+                  <div style={{ fontSize: 10, color: '#92400e', marginTop: 4 }}>
+                    El interés se registra aparte y NO reduce el saldo del capital.
+                  </div>
+                </div>
+              )}
               <div style={{ marginBottom: 12 }}>
                 <label style={label}>Fecha del pago</label>
                 <input type="date" value={pagoFecha} onChange={e => setPagoFecha(e.target.value)}

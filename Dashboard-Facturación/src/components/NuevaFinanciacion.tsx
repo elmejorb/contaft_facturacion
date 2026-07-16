@@ -33,6 +33,8 @@ export function NuevaFinanciacion({ onCreada, onCancelar }: Props) {
   const [descripcion, setDescripcion] = useState('');
   const [fecha, setFecha] = useState(new Date().toISOString().slice(0, 10));
   const [montoFinanciar, setMontoFinanciar] = useState(0);
+  const [montoFocused, setMontoFocused] = useState(false);
+  const [cuotaFocused, setCuotaFocused] = useState<number | null>(null);
   const [numCuotas, setNumCuotas] = useState(3);
   const [fechaPrimeraCuota, setFechaPrimeraCuota] = useState('');
   const [frecuenciaDias, setFrecuenciaDias] = useState(30);
@@ -146,8 +148,8 @@ export function NuevaFinanciacion({ onCreada, onCancelar }: Props) {
         </div>
         {onCancelar && (
           <button onClick={onCancelar}
-            style={{ height: 32, padding: '0 14px', background: '#fff', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 12, cursor: 'pointer' }}>
-            <X size={13} style={{ verticalAlign: 'middle' }} /> Cancelar
+            style={{ height: 32, padding: '0 14px', background: '#fff', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 12, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <X size={13} /> Cancelar
           </button>
         )}
       </div>
@@ -172,16 +174,20 @@ export function NuevaFinanciacion({ onCreada, onCancelar }: Props) {
                   style={s.input} />
                 {showClientesDrop && clientesResults.length > 0 && (
                   <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#fff', border: '1px solid #d1d5db', borderRadius: 6, maxHeight: 200, overflow: 'auto', zIndex: 10, boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}>
-                    {clientesResults.slice(0, 10).map((c: any) => (
-                      <div key={c.CodigoClien}
-                        onClick={() => { setCliente({ id: c.CodigoClien, nombre: c.Razon_Social || c.Nombre, nit: c.Nit || '' }); setBusqCliente(''); setShowClientesDrop(false); }}
-                        style={{ padding: '6px 10px', cursor: 'pointer', fontSize: 12, borderBottom: '1px solid #f3f4f6' }}
-                        onMouseOver={e => (e.currentTarget.style.background = '#f9fafb')}
-                        onMouseOut={e => (e.currentTarget.style.background = '')}>
-                        <div style={{ fontWeight: 600 }}>{c.Razon_Social || c.Nombre}</div>
-                        <div style={{ fontSize: 10, color: '#6b7280' }}>NIT {c.Nit}</div>
-                      </div>
-                    ))}
+                    {clientesResults.slice(0, 10).map((c: any) => {
+                      const nombre = c.Nombre_Cliente || c.Razon_Social || c.Nombre || '';
+                      const nit = c.Identificacion || c.Nit || '';
+                      return (
+                        <div key={c.CodigoClien}
+                          onClick={() => { setCliente({ id: c.CodigoClien, nombre, nit }); setBusqCliente(''); setShowClientesDrop(false); }}
+                          style={{ padding: '6px 10px', cursor: 'pointer', fontSize: 12, borderBottom: '1px solid #f3f4f6' }}
+                          onMouseOver={e => (e.currentTarget.style.background = '#f9fafb')}
+                          onMouseOut={e => (e.currentTarget.style.background = '')}>
+                          <div style={{ fontWeight: 600 }}>{nombre || <span style={{ color: '#9ca3af', fontStyle: 'italic' }}>(sin nombre)</span>}</div>
+                          <div style={{ fontSize: 10, color: '#6b7280' }}>NIT {nit || '—'}</div>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </>
@@ -202,8 +208,11 @@ export function NuevaFinanciacion({ onCreada, onCancelar }: Props) {
         <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr 1fr 1fr auto', gap: 10, alignItems: 'end' }}>
           <div>
             <label style={s.label}>Monto a financiar</label>
-            <input type="text" value={montoFinanciar || ''}
-              placeholder="0"
+            <input type="text"
+              value={montoFocused ? (montoFinanciar || '') : (montoFinanciar ? fmt(montoFinanciar) : '')}
+              placeholder="$ 0"
+              onFocus={() => setMontoFocused(true)}
+              onBlur={() => setMontoFocused(false)}
               onChange={e => setMontoFinanciar(parseInt(e.target.value.replace(/\D/g, '')) || 0)}
               onKeyDown={soloNum}
               style={{ ...s.input, textAlign: 'right', fontWeight: 700, color: '#7c3aed' }} />
@@ -263,7 +272,10 @@ export function NuevaFinanciacion({ onCreada, onCancelar }: Props) {
                       style={{ ...s.input, height: 26, fontSize: 11 }} />
                   </td>
                   <td style={s.td}>
-                    <input type="text" value={c.valor || ''}
+                    <input type="text"
+                      value={cuotaFocused === i ? (c.valor || '') : (c.valor ? fmt(c.valor) : '')}
+                      onFocus={() => setCuotaFocused(i)}
+                      onBlur={() => setCuotaFocused(null)}
                       onChange={e => actualizarCuota(i, 'valor', parseInt(e.target.value.replace(/\D/g, '')) || 0)}
                       onKeyDown={soloNum}
                       style={{ ...s.input, height: 26, fontSize: 11, textAlign: 'right', fontWeight: 600 }} />

@@ -1317,6 +1317,28 @@ CREATE TABLE IF NOT EXISTS tblfinanciacion_pagos (
     KEY idx_fecha (Fecha)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- Tasa de interés de mora (% mensual sobre valor de cuota vencida).
+-- Se calcula on-the-fly: interes = valor_cuota × (tasa/100) × (dias_mora/30)
+-- El valor 0 significa "no cobrar mora" y es el default para no impactar
+-- clientes que no manejan intereses.
+SET @col_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tbldatosempresa'
+      AND COLUMN_NAME = 'tasa_mora_mensual');
+SET @sql = IF(@col_exists = 0,
+    "ALTER TABLE tbldatosempresa ADD COLUMN tasa_mora_mensual DECIMAL(5,2) NOT NULL DEFAULT 0 COMMENT '% mensual sobre cuota vencida'",
+    'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- Marca el pago de una cuota como "interés de mora" (concepto separado)
+-- para que no reduzca el saldo del capital.
+SET @col_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tblfinanciacion_pagos'
+      AND COLUMN_NAME = 'EsInteresMora');
+SET @sql = IF(@col_exists = 0,
+    "ALTER TABLE tblfinanciacion_pagos ADD COLUMN EsInteresMora TINYINT(1) NOT NULL DEFAULT 0 COMMENT '1=pago de interes de mora, 0=abono a capital'",
+    'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
 -- ================================================================
 -- VERIFICACIÓN FINAL
 -- ================================================================
