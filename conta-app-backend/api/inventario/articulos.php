@@ -74,6 +74,8 @@ try {
     // Filtrar por estado si es necesario
     if ($estado === 'Activos') {
         $query .= " WHERE a.Estado = 1";
+    } elseif ($estado === 'Inactivos') {
+        $query .= " WHERE a.Estado = 0";
     }
 
     // Agregar ordenamiento

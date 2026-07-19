@@ -1,6 +1,23 @@
 import { useState, useEffect, useRef } from 'react';
 import { AgGridReact } from 'ag-grid-react';
-import { AllCommunityModule, ModuleRegistry, ColDef } from 'ag-grid-community';
+import { AllCommunityModule, ModuleRegistry, ColDef, themeQuartz } from 'ag-grid-community';
+import { AG_GRID_LOCALE_ES } from '../utils/agGridLocaleEs';
+
+// Mismo tema que Lista de Artículos / Clientes — consistencia visual entre
+// listados grandes.
+const myTheme = themeQuartz.withParams({
+  headerBackgroundColor: '#f3e8ff',
+  headerTextColor: '#6b21a8',
+  headerFontSize: 12,
+  headerFontWeight: 600,
+  fontSize: 12,
+  rowBorder: { color: '#f3f4f6', width: 1 },
+  borderColor: '#e5e7eb',
+  borderRadius: 8,
+  rowHoverColor: '#faf5ff',
+  selectedRowBackgroundColor: '#f3e8ff',
+  spacing: 6,
+});
 import {
   Search, RefreshCw, Plus, Truck, DollarSign, Eye, Pencil, Trash2, X, Save,
   FileText, Wallet, Receipt, ShoppingCart, Ban, Printer
@@ -180,9 +197,13 @@ export function ProveedoresManagement({ modoCxP = false }: { modoCxP?: boolean }
       {/* Grid */}
       <div style={{ background: '#fff', borderRadius: 12, overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
         <div style={{ height: 'calc(100vh - 370px)', width: '100%' }}>
-          <AgGridReact ref={gridRef} rowData={filtrados} columnDefs={cols} loading={loading} animateRows
-            getRowId={p => String(p.data.CodigoPro)} rowHeight={36} headerHeight={36}
-            defaultColDef={{ resizable: true }}
+          <AgGridReact ref={gridRef}
+            theme={myTheme}
+            localeText={AG_GRID_LOCALE_ES}
+            rowData={filtrados} columnDefs={cols} loading={loading} animateRows
+            getRowId={p => String(p.data.CodigoPro)} rowHeight={32} headerHeight={34}
+            defaultColDef={{ resizable: true, sortable: true, filter: true }}
+            enableCellTextSelection ensureDomOrder
             getRowStyle={p => (p.data?.Saldo_Total > 0) ? { background: '#fef2f2' } : undefined} />
         </div>
       </div>

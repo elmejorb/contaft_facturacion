@@ -83,6 +83,7 @@ import { useAutoSyncVendedores } from '../hooks/useAutoSyncVendedores';
 import { InformesHub } from './informes/InformesHub';
 import { ConfiguracionSistema, saveEmpresaCache, getConfigImpresion } from './ConfiguracionSistema';
 import { FinanciacionesManagement } from './FinanciacionesManagement';
+import { BackupBD } from './BackupBD';
 import { DatosEmpresa } from './DatosEmpresa';
 import { NuevaCompra } from './NuevaCompra';
 import { UsuariosManagement } from './UsuariosManagement';
@@ -114,7 +115,7 @@ interface DashboardProps {
   user?: UserData | null;
 }
 
-type View = 'overview' | 'products' | 'customers' | 'suppliers' | 'purchases' | 'sales' | 'inventario' | 'diagnostico' | 'auditoria' | 'categorias' | 'conteo' | 'configuracion' | 'cuentas-cobrar' | 'top-clientes' | 'cumpleanos' | 'cuentas-pagar' | 'productos-proveedor' | 'nueva-venta' | 'ventas-tipo-pago' | 'datos-empresa' | 'usuarios' | 'nueva-compra' | 'facturacion-electronica' | 'facturas-recibidas' | 'caja' | 'caja-historial' | 'pagos-clientes' | 'pagos-proveedores' | 'gastos' | 'bancos' | 'config-categorias-gasto' | 'config-cajas' | 'config-servidor' | 'config-permisos' | 'familias' | 'distribuir' | 'stock-bajo' | 'config-retenciones' | 'informes-hub' | 'notas-articulo' | 'lotes-vencer' | 'inicio' | 'config-etiquetas' | 'vendedores-gestion' | 'vendedores-pedidos' | 'financiaciones';
+type View = 'overview' | 'products' | 'customers' | 'suppliers' | 'purchases' | 'sales' | 'inventario' | 'diagnostico' | 'auditoria' | 'categorias' | 'conteo' | 'configuracion' | 'cuentas-cobrar' | 'top-clientes' | 'cumpleanos' | 'cuentas-pagar' | 'productos-proveedor' | 'nueva-venta' | 'ventas-tipo-pago' | 'datos-empresa' | 'usuarios' | 'nueva-compra' | 'facturacion-electronica' | 'facturas-recibidas' | 'caja' | 'caja-historial' | 'pagos-clientes' | 'pagos-proveedores' | 'gastos' | 'bancos' | 'config-categorias-gasto' | 'config-cajas' | 'config-servidor' | 'config-permisos' | 'familias' | 'distribuir' | 'stock-bajo' | 'config-retenciones' | 'informes-hub' | 'notas-articulo' | 'lotes-vencer' | 'inicio' | 'config-etiquetas' | 'vendedores-gestion' | 'vendedores-pedidos' | 'financiaciones' | 'backup-bd';
 
 interface MenuItem {
   id: string;
@@ -141,6 +142,24 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
       .then(r => r.json())
       .then(d => { if (d.success) { setEmpresa(d.empresa); saveEmpresaCache(d.empresa); } })
       .catch(() => {});
+  }, []);
+
+  // Respaldo automático diario en segundo plano — 1 vez por día natural.
+  // El backend detecta si ya hay un backup de hoy y no genera duplicados,
+  // así que aunque varios cajeros abran la app, solo se crea 1 archivo.
+  useEffect(() => {
+    const API_BK = 'http://localhost:80/conta-app-backend/api/backup/';
+    fetch(`${API_BK}?estado`)
+      .then(r => r.json())
+      .then(d => {
+        if (d.success && !d.tiene_hoy) {
+          return fetch(API_BK, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'generar' }),
+          });
+        }
+      })
+      .catch(() => {}); // silencioso — no molestar al usuario si falla
   }, []);
   const cumpleProximos = useCumpleanosHoy();
   const stockBajoCount = useStockBajoCount();
@@ -296,6 +315,7 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
         { id: 'config-retenciones', label: 'Retenciones', view: 'config-retenciones' as View },
         { id: 'config-cajas', label: 'Administrar Cajas', view: 'config-cajas' as View },
         { id: 'config-servidor', label: 'Servidor', view: 'config-servidor' as View },
+        { id: 'backup-bd', label: 'Respaldo de la Base de Datos', view: 'backup-bd' as View },
       ]
     },
   ];
@@ -324,7 +344,7 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
     'gastos': 'gastos', 'bancos': 'bancos',
     'configuracion': 'configuracion', 'config-sistema': 'configuracion',
     'config-empresa': 'datos_empresa', 'config-usuarios': 'usuarios',
-    'config-categorias': 'configuracion', 'config-cajas': 'configuracion', 'config-servidor': 'configuracion', 'config-permisos': 'usuarios',
+    'config-categorias': 'configuracion', 'config-cajas': 'configuracion', 'config-servidor': 'configuracion', 'config-permisos': 'usuarios', 'backup-bd': 'configuracion',
     'informes': 'informes',
   };
 
@@ -724,6 +744,7 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
           {currentView === 'config-servidor' && <ConfigServidor />}
           {currentView === 'config-permisos' && <ConfigPermisos />}
           {currentView === 'financiaciones' && <FinanciacionesManagement />}
+          {currentView === 'backup-bd' && <BackupBD />}
         </div>
       </main>
 

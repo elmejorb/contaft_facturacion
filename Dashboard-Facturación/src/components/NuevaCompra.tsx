@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef, Fragment } from 'react';
-import { Search, Trash2, Plus, Save, X, Package, Landmark, CreditCard, Smartphone, Banknote } from 'lucide-react';
+import { Search, Trash2, Plus, Save, X, Package, Landmark, CreditCard, Smartphone, Banknote, BarChart3, Printer } from 'lucide-react';
+import { ProductosProveedor } from './ProductosProveedor';
 import toast from 'react-hot-toast';
 import { EditarArticuloModal } from './EditarArticuloModal';
 import { useAuth } from '../contexts/AuthContext';
-import { getConfigImpresion } from './ConfiguracionSistema';
+import { getConfigImpresion, getEmpresaCache } from './ConfiguracionSistema';
 
 const API = 'http://localhost:80/conta-app-backend/api/compras/nueva.php';
 const fmtMon = (v: number) => {
@@ -58,6 +59,7 @@ export function NuevaCompra({ pedidoEditar, onClose }: { pedidoEditar?: number; 
   const [proveedor, setProveedor] = useState(saved?.proveedor || { id: 0, nombre: '', nit: '' });
   const [proveedores, setProveedores] = useState<any[]>([]);
   const [showProvModal, setShowProvModal] = useState(false);
+  const [showRotacionModal, setShowRotacionModal] = useState(false);
   const [provBusqueda, setProvBusqueda] = useState('');
   const [opcionIva, setOpcionIva] = useState(saved?.opcionIva || 0);
   const [lineas, setLineas] = useState<LineaCompra[]>(saved?.lineas || []);
@@ -426,6 +428,101 @@ export function NuevaCompra({ pedidoEditar, onClose }: { pedidoEditar?: number; 
   const totalIva = lineas.reduce((s, l) => s + l.IvaVal * l.Cantidad, 0);
   const totalCompra = subtotalCompra + flete - descuento;
 
+  // Imprime la compra actual con el detalle en HTML sencillo. Funciona sin
+  // guardar — útil para tener un "borrador" físico antes de confirmar, o para
+  // reimprimir la compra recién registrada. Usa un iframe oculto + window.print
+  // para no abrir popup de navegador.
+  const imprimirCompra = () => {
+    if (lineas.length === 0) { toast.error('No hay líneas para imprimir'); return; }
+    const emp = getEmpresaCache();
+    const esc = (s: any) => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c] || c));
+    const filas = lineas.map((l, i) => `
+      <tr>
+        <td style="text-align:center">${i + 1}</td>
+        <td>${esc(l.Codigo)}</td>
+        <td>${esc(l.Nombre)}</td>
+        <td style="text-align:right">${fmtDec(l.Cantidad)}</td>
+        <td style="text-align:right">${fmtMon(l.CostoConIva || 0)}</td>
+        <td style="text-align:right">${l.IvaPct || 0}%</td>
+        <td style="text-align:right; font-weight:600">${fmtMon(l.Subtotal || 0)}</td>
+      </tr>`).join('');
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Compra ${esc(facturaCompra || 'Borrador')}</title>
+      <style>
+        * { box-sizing: border-box; }
+        body { font-family: Arial, sans-serif; color: #1f2937; padding: 20px; font-size: 12px; margin: 0; }
+        .head { display: flex; justify-content: space-between; border-bottom: 2px solid #dc2626; padding-bottom: 10px; margin-bottom: 12px; }
+        .emp { font-size: 16px; font-weight: 700; color: #1f2937; }
+        .sub { color: #6b7280; font-size: 11px; }
+        .titulo { font-size: 20px; font-weight: 800; color: #dc2626; text-align: right; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 24px; padding: 8px 0 12px; border-bottom: 1px solid #e5e7eb; margin-bottom: 12px; }
+        .grid div { font-size: 11px; }
+        .grid b { color: #374151; font-weight: 700; }
+        table { width: 100%; border-collapse: collapse; font-size: 11px; }
+        th { background: #fee2e2; color: #7f1d1d; text-align: left; padding: 6px; border-bottom: 2px solid #dc2626; font-size: 10px; text-transform: uppercase; }
+        td { padding: 5px 6px; border-bottom: 1px solid #f3f4f6; }
+        .totales { margin-top: 12px; display: flex; justify-content: flex-end; }
+        .totales table { width: 260px; font-size: 12px; }
+        .totales td { padding: 4px 8px; border: none; }
+        .totales .tot td { font-weight: 800; font-size: 15px; color: #dc2626; border-top: 2px solid #dc2626; padding-top: 6px; }
+        .pie { margin-top: 25px; padding-top: 10px; border-top: 1px dashed #d1d5db; font-size: 10px; color: #6b7280; text-align: center; }
+        @media print { body { padding: 10px; } }
+      </style></head><body>
+      <div class="head">
+        <div>
+          <div class="emp">${esc(emp.nombre)}</div>
+          <div class="sub">NIT ${esc(emp.nit)} · ${esc(emp.direccion)}</div>
+          <div class="sub">${esc(emp.telefono)}</div>
+        </div>
+        <div>
+          <div class="titulo">COMPRA</div>
+          <div class="sub" style="text-align:right">Factura #${esc(facturaCompra || 'BORRADOR')}</div>
+          <div class="sub" style="text-align:right">${new Date().toLocaleString('es-CO')}</div>
+        </div>
+      </div>
+      <div class="grid">
+        <div><b>Proveedor:</b> ${esc(proveedor.nombre)}</div>
+        <div><b>NIT:</b> ${esc(proveedor.nit)}</div>
+        <div><b>Tipo:</b> ${esc(tipo)}${tipo === 'Crédito' ? ` · ${dias} días` : ''}</div>
+        <div><b>Fecha factura:</b> ${esc(fecha)}</div>
+      </div>
+      <table>
+        <thead><tr>
+          <th style="width:30px">#</th>
+          <th style="width:90px">Código</th>
+          <th>Artículo</th>
+          <th style="width:60px; text-align:right">Cant.</th>
+          <th style="width:90px; text-align:right">Precio</th>
+          <th style="width:50px; text-align:right">IVA</th>
+          <th style="width:100px; text-align:right">Subtotal</th>
+        </tr></thead>
+        <tbody>${filas}</tbody>
+      </table>
+      <div class="totales">
+        <table>
+          <tr><td>Subtotal:</td><td style="text-align:right">${fmtMon(subtotalCompra)}</td></tr>
+          ${totalIva > 0 ? `<tr><td>IVA:</td><td style="text-align:right">${fmtMon(totalIva)}</td></tr>` : ''}
+          ${flete > 0 ? `<tr><td>Flete:</td><td style="text-align:right">${fmtMon(flete)}</td></tr>` : ''}
+          ${descuento > 0 ? `<tr><td>Descuento:</td><td style="text-align:right">-${fmtMon(descuento)}</td></tr>` : ''}
+          ${retencion > 0 ? `<tr><td>Retención:</td><td style="text-align:right">-${fmtMon(retencion)}</td></tr>` : ''}
+          <tr class="tot"><td>TOTAL:</td><td style="text-align:right">${fmtMon(totalCompra - retencion)}</td></tr>
+        </table>
+      </div>
+      <div class="pie">${lineas.length} ítem(s) · Impreso desde Conta FT · ${user?.nombre || ''}</div>
+    </body></html>`;
+
+    // Iframe oculto — evita bloqueo de popups y no abre ventana extra.
+    const iframe = document.createElement('iframe');
+    iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0';
+    document.body.appendChild(iframe);
+    const doc = iframe.contentWindow?.document;
+    if (!doc) { toast.error('No se pudo abrir la impresión'); document.body.removeChild(iframe); return; }
+    doc.open(); doc.write(html); doc.close();
+    iframe.onload = () => {
+      try { iframe.contentWindow?.focus(); iframe.contentWindow?.print(); } catch {}
+      setTimeout(() => document.body.removeChild(iframe), 1000);
+    };
+  };
+
   const guardar = async () => {
     if (!proveedor.id) { toast.error('Seleccione un proveedor'); return; }
     if (tipo === 'Crédito' && proveedor.id === 220500) {
@@ -606,8 +703,15 @@ export function NuevaCompra({ pedidoEditar, onClose }: { pedidoEditar?: number; 
             <label style={lbl}>PROVEEDOR</label>
             <input type="text" value={proveedor.nombre} readOnly style={{ ...inp, width: '100%', background: '#f9fafb', fontWeight: 600 }} placeholder="Seleccione proveedor..." />
           </div>
-          <button onClick={() => setShowProvModal(true)} style={{ width: 28, height: 28, border: '1px solid #d1d5db', borderRadius: 6, cursor: 'pointer', background: '#f3e8ff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <button onClick={() => setShowProvModal(true)} style={{ width: 28, height: 28, border: '1px solid #d1d5db', borderRadius: 6, cursor: 'pointer', background: '#f3e8ff', display: 'flex', alignItems: 'center', justifyContent: 'center' }} title="Buscar proveedor">
             <Search size={14} color="#7c3aed" />
+          </button>
+          <button
+            onClick={() => setShowRotacionModal(true)}
+            disabled={!proveedor.id}
+            title={proveedor.id ? `Ver rotación de productos de ${proveedor.nombre}` : 'Seleccione primero un proveedor'}
+            style={{ height: 28, padding: '0 10px', border: '1px solid #d1d5db', borderRadius: 6, cursor: proveedor.id ? 'pointer' : 'not-allowed', background: proveedor.id ? '#dbeafe' : '#f3f4f6', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, fontSize: 11, fontWeight: 600, color: proveedor.id ? '#1d4ed8' : '#9ca3af' }}>
+            <BarChart3 size={13} /> Rotación
           </button>
           <div>
             <label style={lbl}>NIT</label>
@@ -824,6 +928,11 @@ export function NuevaCompra({ pedidoEditar, onClose }: { pedidoEditar?: number; 
             style={{ height: 30, padding: '0 10px', background: '#f3f4f6', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 11, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
             <Plus size={13} /> Nueva
           </button>
+          <button onClick={imprimirCompra} disabled={lineas.length === 0}
+            title={lineas.length === 0 ? 'Agregue líneas para imprimir' : 'Imprimir esta compra'}
+            style={{ height: 30, padding: '0 12px', background: lineas.length > 0 ? '#dbeafe' : '#f3f4f6', color: lineas.length > 0 ? '#1d4ed8' : '#9ca3af', border: '1px solid ' + (lineas.length > 0 ? '#93c5fd' : '#e5e7eb'), borderRadius: 8, fontSize: 11, cursor: lineas.length > 0 ? 'pointer' : 'not-allowed', display: 'flex', alignItems: 'center', gap: 4, fontWeight: 600 }}>
+            <Printer size={13} /> Imprimir
+          </button>
           <button
             onClick={() => {
               // Validaciones básicas antes de abrir el modal de pago
@@ -988,6 +1097,33 @@ export function NuevaCompra({ pedidoEditar, onClose }: { pedidoEditar?: number; 
                   <span style={{ color: '#6b7280' }}>{p.Nit}</span>
                 </div>
               ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal rotación productos del proveedor — muestra ProductosProveedor
+          embebido con el proveedor actual preseleccionado. Útil para consultar
+          histórico de rotación mientras se está armando la compra. */}
+      {showRotacionModal && proveedor.id > 0 && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.5)' }} onClick={() => setShowRotacionModal(false)} />
+          <div style={{ position: 'relative', background: '#f9fafb', borderRadius: 12, width: '92vw', maxWidth: 1400, height: '88vh', boxShadow: '0 20px 60px rgba(0,0,0,0.25)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <div style={{ padding: '12px 18px', background: 'linear-gradient(135deg,#2563eb,#1e40af)', color: '#fff', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <BarChart3 size={20} />
+                <div>
+                  <div style={{ fontSize: 15, fontWeight: 700 }}>Rotación de Productos</div>
+                  <div style={{ fontSize: 11, opacity: 0.85 }}>{proveedor.nombre} · NIT {proveedor.nit}</div>
+                </div>
+              </div>
+              <button onClick={() => setShowRotacionModal(false)}
+                style={{ width: 32, height: 32, background: 'rgba(255,255,255,0.15)', border: 'none', borderRadius: 8, color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <X size={16} />
+              </button>
+            </div>
+            <div style={{ flex: 1, overflow: 'auto', padding: 12 }}>
+              <ProductosProveedor proveedorInicial={proveedor.id} soloContenido />
             </div>
           </div>
         </div>

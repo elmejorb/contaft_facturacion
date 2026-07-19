@@ -1,6 +1,22 @@
 import { useState, useEffect, useRef } from 'react';
 import { AgGridReact } from 'ag-grid-react';
-import { AllCommunityModule, ModuleRegistry, ColDef } from 'ag-grid-community';
+import { AllCommunityModule, ModuleRegistry, ColDef, themeQuartz } from 'ag-grid-community';
+import { AG_GRID_LOCALE_ES } from '../utils/agGridLocaleEs';
+
+// Mismo tema que Lista de Artículos / Clientes / Proveedores.
+const myTheme = themeQuartz.withParams({
+  headerBackgroundColor: '#f3e8ff',
+  headerTextColor: '#6b21a8',
+  headerFontSize: 12,
+  headerFontWeight: 600,
+  fontSize: 12,
+  rowBorder: { color: '#f3f4f6', width: 1 },
+  borderColor: '#e5e7eb',
+  borderRadius: 8,
+  rowHoverColor: '#faf5ff',
+  selectedRowBackgroundColor: '#f3e8ff',
+  spacing: 6,
+});
 import { Search, RefreshCw, Package, TrendingUp, AlertTriangle, ShoppingCart } from 'lucide-react';
 import { hoyLocal, fechaLocal } from '../utils/fecha';
 
@@ -9,9 +25,13 @@ ModuleRegistry.registerModules([AllCommunityModule]);
 const API = 'http://localhost:80/conta-app-backend/api/proveedores/productos.php';
 const fmtMon = (v: number) => '$ ' + Math.round(v).toLocaleString('es-CO');
 
-export function ProductosProveedor() {
+interface Props {
+  proveedorInicial?: string | number;   // preselecciona un proveedor (uso: modal desde Nueva Compra)
+  soloContenido?: boolean;              // oculta el título grande — para embed en un modal
+}
+export function ProductosProveedor({ proveedorInicial, soloContenido }: Props = {}) {
   const [proveedores, setProveedores] = useState<any[]>([]);
-  const [provId, setProvId] = useState<string>('');
+  const [provId, setProvId] = useState<string>(proveedorInicial != null ? String(proveedorInicial) : '');
   const [desde, setDesde] = useState(() => { const d = new Date(); d.setMonth(d.getMonth() - 1); return fechaLocal(d); });
   const [hasta, setHasta] = useState(() => hoyLocal());
   const [data, setData] = useState<any>(null);
@@ -109,10 +129,12 @@ export function ProductosProveedor() {
 
   return (
     <div>
-      <div style={{ marginBottom: 16 }}>
-        <h2 style={{ fontSize: 22, fontWeight: 700, color: '#1f2937' }}>Productos por Proveedor</h2>
-        <p style={{ fontSize: 13, color: '#6b7280' }}>Consulta rotación de productos y genera sugeridos de pedido</p>
-      </div>
+      {!soloContenido && (
+        <div style={{ marginBottom: 16 }}>
+          <h2 style={{ fontSize: 22, fontWeight: 700, color: '#1f2937' }}>Productos por Proveedor</h2>
+          <p style={{ fontSize: 13, color: '#6b7280' }}>Consulta rotación de productos y genera sugeridos de pedido</p>
+        </div>
+      )}
 
       {/* Selector proveedor + rango */}
       <div style={{
@@ -205,9 +227,13 @@ export function ProductosProveedor() {
           {/* Grid */}
           <div style={{ background: '#fff', borderRadius: 12, overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
             <div style={{ height: 'calc(100vh - 440px)', width: '100%' }}>
-              <AgGridReact ref={gridRef} rowData={filtrados} columnDefs={cols} loading={loading} animateRows
-                getRowId={p => String(p.data.Items)} rowHeight={34} headerHeight={34}
-                defaultColDef={{ resizable: true }}
+              <AgGridReact ref={gridRef}
+                theme={myTheme}
+                localeText={AG_GRID_LOCALE_ES}
+                rowData={filtrados} columnDefs={cols} loading={loading} animateRows
+                getRowId={p => String(p.data.Items)} rowHeight={32} headerHeight={34}
+                defaultColDef={{ resizable: true, sortable: true, filter: true }}
+                enableCellTextSelection ensureDomOrder
                 getRowStyle={p => {
                   if ((p.data?.Existencia || 0) <= 0) return { background: '#fef2f2' };
                   if ((p.data?.Sugerido || 0) > 0) return { background: '#fffbeb' };

@@ -1331,7 +1331,18 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
                       onBlur={e => { const v = parseFloat(e.target.value) || 1; actualizarLinea(l.id, 'Cantidad', v); }}
                       onKeyDown={e => {
                         soloNum(e);
-                        if (e.key === 'Enter') { (e.target as HTMLInputElement).blur(); setTimeout(() => { const ci = document.querySelector('input[data-venta-codigo-input]') as HTMLInputElement; ci?.focus(); }, 50); }
+                        if (e.key === 'Enter') {
+                          (e.target as HTMLInputElement).blur();
+                          // Va al campo configurado como predeterminado
+                          setTimeout(() => {
+                            const cfg = getConfigImpresion();
+                            const sel = cfg.campoPredeterminado === 'nombre'
+                              ? 'input[data-venta-nombre-input]'
+                              : 'input[data-venta-codigo-input]';
+                            const next = document.querySelector(sel) as HTMLInputElement | null;
+                            next?.focus(); next?.select();
+                          }, 50);
+                        }
                       }}
                       onFocus={e => e.target.select()}
                       style={{ width: 48, height: 24, textAlign: 'center', border: '1px solid #d1d5db', borderRadius: 4, fontSize: 12, fontWeight: 600, outline: 'none' }} />
@@ -1351,12 +1362,36 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
                         tip = `Costo: ${fmtMon(l.PrecioCosto)}   Margen: ${signo}${fmtMon(margen)} (${pct.toFixed(1)}%)`;
                       }
                       return (
-                        <input type="text" key={`precio-${l.id}-${l.PrecioVenta}`} defaultValue={String(l.PrecioVenta)}
+                        <input type="text" key={`precio-${l.id}-${l.PrecioVenta}`}
+                          // Al mostrar: "$ 24.000". Al enfocar: número plano "24000"
+                          // para editar cómodo. `PrecioVenta` puede venir como string
+                          // desde el backend legacy, por eso el Number() explícito.
+                          defaultValue={fmtMon(Number(l.PrecioVenta) || 0)}
                           title={tip}
-                          onFocus={e => e.target.select()}
-                          onBlur={e => { const v = parseFloat(e.target.value) || 0; actualizarLinea(l.id, 'PrecioVenta', v); e.target.value = v.toLocaleString('es-CO'); }}
-                          onKeyDown={e => { soloNum(e); if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
-                          style={{ width: 80, height: 24, textAlign: 'right', border: '1px solid #d1d5db', borderRadius: 4, fontSize: 12, outline: 'none' }} />
+                          onFocus={e => { e.target.value = String(Number(l.PrecioVenta) || 0); e.target.select(); }}
+                          onBlur={e => {
+                            // Limpia el signo $, espacios y puntos de miles antes de parsear.
+                            const v = parseFloat(e.target.value.replace(/[$\s.]/g, '').replace(/,/g, '.')) || 0;
+                            actualizarLinea(l.id, 'PrecioVenta', v);
+                            e.target.value = fmtMon(v);
+                          }}
+                          onKeyDown={e => {
+                            soloNum(e);
+                            if (e.key === 'Enter') {
+                              (e.target as HTMLInputElement).blur();
+                              // Pasa a la fila de entrada — al campo configurado
+                              // como "predeterminado" (codigo o nombre).
+                              setTimeout(() => {
+                                const cfg = getConfigImpresion();
+                                const sel = cfg.campoPredeterminado === 'nombre'
+                                  ? 'input[data-venta-nombre-input]'
+                                  : 'input[data-venta-codigo-input]';
+                                const next = document.querySelector(sel) as HTMLInputElement | null;
+                                next?.focus(); next?.select();
+                              }, 50);
+                            }
+                          }}
+                          style={{ width: 95, height: 24, textAlign: 'right', border: '1px solid #d1d5db', borderRadius: 4, fontSize: 12, fontWeight: 700, color: '#1f2937', outline: 'none' }} />
                       );
                     })()}
                   </td>
@@ -1406,7 +1441,7 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
                       }
                     }}
                     style={{ width: 85, height: 26, padding: '0 6px', border: '1px solid #7c3aed', borderRadius: 4, fontSize: 12, outline: 'none', fontWeight: 600 }}
-                    autoFocus />
+                    autoFocus={getConfigImpresion().campoPredeterminado !== 'nombre'} />
                 </td>
                 <td style={{ padding: '4px 8px', position: 'relative' }}>
                   <input type="text" placeholder="Buscar artículo por nombre..." data-venta-nombre-input="true"
@@ -1438,7 +1473,16 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
                       }
                       if (e.key === 'Escape') { setShowProductoDropdown(false); setBuscarProducto(''); (window as any).__prodIdx = 0; }
                     }}
-                    onFocus={() => { if (productoResults.length > 0) setShowProductoDropdown(true); (window as any).__prodIdx = 0; }}
+                    onFocus={() => {
+                      // Solo abrir el desplegable si el usuario ya escribió
+                      // algo. Al enfocar en blanco no debe listar todo el
+                      // catálogo — regla del negocio.
+                      if (buscarProducto.trim().length >= 1 && productoResults.length > 0) {
+                        setShowProductoDropdown(true);
+                      }
+                      (window as any).__prodIdx = 0;
+                    }}
+                    autoFocus={getConfigImpresion().campoPredeterminado === 'nombre'}
                     style={{ width: '100%', height: 26, padding: '0 6px', border: '1px solid #d1d5db', borderRadius: 4, fontSize: 12, outline: 'none' }} />
                   {showProductoDropdown && (
                     <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#fff', border: '1px solid #d1d5db', borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,0.15)', maxHeight: 250, overflow: 'auto', zIndex: 100 }}>

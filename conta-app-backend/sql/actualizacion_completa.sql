@@ -1339,6 +1339,21 @@ SET @sql = IF(@col_exists = 0,
     'SELECT 1');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
+-- v4.3.71 — Anulación de Notas de Artículo (soft-delete, respeta kardex inmutable)
+-- Ya no se hace DELETE al eliminar: se marca Estado='Anulada' y se compensa
+-- el kardex con un asiento REVERSO. Así queda la huella de la nota original.
+SET @col_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tblnotas_articulo'
+      AND COLUMN_NAME = 'Estado');
+SET @sql = IF(@col_exists = 0,
+    "ALTER TABLE tblnotas_articulo
+        ADD COLUMN Estado VARCHAR(10) NOT NULL DEFAULT 'Valida' COMMENT 'Valida | Anulada',
+        ADD COLUMN Anulada_Por INT NULL COMMENT 'Id_Usuario que anuló',
+        ADD COLUMN Fecha_Anulacion DATETIME NULL,
+        ADD COLUMN Motivo_Anulacion VARCHAR(200) NULL",
+    'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
 -- ================================================================
 -- VERIFICACIÓN FINAL
 -- ================================================================

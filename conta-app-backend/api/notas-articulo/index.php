@@ -32,11 +32,13 @@ try {
 
         $stmt = $db->prepare("
             SELECT n.*, a.Codigo, a.Nombres_Articulo,
-                   COALESCE(u.Nombre, CONCAT('Usr#', n.Id_Usuario)) AS usuario,
+                   COALESCE(u.Nombre, 'Sistema') AS usuario,
+                   ua.Nombre AS anulada_por_nombre,
                    l.Numero_Lote, l.Fecha_Vencimiento
             FROM tblnotas_articulo n
             INNER JOIN tblarticulos a ON n.Items = a.Items
-            LEFT JOIN tblusuarios u ON u.Id_Usuario = n.Id_Usuario
+            LEFT JOIN tblusuarios u  ON u.Id_Usuario  = n.Id_Usuario
+            LEFT JOIN tblusuarios ua ON ua.Id_Usuario = n.Anulada_Por
             LEFT JOIN tblproductos_lotes l ON l.Id_Lote = n.Id_Lote
             $where
             ORDER BY n.Fecha DESC, n.Id_Nota DESC
@@ -145,17 +147,19 @@ try {
         exit;
     }
 
-    if ($action === 'eliminar') {
+    // Alias 'eliminar' se mantiene por compatibilidad con clientes viejos.
+    if ($action === 'anular' || $action === 'eliminar') {
         $idNota = intval($data['id_nota'] ?? 0);
+        $idUsuario = intval($data['id_usuario'] ?? 0) ?: null;
+        $motivo = trim($data['motivo'] ?? '');
         if (!$idNota) { echo json_encode(['success' => false, 'message' => 'ID requerido']); exit; }
 
         $stmt = $db->prepare("SELECT * FROM tblnotas_articulo WHERE Id_Nota = ?");
         $stmt->execute([$idNota]);
         $nota = $stmt->fetch();
         if (!$nota) { echo json_encode(['success' => false, 'message' => 'Nota no encontrada']); exit; }
-        if (DATE('Y-m-d', strtotime($nota['Fecha'])) !== date('Y-m-d')) {
-            echo json_encode(['success' => false, 'message' => 'Solo se pueden eliminar notas creadas hoy']);
-            exit;
+        if (($nota['Estado'] ?? 'Valida') === 'Anulada') {
+            echo json_encode(['success' => false, 'message' => 'La nota ya está anulada']); exit;
         }
 
         $db->beginTransaction();
@@ -169,7 +173,7 @@ try {
             $db->prepare("UPDATE tblproductos_lotes SET Cantidad_Actual = Cantidad_Actual $signoLote ?, Estado = 'activo' WHERE Id_Lote = ?")
                ->execute([$nota['Cantidad'], $nota['Id_Lote']]);
         }
-        // Registrar revocación en kardex
+        // Registrar reverso en kardex (kardex inmutable — no borra, compensa)
         $mes = $MESES[intval(date('n'))];
         $stmt = $db->prepare("SELECT Existencia FROM tblarticulos WHERE Items = ?");
         $stmt->execute([$nota['Items']]);
@@ -184,11 +188,14 @@ try {
             $db->prepare("INSERT INTO tblkardex (Mes, Items, Detalle, Cant_Ent, Cost_Ent, Cant_Saldo, Cost_Saldo, Cost_Unit) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
                ->execute([$mes, $nota['Items'], $detalle, $cantidad, $cantidad * $costoUnit, $nuevaExist, $nuevaExist * $costoUnit, $costoUnit]);
         }
-        // Eliminar nota
-        $db->prepare("DELETE FROM tblnotas_articulo WHERE Id_Nota = ?")->execute([$idNota]);
+        // Marcar nota como Anulada (soft-delete)
+        $db->prepare("UPDATE tblnotas_articulo
+                      SET Estado='Anulada', Anulada_Por=?, Fecha_Anulacion=NOW(), Motivo_Anulacion=?
+                      WHERE Id_Nota = ?")
+           ->execute([$idUsuario, $motivo ?: null, $idNota]);
 
         $db->commit();
-        echo json_encode(['success' => true, 'message' => 'Nota eliminada y kardex compensado']);
+        echo json_encode(['success' => true, 'message' => 'Nota anulada y kardex compensado']);
         exit;
     }
 

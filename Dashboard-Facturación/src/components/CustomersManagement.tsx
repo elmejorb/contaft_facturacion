@@ -1,6 +1,24 @@
 import { useState, useEffect, useRef } from 'react';
 import { AgGridReact } from 'ag-grid-react';
-import { AllCommunityModule, ModuleRegistry, ColDef } from 'ag-grid-community';
+import { AllCommunityModule, ModuleRegistry, ColDef, themeQuartz } from 'ag-grid-community';
+import { AG_GRID_LOCALE_ES } from '../utils/agGridLocaleEs';
+
+// Mismo tema visual que Lista de Artículos (InventarioManagement) — headers
+// púrpura suave, filas compactas, hover púrpura claro. Consistencia entre
+// listados grandes de la app.
+const myTheme = themeQuartz.withParams({
+  headerBackgroundColor: '#f3e8ff',
+  headerTextColor: '#6b21a8',
+  headerFontSize: 12,
+  headerFontWeight: 600,
+  fontSize: 12,
+  rowBorder: { color: '#f3f4f6', width: 1 },
+  borderColor: '#e5e7eb',
+  borderRadius: 8,
+  rowHoverColor: '#faf5ff',
+  selectedRowBackgroundColor: '#f3e8ff',
+  spacing: 6,
+});
 import {
   Search, RefreshCw, Plus, Users, ShoppingCart, DollarSign,
   UserX, Pencil, Trash2, Eye, X, Save, BarChart3
@@ -629,14 +647,18 @@ export function CustomersManagement() {
         <div style={{ height: 'calc(100vh - 370px)', width: '100%' }}>
           <AgGridReact
             ref={gridRef}
+            theme={myTheme}
+            localeText={AG_GRID_LOCALE_ES}
             rowData={filtrados}
             columnDefs={columnDefs}
             loading={loading}
             animateRows
             getRowId={p => String(p.data.CodigoClien)}
-            rowHeight={36}
-            headerHeight={36}
-            defaultColDef={{ resizable: true }}
+            rowHeight={32}
+            headerHeight={34}
+            defaultColDef={{ resizable: true, sortable: true, filter: true }}
+            enableCellTextSelection
+            ensureDomOrder
           />
         </div>
       </div>

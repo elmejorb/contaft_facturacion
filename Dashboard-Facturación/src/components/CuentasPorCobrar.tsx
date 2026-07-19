@@ -1,6 +1,22 @@
 import { useState, useEffect, useRef } from 'react';
 import { AgGridReact } from 'ag-grid-react';
-import { AllCommunityModule, ModuleRegistry, ColDef } from 'ag-grid-community';
+import { AllCommunityModule, ModuleRegistry, ColDef, themeQuartz } from 'ag-grid-community';
+import { AG_GRID_LOCALE_ES } from '../utils/agGridLocaleEs';
+
+// Mismo tema que Lista de Artículos / Clientes / Proveedores / Productos por Prov.
+const myTheme = themeQuartz.withParams({
+  headerBackgroundColor: '#f3e8ff',
+  headerTextColor: '#6b21a8',
+  headerFontSize: 12,
+  headerFontWeight: 600,
+  fontSize: 12,
+  rowBorder: { color: '#f3f4f6', width: 1 },
+  borderColor: '#e5e7eb',
+  borderRadius: 8,
+  rowHoverColor: '#faf5ff',
+  selectedRowBackgroundColor: '#f3e8ff',
+  spacing: 6,
+});
 import { Search, RefreshCw, Users, DollarSign, AlertTriangle, Clock, Wallet, Eye, Printer, Plus, X, Ban, RotateCcw, Award } from 'lucide-react';
 import { confirmar } from './ConfirmDialog';
 import { ClienteDetalle } from './ClienteDetalle';
@@ -712,14 +728,17 @@ export function CuentasPorCobrar() {
         <div style={{ height: 'calc(100vh - 370px)', width: '100%' }}>
           <AgGridReact
             ref={gridRef}
+            theme={myTheme}
+            localeText={AG_GRID_LOCALE_ES}
             rowData={filtrados}
             columnDefs={columnDefs}
             loading={loading}
             animateRows
             getRowId={p => String(p.data.CodigoClien)}
-            rowHeight={36}
-            headerHeight={36}
-            defaultColDef={{ resizable: true }}
+            rowHeight={32}
+            headerHeight={34}
+            defaultColDef={{ resizable: true, sortable: true, filter: true }}
+            enableCellTextSelection ensureDomOrder
             onRowClicked={e => setDetalleId(e.data.CodigoClien)}
             getRowStyle={p => {
               const dias = p.data?.Dias_Mayor_Vencimiento || 0;

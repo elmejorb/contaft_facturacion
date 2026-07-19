@@ -202,7 +202,7 @@ export function InventarioManagement() {
       field: 'Descripcion' as keyof Articulo,
       flex: 2,
       minWidth: 200,
-      cellStyle: { fontWeight: 500, userSelect: 'text' },
+      cellStyle: { fontWeight: 500, userSelect: 'text', textTransform: 'uppercase' },
     },
     {
       headerName: 'Exist.',
@@ -263,6 +263,7 @@ export function InventarioManagement() {
       headerName: 'Etiqueta',
       field: 'Etiqueta' as keyof Articulo,
       width: 130,
+      hide: true,
       cellRenderer: (params: { value: string; data: Articulo }) => {
         if (!params.value) return <span style={{ color: '#d1d5db', fontSize: 11 }}>—</span>;
         const color = params.data.Etiqueta_Color || '#7c3aed';
@@ -288,6 +289,7 @@ export function InventarioManagement() {
       headerName: 'Estado',
       field: 'Estado' as keyof Articulo,
       width: 90,
+      hide: true,
       cellRenderer: (params: { value: string }) => {
         const activo = params.value === 'Activo';
         return <span style={{
@@ -302,44 +304,45 @@ export function InventarioManagement() {
       sortable: false,
       filter: false,
       cellRenderer: (params: { data: Articulo }) => {
-        const btn = (color: string, hoverBg: string): React.CSSProperties => ({
-          background: 'transparent', color, width: 30, height: 30,
-          borderRadius: 6, border: `1.5px solid ${color}`, cursor: 'pointer',
+        const btn = (color: string): React.CSSProperties => ({
+          background: 'transparent', color, width: 26, height: 26,
+          borderRadius: 5, border: 'none', cursor: 'pointer',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
-          transition: 'all 0.15s',
+          transition: 'background 0.15s',
         });
-        return <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}
+        return <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}
           onMouseOver={(e) => {
             e.currentTarget.querySelectorAll('button').forEach(b => {
-              b.addEventListener('mouseenter', () => { b.style.background = b.dataset.hc || ''; b.style.color = '#fff'; });
-              b.addEventListener('mouseleave', () => { b.style.background = 'transparent'; b.style.color = b.dataset.c || ''; });
+              const c = b.dataset.c || '#000';
+              b.addEventListener('mouseenter', () => { b.style.background = c + '18'; });
+              b.addEventListener('mouseleave', () => { b.style.background = 'transparent'; });
             });
           }}
         >
           <button title="Detalle del producto" data-c="#7c3aed" data-hc="#7c3aed"
             onClick={() => setDetalleProducto(params.data.Items)}
-            style={btn('#7c3aed', '#7c3aed')}>
+            style={btn('#7c3aed')}>
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>
             </svg>
           </button>
           <button title="Ver Kardex" data-c="#3b82f6" data-hc="#3b82f6"
             onClick={() => setKardexModal({ isOpen: true, producto: params.data })}
-            style={btn('#3b82f6', '#3b82f6')}>
+            style={btn('#3b82f6')}>
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/>
             </svg>
           </button>
           <button title="Editar producto" data-c="#f59e0b" data-hc="#f59e0b"
             onClick={() => setEditarModal({ isOpen: true, producto: params.data })}
-            style={btn('#f59e0b', '#f59e0b')}>
+            style={btn('#f59e0b')}>
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/>
             </svg>
           </button>
           <button title="Eliminar producto" data-c="#ef4444" data-hc="#ef4444"
             onClick={() => eliminarProducto(params.data)}
-            style={btn('#ef4444', '#ef4444')}>
+            style={btn('#ef4444')}>
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/>
               <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/>
@@ -567,6 +570,7 @@ export function InventarioManagement() {
             className="h-9 px-3 bg-gray-50 border border-gray-200 rounded-lg text-sm"
           >
             <option value="Activos">Activos</option>
+            <option value="Inactivos">Inactivos</option>
             <option value="Todos">Todos</option>
           </select>
           <Button
