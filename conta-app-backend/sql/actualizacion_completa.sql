@@ -966,8 +966,12 @@ PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
 
 -- email_recipient: lista de correos a los que se envió la FE (separados por coma).
 -- Necesario para que el envío múltiple guarde el detalle completo.
-SET @col = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='electronic_documents' AND COLUMN_NAME='email_recipient');
-SET @sql = IF(@col=0, "ALTER TABLE electronic_documents ADD COLUMN email_recipient VARCHAR(500) NULL", 'SELECT 1');
+-- Solo aplica si la tabla existe — clientes sin facturación electrónica no la tienen.
+SET @tb = (SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='electronic_documents');
+SET @col = IF(@tb=1,
+    (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='electronic_documents' AND COLUMN_NAME='email_recipient'),
+    1);
+SET @sql = IF(@tb=1 AND @col=0, "ALTER TABLE electronic_documents ADD COLUMN email_recipient VARCHAR(500) NULL", 'SELECT 1');
 PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
 
 -- Defaults para columnas NOT NULL de electronic_documents.
@@ -1041,25 +1045,35 @@ GROUP BY f.FacturaN, f.CodigoProv, p.RazonSocial, f.Fecha, f.Dias;
 -- Backfill idempotente: solo actualiza filas donde el campo está NULL,
 -- vinculando por CUFE con tblventas (que sí tiene Tipo, Dias, id_mediopago).
 -- ================================================================
-UPDATE electronic_documents e
-JOIN tblventas v ON v.cufe = e.cufe
-SET e.payment_form_id = CASE WHEN v.Tipo = 'Contado' THEN 1 ELSE 2 END
-WHERE e.payment_form_id IS NULL AND e.type_document_id = 1 AND e.cufe <> '';
+-- Solo aplica en BDs con FE habilitada. Clientes sin FE no tienen
+-- `electronic_documents` — se salta con IF sobre @tb.
+SET @tb = (SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='electronic_documents');
 
-UPDATE electronic_documents e
-JOIN tblventas v ON v.cufe = e.cufe
-SET e.payment_due_days = COALESCE(v.Dias, 0)
-WHERE e.payment_due_days IS NULL AND e.type_document_id = 1 AND e.cufe <> ''
-  AND e.payment_form_id = 2;  -- solo créditos
+SET @sql = IF(@tb=1,
+  "UPDATE electronic_documents e JOIN tblventas v ON v.cufe = e.cufe
+   SET e.payment_form_id = CASE WHEN v.Tipo = 'Contado' THEN 1 ELSE 2 END
+   WHERE e.payment_form_id IS NULL AND e.type_document_id = 1 AND e.cufe <> ''",
+  'SELECT 1');
+PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
 
-UPDATE electronic_documents e
-JOIN tblventas v ON v.cufe = e.cufe
-SET e.payment_method_id = CASE
-    WHEN v.id_mediopago = 1  THEN 14  -- Tarjeta
-    WHEN v.id_mediopago >= 2 THEN 30  -- Transferencia
-    ELSE                          10  -- Efectivo (0 o NULL)
-END
-WHERE e.payment_method_id IS NULL AND e.type_document_id = 1 AND e.cufe <> '';
+SET @sql = IF(@tb=1,
+  "UPDATE electronic_documents e JOIN tblventas v ON v.cufe = e.cufe
+   SET e.payment_due_days = COALESCE(v.Dias, 0)
+   WHERE e.payment_due_days IS NULL AND e.type_document_id = 1 AND e.cufe <> ''
+     AND e.payment_form_id = 2",
+  'SELECT 1');
+PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
+
+SET @sql = IF(@tb=1,
+  "UPDATE electronic_documents e JOIN tblventas v ON v.cufe = e.cufe
+   SET e.payment_method_id = CASE
+       WHEN v.id_mediopago = 1  THEN 14
+       WHEN v.id_mediopago >= 2 THEN 30
+       ELSE                          10
+   END
+   WHERE e.payment_method_id IS NULL AND e.type_document_id = 1 AND e.cufe <> ''",
+  'SELECT 1');
+PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
 
 -- ================================================================
 -- v4.3.63 — Cotizaciones: AUTO_INCREMENT en PK (fix bug 1364)
@@ -1336,6 +1350,41 @@ SET @col_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS
       AND COLUMN_NAME = 'EsInteresMora');
 SET @sql = IF(@col_exists = 0,
     "ALTER TABLE tblfinanciacion_pagos ADD COLUMN EsInteresMora TINYINT(1) NOT NULL DEFAULT 0 COMMENT '1=pago de interes de mora, 0=abono a capital'",
+    'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- v4.3.71 — Credenciales de correo FE en tbldatosempresa (para clientes sin FE)
+-- api/empresa/datos.php hace UPDATE incluyendo estas columnas sin verificar.
+-- En clientes sin módulo FE no existen y rompen "Guardar datos de la empresa".
+SET @col = (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tbldatosempresa' AND COLUMN_NAME = 'email_factelect');
+SET @sql = IF(@col = 0,
+    "ALTER TABLE tbldatosempresa ADD COLUMN email_factelect VARCHAR(150) NULL",
+    'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @col = (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tbldatosempresa' AND COLUMN_NAME = 'password_factelect');
+SET @sql = IF(@col = 0,
+    "ALTER TABLE tbldatosempresa ADD COLUMN password_factelect VARCHAR(255) NULL",
+    'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- v4.3.71 — Flags de FE en tblventas para compatibilidad con clientes sin FE
+-- El SELECT del listado de ventas lee siempre `enviada_dian` y `cufe`; en BDs
+-- viejas (o clientes sin módulo FE) no existen y rompen la consulta.
+-- Se crean con default 0/NULL para no cambiar el comportamiento.
+SET @col = (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tblventas' AND COLUMN_NAME = 'enviada_dian');
+SET @sql = IF(@col = 0,
+    "ALTER TABLE tblventas ADD COLUMN enviada_dian TINYINT(1) NOT NULL DEFAULT 0",
+    'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @col = (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tblventas' AND COLUMN_NAME = 'cufe');
+SET @sql = IF(@col = 0,
+    "ALTER TABLE tblventas ADD COLUMN cufe VARCHAR(255) DEFAULT NULL",
     'SELECT 1');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 

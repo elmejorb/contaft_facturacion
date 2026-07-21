@@ -318,10 +318,14 @@ try {
                     $stmtExist = $db->prepare("SELECT Existencia, Precio_Costo FROM tblarticulos WHERE Items = ?");
                     $stmtExist->execute([$det['Items']]);
                     $art = $stmtExist->fetch();
-                    $costoUnit = floatval($art['Precio_Costo']);
+                    // Si el Items ya no existe en tblarticulos (ítem huérfano/legacy)
+                    // saltamos el asiento de kardex — la anulación sigue adelante.
+                    if (!$art) continue;
 
+                    $costoUnit = floatval($art['Precio_Costo']);
+                    $existActual = floatval($art['Existencia']);
                     $db->prepare("INSERT INTO tblkardex (Fecha, Mes, Items, Detalle, C_D, Cant_Ent, Cost_Ent, Cant_Sal, Cost_Sal, Cant_Saldo, Cost_Saldo, Cost_Unit) VALUES (NOW(), ?, ?, ?, 1, ?, ?, 0, 0, ?, ?, ?)")
-                       ->execute([$mesNombre, $det['Items'], "Anulación Fra. N° $factN", $det['Cantidad'], $det['Cantidad'] * $costoUnit, floatval($art['Existencia']), floatval($art['Existencia']) * $costoUnit, $costoUnit]);
+                       ->execute([$mesNombre, $det['Items'], "Anulación Fra. N° $factN", $det['Cantidad'], $det['Cantidad'] * $costoUnit, $existActual, $existActual * $costoUnit, $costoUnit]);
                 }
             }
 

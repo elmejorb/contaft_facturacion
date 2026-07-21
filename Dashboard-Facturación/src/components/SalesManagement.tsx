@@ -97,10 +97,15 @@ export function SalesManagement({ onNavigate }: Props = {}) {
 
   // Imprimir factura desde listado
   const imprimirDesdeListado = async (factN: number) => {
+    // Feedback inmediato para que el usuario sepa que el clic sí registró.
+    // Antes: sin vista previa, dar clic parecía no hacer nada — no había
+    // ningún indicador visual mientras se cargaba la factura y se lanzaba
+    // la impresión silenciosa.
+    const tid = toast.loading(`Preparando factura #${factN}…`);
     try {
       const r = await fetch(`${API}?id=${factN}`);
       const d = await r.json();
-      if (!d.success) return;
+      if (!d.success) { toast.error(d.message || 'No se pudo cargar la factura', { id: tid }); return; }
       const fac = d.factura;
       const items = d.items || [];
       const datosImp: DatosFactura = {
@@ -151,7 +156,11 @@ export function SalesManagement({ onNavigate }: Props = {}) {
         logo: getConfigImpresion().logo || undefined
       };
       imprimirFactura(datosImp);
-    } catch (e) { console.error(e); }
+      toast.success(`Factura #${factN} enviada a impresión`, { id: tid });
+    } catch (e) {
+      console.error(e);
+      toast.error('Error al imprimir la factura', { id: tid });
+    }
   };
 
   /* ============================================================

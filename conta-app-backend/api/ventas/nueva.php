@@ -305,7 +305,8 @@ try {
                 // Saldo nuevo
                 $stmtExistC = $db->prepare("SELECT Existencia FROM tblarticulos WHERE Items = :id");
                 $stmtExistC->execute([':id' => intval($cmp['Items_Componente'])]);
-                $existC = floatval($stmtExistC->fetch()['Existencia']);
+                $rowC = $stmtExistC->fetch();
+                $existC = $rowC ? floatval($rowC['Existencia']) : 0;
 
                 $stmtKardex->execute([
                     ':mes' => $mesNombre, ':items' => intval($cmp['Items_Componente']),
@@ -320,8 +321,8 @@ try {
             $stmtExistP = $db->prepare("SELECT Existencia, Precio_Costo FROM tblarticulos WHERE Items = :id");
             $stmtExistP->execute([':id' => $itemId]);
             $artP = $stmtExistP->fetch();
-            $costoP = floatval($artP['Precio_Costo']);
-            $existP = floatval($artP['Existencia']);
+            $costoP = $artP ? floatval($artP['Precio_Costo']) : 0;
+            $existP = $artP ? floatval($artP['Existencia']) : 0;
             $stmtKardex->execute([
                 ':mes' => $mesNombre, ':items' => $itemId,
                 ':det' => "Venta Fra. N° $factN (compuesto - desc. componentes)",
@@ -336,15 +337,20 @@ try {
             $stmtExist = $db->prepare("SELECT Existencia, Precio_Costo FROM tblarticulos WHERE Items = :id");
             $stmtExist->execute([':id' => $itemId]);
             $artActual = $stmtExist->fetch();
-            $costoUnit = floatval($artActual['Precio_Costo']);
-
-            $stmtKardex->execute([
-                ':mes' => $mesNombre, ':items' => $itemId,
-                ':det' => "Venta Fra. N° $factN",
-                ':cant' => $cant, ':cost_sal' => $cant * $costoUnit,
-                ':saldo_cant' => floatval($artActual['Existencia']), ':saldo_cost' => floatval($artActual['Existencia']) * $costoUnit,
-                ':cost_unit' => $costoUnit
-            ]);
+            // Si el fetch devuelve false (Items no existe en tblarticulos) NO
+            // rompemos la venta — se ignora el asiento de kardex. Esto pasa con
+            // ítems legacy o registros huérfanos que no deberían estar ahí.
+            if ($artActual) {
+                $costoUnit = floatval($artActual['Precio_Costo']);
+                $existActual = floatval($artActual['Existencia']);
+                $stmtKardex->execute([
+                    ':mes' => $mesNombre, ':items' => $itemId,
+                    ':det' => "Venta Fra. N° $factN",
+                    ':cant' => $cant, ':cost_sal' => $cant * $costoUnit,
+                    ':saldo_cant' => $existActual, ':saldo_cost' => $existActual * $costoUnit,
+                    ':cost_unit' => $costoUnit
+                ]);
+            }
         }
     }
 
