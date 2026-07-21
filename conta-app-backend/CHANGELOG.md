@@ -5,6 +5,62 @@ Visible solo para administradores desde **Configuración → Acerca de → Ver h
 
 ---
 
+## 4.3.70 — 2026-07-21
+
+### Respaldo automático de la Base de Datos
+
+Nuevo módulo en **Configuración → Respaldo de la Base de Datos**:
+
+- **Automático diario**: al abrir la app se genera un respaldo del día si aún no existe. Máximo uno por día natural, aunque abran la app varios cajeros.
+- **Botón "Respaldar Ahora"** para forzar uno extra (útil antes de actualizaciones).
+- Archivos en `C:\ContaFT-Backups\contaft-YYYY-MM-DD_HHMMSS.sql`. Rotación automática de 30 días.
+- Dump PHP puro — funciona incluso en servidores con `exec/shell_exec` bloqueados.
+- El .sql restaura con `mysql -uroot -p nombre_bd < archivo.sql`.
+
+### Módulo Financiaciones (opcional — negocios que venden a plazos)
+
+Activable por empresa desde Configuración. Diseñado para almacenes de motos, electrodomésticos, muebles.
+
+- Contratos con cronograma de cuotas de fechas y valores libres.
+- Interés de **mora % mensual global** configurable. Se calcula on-the-fly y se cobra aparte (no reduce el saldo del capital, respeta kardex inmutable).
+- Filtro por antigüedad de mora: sin mora / 1-30 / 31-60 / 61-90 / +90 días. Badge muestra días vencidos.
+- Cobro con opción de "condonar mora" (botón "No cobrar").
+- Permisos granulares: consultar / crear-editar / registrar pagos.
+
+### Anulación de Notas de Artículo
+
+- Ahora se pueden anular notas de cualquier fecha (antes solo del día). Requiere permiso admin o `inventario_editar`.
+- **Soft-delete**: la nota queda con `Estado='Anulada'` — no se borra. Respeta la regla del kardex inmutable con un asiento REVERSO.
+- Modal con motivo opcional, fila tachada con badge ANULADA, filtro "Mostrar anuladas" para revisar histórico.
+- Fix bug histórico: ahora la nota guarda el usuario que la creó (antes salía "Sistema").
+
+### Tema unificado en listados
+
+Clientes, Proveedores, Productos por Proveedor, Cartera de Clientes y Cuentas por Cobrar comparten ahora el mismo estilo del Listado de Artículos: headers púrpura, filas compactas, hover y localización en español.
+
+### Nueva Compra
+
+- **Botón "Rotación"** al lado del proveedor: abre un modal con Productos por Proveedor preseleccionado — se puede consultar rotación sin salir de la compra.
+- **Botón "Imprimir"** en la barra inferior: genera un HTML formateado con encabezado, líneas, totales y footer, e imprime en iframe oculto (sin popup).
+
+### Nueva Venta
+
+- Enter en Cantidad y en Precio ahora pasa al campo predeterminado (código o nombre) según Configuración → Campo predeterminado.
+- Precio con formato `$ 24.000` al perder el foco, número plano `24000` al enfocar, y en negrita.
+- Dropdown de búsqueda por nombre ya no se abre con input vacío.
+
+### Compatibilidad SQL para clientes sin Facturación Electrónica
+
+Migración consolidada corregida — antes rompía en BDs sin las tablas de FE. Ahora todas las migraciones de FE verifican existencia de tabla antes de aplicar. También se agregan `enviada_dian`/`cufe` a `tblventas` y `email_factelect`/`password_factelect` a `tbldatosempresa` como columnas vacías, para que el resto del sistema no falle al consultarlas.
+
+### Otros
+
+- Defensa contra warnings PHP al vender/anular con productos huérfanos.
+- Toast informativo al imprimir factura desde el listado (antes con vista previa desactivada, el clic parecía no hacer nada).
+- Inventario: filtro "Inactivos", columnas Etiqueta y Estado ocultas por defecto, nombres en MAYÚSCULAS, botones de acciones más limpios sin borde.
+
+---
+
 ## 4.3.69 — 2026-07-14
 
 ### Flete en compras: input global y prorrateo por línea sincronizados
