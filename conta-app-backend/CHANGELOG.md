@@ -5,6 +5,16 @@ Visible solo para administradores desde **Configuración → Acerca de → Ver h
 
 ---
 
+## 4.3.71 — 2026-07-21
+
+### Fix: modal Editar Producto se abría marcado como "Servicio"
+
+Al dar clic en el lápiz de un producto normal, el modal se posicionaba en la card "Servicio" en vez de "Producto físico". Causa: chequeo truthy sobre un valor que a veces llega como string `"0"` — `"0" ? 1 : 0` da 1. Corregido con `Number(a.Servicio) === 1` para que solo el valor exactamente 1 (numérico o string) marque servicio.
+
+Esto también evitaba, al guardar sin cambiar nada, convertir accidentalmente productos en servicios (que no descuentan inventario).
+
+---
+
 ## 4.3.70 — 2026-07-21
 
 ### Respaldo automático de la Base de Datos
