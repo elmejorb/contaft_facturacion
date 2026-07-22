@@ -45,7 +45,9 @@ export function EditarArticuloModal({ isOpen, onClose, articulo, onGuardado, mod
     Estante: a.Estante || '',
     Estado: a.Estado === 'Activo' ? 1 : 0,
     requiere_lote: a.requiere_lote ? 1 : 0,
-    Servicio: a.Servicio ? 1 : 0,
+    // Fix: si el backend devuelve "0" como string, `"0" ? 1 : 0` da 1 (bug histórico).
+    // Servicio solo se marca cuando el valor es EXACTAMENTE 1 (numérico o string).
+    Servicio: Number(a.Servicio) === 1 ? 1 : 0,
     Id_Etiqueta: a.Id_Etiqueta || 0,
   });
 
@@ -202,7 +204,9 @@ export function EditarArticuloModal({ isOpen, onClose, articulo, onGuardado, mod
               { val: 0, label: 'Producto físico', desc: 'descuenta inventario al vender' },
               { val: 1, label: 'Servicio', desc: 'sin inventario, concepto editable al facturar' },
             ].map(t => {
-              const active = (form.Servicio ? 1 : 0) === t.val;
+              // Defensivo: `Number() === 1` en vez de truthy — cualquier
+              // valor distinto de 1 numérico mapea a Producto (val=0).
+              const active = (Number(form.Servicio) === 1 ? 1 : 0) === t.val;
               return (
                 <button
                   key={t.val}
