@@ -5,6 +5,22 @@ Visible solo para administradores desde **Configuración → Acerca de → Ver h
 
 ---
 
+## 4.3.72 — 2026-07-22
+
+### Fix: Caja Registradora no detectaba la sesión abierta si la caja no era la #1
+
+Al abrir el módulo Caja Registradora, el componente arrancaba con `Id_Caja=1` por defecto. Si la caja operativa del usuario era otra (ej. Id_Caja=3), el frontend mostraba "Cerrada" aunque hubiera una sesión activa. Al intentar abrir, el backend respondía "Esta caja ya está abierta por ...", generando confusión y llevando a cerrar sesiones válidas.
+
+Ahora la lógica de auto-selección es:
+
+1. Si hay una sola caja disponible → esa.
+2. Si alguna caja tiene sesión abierta → esa (evita perder la sesión y la base).
+3. Fallback: primera caja del listado (nunca queda apuntando a un `Id_Caja=1` que no existe en la BD).
+
+Los otros clientes (con Id_Caja=1 real) no notaron el bug porque coincidía con el default.
+
+---
+
 ## 4.3.71 — 2026-07-21
 
 ### Fix: modal Editar Producto se abría marcado como "Servicio"

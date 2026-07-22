@@ -47,8 +47,22 @@ export function CajaRegistradora() {
       const d = await r.json();
       if (d.success) {
         setCajas(d.cajas || []);
-        // Si solo hay una caja (asignación fija), seleccionarla automáticamente
-        if (d.cajas?.length === 1) setCajaSeleccionada(d.cajas[0].Id_Caja);
+        // Regla de auto-selección (prioridad):
+        //  1) Única caja disponible → esa
+        //  2) Alguna caja con sesión abierta → esa (para que aunque el usuario
+        //     haya cerrado la app sin cerrar caja, la próxima vez vea directo
+        //     la caja abierta con opción de operar/cerrar).
+        //  3) Fallback: primera caja del listado (evita quedarse con un
+        //     Id_Caja hardcoded que quizás no exista en la BD del cliente).
+        if (d.cajas?.length === 1) {
+          setCajaSeleccionada(d.cajas[0].Id_Caja);
+        } else if (d.cajas?.length > 0) {
+          const abierta = d.cajas.find((c: any) => c.sesiones_abiertas > 0 && c.Tipo !== 'principal');
+          if (abierta) setCajaSeleccionada(abierta.Id_Caja);
+          else if (!d.cajas.some((c: any) => c.Id_Caja === cajaSeleccionada)) {
+            setCajaSeleccionada(d.cajas[0].Id_Caja);
+          }
+        }
       }
     } catch (e) {}
   };
