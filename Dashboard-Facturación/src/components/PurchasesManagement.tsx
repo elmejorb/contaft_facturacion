@@ -21,7 +21,9 @@ export function PurchasesManagement() {
 
   const [compras, setCompras] = useState<any[]>([]);
   const [anio, setAnio] = useState(new Date().getFullYear());
-  const [mes, setMes] = useState(0);
+  // Arranca con el mes actual (no "Todos") para no traer el año completo
+  // en clientes con muchas compras. El usuario puede cambiar a "Todos" a mano.
+  const [mes, setMes] = useState(new Date().getMonth() + 1);
   const [buscar, setBuscar] = useState('');
   const [cargando, setCargando] = useState(false);
   const [editarPedido, setEditarPedido] = useState<number | null>(null);

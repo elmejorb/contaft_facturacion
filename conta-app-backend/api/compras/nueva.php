@@ -72,6 +72,7 @@ try {
         if (isset($_GET['listar'])) {
             $anio = intval($_GET['anio'] ?? date('Y'));
             $mes = intval($_GET['mes'] ?? 0);
+            $limit = intval($_GET['limit'] ?? 500);   // Igual que ventas: tope
             $where = "WHERE p.anio = $anio";
             if ($mes > 0) $where .= " AND p.N_Mes = $mes";
 
@@ -82,6 +83,7 @@ try {
                 LEFT JOIN tblproveedores pr ON p.CodigoPro = pr.CodigoPro
                 $where
                 ORDER BY p.Pedido_N DESC
+                LIMIT $limit
             ");
             $compras = $stmt->fetchAll();
             foreach ($compras as &$c) {

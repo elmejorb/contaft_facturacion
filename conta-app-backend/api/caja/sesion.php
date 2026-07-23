@@ -13,6 +13,12 @@ require_once '../config/database.php';
 $database = new Database();
 $db = $database->getConnection();
 
+// Clientes sin Facturación Electrónica no tienen `electronic_documents`.
+// Cualquier query a esa tabla revienta el endpoint completo — miss-mostrando
+// la caja como "Cerrada" aunque tenga sesión activa. Detectamos una sola vez.
+$_tieneFE_stmt = $db->query("SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='electronic_documents'");
+$tieneFE = intval($_tieneFE_stmt->fetchColumn()) > 0;
+
 try {
     if ($_SERVER['REQUEST_METHOD'] === 'GET') {
 
@@ -134,9 +140,13 @@ try {
         $vc = $stmt->fetch();
 
         // FE Contado (electronic_documents) — autorizadas + pendientes (contingencia)
-        $stmt = $db->prepare("SELECT COALESCE(SUM(efectivo),0) as ef, COALESCE(SUM(valorpagado1),0) as tr, COALESCE(SUM(total),0) as t, COUNT(*) as c FROM electronic_documents WHERE created_at >= ? AND type_document_id = 1 AND payment_form_id = 1 AND status IN ('autorizado','pendiente')$filtroUsuarioPagos");
-        $stmt->execute($paramsUsuario);
-        $vfe = $stmt->fetch();
+        // Solo si el cliente tiene módulo FE. Sin FE: sumar 0.
+        $vfe = ['ef' => 0, 'tr' => 0, 't' => 0, 'c' => 0];
+        if ($tieneFE) {
+            $stmt = $db->prepare("SELECT COALESCE(SUM(efectivo),0) as ef, COALESCE(SUM(valorpagado1),0) as tr, COALESCE(SUM(total),0) as t, COUNT(*) as c FROM electronic_documents WHERE created_at >= ? AND type_document_id = 1 AND payment_form_id = 1 AND status IN ('autorizado','pendiente')$filtroUsuarioPagos");
+            $stmt->execute($paramsUsuario);
+            $vfe = $stmt->fetch();
+        }
         $vc = [
             'ef' => floatval($vc['ef']) + floatval($vfe['ef']),
             'tr' => floatval($vc['tr']) + floatval($vfe['tr']),
@@ -150,9 +160,12 @@ try {
         $vcr = $stmt->fetch();
 
         // FE Crédito (electronic_documents)
-        $stmt = $db->prepare("SELECT COALESCE(SUM(total),0) as t, COUNT(*) as c FROM electronic_documents WHERE created_at >= ? AND type_document_id = 1 AND payment_form_id = 2 AND status IN ('autorizado','pendiente')$filtroUsuarioPagos");
-        $stmt->execute($paramsUsuario);
-        $vfecr = $stmt->fetch();
+        $vfecr = ['t' => 0, 'c' => 0];
+        if ($tieneFE) {
+            $stmt = $db->prepare("SELECT COALESCE(SUM(total),0) as t, COUNT(*) as c FROM electronic_documents WHERE created_at >= ? AND type_document_id = 1 AND payment_form_id = 2 AND status IN ('autorizado','pendiente')$filtroUsuarioPagos");
+            $stmt->execute($paramsUsuario);
+            $vfecr = $stmt->fetch();
+        }
         $vcr = [
             't' => floatval($vcr['t']) + floatval($vfecr['t']),
             'c' => intval($vcr['c'])  + intval($vfecr['c']),
@@ -309,16 +322,22 @@ try {
 
             $stmt = $db->prepare("SELECT COALESCE(SUM(efectivo - COALESCE(Cambio,0)),0) as ef, COALESCE(SUM(valorpagado1),0) as tr, COALESCE(SUM(Total),0) as t FROM tblventas WHERE Fecha >= ? AND EstadoFact = 'Valida' AND Tipo = 'Contado'$filtroU");
             $stmt->execute($params); $vc = $stmt->fetch();
-            // + FE Contado
-            $stmt = $db->prepare("SELECT COALESCE(SUM(efectivo),0) as ef, COALESCE(SUM(valorpagado1),0) as tr, COALESCE(SUM(total),0) as t FROM electronic_documents WHERE created_at >= ? AND type_document_id = 1 AND payment_form_id = 1 AND status IN ('autorizado','pendiente')$filtroUm");
-            $stmt->execute($params); $vfe = $stmt->fetch();
+            // + FE Contado (solo si el cliente tiene FE)
+            $vfe = ['ef' => 0, 'tr' => 0, 't' => 0];
+            if ($tieneFE) {
+                $stmt = $db->prepare("SELECT COALESCE(SUM(efectivo),0) as ef, COALESCE(SUM(valorpagado1),0) as tr, COALESCE(SUM(total),0) as t FROM electronic_documents WHERE created_at >= ? AND type_document_id = 1 AND payment_form_id = 1 AND status IN ('autorizado','pendiente')$filtroUm");
+                $stmt->execute($params); $vfe = $stmt->fetch();
+            }
             $vc = ['ef' => floatval($vc['ef']) + floatval($vfe['ef']), 'tr' => floatval($vc['tr']) + floatval($vfe['tr']), 't' => floatval($vc['t']) + floatval($vfe['t'])];
 
             $stmt = $db->prepare("SELECT COALESCE(SUM(Total),0) as t FROM tblventas WHERE Fecha >= ? AND EstadoFact = 'Valida' AND Tipo != 'Contado'$filtroU");
             $stmt->execute($params); $vcr = $stmt->fetch();
-            // + FE Crédito
-            $stmt = $db->prepare("SELECT COALESCE(SUM(total),0) as t FROM electronic_documents WHERE created_at >= ? AND type_document_id = 1 AND payment_form_id = 2 AND status IN ('autorizado','pendiente')$filtroUm");
-            $stmt->execute($params); $vfecr = $stmt->fetch();
+            // + FE Crédito (solo si el cliente tiene FE)
+            $vfecr = ['t' => 0];
+            if ($tieneFE) {
+                $stmt = $db->prepare("SELECT COALESCE(SUM(total),0) as t FROM electronic_documents WHERE created_at >= ? AND type_document_id = 1 AND payment_form_id = 2 AND status IN ('autorizado','pendiente')$filtroUm");
+                $stmt->execute($params); $vfecr = $stmt->fetch();
+            }
             $vcr = ['t' => floatval($vcr['t']) + floatval($vfecr['t'])];
 
             $stmt = $db->prepare("SELECT COALESCE(SUM(CASE WHEN id_mediopago=0 THEN ValorPago ELSE 0 END),0) as ef, COALESCE(SUM(CASE WHEN id_mediopago>0 THEN ValorPago ELSE 0 END),0) as tr, COALESCE(SUM(ValorPago),0) as t FROM tblpagos WHERE Fecha >= ? AND Estado = 'Valida'$filtroUm");

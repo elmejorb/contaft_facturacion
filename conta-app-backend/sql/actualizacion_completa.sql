@@ -15,8 +15,18 @@
 --        Permisos por tipo de usuario
 -- ================================================================
 
--- 1. Corregir tblkardex: AUTO_INCREMENT y tamaño del Detalle
+-- 1. Corregir tblkardex: PRIMARY KEY, AUTO_INCREMENT y tamaño del Detalle
+-- En BDs legacy (VB6) Id_kardex viene sin PK ni auto_increment; MySQL exige
+-- que la columna AUTO_INCREMENT sea KEY, por eso se aplica en 2 pasos:
+--   a) Asegurar PRIMARY KEY sobre Id_kardex si no existe
+--   b) Convertir Id_kardex a AUTO_INCREMENT
 DELETE FROM tblkardex WHERE Id_kardex = 0;
+
+SET @has_pk = (SELECT COUNT(*) FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tblkardex' AND INDEX_NAME = 'PRIMARY');
+SET @sql = IF(@has_pk = 0, "ALTER TABLE tblkardex ADD PRIMARY KEY (Id_kardex)", 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
 ALTER TABLE tblkardex MODIFY Id_kardex INT(11) NOT NULL AUTO_INCREMENT;
 ALTER TABLE tblkardex MODIFY Detalle VARCHAR(260) NULL DEFAULT NULL;
 
@@ -24,6 +34,13 @@ ALTER TABLE tblkardex MODIFY Detalle VARCHAR(260) NULL DEFAULT NULL;
 SET @next_pedido = IFNULL((SELECT MAX(Pedido_N) FROM tblpedidos WHERE Pedido_N > 0), 0) + 1;
 UPDATE tbldetalle_pedido SET Pedido_N = @next_pedido WHERE Pedido_N = 0;
 UPDATE tblpedidos        SET Pedido_N = @next_pedido WHERE Pedido_N = 0;
+
+-- BDs legacy: tblpedidos puede venir sin PK. Igual que tblkardex, MySQL
+-- exige que la columna AUTO_INCREMENT sea KEY.
+SET @has_pk = (SELECT COUNT(*) FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tblpedidos' AND INDEX_NAME = 'PRIMARY');
+SET @sql = IF(@has_pk = 0, "ALTER TABLE tblpedidos ADD PRIMARY KEY (Pedido_N)", 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 SET @is_autoinc = (SELECT COUNT(*) FROM information_schema.COLUMNS
     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tblpedidos'
@@ -609,6 +626,84 @@ SET @sql = IF(@col_exists = 0,
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 -- ================================================================
+-- v4.3.72 — Tablas de Facturación Electrónica (esqueleto)
+-- Se crean vacías incluso en clientes que NO usan FE. Motivo: varios
+-- endpoints (caja/sesion.php, informes) hacen SELECT/SUM sobre
+-- electronic_documents y detalle_document_electronic para consolidar
+-- totales del día. Sin las tablas, los queries fallan y rompen la UI
+-- (ej. caja aparecía "Cerrada" aunque hubiera sesión abierta).
+-- Idempotentes — no destruyen datos existentes.
+-- ================================================================
+CREATE TABLE IF NOT EXISTS electronic_documents (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  origen VARCHAR(20) DEFAULT 'local',
+  id_vendedor_remoto INT NULL,
+  nombre_vendedor VARCHAR(150) NULL,
+  fecha DATE NOT NULL,
+  cod_cliente INT NOT NULL DEFAULT 0,
+  customer_identification VARCHAR(255) NULL,
+  type_document_id BIGINT UNSIGNED NOT NULL DEFAULT 1,
+  resolution_id BIGINT UNSIGNED NULL,
+  prefix VARCHAR(255) NULL,
+  number BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  status VARCHAR(255) NOT NULL DEFAULT 'enviado',
+  payment_due_days INT NULL,
+  descuento DECIMAL(19,4) NOT NULL DEFAULT 0.0000,
+  total DECIMAL(15,2) NULL,
+  payment_form_id BIGINT UNSIGNED NULL,
+  payment_method_id BIGINT UNSIGNED NULL,
+  dian_response LONGTEXT NULL,
+  cufe VARCHAR(255) NULL,
+  invoice_cufe VARCHAR(255) NULL,
+  sent_at TIMESTAMP NULL,
+  id_usuario INT NOT NULL DEFAULT 0,
+  abono DECIMAL(19,4) NOT NULL DEFAULT 0.0000,
+  codigoEmp INT NOT NULL DEFAULT 0,
+  id_mediopago INT NOT NULL DEFAULT 0,
+  efectivo DECIMAL(19,4) NOT NULL DEFAULT 0.0000,
+  valorpagado1 DECIMAL(19,4) NOT NULL DEFAULT 0.0000,
+  pagada VARCHAR(1) NOT NULL DEFAULT 'N',
+  nota TEXT NULL,
+  EstadoFact INT(1) NOT NULL DEFAULT 1,
+  created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  email_sent TINYINT(1) DEFAULT 0,
+  email_sent_at DATETIME NULL,
+  email_recipient VARCHAR(500) NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_prefix_number (prefix, number),
+  KEY idx_type_document_id (type_document_id),
+  KEY idx_resolution_id (resolution_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS detalle_document_electronic (
+  id_detalle_document INT NOT NULL AUTO_INCREMENT,
+  factura_n INT NULL,
+  items INT NULL COMMENT 'Relación con tblarticulos.Items',
+  unit_measure_id BIGINT UNSIGNED NULL,
+  invoiced_quantity DECIMAL(19,2) NULL,
+  line_extension_amount DECIMAL(19,2) NULL,
+  free_of_charge_indicator TINYINT(1) DEFAULT 0,
+  description VARCHAR(255) NULL,
+  type_item_identification_id INT NULL,
+  price_amount DECIMAL(19,2) NULL,
+  PrecioCosto DECIMAL(19,4) NULL,
+  discount_amount DECIMAL(19,2) DEFAULT 0.00,
+  base_quantity DECIMAL(19,2) NULL,
+  tax_id INT NULL,
+  tax_amount DECIMAL(19,2) NULL,
+  taxable_amount DECIMAL(19,2) NULL,
+  tax_percent DECIMAL(5,2) NULL,
+  created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id_detalle_document),
+  KEY idx_factura_n (factura_n),
+  KEY idx_items (items),
+  KEY idx_unit_measure_id (unit_measure_id),
+  KEY idx_type_item_identification_id (type_item_identification_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ================================================================
 -- v4.11 — PrecioCosto en detalle_document_electronic
 -- (para que cierre_mes / estado_resultados calcule bien la utilidad
 -- cuando hay FE puras que no duplican tblventas)
@@ -652,6 +747,12 @@ ALTER TABLE tblmov_caja MODIFY COLUMN Tipo
 -- v4.14 — AUTO_INCREMENT en tblbancos.idBancos
 -- (permite crear cuentas bancarias sin especificar ID manual)
 -- ================================================================
+-- tblbancos.idBancos: PK + AUTO_INCREMENT (BDs legacy sin PK).
+SET @has_pk = (SELECT COUNT(*) FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tblbancos' AND INDEX_NAME = 'PRIMARY');
+SET @sql = IF(@has_pk = 0, "ALTER TABLE tblbancos ADD PRIMARY KEY (idBancos)", 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
 SET @is_autoinc_bancos = (SELECT COUNT(*) FROM information_schema.COLUMNS
     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tblbancos'
       AND COLUMN_NAME = 'idBancos' AND EXTRA LIKE '%auto_increment%');
@@ -1003,6 +1104,15 @@ SET @sql = IF(@tb=1 AND @is_ai=0, "
   WHERE id_detalle_document = 0
 ", 'SELECT 1');
 PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
+-- Asegurar PRIMARY KEY antes de auto_increment (BDs legacy la tienen sin PK)
+SET @has_pk = IF(@tb=1,
+    (SELECT COUNT(*) FROM information_schema.STATISTICS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'detalle_document_electronic' AND INDEX_NAME = 'PRIMARY'),
+    1);
+SET @sql = IF(@tb=1 AND @is_ai=0 AND @has_pk=0,
+    "ALTER TABLE detalle_document_electronic ADD PRIMARY KEY (id_detalle_document)",
+    'SELECT 1');
+PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
 SET @sql = IF(@tb=1 AND @is_ai=0,
   "ALTER TABLE detalle_document_electronic MODIFY id_detalle_document INT(11) NOT NULL AUTO_INCREMENT",
   'SELECT 1');
@@ -1030,6 +1140,66 @@ LEFT JOIN (
 ) pag ON pag.CodigoPro = f.CodigoProv
        AND pag.NFacturaAnt = f.FacturaN
 GROUP BY f.FacturaN, f.CodigoProv, p.RazonSocial, f.Fecha, f.Dias;
+
+-- Vista de pedidos crédito con saldo REAL calculado desde tblegresos.
+-- Reemplaza la lectura del cache `tblpedidos.Saldo` que suele estar
+-- desincronizado en BDs legacy (misma lógica que usa el software VB6).
+DROP VIEW IF EXISTS vw_prov_pedidos_credito_saldos;
+CREATE VIEW vw_prov_pedidos_credito_saldos AS
+SELECT
+  b.FacturaCompra_N                 AS FacturaN,
+  b.CodigoPro                       AS CodigoPro,
+  p.RazonSocial                     AS RazonSocial,
+  b.Fecha                           AS Fecha,
+  b.Dias                            AS Dias,
+  b.Fecha + INTERVAL b.Dias DAY     AS Fechav,
+  b.Total                           AS Total,
+  COALESCE(pag.TotalPagos, 0)       AS TotalPagos,
+  GREATEST(b.Total - COALESCE(pag.TotalPagos, 0), 0) AS Saldo,
+  b.TipoPedido,
+  b.EstadoPedido,
+  b.Pedido_N
+FROM tblpedidos b
+INNER JOIN tblproveedores p ON p.CodigoPro = b.CodigoPro
+LEFT JOIN (
+  SELECT CodigoPro, CAST(FactN AS UNSIGNED) AS FactN_cast, SUM(Valor) AS TotalPagos
+  FROM tblegresos
+  WHERE Estado = 'Valida' AND FactN IS NOT NULL
+  GROUP BY CodigoPro, CAST(FactN AS UNSIGNED)
+) pag ON pag.CodigoPro = b.CodigoPro
+       AND pag.FactN_cast = b.Pedido_N
+WHERE b.TipoPedido <> 'Contado'
+  AND b.EstadoPedido = 'Recibido';
+
+-- Aging unificado: facturas anteriores + pedidos crédito, solo con Saldo>0
+DROP VIEW IF EXISTS vw_prov_cxp_aging;
+CREATE VIEW vw_prov_cxp_aging AS
+SELECT
+  x.CodigoPro, x.RazonSocial, x.FacturaN, x.Fecha, x.Dias, x.Fechav,
+  x.Total, x.TotalPagos, x.Saldo,
+  CASE WHEN CURDATE() >= x.Fechav THEN DATEDIFF(CURDATE(), x.Fechav) ELSE 0 END AS DiasVenc,
+  (CURDATE() > x.Fechav) AS Vencida,
+  x.Origen
+FROM (
+  SELECT FacturaN, CodigoPro, RazonSocial, Fecha, Dias, Fechav, Total, TotalPagos, Saldo,
+         'FacturasAnteriores' AS Origen
+  FROM vw_prov_facturas_anteriores_saldos WHERE Saldo > 0
+  UNION ALL
+  SELECT FacturaN, CodigoPro, RazonSocial, Fecha, Dias, Fechav, Total, TotalPagos, Saldo,
+         'PedidosCredito' AS Origen
+  FROM vw_prov_pedidos_credito_saldos WHERE Saldo > 0
+) x;
+
+-- Saldo actual por proveedor (agregado)
+DROP VIEW IF EXISTS vw_proveedores_saldo_actual;
+CREATE VIEW vw_proveedores_saldo_actual AS
+SELECT
+  CodigoPro, RazonSocial,
+  SUM(CASE WHEN Origen = 'FacturasAnteriores' THEN Saldo ELSE 0 END) AS SaldoAnterior,
+  SUM(CASE WHEN Origen = 'PedidosCredito'     THEN Saldo ELSE 0 END) AS SaldoPedidos,
+  SUM(Saldo) AS SaldoActual
+FROM vw_prov_cxp_aging
+GROUP BY CodigoPro, RazonSocial;
 
 -- ================================================================
 -- v4.3.63 — Backfill electronic_documents: payment_form_id,
@@ -1082,12 +1252,24 @@ PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
 -- impide hacer INSERT desde el módulo de cotizaciones.
 -- Aplicamos AUTO_INCREMENT idempotentemente — solo si no lo tienen ya.
 -- ================================================================
+-- tblcotizaciones: asegurar PK antes de AUTO_INCREMENT (BDs legacy sin PK)
+SET @has_pk = (SELECT COUNT(*) FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tblcotizaciones' AND INDEX_NAME = 'PRIMARY');
+SET @sql = IF(@has_pk = 0, "ALTER TABLE tblcotizaciones ADD PRIMARY KEY (id_cotizacion)", 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
 SET @is_autoinc = (SELECT COUNT(*) FROM information_schema.COLUMNS
     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tblcotizaciones'
       AND COLUMN_NAME = 'id_cotizacion' AND EXTRA LIKE '%auto_increment%');
 SET @sql = IF(@is_autoinc = 0,
     'ALTER TABLE tblcotizaciones MODIFY id_cotizacion INT(11) NOT NULL AUTO_INCREMENT',
     'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- detalle_cotizacion: mismo patrón
+SET @has_pk = (SELECT COUNT(*) FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'detalle_cotizacion' AND INDEX_NAME = 'PRIMARY');
+SET @sql = IF(@has_pk = 0, "ALTER TABLE detalle_cotizacion ADD PRIMARY KEY (id_detalle_cotiza)", 'SELECT 1');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 SET @is_autoinc = (SELECT COUNT(*) FROM information_schema.COLUMNS

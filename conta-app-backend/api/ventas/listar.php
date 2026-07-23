@@ -68,17 +68,23 @@ try {
         $cliente = $_GET['cliente'] ?? null;
         $limit = $_GET['limit'] ?? 500;
 
-        $where = "YEAR(v.Fecha) = :anio";
-        $params = [':anio' => $anio];
-
-        if ($dia) {
-            $where .= " AND DAY(v.Fecha) = :dia";
-            $params[':dia'] = intval($dia);
+        // Rango de fechas en lugar de YEAR()/MONTH()/DAY() para que MySQL
+        // pueda USAR el índice idx_fecha. Con funciones sobre la columna,
+        // el índice queda inhabilitado y se hace full table scan
+        // (crítico en BDs con >50k ventas — se demoraba varios segundos).
+        $anioI = intval($anio);
+        if ($dia && $mes) {
+            $fechaIni = sprintf('%04d-%02d-%02d', $anioI, intval($mes), intval($dia));
+            $fechaFin = date('Y-m-d', strtotime($fechaIni . ' +1 day'));
+        } elseif ($mes) {
+            $fechaIni = sprintf('%04d-%02d-01', $anioI, intval($mes));
+            $fechaFin = date('Y-m-d', strtotime($fechaIni . ' +1 month'));
+        } else {
+            $fechaIni = sprintf('%04d-01-01', $anioI);
+            $fechaFin = sprintf('%04d-01-01', $anioI + 1);
         }
-        if ($mes) {
-            $where .= " AND MONTH(v.Fecha) = :mes";
-            $params[':mes'] = $mes;
-        }
+        $where = "v.Fecha >= :fecha_ini AND v.Fecha < :fecha_fin";
+        $params = [':fecha_ini' => $fechaIni, ':fecha_fin' => $fechaFin];
         if ($tipo) {
             $where .= " AND v.Tipo = :tipo";
             $params[':tipo'] = $tipo;

@@ -5,6 +5,39 @@ Visible solo para administradores desde **Configuración → Acerca de → Ver h
 
 ---
 
+## 4.3.73 — 2026-07-23
+
+### Fix crítico: saldo pendiente de proveedores inflado
+
+El endpoint de proveedores (listado y detalle) leía el campo cacheado `tblpedidos.Saldo`, que en BDs con historia larga suele estar desincronizado con los egresos reales. Resultado: aparecían facturas "fantasma" ya pagadas sumando al saldo pendiente (ej. Icoplastic mostraba $14.7M cuando el saldo real era $8.5M).
+
+Solución: ahora el backend calcula el saldo real desde `tblegresos` usando las mismas vistas que el software VB6 original:
+
+- **`vw_prov_facturas_anteriores_saldos`** — saldos iniciales pendientes
+- **`vw_prov_pedidos_credito_saldos`** — pedidos crédito con saldo real (Total − suma egresos)
+- **`vw_prov_cxp_aging`** — aging unificado (solo pendientes reales)
+- **`vw_proveedores_saldo_actual`** — saldo por proveedor
+
+El módulo de Clientes ya calculaba desde `tblpagos`, por eso no tenía el problema.
+
+### Rendimiento en BDs grandes (>50k ventas)
+
+- **Listado de Ventas**: cambio de `YEAR(Fecha) = X AND MONTH(Fecha) = Y` a rango de fechas (`Fecha >= X AND Fecha < Y`), que sí usa el índice. En Icoplastic (101k ventas) pasa de segundos a milisegundos.
+- **Listado de Compras**: LIMIT 500 en el backend + mes actual por defecto en el frontend (antes traía el año completo).
+- **Script `optimizar_indices.sql`** — crea 40+ índices sobre las columnas más consultadas (Fecha, Items, CodigoCli, EstadoFact, etc.). Idempotente: aplica solo lo que falte y valida columnas antes de crear.
+
+### Compatibilidad SQL para BDs legacy VB6 y sin FE
+
+- Agregada creación idempotente de tablas FE (`electronic_documents`, `detalle_document_electronic`) para clientes que aún no activan facturación electrónica — así los queries de FE (que aparecen en cuadre de caja, informes, etc.) no revientan.
+- `caja/sesion.php` detecta si existe `electronic_documents` antes de consultar. Antes, un cliente sin FE hacía que la caja apareciera como "Cerrada" aunque tuviera sesión abierta.
+- Migración de PRIMARY KEY antes de AUTO_INCREMENT en `tblkardex`, `tblpedidos`, `tblbancos`, `tblcotizaciones`, `detalle_cotizacion`, `detalle_document_electronic` — las BDs VB6 muy viejas venían sin PK y el consolidado rompía a mitad de aplicación.
+
+### Otros
+
+- Nuevas columnas `enviada_dian`, `cufe` en `tblventas` y `email_factelect`, `password_factelect` en `tbldatosempresa` — se crean vacías en clientes sin FE para que consultas y edición no fallen.
+
+---
+
 ## 4.3.72 — 2026-07-22
 
 ### Fix: Caja Registradora no detectaba la sesión abierta si la caja no era la #1
