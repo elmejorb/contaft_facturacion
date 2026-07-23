@@ -1420,6 +1420,14 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
                       if (e.key === 'Enter') {
                         const code = (e.target as HTMLInputElement).value.trim();
                         if (!code) return;
+                        // Atajo del sistema viejo: "0" + Enter en el código
+                        // abre el modal de pago (equivale a clic en Registrar
+                        // Pago). Acelera el flujo del cajero: no necesita mouse.
+                        if (code === '0' && lineas.length > 0) {
+                          (e.target as HTMLInputElement).value = '';
+                          finalizar();
+                          return;
+                        }
                         try {
                           // Búsqueda EXACTA por código (sin LIKE) para no agregar un producto incorrecto
                           const r = await fetch(`${API_VENTA}?codigo=${encodeURIComponent(code)}`);

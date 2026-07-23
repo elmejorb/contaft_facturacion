@@ -3,7 +3,7 @@ import {
   Search, ArrowLeft, Wallet, TrendingUp, FileText, Receipt,
   ShoppingCart, Package, AlertTriangle, DollarSign, Users, BarChart3, ListChecks,
   Crown, Layers, HandCoins, PieChart as PieChartIcon,
-  Truck, Calendar, CalendarDays, Percent, UserCheck, CalendarClock
+  Truck, Calendar, CalendarDays, Percent, UserCheck, CalendarClock, TrendingUpDown
 } from 'lucide-react';
 import { LotesPorVencer } from '../LotesPorVencer';
 import { InformeCuadreCaja } from './InformeCuadreCaja';
@@ -21,6 +21,7 @@ import { InformeTopClientes } from './InformeTopClientes';
 import { InformeVentasPorCategoria } from './InformeVentasPorCategoria';
 import { InformePagosProveedores } from './InformePagosProveedores';
 import { InformeGraficos } from './InformeGraficos';
+import { InformeComparativoAnual } from './InformeComparativoAnual';
 import { InformeProveedoresListado } from './InformeProveedoresListado';
 import { InformeSaldosProveedores } from './InformeSaldosProveedores';
 import { InformeVentasMensual } from './InformeVentasMensual';
@@ -36,7 +37,7 @@ type ReporteId =
   | 'gastos' | 'pagos-proveedores'
   | 'cartera' | 'cartera-resumida'
   | 'proveedores-listado' | 'proveedores-saldos'
-  | 'graficos';
+  | 'graficos' | 'comparativo-anual';
 
 interface ReporteDef {
   id: ReporteId;
@@ -79,6 +80,7 @@ const REPORTES: ReporteDef[] = [
   { id: 'cartera-resumida', titulo: 'Cartera Resumida', desc: 'Listado simple de clientes con su saldo total pendiente.', icon: Users, color: '#0891b2', bg: '#cffafe', categoria: 'cartera' },
   // Análisis
   { id: 'graficos', titulo: 'Análisis Gráfico', desc: 'Panel visual: ventas por mes, top productos, distribución de gastos y tendencia diaria.', icon: PieChartIcon, color: '#9333ea', bg: '#f3e8ff', categoria: 'analisis' },
+  { id: 'comparativo-anual', titulo: 'Comparativo Anual', desc: 'Compara ventas mes a mes entre varios años. Ideal para ver crecimiento y detectar meses fuertes.', icon: TrendingUpDown, color: '#0891b2', bg: '#cffafe', categoria: 'analisis' },
 ];
 
 const CATEGORIAS = [
@@ -121,6 +123,7 @@ export function InformesHub() {
         {activo === 'ventas-categoria' && <InformeVentasPorCategoria />}
         {activo === 'pagos-proveedores' && <InformePagosProveedores />}
         {activo === 'graficos' && <InformeGraficos />}
+        {activo === 'comparativo-anual' && <InformeComparativoAnual />}
         {activo === 'proveedores-listado' && <InformeProveedoresListado />}
         {activo === 'proveedores-saldos' && <InformeSaldosProveedores />}
         {activo === 'ventas-mensual' && <InformeVentasMensual />}
