@@ -48,6 +48,7 @@ export interface ConfigImpresion {
   usarLotes: boolean; // activa el manejo de fechas de vencimiento / lotes para productos perecederos (farmacias, alimentos)
   usarFinanciaciones: boolean; // activa el módulo de financiaciones (crédito con cuotas) — típico venta de motos
   tasaMoraMensual: number; // % mensual sobre valor de cuota vencida. 0 = no cobra mora
+  usarAnticipos: boolean; // activa el módulo de anticipos (saldo a favor del cliente para futuras compras)
   tipoNegocio: string; // Tienda, Farmacia, Boutique, etc.
   // Seguridad — autorización admin para acciones sensibles
   autorizarDevoluciones: boolean;     // pide clave admin para devolver
@@ -96,6 +97,7 @@ const defaultConfig: ConfigImpresion = {
   usarLotes: false,
   usarFinanciaciones: false,
   tasaMoraMensual: 0,
+  usarAnticipos: false,
   tipoNegocio: '',
   autorizarDevoluciones: false,
   autorizarAnulaciones: false,
@@ -127,6 +129,7 @@ export interface EmpresaCache {
   email?: string;
   regimen?: string;
   resolucion?: string;
+  logo_url?: string;   // URL del logo servido por el backend (tbldatosempresa.Logo)
 }
 
 const EMPRESA_KEY = 'empresa_cache';
@@ -142,14 +145,39 @@ export function getEmpresaCache(): EmpresaCache {
 
 export function saveEmpresaCache(emp: any) {
   if (!emp) return;
+  const nuevoNit = emp.Nit || emp.nit || '';
+  const anterior = getEmpresaCache();
+
+  // Si el NIT cambió, estamos en OTRA empresa/BD — invalidar el logo local
+  // guardado en config_sistema (era del cliente anterior). Sin esto, al
+  // cambiar de BD durante desarrollo/soporte, se mostraba el logo de la
+  // empresa anterior en las impresiones — caso Icoplastic mostrando el
+  // logo de Ammi es el ejemplo.
+  if (anterior.nit && anterior.nit !== nuevoNit) {
+    try {
+      const raw = localStorage.getItem(CONFIG_KEY);
+      if (raw) {
+        const cfg = JSON.parse(raw);
+        if (cfg && cfg.logo) {
+          cfg.logo = '';
+          localStorage.setItem(CONFIG_KEY, JSON.stringify(cfg));
+        }
+      }
+    } catch (e) {}
+  }
+
   const cache: EmpresaCache = {
     nombre: emp.Empresa || emp.nombre || 'Empresa',
-    nit: emp.Nit || emp.nit || '',
+    nit: nuevoNit,
     direccion: emp.Direccion || emp.direccion || '',
     telefono: emp.Telefono || emp.telefono || '',
     email: emp.email || '',
     regimen: emp.Regimen || '',
     resolucion: emp.Resolucion || '',
+    // Logo_url viene del backend (empresa/datos.php construye la URL pública
+    // desde tbldatosempresa.Logo). Es la fuente de verdad — no depende de
+    // localStorage viejo de otra empresa.
+    logo_url: emp.Logo_url || '',
   };
   localStorage.setItem(EMPRESA_KEY, JSON.stringify(cache));
 }
@@ -583,6 +611,7 @@ export function ConfiguracionSistema() {
             { key: 'usarConteoInventario', label: 'Conteo de inventario', desc: 'Realizar conteos físicos de inventario con compensación automática de ventas durante el conteo.' },
             { key: 'usarLotes', label: 'Fechas de vencimiento / Lotes', desc: 'Activa el manejo de lotes y fechas de vencimiento en compras y productos. Para farmacias, droguerías, alimentos, lácteos. Si está apagado, las compras NO piden fecha de vencimiento ni muestran productos perecederos aunque estén marcados así en el catálogo.' },
             { key: 'usarFinanciaciones', label: 'Financiaciones (créditos con cuotas)', desc: 'Activa el módulo de Financiaciones para negocios que venden a plazos (motos, electrodomésticos, muebles). Permite registrar contratos con cronograma de cuotas de fechas y valores libres, y llevar el cobro por cliente.' },
+            { key: 'usarAnticipos', label: 'Anticipos de clientes (saldo a favor)', desc: 'Activa el módulo de Anticipos: el cliente entrega dinero hoy para usar en compras futuras. Aparece un saldo a favor que se aplica automáticamente al facturar. Útil en boutiques, ferreterías, motos, muebles.' },
           ].map(m => (
             <label key={m.key}
               onClick={() => set(m.key as keyof ConfigImpresion, !(config as any)[m.key])}

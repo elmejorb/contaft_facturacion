@@ -112,7 +112,7 @@ function validateInvoiceForDIAN(array $factura, array $items): array {
     return $errores;
 }
 
-function buildInvoiceJSON($db, $factura, $items, $companyId) {
+function buildInvoiceJSON($db, $factura, $items, $companyId, $customerEmailOverride = '') {
     // Get client fiscal data
     $stmt = $db->prepare("
         SELECT c.*,
@@ -139,6 +139,14 @@ function buildInvoiceJSON($db, $factura, $items, $companyId) {
     $nit = $cliente['Nit'] ?? $factura['Identificacion'] ?? '0';
     $dv = calculateDV($nit);
 
+    // Email del comprador — prioridad: (1) override que viene en el body del
+    // POST (comprador ocasional traído de DIAN, no está en tblclientes),
+    // (2) email del cliente en tblclientes, (3) vacío.
+    // El email es info específica de la FE y NO se guarda en tblventas — el
+    // frontend lo pasa cada vez que llama al endpoint (o queda en
+    // electronic_documents.customer_email para reintentos).
+    $customerEmail = trim($customerEmailOverride) ?: ($cliente['Email'] ?? '');
+
     // Build customer
     $customer = [
         'identification_number' => $nit,
@@ -146,7 +154,7 @@ function buildInvoiceJSON($db, $factura, $items, $companyId) {
         'name' => $factura['A_nombre'],
         'phone' => $factura['Telefono'] ?: '0',
         'address' => $cliente['Direccion'] ?? $factura['Direccion'] ?? '-',
-        'email' => $cliente['Email'] ?? '',
+        'email' => $customerEmail,
         'merchant_registration' => '0000000-00',
         'type_document_identification' => [
             'id' => strval($cliente['doc_id'] ?? 2),
@@ -573,17 +581,38 @@ try {
                 exit;
             }
 
-            // Build JSON
-            $invoiceJSON = buildInvoiceJSON($db, $factura, $items, $companyId);
+            // Email del comprador — 3 fuentes en orden de prioridad:
+            //   1) Body del POST (comprador ocasional recién traído de DIAN)
+            //   2) electronic_documents.customer_email de un intento anterior
+            //      (útil al reintentar desde módulo FE — el email quedó en el
+            //      primer intento y no se debe perder aunque el frontend no lo
+            //      mande otra vez)
+            //   3) tblclientes.Email (cliente recurrente registrado)
+            $customerEmailOverride = trim((string)($data['customer_email'] ?? ''));
+            if ($customerEmailOverride === '') {
+                $stmtPrev = $db->prepare("
+                    SELECT customer_email FROM electronic_documents
+                    WHERE customer_identification = ? AND customer_email IS NOT NULL AND customer_email <> ''
+                    ORDER BY id DESC LIMIT 1
+                ");
+                $stmtPrev->execute([$factura['Identificacion']]);
+                $customerEmailOverride = trim((string)($stmtPrev->fetchColumn() ?: ''));
+            }
+
+            // Build JSON (recibe el email override para inyectarlo en el customer)
+            $invoiceJSON = buildInvoiceJSON($db, $factura, $items, $companyId, $customerEmailOverride);
 
             // Add email sending if requested
             $sendEmail = $data['send_email'] ?? false;
             if ($sendEmail) {
-                // Get customer email
-                $stmtEmail = $db->prepare("SELECT Email FROM tblclientes WHERE CodigoClien = ?");
-                $stmtEmail->execute([$factura['CodigoCli']]);
-                $clienteData = $stmtEmail->fetch();
-                $customerEmail = $clienteData['Email'] ?? '';
+                // Prioridad: override del body (comprador ocasional), luego tblclientes
+                $customerEmail = $customerEmailOverride;
+                if (!$customerEmail) {
+                    $stmtEmail = $db->prepare("SELECT Email FROM tblclientes WHERE CodigoClien = ?");
+                    $stmtEmail->execute([$factura['CodigoCli']]);
+                    $clienteData = $stmtEmail->fetch();
+                    $customerEmail = $clienteData['Email'] ?? '';
+                }
                 // Sanitizar: quitar espacios/tabs/nbsp y quedarse con el primer email si hay varios separados
                 $customerEmail = preg_replace('/[\s\x{00A0}]+/u', '', $customerEmail);
                 $partesEmail = preg_split('/[;,]/', $customerEmail);
@@ -630,11 +659,15 @@ try {
                                   : (($medioPagoLocal >= 2) ? 30 : 10);
             $stmtDoc = $db->prepare("
                 INSERT INTO electronic_documents
-                (fecha, cod_cliente, customer_identification, type_document_id, prefix, number, status, total, cufe, dian_response, id_usuario, id_mediopago, efectivo, valorpagado1, pagada, EstadoFact, email_sent, nota, payment_form_id, payment_method_id, payment_due_days)
-                VALUES (?, ?, ?, 1, 'FCON', 0, 'pendiente', ?, '', '{}', ?, ?, ?, ?, ?, 1, 0, ?, ?, ?, ?)
+                (fecha, cod_cliente, customer_identification, customer_name, customer_email, type_document_id, prefix, number, status, total, cufe, dian_response, id_usuario, id_mediopago, efectivo, valorpagado1, pagada, EstadoFact, email_sent, nota, payment_form_id, payment_method_id, payment_due_days)
+                VALUES (?, ?, ?, ?, ?, 1, 'FCON', 0, 'pendiente', ?, '', '{}', ?, ?, ?, ?, ?, 1, 0, ?, ?, ?, ?)
             ");
             $stmtDoc->execute([
                 $factura['Fecha'], $factura['CodigoCli'], $factura['Identificacion'],
+                // customer_name/email — guardan los datos del comprador AUNQUE sea
+                // ocasional (CodigoCli=130500). Así la FE tiene registro completo
+                // sin depender de tblclientes.
+                $factura['A_nombre'], $customerEmailOverride ?: null,
                 $totalDocFE, $factura['Id_Usuario'],
                 $factura['id_mediopago'], $factura['efectivo'], $factura['valorpagado1'],
                 $factura['pagada'] ?: 'N', $notaFactura,
@@ -1065,12 +1098,22 @@ try {
                 $medioPagoLocalC = intval($factura['id_mediopago'] ?? 0);
                 $paymentMethodLocalC = ($medioPagoLocalC === 1) ? 14
                                        : (($medioPagoLocalC >= 2) ? 30 : 10);
+                // customer_name/email desde $factura['A_nombre'] + email
+                // detectado (body/fallback tblclientes). Solo aplica cuando no
+                // se reusa un registro existente (raro pero posible).
+                $emailReenv = trim((string)($data['customer_email'] ?? ''));
+                if ($emailReenv === '') {
+                    $stmtCli = $db->prepare("SELECT Email FROM tblclientes WHERE CodigoClien = ?");
+                    $stmtCli->execute([$factura['CodigoCli']]);
+                    $emailReenv = trim((string)($stmtCli->fetchColumn() ?: ''));
+                }
                 $db->prepare("
                     INSERT INTO electronic_documents
-                    (fecha, cod_cliente, customer_identification, type_document_id, prefix, number, status, total, cufe, dian_response, id_usuario, id_mediopago, efectivo, valorpagado1, pagada, EstadoFact, email_sent, nota, payment_form_id, payment_method_id, payment_due_days)
-                    VALUES (?, ?, ?, 1, 'FCON', 0, 'pendiente', ?, '', '{}', ?, ?, ?, ?, ?, 1, 0, ?, ?, ?, ?)
+                    (fecha, cod_cliente, customer_identification, customer_name, customer_email, type_document_id, prefix, number, status, total, cufe, dian_response, id_usuario, id_mediopago, efectivo, valorpagado1, pagada, EstadoFact, email_sent, nota, payment_form_id, payment_method_id, payment_due_days)
+                    VALUES (?, ?, ?, ?, ?, 1, 'FCON', 0, 'pendiente', ?, '', '{}', ?, ?, ?, ?, ?, 1, 0, ?, ?, ?, ?)
                 ")->execute([
                     $factura['Fecha'], $factura['CodigoCli'], $factura['Identificacion'],
+                    $factura['A_nombre'], $emailReenv ?: null,
                     $totalDocFE, $factura['Id_Usuario'],
                     $factura['id_mediopago'], $factura['efectivo'], $factura['valorpagado1'],
                     $factura['pagada'] ?: 'N', $notaFactura,

@@ -1535,6 +1535,92 @@ SET @sql = IF(@col_exists = 0,
     'SELECT 1');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
+-- v4.3.74 — Datos del comprador ocasional en electronic_documents.
+-- Las FE van directo a electronic_documents (no a tblventas). Cuando el
+-- comprador se registra via consulta DIAN (Res. 202/2025) sin crear cliente,
+-- sus datos (nombre + email) tienen que guardarse en la propia FE para no
+-- perderlos. Antes se leían de tblclientes usando cod_cliente=130500
+-- (genérico VENTAS AL CONTADO) y eran incorrectos.
+SET @col_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'electronic_documents'
+      AND COLUMN_NAME = 'customer_name');
+SET @sql = IF(@col_exists = 0,
+    "ALTER TABLE electronic_documents
+        ADD COLUMN customer_name VARCHAR(200) NULL COMMENT 'Nombre del comprador ocasional (cuando no está en tblclientes)',
+        ADD COLUMN customer_email VARCHAR(150) NULL COMMENT 'Email del comprador ocasional'",
+    'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- v4.3.74 — Módulo Anticipos de Clientes (opcional, activado por empresa)
+--
+-- Un anticipo es dinero que el cliente entrega hoy para usar en compras
+-- futuras. Se registra como INGRESO en caja/banco pero contablemente es
+-- un pasivo (deuda con el cliente). Al aplicarlo en una venta futura,
+-- reduce el saldo del anticipo (nunca por debajo de 0) y se marca en
+-- tblpagos como origen 'anticipo' para trazabilidad.
+--
+-- Activable con toggle `usarAnticipos` en Configuración del Sistema.
+-- Sin el flag, el módulo queda oculto y la tabla ni se crea implica.
+
+SET @col_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tbldatosempresa'
+      AND COLUMN_NAME = 'modulo_anticipos');
+SET @sql = IF(@col_exists = 0,
+    "ALTER TABLE tbldatosempresa ADD COLUMN modulo_anticipos TINYINT(1) NOT NULL DEFAULT 0",
+    'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- Anticipos (avances) de clientes — cabecera
+CREATE TABLE IF NOT EXISTS tblanticipos_cliente (
+    Id_Anticipo    INT AUTO_INCREMENT PRIMARY KEY,
+    Consecutivo    VARCHAR(20) NULL COMMENT 'ANT-XXXX autogenerado',
+    Fecha          DATE NOT NULL,
+    CodigoCli      INT NOT NULL COMMENT 'CodigoClien del cliente',
+    Valor          DECIMAL(15,2) NOT NULL COMMENT 'Monto original entregado',
+    Saldo          DECIMAL(15,2) NOT NULL COMMENT 'Cuánto queda disponible',
+    id_mediopago   INT NOT NULL DEFAULT 0 COMMENT '0=Efectivo 1=Tarjeta 2=Bancolombia 3=Nequi',
+    Concepto       VARCHAR(200) NULL,
+    Id_Usuario     INT NULL,
+    Estado         VARCHAR(15) NOT NULL DEFAULT 'Vigente' COMMENT 'Vigente | Aplicado | Devuelto | Anulado',
+    FechaCreacion  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FechaMod       TIMESTAMP NULL,
+    KEY idx_cliente (CodigoCli),
+    KEY idx_estado (Estado),
+    KEY idx_fecha (Fecha)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Movimientos del anticipo — cada aplicación en venta o devolución
+-- deja rastro aquí. NO se borra: si se anula una aplicación, se registra
+-- un movimiento inverso. Mismo criterio que kardex inmutable.
+CREATE TABLE IF NOT EXISTS tblanticipo_movs (
+    Id_Mov          INT AUTO_INCREMENT PRIMARY KEY,
+    Id_Anticipo     INT NOT NULL,
+    Fecha           DATE NOT NULL,
+    Tipo            VARCHAR(15) NOT NULL COMMENT 'Aplicacion | Devolucion | Reverso',
+    Valor           DECIMAL(15,2) NOT NULL COMMENT 'Valor consumido (Aplicacion) o devuelto (Devolucion)',
+    Factura_N       INT NULL COMMENT 'Factura de venta donde se aplicó (si Tipo=Aplicacion)',
+    Concepto        VARCHAR(200) NULL,
+    id_mediopago    INT NULL COMMENT 'Solo para Devolucion — cómo se le devolvió al cliente',
+    Id_Usuario      INT NULL,
+    Estado          VARCHAR(10) NOT NULL DEFAULT 'Valida' COMMENT 'Valida | Anulada',
+    FechaCreacion   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_anticipo (Id_Anticipo),
+    KEY idx_factura (Factura_N),
+    KEY idx_fecha (Fecha)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Marca en tblpagos para identificar pagos que provienen de un anticipo.
+-- Cuando en Nueva Venta el cliente usa parte de su saldo a favor, la fila
+-- de tblpagos tiene Id_Anticipo apuntando al anticipo consumido. Esto
+-- permite mostrar en cartera "de estos pagos, X vinieron de anticipo".
+SET @col_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tblpagos'
+      AND COLUMN_NAME = 'Id_Anticipo');
+SET @sql = IF(@col_exists = 0,
+    "ALTER TABLE tblpagos ADD COLUMN Id_Anticipo INT NULL COMMENT 'FK a tblanticipos_cliente cuando el pago viene de saldo a favor'",
+    'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
 -- v4.3.71 — Credenciales de correo FE en tbldatosempresa (para clientes sin FE)
 -- api/empresa/datos.php hace UPDATE incluyendo estas columnas sin verificar.
 -- En clientes sin módulo FE no existen y rompen "Guardar datos de la empresa".

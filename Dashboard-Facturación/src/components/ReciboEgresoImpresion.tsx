@@ -79,8 +79,12 @@ function numeroALetras(num: number): string {
 
 export function ReciboEgresoImpresion({ egreso, formato, onClose }: Props) {
   const printRef = useRef<HTMLDivElement>(null);
-  const logo = getConfigImpresion().logo || '';
   const empresa = getEmpresa();
+  // Prioridad: URL del backend (tbldatosempresa.Logo) → localStorage subido
+  // por el usuario en Configuración → nada. La primera opción evita que el
+  // logo de un cliente anterior aparezca al cambiar de BD.
+  const cache = getEmpresaCache();
+  const logo = cache.logo_url || getConfigImpresion().logo || '';
 
   const imprimir = () => {
     const content = printRef.current;

@@ -84,6 +84,8 @@ import { InformesHub } from './informes/InformesHub';
 import { ConfiguracionSistema, saveEmpresaCache, getConfigImpresion } from './ConfiguracionSistema';
 import { FinanciacionesManagement } from './FinanciacionesManagement';
 import { BackupBD } from './BackupBD';
+import { MantenimientoBD } from './MantenimientoBD';
+import { AnticiposClientes } from './AnticiposClientes';
 import { DatosEmpresa } from './DatosEmpresa';
 import { NuevaCompra } from './NuevaCompra';
 import { UsuariosManagement } from './UsuariosManagement';
@@ -115,7 +117,7 @@ interface DashboardProps {
   user?: UserData | null;
 }
 
-type View = 'overview' | 'products' | 'customers' | 'suppliers' | 'purchases' | 'sales' | 'inventario' | 'diagnostico' | 'auditoria' | 'categorias' | 'conteo' | 'configuracion' | 'cuentas-cobrar' | 'top-clientes' | 'cumpleanos' | 'cuentas-pagar' | 'productos-proveedor' | 'nueva-venta' | 'ventas-tipo-pago' | 'datos-empresa' | 'usuarios' | 'nueva-compra' | 'facturacion-electronica' | 'facturas-recibidas' | 'caja' | 'caja-historial' | 'pagos-clientes' | 'pagos-proveedores' | 'gastos' | 'bancos' | 'config-categorias-gasto' | 'config-cajas' | 'config-servidor' | 'config-permisos' | 'familias' | 'distribuir' | 'stock-bajo' | 'config-retenciones' | 'informes-hub' | 'notas-articulo' | 'lotes-vencer' | 'inicio' | 'config-etiquetas' | 'vendedores-gestion' | 'vendedores-pedidos' | 'financiaciones' | 'backup-bd';
+type View = 'overview' | 'products' | 'customers' | 'suppliers' | 'purchases' | 'sales' | 'inventario' | 'diagnostico' | 'auditoria' | 'categorias' | 'conteo' | 'configuracion' | 'cuentas-cobrar' | 'top-clientes' | 'cumpleanos' | 'cuentas-pagar' | 'productos-proveedor' | 'nueva-venta' | 'ventas-tipo-pago' | 'datos-empresa' | 'usuarios' | 'nueva-compra' | 'facturacion-electronica' | 'facturas-recibidas' | 'caja' | 'caja-historial' | 'pagos-clientes' | 'pagos-proveedores' | 'gastos' | 'bancos' | 'config-categorias-gasto' | 'config-cajas' | 'config-servidor' | 'config-permisos' | 'familias' | 'distribuir' | 'stock-bajo' | 'config-retenciones' | 'informes-hub' | 'notas-articulo' | 'lotes-vencer' | 'inicio' | 'config-etiquetas' | 'vendedores-gestion' | 'vendedores-pedidos' | 'financiaciones' | 'backup-bd' | 'mantenimiento-bd' | 'anticipos-clientes';
 
 interface MenuItem {
   id: string;
@@ -179,6 +181,7 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
   // en Configuración → Módulos opcionales del negocio (`usarFinanciaciones`).
   // Sin este flag, ni el ítem del menú ni las tablas se tocan.
   const financiacionesHabilitado = !!getConfigImpresion().usarFinanciaciones;
+  const anticiposHabilitado = !!getConfigImpresion().usarAnticipos;
   const [showCambiarClave, setShowCambiarClave] = useState(false);
   const [claveActual, setClaveActual] = useState('');
   const [claveNueva, setClaveNueva] = useState('');
@@ -225,6 +228,7 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
         { id: 'customer-list', label: 'Listado de Clientes', view: 'customers' },
         { id: 'top-customers', label: 'Top Clientes', view: 'top-clientes' as View },
         { id: 'birthdays', label: 'Cumpleaños', view: 'cumpleanos' as View },
+        { id: 'anticipos-clientes', label: 'Anticipos (Saldo a favor)', view: 'anticipos-clientes' as View },
       ]
     },
     {
@@ -316,6 +320,7 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
         { id: 'config-cajas', label: 'Administrar Cajas', view: 'config-cajas' as View },
         { id: 'config-servidor', label: 'Servidor', view: 'config-servidor' as View },
         { id: 'backup-bd', label: 'Respaldo de la Base de Datos', view: 'backup-bd' as View },
+        { id: 'mantenimiento-bd', label: 'Mantenimiento BD (Migración)', view: 'mantenimiento-bd' as View },
       ]
     },
   ];
@@ -332,7 +337,7 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
     'inventario-conteo': 'inventario_conteo',
     'inventario-familias': 'inventario', 'inventario-distribuir': 'inventario', 'inventario-stock-bajo': 'inventario',
     'inventario-notas': 'inventario', 'inventario-lotes': 'inventario', 'inventario-etiquetas': 'inventario',
-    'customers-list': 'clientes', 'top-clientes': 'clientes_top', 'cumpleanos': 'clientes',
+    'customers-list': 'clientes', 'top-clientes': 'clientes_top', 'cumpleanos': 'clientes', 'anticipos-clientes': 'clientes',
     'accounts-receivable': 'clientes_cartera', 'accounts-payable': 'proveedores_pagar',
     'suppliers': 'proveedores', 'supplier-list': 'proveedores', 'supplier-products': 'proveedores',
     'new-sale': 'ventas', 'sales-list': 'ventas_listado',
@@ -344,14 +349,21 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
     'gastos': 'gastos', 'bancos': 'bancos',
     'configuracion': 'configuracion', 'config-sistema': 'configuracion',
     'config-empresa': 'datos_empresa', 'config-usuarios': 'usuarios',
-    'config-categorias': 'configuracion', 'config-cajas': 'configuracion', 'config-servidor': 'configuracion', 'config-permisos': 'usuarios', 'backup-bd': 'configuracion',
+    'config-categorias': 'configuracion', 'config-cajas': 'configuracion', 'config-servidor': 'configuracion', 'config-permisos': 'usuarios', 'backup-bd': 'configuracion', 'mantenimiento-bd': 'configuracion',
     'informes': 'informes',
   };
 
   // Filtrar menú por permisos y habilitación de módulos
   const baseMenuItems = allMenuItems
     .filter(item => item.id !== 'vendedores' || vendedoresHabilitado)
-    .filter(item => item.id !== 'financiaciones' || financiacionesHabilitado);
+    .filter(item => item.id !== 'financiaciones' || financiacionesHabilitado)
+    // Filtrar el sub-item "Anticipos" dentro de Clientes si el módulo está apagado
+    .map(item => {
+      if (item.id === 'customers' && item.children && !anticiposHabilitado) {
+        return { ...item, children: item.children.filter(c => c.id !== 'anticipos-clientes') };
+      }
+      return item;
+    });
   const menuItems = esAdmin ? baseMenuItems : baseMenuItems
     .map(item => {
       if (item.children) {
@@ -745,6 +757,8 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
           {currentView === 'config-permisos' && <ConfigPermisos />}
           {currentView === 'financiaciones' && <FinanciacionesManagement />}
           {currentView === 'backup-bd' && <BackupBD />}
+          {currentView === 'mantenimiento-bd' && <MantenimientoBD />}
+          {currentView === 'anticipos-clientes' && <AnticiposClientes />}
         </div>
       </main>
 

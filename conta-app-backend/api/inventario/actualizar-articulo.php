@@ -35,6 +35,13 @@ try {
     $existNueva     = isset($input['Existencia']) ? floatval($input['Existencia']) : $existActual;
     $costoUnit      = floatval($input['Precio_Costo'] ?? $articuloActual['Precio_Costo'] ?? 0);
 
+    // Notas defensivas:
+    //   - `Servicio` y `requiere_lote`: `!empty()` funciona bien para 0/1
+    //     numérico y string; se preserva.
+    //   - `Estante`: faltaba en versiones anteriores → cambios se perdían.
+    //   - `Id_Etiqueta`: null si viene 0 o vacío (no hay etiqueta 0).
+    //   - Los coalesce `?? valor_actual` evitan resets accidentales cuando el
+    //     frontend NO envía el campo (ej. flujos de bulk edit parcial).
     $query = "UPDATE tblarticulos SET
         Codigo = :codigo,
         Nombres_Articulo = :nombre,
@@ -48,6 +55,7 @@ try {
         Existencia = :existencia,
         Existencia_minima = :existenciaMinima,
         CodigoPro = :proveedor,
+        Estante = :estante,
         Estado = :estado,
         requiere_lote = :requiereLote,
         Servicio = :servicio,
@@ -69,6 +77,7 @@ try {
         ':existencia' => $existNueva,
         ':existenciaMinima' => $input['Existencia_minima'] ?? 0,
         ':proveedor' => $input['CodigoPro'] ?? 0,
+        ':estante' => $input['Estante'] ?? '',
         ':estado' => $input['Estado'] ?? 1,
         ':requiereLote' => !empty($input['requiere_lote']) ? 1 : 0,
         ':servicio' => !empty($input['Servicio']) ? 1 : 0,

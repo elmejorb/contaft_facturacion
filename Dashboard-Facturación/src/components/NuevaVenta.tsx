@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Search, Trash2, Plus, Save, X, ShoppingCart, Lock, Unlock, PackagePlus } from 'lucide-react';
+import { Search, Trash2, Plus, Save, X, ShoppingCart, Lock, Unlock, PackagePlus, Loader2 } from 'lucide-react';
 import { EditarArticuloModal } from './EditarArticuloModal';
 import toast from 'react-hot-toast';
 import { getConfigImpresion, getEmpresaCache, saveEmpresaCache } from './ConfiguracionSistema';
@@ -17,7 +17,13 @@ const API_RETENCIONES = 'http://localhost:80/conta-app-backend/api/retenciones/l
 function BuscarClienteModal({ onSelect, onClose }: { onSelect: (c: any) => void; onClose: () => void }) {
   const [busqueda, setBusqueda] = useState('');
   const [results, setResults] = useState<any[]>([]);
+  const [consultandoDIAN, setConsultandoDIAN] = useState(false);
   const timerRef = useRef<any>(null);
+
+  const feActiva = !!getConfigImpresion().usarFacturacionElectronica;
+  // Si busca solo dígitos y hay 5+ caracteres, asumimos que es cédula/NIT y
+  // permitimos la consulta a la DIAN cuando no aparece en la BD local.
+  const buscaEsDocumento = /^\d{5,}$/.test(busqueda.trim());
 
   const buscar = (q: string) => {
     setBusqueda(q);
@@ -30,6 +36,91 @@ function BuscarClienteModal({ onSelect, onClose }: { onSelect: (c: any) => void;
         if (d.success) setResults(d.clientes || d.data || []);
       } catch (e) {}
     }, 250);
+  };
+
+  // Cache del resultado DIAN — se muestra un mini panel con 2 opciones:
+  // "Usar solo aquí" (no crea cliente, solo pinta los datos en la venta) o
+  // "Guardar como cliente" (crea registro en tblclientes para uso recurrente).
+  const [dianResult, setDianResult] = useState<{ name: string; email: string; documento: string; tipo: string } | null>(null);
+
+  const consultarDIAN = async () => {
+    const numero = busqueda.trim();
+    // Detecta si es NIT (9+ dígitos) o CC (menos). Puede refinarse con un
+    // selector si es necesario, pero cubre el 95% de los casos.
+    const tipo = numero.length >= 9 ? '31' : '13';
+    setConsultandoDIAN(true);
+    setDianResult(null);
+    try {
+      const r = await fetch('http://localhost:80/conta-app-backend/api/dian/consultar-adquiriente.php', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ identification_type: tipo, identification_number: numero }),
+      });
+      const d = await r.json();
+      if (d.success && d.name) {
+        setDianResult({ name: d.name, email: d.email || '', documento: numero, tipo });
+      } else {
+        toast.error(d.message || 'Documento no encontrado en RUT/RADIAN');
+      }
+    } catch { toast.error('Error consultando DIAN'); }
+    setConsultandoDIAN(false);
+  };
+
+  // Opción 1: usar los datos DIAN SOLO en esta factura sin crear cliente.
+  // Se envía `esCliente:false` — el componente padre trata este cliente como
+  // "genérico con datos personalizados" (mismo patrón de VENTAS AL CONTADO
+  // con nombre y email sobrescritos). Los datos van a tblventas.A_nombre /
+  // Identificacion / email y de ahí al JSON de la FE. Ideal para compradores
+  // ocasionales que solo quieren su factura y no volverán.
+  const usarSoloEnEstaVenta = () => {
+    if (!dianResult) return;
+    onSelect({
+      CodigoClien: 130500,          // Cliente genérico "VENTAS AL CONTADO"
+      Nombre_Cliente: dianResult.name,
+      Razon_Social: dianResult.name,
+      Identificacion: dianResult.documento,
+      Nit: dianResult.documento,
+      Email: dianResult.email,
+      Telefono: '0',
+      Direccion: '-',
+      _ocasional: true,             // hint para el padre — no es cliente real
+    });
+  };
+
+  // Opción 2: guardar como cliente en tblclientes para uso recurrente.
+  const guardarComoCliente = async () => {
+    if (!dianResult) return;
+    const idDocLocal = dianResult.tipo === '31' ? 6 : 2; // 6=NIT local, 2=CC local
+    setConsultandoDIAN(true);
+    try {
+      const c = await fetch('http://localhost:80/conta-app-backend/api/clientes/listar.php', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          Razon_Social: dianResult.name,
+          Nit: dianResult.documento,
+          Identificacion: dianResult.documento,
+          Email: dianResult.email,
+          Telefonos: '0', Direccion: '-',
+          id_documento: idDocLocal,
+        }),
+      });
+      const cj = await c.json();
+      if (cj.success) {
+        toast.success(`Cliente guardado: ${dianResult.name}`);
+        onSelect({
+          CodigoClien: cj.CodigoClien || cj.codigo,
+          Nombre_Cliente: dianResult.name,
+          Razon_Social: dianResult.name,
+          Identificacion: dianResult.documento,
+          Nit: dianResult.documento,
+          Email: dianResult.email,
+          Telefono: '0',
+          Direccion: '-',
+        });
+      } else {
+        toast.error(cj.message || 'No se pudo crear el cliente');
+      }
+    } catch { toast.error('Error creando cliente'); }
+    setConsultandoDIAN(false);
   };
 
   return (
@@ -53,6 +144,53 @@ function BuscarClienteModal({ onSelect, onClose }: { onSelect: (c: any) => void;
           {results.length === 0 ? (
             <div style={{ padding: 20, textAlign: 'center', color: '#9ca3af', fontSize: 13 }}>
               {busqueda.length < 2 ? 'Escriba al menos 2 caracteres' : 'Sin resultados'}
+              {/* Cuando la búsqueda parece cédula/NIT y no aparece local,
+                  ofrecer consulta a la DIAN (Resolución 202/2025). Solo si FE
+                  está activa — el endpoint necesita el certificado del cliente. */}
+              {feActiva && buscaEsDocumento && busqueda.length >= 2 && !dianResult && (
+                <div style={{ marginTop: 14 }}>
+                  <button onClick={consultarDIAN} disabled={consultandoDIAN}
+                    style={{
+                      height: 36, padding: '0 16px', background: consultandoDIAN ? '#9ca3af' : '#0891b2',
+                      color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700,
+                      cursor: consultandoDIAN ? 'wait' : 'pointer',
+                      display: 'inline-flex', alignItems: 'center', gap: 6,
+                    }}>
+                    {consultandoDIAN ? <Loader2 size={14} className="animate-spin" /> : <Search size={14} />}
+                    {consultandoDIAN ? 'Consultando DIAN…' : 'Consultar DIAN'}
+                  </button>
+                  <div style={{ fontSize: 10, color: '#6b7280', marginTop: 6 }}>
+                    Trae nombre y correo de la DIAN a partir del documento {busqueda}
+                  </div>
+                </div>
+              )}
+              {/* Panel de opciones tras consultar DIAN */}
+              {dianResult && (
+                <div style={{ marginTop: 14, textAlign: 'left', background: '#f0f9ff', border: '1px solid #7dd3fc', borderRadius: 8, padding: 12 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: '#0369a1', marginBottom: 6, textTransform: 'uppercase' }}>Datos DIAN</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#0f172a' }}>{dianResult.name}</div>
+                  <div style={{ fontSize: 11, color: '#475569', marginTop: 2 }}>
+                    Doc: <b>{dianResult.documento}</b>
+                    {dianResult.email && <> · Email: <b>{dianResult.email}</b></>}
+                  </div>
+                  <div style={{ display: 'flex', gap: 6, marginTop: 12 }}>
+                    <button onClick={usarSoloEnEstaVenta} disabled={consultandoDIAN}
+                      style={{ flex: 1, height: 34, background: '#7c3aed', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: 'pointer' }}
+                      title="Los datos se guardan en esta factura pero NO se crea cliente. Para compradores ocasionales.">
+                      Usar solo aquí
+                    </button>
+                    <button onClick={guardarComoCliente} disabled={consultandoDIAN}
+                      style={{ flex: 1, height: 34, background: '#16a34a', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: consultandoDIAN ? 'wait' : 'pointer' }}
+                      title="Crea registro en Clientes para uso recurrente (cartera, cumpleaños, etc.)">
+                      Guardar como cliente
+                    </button>
+                  </div>
+                  <div style={{ fontSize: 10, color: '#64748b', marginTop: 8, lineHeight: 1.4 }}>
+                    <b>Usar solo aquí</b>: compra al contado, no vuelve — solo va en esta FE.<br />
+                    <b>Guardar como cliente</b>: cliente recurrente, con cartera y seguimiento.
+                  </div>
+                </div>
+              )}
             </div>
           ) : results.map((c: any) => (
             <div key={c.CodigoClien}
@@ -268,7 +406,9 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
 
   const agregarProducto = (art: any) => {
     const cfg = getConfigImpresion();
-    const esServicio = !!art.Servicio;
+    // Defensivo: si Servicio viene como string ("0"/"1") el operador `!!`
+    // trata "0" como truthy. Usamos Number() === 1 para validar solo el 1.
+    const esServicio = Number(art.Servicio) === 1;
 
     // Servicios: cada selección crea una línea nueva (no se acumula cantidad)
     // para que el usuario pueda dar un concepto distinto a cada instancia.
@@ -497,18 +637,26 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
           for (const it of d.items) {
             currentId++;
             const precio = it.precio_unitario_pedido > 0 ? it.precio_unitario_pedido : it.Precio_Venta;
+            // Respetar la marca de servicio del catálogo. Los servicios no
+            // descuentan stock, permiten concepto editable (DescripcionTemp)
+            // y no exigen existencia > 0. Sin este check, al copiar/editar
+            // una factura los servicios se comportaban como productos y la
+            // app pedía existencia inexistente.
+            const esServ = Number(it.Servicio) === 1;
             nuevasLineas.push({
               id: currentId,
               Items: it.Items,
               Codigo: it.Codigo,
               Nombre: it.Nombres_Articulo,
-              Existencia: it.Existencia,
+              Existencia: esServ ? 0 : it.Existencia,
               Cantidad: it.cantidad_pedido,
               PrecioCosto: it.Precio_Costo,
               PrecioVenta: precio,
               Iva: it.Iva || 0,
               Descuento: 0,
               Subtotal: it.cantidad_pedido * precio,
+              EsServicio: esServ,
+              DescripcionTemp: esServ ? (it.DescripcionTemp || it.Nombres_Articulo) : undefined,
             });
           }
           lineaId = currentId;
@@ -778,7 +926,10 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
     try {
       const rDian = await fetch(API_FE, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'factura', factura_n: factN, send_email: enviarEmailFE })
+        body: JSON.stringify({
+          action: 'factura', factura_n: factN, send_email: enviarEmailFE,
+          customer_email: cliente.email || '',
+        })
       });
       const dDian = await rDian.json();
       if (dDian.success) {
@@ -899,7 +1050,13 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
           try {
             const rDian = await fetch(API_FE, {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ action: 'factura', factura_n: factN, send_email: enviarEmailFE })
+              body: JSON.stringify({
+                action: 'factura', factura_n: factN, send_email: enviarEmailFE,
+                // Email del comprador ocasional (traído de DIAN sin crear cliente).
+                // Va a electronic_documents.customer_email y al JSON DIAN, sin
+                // ensuciar tblventas ni tblclientes.
+                customer_email: cliente.email || '',
+              })
             });
             const dDian = await rDian.json();
             dianDocId = dDian.doc_local_id || null;

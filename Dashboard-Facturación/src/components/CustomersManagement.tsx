@@ -21,10 +21,14 @@ const myTheme = themeQuartz.withParams({
 });
 import {
   Search, RefreshCw, Plus, Users, ShoppingCart, DollarSign,
-  UserX, Pencil, Trash2, Eye, X, Save, BarChart3
+  UserX, Pencil, Trash2, Eye, X, Save, BarChart3, Loader2
 } from 'lucide-react';
+import toast from 'react-hot-toast';
 import { ClienteDetalle } from './ClienteDetalle';
 import { confirmar } from './ConfirmDialog';
+import { getConfigImpresion } from './ConfiguracionSistema';
+
+const API_DIAN = 'http://localhost:80/conta-app-backend/api/dian/consultar-adquiriente.php';
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
@@ -77,6 +81,7 @@ export function CustomersManagement() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [form, setForm] = useState<any>({});
+  const [consultandoDIAN, setConsultandoDIAN] = useState(false);
   const [opciones, setOpciones] = useState<any>({ liabilities: [], organizations: [], regimes: [], municipalities: [] });
   const [detalleId, setDetalleId] = useState<number | null>(null);
   const [retenciones, setRetenciones] = useState<any[]>([]);
@@ -233,8 +238,62 @@ export function CustomersManagement() {
     return parseInt(nums).toLocaleString('es-CO');
   };
 
+  // Mapea el id_documento local del cliente al código DIAN esperado por el
+  // endpoint GetAcquirer. Los IDs locales suelen coincidir con los de la API
+  // FE (2 = CC, 6 = NIT, etc.), pero por seguridad se detecta por longitud
+  // si no viene el tipo o si es "otro".
+  const detectarTipoDIAN = (): string => {
+    // Mapa aproximado id_documento (local) → código DIAN
+    const map: Record<number, string> = {
+      1: '11',  // Registro civil
+      2: '13',  // Cédula ciudadanía
+      3: '21',  // Tarjeta de extranjería
+      4: '22',  // Cédula de extranjería
+      5: '41',  // Pasaporte
+      6: '31',  // NIT
+      7: '47',  // PEP
+      8: '12',  // Tarjeta identidad
+    };
+    const idDoc = Number(form.id_documento) || 0;
+    if (map[idDoc]) return map[idDoc];
+    // Fallback: NITs suelen tener 9+ dígitos; documentos personales <10
+    const raw = (form.Nit || '').replace(/\D/g, '');
+    if (raw.length >= 9) return '31';
+    return '13';
+  };
+
+  const consultarDIAN = async () => {
+    const numero = (form.Nit || '').replace(/\D/g, '');
+    if (!numero) { toast.error('Ingrese primero el NIT o cédula'); return; }
+    setConsultandoDIAN(true);
+    try {
+      const r = await fetch(API_DIAN, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ identification_type: detectarTipoDIAN(), identification_number: numero }),
+      });
+      const d = await r.json();
+      if (d.success && d.name) {
+        setForm((prev: any) => ({
+          ...prev,
+          Razon_Social: d.name,
+          Email: d.email || prev.Email || '',
+        }));
+        toast.success(`DIAN: ${d.name}`);
+      } else {
+        toast.error(d.message || 'Documento no encontrado en RUT/RADIAN');
+      }
+    } catch (e) {
+      toast.error('Error consultando la DIAN');
+    }
+    setConsultandoDIAN(false);
+  };
+
   const nitInput = () => {
     const dv = calcularDV(form.Nit || '');
+    // Botón "Consultar DIAN" solo si el cliente tiene FE activa.
+    // Corresponde a la Resolución 202/2025 que permite autocompletar
+    // nombre/email con solo tipo+número de documento (sin pedir RUT).
+    const feActiva = !!getConfigImpresion().usarFacturacionElectronica;
     return (
       <div>
         <label style={{ fontSize: 10, color: '#6b7280', display: 'block', marginBottom: 2, textTransform: 'uppercase' }}>NIT / CC</label>
@@ -261,6 +320,21 @@ export function CustomersManagement() {
               borderRadius: 6, fontSize: 13, outline: 'none',
             }}
           />
+          {feActiva && (
+            <button type="button"
+              onClick={consultarDIAN}
+              disabled={consultandoDIAN}
+              title="Consultar datos en la DIAN (según cédula/NIT autocompleta nombre y correo)"
+              style={{
+                height: 28, padding: '0 8px', background: consultandoDIAN ? '#9ca3af' : '#0891b2',
+                color: '#fff', border: 'none', borderRadius: 6, fontSize: 11, fontWeight: 700,
+                cursor: consultandoDIAN ? 'wait' : 'pointer',
+                display: 'flex', alignItems: 'center', gap: 4,
+              }}>
+              {consultandoDIAN ? <Loader2 size={12} className="animate-spin" /> : <Search size={12} />}
+              DIAN
+            </button>
+          )}
           <div style={{
             width: 32, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center',
             background: '#f3e8ff', border: '1px solid #d8b4fe', borderRadius: 6,

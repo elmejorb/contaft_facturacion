@@ -572,6 +572,8 @@ export function buildDatosFactura(
     enContingencia,
     retenciones,
     retencionModo,
-    logo: getConfigImpresion().logo || undefined
+    // Prioridad: logo del backend (tbldatosempresa.Logo) → localStorage local
+    // → nada. Evita que el logo de un cliente anterior aparezca al cambiar de BD.
+    logo: getEmpresaCache().logo_url || getConfigImpresion().logo || undefined
   };
 }

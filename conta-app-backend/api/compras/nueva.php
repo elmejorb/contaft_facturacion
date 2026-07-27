@@ -128,12 +128,22 @@ try {
                 $d['Impuesto'] = floatval($d['Impuesto']);
                 $d['Subtotal'] = floatval($d['Subtotal']);
                 $d['IvaPct'] = floatval($d['IvaPct'] ?? 0);
-                $d['CostoSinIva'] = floatval($d['CostoSinIva'] ?? $d['PrecioC']);
-                $d['CostoConIva'] = floatval($d['CostoConIva'] ?? $d['PrecioC']);
+                // OJO con `??`: en PHP solo cae al fallback si es NULL, no si es 0.
+                // Compras hechas ANTES de que existieran los campos CostoSinIva/
+                // CostoConIva/CostoFinal quedaron con 0 en esas columnas pero SÍ
+                // tienen PrecioC (costo del sistema viejo). Por eso el detalle
+                // mostraba $0 aunque el precio real estaba en PrecioC.
+                $precioC = floatval($d['PrecioC']);
+                $costoSinIva = floatval($d['CostoSinIva'] ?? 0);
+                $costoConIva = floatval($d['CostoConIva'] ?? 0);
+                $costoFinal  = floatval($d['CostoFinal']  ?? 0);
+                $costoPromedio = floatval($d['CostoPromedio'] ?? 0);
+                $d['CostoSinIva']   = $costoSinIva   > 0 ? $costoSinIva   : $precioC;
+                $d['CostoConIva']   = $costoConIva   > 0 ? $costoConIva   : $precioC;
+                $d['CostoFinal']    = $costoFinal    > 0 ? $costoFinal    : $precioC;
+                $d['CostoPromedio'] = $costoPromedio > 0 ? $costoPromedio : $precioC;
                 $d['FleteUnit'] = floatval($d['FleteUnit'] ?? 0);
-                $d['CostoFinal'] = floatval($d['CostoFinal'] ?? $d['PrecioC']);
                 $d['CostoAnterior'] = floatval($d['CostoAnterior'] ?? 0);
-                $d['CostoPromedio'] = floatval($d['CostoPromedio'] ?? $d['PrecioC']);
                 $d['Existencia'] = floatval($d['Existencia']);
             }
 
