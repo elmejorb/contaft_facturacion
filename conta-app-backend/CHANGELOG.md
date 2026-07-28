@@ -5,6 +5,58 @@ Visible solo para administradores desde **Configuración → Acerca de → Ver h
 
 ---
 
+## 4.3.74 — 2026-07-28
+
+### Anulación de compras a proveedores
+
+Nuevo botón **"Anular Compra"** en el Detalle de una compra (icono rojo). Al confirmar:
+
+- Resta la cantidad de cada línea al inventario y registra reverso en kardex (salida C_D=2 con costo original).
+- Marca `EstadoPedido='Anulada'` y `Saldo=0` (sale automáticamente de cartera de proveedores).
+- Si la compra era **Contado**, marca el egreso relacionado como Anulada y (si fue en efectivo) ingresa el reverso a la caja abierta HOY del usuario — no toca cajas cerradas.
+- Autorización: admin directo; vendedores requieren autorización de administrador.
+- Trazabilidad completa (usuario, autorizador, timestamp) queda en el Comentario de la compra.
+- En el listado, las compras anuladas se marcan con pill rojo "ANULADA" y ya no se pueden editar.
+
+### Borradores de facturación electrónica
+
+Ahora se puede **guardar una FE como borrador** sin enviarla a DIAN todavía:
+
+- Botón **"Guardar Borrador"** en Nueva Venta (solo cuando tipo=Electrónica). No toca `tblventas` ni kardex hasta enviarla.
+- En el módulo Facturación Electrónica, filtro nuevo **"Borradores"** + botones Editar (lápiz) y Eliminar (papelera) en cada borrador.
+- Al editar: se abre en Nueva Venta con todos los datos, el botón cambia a **"Actualizar Borrador #ID"**. Al guardar, reemplaza el borrador anterior.
+- Uso típico: reintentar una FE que rebotó por datos incorrectos del cliente sin duplicar la venta.
+
+### Módulo Anticipos de clientes
+
+Nuevo módulo para gestionar anticipos/abonos que un cliente entrega antes de la factura (cuenta 280505). Registra ingreso a caja, se aplica luego contra facturas pendientes, saldos disponibles por cliente.
+
+### Consulta DIAN adquiriente (Resolución 202/2025)
+
+Al agregar un cliente por NIT, la app consulta directamente a la API de DIAN para traer razón social, correo, régimen y actividad económica actualizados. Reduce errores de digitación y datos desactualizados.
+
+### Módulo Mantenimiento BD
+
+Ejecución controlada de scripts SQL (backup, migración, auditoría) desde la app sin necesidad de abrir phpMyAdmin. Solo admins.
+
+### Informe Comparativo Anual
+
+Nuevo informe que compara ventas mes a mes entre varios años, para ver el comportamiento estacional del negocio.
+
+### UX
+
+- **Atajo "0" + Enter en Ventas**: escribir 0 en cantidad y presionar Enter navega directo al siguiente producto (útil cuando escaneas rápido).
+- Formato de moneda dinámico en precios de venta: al enfocar quita separadores para editar; al desenfocar aplica formato $ con miles.
+
+### Fixes
+
+- Reparación de `AUTO_INCREMENT` en BDs legacy VB6 que venían sin la columna incrementable en `tblkardex`, `tblpedidos`, `tblbancos`, `tblcotizaciones`.
+- `Precio_Costo`/`PrecioC` se tratan como valores CON IVA en todos los cálculos de COGS (era inconsistente antes).
+- Módulo de logo del sistema: al cambiar de BD entre empresas el logo no se persistía entre sesiones incorrectamente.
+- Servicios: el campo `Servicio` se compara numéricamente (`Number(x)===1`) para evitar falsos positivos con el string "0".
+
+---
+
 ## 4.3.73 — 2026-07-23
 
 ### Fix crítico: saldo pendiente de proveedores inflado
