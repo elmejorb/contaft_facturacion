@@ -1,5 +1,9 @@
 import { useEffect, useState } from 'react';
-import { X, Printer, Package, Loader2 } from 'lucide-react';
+import { X, Printer, Package, Loader2, Ban } from 'lucide-react';
+import toast from 'react-hot-toast';
+import { confirmar } from './ConfirmDialog';
+import { AutorizacionAdminModal, type AdminAutorizado } from './AutorizacionAdminModal';
+import { useAuth } from '../contexts/AuthContext';
 
 /**
  * Vista solo-lectura del detalle de una compra a proveedor.
@@ -9,6 +13,7 @@ import { X, Printer, Package, Loader2 } from 'lucide-react';
  */
 
 const API = 'http://localhost:80/conta-app-backend/api/compras/nueva.php';
+const API_ANULAR = 'http://localhost:80/conta-app-backend/api/compras/anular.php';
 const fmtMon = (v: number) => {
   if (v === null || v === undefined) return '$ 0';
   const val = Number(v) || 0;
@@ -22,12 +27,18 @@ const fmtMon = (v: number) => {
 interface Props {
   pedidoN: number;
   onClose: () => void;
+  // Se dispara al anular exitosamente para que el listado refresque
+  onAnulado?: () => void;
 }
 
-export function DetalleCompraModal({ pedidoN, onClose }: Props) {
+export function DetalleCompraModal({ pedidoN, onClose, onAnulado }: Props) {
+  const { user } = useAuth();
+  const esAdmin = user?.tipoUsuario === 1 || user?.tipoUsuario === '1';
   const [loading, setLoading] = useState(true);
   const [compra, setCompra] = useState<any>(null);
   const [detalle, setDetalle] = useState<any[]>([]);
+  const [anulando, setAnulando] = useState(false);
+  const [pedirAuth, setPedirAuth] = useState(false);
 
   useEffect(() => {
     let cancelado = false;
@@ -51,6 +62,54 @@ export function DetalleCompraModal({ pedidoN, onClose }: Props) {
   const retencion = compra?.Retencion || 0;
   const impuesto = compra?.Impuesto || 0;
   const subtotalLineas = detalle.reduce((s, d) => s + Number(d.Subtotal || 0), 0);
+  const anulada = compra?.EstadoPedido === 'Anulada';
+
+  // ejecuta la anulación en backend. Si admin=null es porque el usuario ya es
+  // admin y no necesita autorizador externo; si viene con admin, viaja como
+  // `autorizado_por` para trazabilidad.
+  const ejecutarAnular = async (admin: AdminAutorizado | null) => {
+    setAnulando(true);
+    try {
+      const r = await fetch(API_ANULAR, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          pedido_n: pedidoN,
+          usuario_id: user?.id || 0,
+          autorizado_por: admin?.id || 0,
+          autorizado_por_nombre: admin?.nombre || '',
+          motivo: '',
+        }),
+      });
+      const d = await r.json();
+      if (d.success) {
+        toast.success(d.message || 'Compra anulada');
+        onAnulado?.();
+        onClose();
+      } else if (d.requiere_autorizacion) {
+        setPedirAuth(true);
+      } else if (d.requiere_caja_abierta) {
+        toast.error(d.message, { duration: 6000 });
+      } else {
+        toast.error(d.message || 'No se pudo anular');
+      }
+    } catch {
+      toast.error('Error de conexión');
+    }
+    setAnulando(false);
+  };
+
+  const solicitarAnular = async () => {
+    const ok = await confirmar({
+      title: `¿Anular la compra #${pedidoN}?`,
+      message: `Esto restará ${detalle.length} línea(s) del inventario y registrará el reverso en kardex. ${compra?.TipoPedido === 'Contado' ? 'El egreso en caja quedará anulado.' : 'La cartera del proveedor se libera.'}`,
+      type: 'danger',
+      confirmText: 'Sí, anular',
+      cancelText: 'Cancelar',
+    });
+    if (!ok) return;
+    if (esAdmin) ejecutarAnular(null);
+    else setPedirAuth(true);
+  };
 
   const s = {
     overlay: { position: 'fixed' as const, inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 },
@@ -93,6 +152,15 @@ export function DetalleCompraModal({ pedidoN, onClose }: Props) {
             <div style={{ textAlign: 'center', padding: 40, color: '#dc2626' }}>No se pudo cargar la compra</div>
           ) : (
             <>
+              {anulada && (
+                <div style={{ background: '#fee2e2', border: '1px solid #fca5a5', borderRadius: 8, padding: '10px 14px', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <Ban size={18} color="#dc2626" />
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#dc2626' }}>Compra ANULADA</div>
+                    <div style={{ fontSize: 11, color: '#7f1d1d' }}>El inventario, kardex y (si aplica) caja/egreso fueron revertidos.</div>
+                  </div>
+                </div>
+              )}
               {/* Encabezado con datos generales */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10, marginBottom: 16 }}>
                 <div style={s.infoBox}>
@@ -184,12 +252,29 @@ export function DetalleCompraModal({ pedidoN, onClose }: Props) {
           <div style={{ fontSize: 11, color: '#9ca3af' }}>
             Vista de solo lectura. Para modificar, use el botón <Printer size={11} style={{ display: 'inline', verticalAlign: 'middle' }} /> Editar del listado.
           </div>
-          <button onClick={onClose}
-            style={{ height: 34, padding: '0 20px', background: '#7c3aed', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-            Cerrar
-          </button>
+          <div style={{ display: 'flex', gap: 8 }}>
+            {!loading && compra && !anulada && (
+              <button onClick={solicitarAnular} disabled={anulando}
+                title="Anula la compra: resta del inventario, registra reverso en kardex y (si contado) reversa el egreso."
+                style={{ height: 34, padding: '0 16px', background: anulando ? '#9ca3af' : '#dc2626', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: anulando ? 'default' : 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+                <Ban size={14} /> {anulando ? 'Anulando…' : 'Anular Compra'}
+              </button>
+            )}
+            <button onClick={onClose}
+              style={{ height: 34, padding: '0 20px', background: '#7c3aed', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+              Cerrar
+            </button>
+          </div>
         </div>
       </div>
+
+      {pedirAuth && (
+        <AutorizacionAdminModal
+          motivo={`Anulación de compra #${pedidoN}`}
+          onCancelar={() => setPedirAuth(false)}
+          onAutorizado={(admin) => { setPedirAuth(false); setTimeout(() => ejecutarAnular(admin), 100); }}
+        />
+      )}
     </div>
   );
 }

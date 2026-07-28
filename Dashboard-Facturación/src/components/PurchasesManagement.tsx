@@ -71,6 +71,8 @@ export function PurchasesManagement() {
     { field: 'Proveedor', headerName: 'Proveedor', flex: 1, minWidth: 200 },
     { field: 'TipoPedido', headerName: 'Tipo', width: 105,
       cellRenderer: (p: any) => {
+        const anul = p.data.EstadoPedido === 'Anulada';
+        if (anul) return <span style={{ padding: '2px 8px', borderRadius: 10, fontSize: 11, fontWeight: 700, background: '#fee2e2', color: '#dc2626' }}>ANULADA</span>;
         const t = p.value;
         const bg = t === 'Contado' ? '#dcfce7' : '#fef3c7';
         const color = t === 'Contado' ? '#16a34a' : '#d97706';
@@ -92,7 +94,7 @@ export function PurchasesManagement() {
             style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2 }}>
             <Eye size={15} color="#2563eb" />
           </button>
-          {puedeEditar && (
+          {puedeEditar && p.data.EstadoPedido !== 'Anulada' && (
             <button onClick={() => setEditarPedido(p.data.Pedido_N)} title="Editar compra"
               style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2 }}>
               <Edit2 size={14} color="#7c3aed" />
@@ -159,7 +161,7 @@ export function PurchasesManagement() {
 
       {/* Modal de visualización (solo lectura) */}
       {verPedido !== null && (
-        <DetalleCompraModal pedidoN={verPedido} onClose={() => setVerPedido(null)} />
+        <DetalleCompraModal pedidoN={verPedido} onClose={() => setVerPedido(null)} onAnulado={cargar} />
       )}
     </div>
   );
