@@ -3,7 +3,7 @@ import { AgGridReact } from 'ag-grid-react';
 import { AllCommunityModule, ModuleRegistry, ColDef } from 'ag-grid-community';
 import {
   Search, RefreshCw, FileText, CheckCircle, XCircle, AlertTriangle,
-  Clock, Send, Eye, Printer, Globe, Mail, MailCheck, MailOpen, MailX, FileMinus, X, Copy, Trash2
+  Clock, Send, Eye, Printer, Globe, Mail, MailCheck, MailOpen, MailX, FileMinus, X, Copy, Trash2, Pencil
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { DetalleDocElectronico } from './DetalleDocElectronico';
@@ -155,6 +155,34 @@ export function FacturacionElectronica({ onNavigate }: Props = {}) {
     localStorage.setItem('fe_para_copiar_id', String(id));
     toast.success(`${label || 'Factura'} cargada para copia — ajuste y guarde`);
     onNavigate?.('nueva-venta');
+  };
+
+  // Editar un borrador — mismo patrón que copiar pero con flag distinto.
+  // NuevaVenta detecta 'borrador_para_editar' y carga los datos vía
+  // action=cargar_borrador. Al guardar, actualiza en vez de crear nuevo.
+  const editarBorrador = (id: number) => {
+    localStorage.setItem('borrador_para_editar', String(id));
+    toast.success('Borrador cargado — edite y guarde');
+    onNavigate?.('nueva-venta');
+  };
+
+  const eliminarBorrador = async (id: number, label: string) => {
+    const ok = await confirmar({
+      title: 'Eliminar borrador',
+      message: `¿Eliminar el borrador ${label}?\n\nSe borra completamente — no se envía a DIAN ni queda registro.`,
+      type: 'danger',
+      confirmText: 'Sí, eliminar',
+    });
+    if (!ok) return;
+    try {
+      const r = await fetch(`${API}/enviar.php`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'eliminar_borrador', id }),
+      });
+      const d = await r.json();
+      if (d.success) { toast.success('Borrador eliminado'); cargar(); }
+      else toast.error(d.message || 'Error');
+    } catch { toast.error('Error de conexión'); }
   };
 
   // Imprimir un documento electrónico en el formato elegido:
@@ -494,6 +522,9 @@ export function FacturacionElectronica({ onNavigate }: Props = {}) {
     'rechazado': { bg: '#fee2e2', fg: '#dc2626', icon: XCircle },
     'anulada': { bg: '#f3f4f6', fg: '#6b7280', icon: XCircle },
     'pendiente': { bg: '#fef3c7', fg: '#d97706', icon: Clock },
+    // "Borrador" — factura preparada localmente pero aún no enviada a DIAN.
+    // No es contingencia oficial (esa requiere resolución DIAN separada).
+    'borrador': { bg: '#e0e7ff', fg: '#4338ca', icon: Clock },
   };
 
   const cols: ColDef[] = [
@@ -642,6 +673,21 @@ export function FacturacionElectronica({ onNavigate }: Props = {}) {
             style={{ width: 26, height: 24, border: '1px solid #d1d5db', borderRadius: 4, cursor: 'pointer', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <Copy size={13} color="#16a34a" />
           </button>
+          {/* Editar borrador — solo visible cuando el documento aún no se envió */}
+          {p.data.status === 'borrador' && (
+            <>
+              <button title="Editar borrador"
+                onClick={() => editarBorrador(p.data.id)}
+                style={{ width: 26, height: 24, border: '1px solid #a5b4fc', borderRadius: 4, cursor: 'pointer', background: '#eef2ff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Pencil size={13} color="#4338ca" />
+              </button>
+              <button title="Eliminar borrador"
+                onClick={() => eliminarBorrador(p.data.id, `Borrador #${p.data.id}`)}
+                style={{ width: 26, height: 24, border: '1px solid #fca5a5', borderRadius: 4, cursor: 'pointer', background: '#fef2f2', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Trash2 size={13} color="#dc2626" />
+              </button>
+            </>
+          )}
           {p.data.cufe && (
             <button title={p.data.email_sent ? 'Reenviar correo' : 'Enviar correo al cliente'}
               onClick={async () => {
@@ -786,6 +832,7 @@ export function FacturacionElectronica({ onNavigate }: Props = {}) {
           {[
             { id: 'todos', label: 'Todos' },
             { id: 'autorizado', label: 'Autorizados' },
+            { id: 'borrador', label: 'Borradores' },
             { id: 'rechazado', label: 'Rechazados' },
             { id: 'anulada', label: 'Anulados' },
           ].map(f => (

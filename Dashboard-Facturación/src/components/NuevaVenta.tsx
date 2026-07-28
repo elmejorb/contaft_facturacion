@@ -548,6 +548,76 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
     }).catch(() => {});
   }, []);
 
+  // Edición de borrador FE — id del borrador que se está editando (o null).
+  // Cuando != null, el botón "Guardar Borrador" llama a `actualizar_borrador`
+  // en vez de `guardar_borrador`, y al terminar limpia el estado.
+  const [editandoBorradorId, setEditandoBorradorId] = useState<number | null>(null);
+
+  // Cargar borrador FE para edición. Se dispara al abrir Nueva Venta si
+  // hay `borrador_para_editar` en localStorage (viene del módulo FE).
+  useEffect(() => {
+    const raw = localStorage.getItem('borrador_para_editar');
+    if (!raw) return;
+    const id = parseInt(raw, 10);
+    if (!id || isNaN(id)) return;
+    localStorage.removeItem('borrador_para_editar');
+
+    toast.loading('Cargando borrador...', { id: 'cargar-borrador' });
+    fetch(API_FE, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'cargar_borrador', id }),
+    })
+      .then(r => r.json())
+      .then(d => {
+        toast.dismiss('cargar-borrador');
+        if (!d.success) { toast.error(d.message || 'No se pudo cargar el borrador'); return; }
+
+        const b = d.borrador;
+        setEditandoBorradorId(id);
+        setTipoDocumento('electronica');
+        setTipo(b.tipo || 'Contado');
+        setDias(b.payment_due_days || 0);
+        setNota(b.nota || '');
+        setDescuentoGlobal(b.descuento || 0);
+        setPagoEfectivo(String(b.efectivo || ''));
+        setPagoTransferencia(String(b.valorpagado1 || ''));
+        setPagoAbono(String(b.abono || ''));
+
+        setCliente({
+          id: b.cod_cliente,
+          nombre: b.customer_name || '',
+          nit: b.customer_identification || '0',
+          tel: b.cliente_telefono || '0',
+          dir: b.cliente_direccion || '-',
+          cupo: 0,
+          esCliente: b.cod_cliente !== 130500,
+          email: b.customer_email || '',
+        });
+
+        // Líneas
+        const nuevasLineas: LineaVenta[] = (d.items || []).map((it: any, i: number) => ({
+          id: Date.now() + i,
+          Items: it.Items,
+          Codigo: it.Codigo || '',
+          Nombre: it.Nombres_Articulo || '',
+          Existencia: it.Existencia || 0,
+          Cantidad: it.Cantidad || 1,
+          PrecioCosto: it.PrecioCosto || 0,
+          PrecioVenta: it.PrecioVenta || 0,
+          Iva: it.Iva || 0,
+          Descuento: it.Descuento || 0,
+          Subtotal: (it.Cantidad || 1) * (it.PrecioVenta || 0) - (it.Descuento || 0),
+          EsServicio: Number(it.Servicio) === 1,
+          DescripcionTemp: Number(it.Servicio) === 1 ? (it.DescripcionTemp || it.Nombres_Articulo) : undefined,
+        }));
+        setLineas(nuevasLineas);
+
+        toast.success(`Borrador #${id} cargado — modifique y guarde`);
+      })
+      .catch(() => { toast.dismiss('cargar-borrador'); toast.error('Error de conexión'); });
+    // eslint-disable-next-line
+  }, []);
+
   // Cargar pedido de vendedor (desde "Convertir" en Pedidos de Campo)
   // o copia de FE (desde "Copiar" en Listado de Facturas Electrónicas).
   // Ambos flujos comparten el mismo shape de respuesta, así que se manejan iguales.
@@ -778,6 +848,60 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
   const total = totalFactura;
   const netoEsperado = total - totalRetenciones;
   const cambio = tipo === 'Contado' && efectivo ? Math.max(parseInt(efectivo) - total, 0) : 0;
+
+  // Guardar la FE como borrador — NO toca tblventas ni descuenta stock.
+  // El borrador vive solo en electronic_documents con status='borrador' y
+  // se puede enviar a DIAN después desde el módulo FE.
+  const guardarBorrador = async () => {
+    if (lineas.length === 0) { toast.error('Agregue al menos un producto'); return; }
+    if (!cliente.nit || cliente.nit === '0') { toast.error('El comprador debe tener NIT/cédula para FE'); return; }
+    if (!cliente.nombre) { toast.error('El comprador debe tener nombre'); return; }
+    setGuardando(true);
+    try {
+      // Si estamos editando un borrador existente, actualizar; sino crear nuevo
+      const accion = editandoBorradorId ? 'actualizar_borrador' : 'guardar_borrador';
+      const r = await fetch(API_FE, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: accion,
+          id: editandoBorradorId || undefined,
+          cliente: {
+            id: cliente.id, nombre: cliente.nombre, nit: cliente.nit,
+            tel: cliente.tel, dir: cliente.dir, email: cliente.email || '',
+          },
+          items: lineas.map(l => ({
+            items: l.Items, cantidad: l.Cantidad, precio: l.PrecioVenta,
+            precio_costo: l.PrecioCosto, iva: l.Iva, descuento: l.Descuento,
+            es_servicio: l.EsServicio ? 1 : 0,
+            descripcion_temp: l.EsServicio ? (l.DescripcionTemp || l.Nombre) : null,
+          })),
+          tipo, dias: tipo === 'Contado' ? 0 : dias,
+          // Medio de pago: si hay transferencia se usa el medio elegido, sino efectivo
+          medio_pago: parseInt(pagoTransferencia || '0') > 0 ? pagoMedioTransf : 0,
+          total, comentario: nota || '-',
+          descuento_global: descuentoGlobal,
+          efectivo: parseInt(pagoEfectivo || '0'),
+          valor_pagado: parseInt(pagoTransferencia || '0'),
+          abono: tipo !== 'Contado' ? parseInt(pagoAbono || '0') : 0,
+          id_usuario: user?.id || 0,
+          customer_email: cliente.email || '',
+        }),
+      });
+      const d = await r.json();
+      if (d.success) {
+        toast.success(d.message || 'Borrador guardado');
+        // Reset como una venta nueva
+        setLineas([]); setPagoEfectivo(''); setPagoTransferencia(''); setPagoAbono('');
+        setDescuentoGlobal(0); setNota('');
+        setEditandoBorradorId(null);   // sale del modo edición
+      } else {
+        toast.error(d.message || 'Error guardando borrador');
+      }
+    } catch (e) {
+      toast.error('Error de conexión');
+    }
+    setGuardando(false);
+  };
 
   // Abrir modal de pago (o guardar cotización si está en ese modo)
   const finalizar = async () => {
@@ -1714,6 +1838,22 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
           <button onClick={nueva} style={{ height: 32, padding: '0 12px', background: '#f3f4f6', color: '#374151', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
             <Plus size={14} /> Nueva
           </button>
+          {/* Guardar Borrador — solo para FE. Guarda en electronic_documents
+              con status='borrador' SIN tocar tblventas ni stock. Se puede
+              revisar y enviar a DIAN después desde el módulo FE. */}
+          {tipoDocumento === 'electronica' && (
+            <button onClick={guardarBorrador} disabled={guardando || lineas.length === 0}
+              title={editandoBorradorId
+                ? `Actualiza el borrador #${editandoBorradorId} con los cambios`
+                : "Guarda la FE como borrador (no la envía a DIAN aún). Podrás revisarla y enviarla luego desde el módulo Facturación Electrónica."}
+              style={{ height: 32, padding: '0 14px',
+                background: lineas.length === 0 ? '#d1d5db' : (editandoBorradorId ? '#4338ca' : '#0891b2'),
+                color: '#fff', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 600,
+                cursor: lineas.length > 0 ? 'pointer' : 'default',
+                display: 'flex', alignItems: 'center', gap: 6, opacity: guardando ? 0.6 : 1 }}>
+              <Save size={13} /> {editandoBorradorId ? `Actualizar Borrador #${editandoBorradorId}` : 'Guardar Borrador'}
+            </button>
+          )}
           <button onClick={finalizar} disabled={guardando || lineas.length === 0}
             style={{ height: 32, padding: '0 16px',
               background: lineas.length === 0 ? '#d1d5db'

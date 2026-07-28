@@ -1535,6 +1535,21 @@ SET @sql = IF(@col_exists = 0,
     'SELECT 1');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
+-- v4.3.75 — Borradores de FE (reemplaza el concepto interno "contingencia").
+-- La contingencia real requiere resolución específica de la DIAN — este
+-- estado NO es contingencia oficial, es un borrador local editable antes
+-- de enviar a DIAN. Los registros históricos con prefix='FCON' y status
+-- pendiente/rechazado se renombran a status='borrador' para consistencia.
+-- Solo aplica en BDs con FE (electronic_documents existe).
+SET @tb = (SELECT COUNT(*) FROM information_schema.TABLES
+    WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='electronic_documents');
+SET @sql = IF(@tb=1,
+    "UPDATE electronic_documents
+        SET status='borrador'
+        WHERE prefix='FCON' AND number=0 AND status IN ('pendiente','rechazado')",
+    'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
 -- v4.3.74 — Datos del comprador ocasional en electronic_documents.
 -- Las FE van directo a electronic_documents (no a tblventas). Cuando el
 -- comprador se registra via consulta DIAN (Res. 202/2025) sin crear cliente,

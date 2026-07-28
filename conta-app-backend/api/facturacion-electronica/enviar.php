@@ -1155,6 +1155,283 @@ try {
             ], JSON_UNESCAPED_UNICODE);
             break;
 
+        // Guarda un borrador de FE — solo en electronic_documents +
+        // detalle_document_electronic. NO toca tblventas ni descuenta stock:
+        // el borrador es un draft editable, no una venta oficial.
+        // El envío a DIAN ocurre después con `action=enviar_borrador`.
+        //
+        // Body: { cliente:{id, nombre, nit, tel, dir, email}, items:[{items,cantidad,precio,iva,descuento,es_servicio,descripcion_temp}], medio_pago, dias, tipo, total, comentario, id_usuario }
+        case 'guardar_borrador':
+            $cli      = $data['cliente'] ?? [];
+            $items    = $data['items'] ?? [];
+            $tipoV    = $data['tipo'] ?? 'Contado';
+            $dias     = intval($data['dias'] ?? 0);
+            $medio    = intval($data['medio_pago'] ?? 0);
+            $total    = floatval($data['total'] ?? 0);
+            $descto   = floatval($data['descuento_global'] ?? 0);
+            $abono    = floatval($data['abono'] ?? 0);
+            $efectivo = floatval($data['efectivo'] ?? 0);
+            $valorpg  = floatval($data['valor_pagado'] ?? 0);
+            $comentario = $data['comentario'] ?? '-';
+            $idUsuario  = intval($data['id_usuario'] ?? 0);
+            $customerEmail = trim((string)($data['customer_email'] ?? ''));
+            $codigoCli  = intval($cli['id'] ?? 130500);
+            $nombreCli  = trim((string)($cli['nombre'] ?? ''));
+            $identCli   = trim((string)($cli['nit'] ?? '0'));
+
+            if (empty($items)) { echo json_encode(['success' => false, 'message' => 'Sin líneas']); exit; }
+            if ($identCli === '' || $identCli === '0') {
+                echo json_encode(['success' => false, 'message' => 'Identificación del comprador requerida para FE']); exit;
+            }
+            if ($nombreCli === '') {
+                echo json_encode(['success' => false, 'message' => 'Nombre del comprador requerido']); exit;
+            }
+
+            $db->beginTransaction();
+            // Mover FCON huérfanos igual que el flujo normal, por si acaso
+            $db->prepare("
+                UPDATE electronic_documents
+                SET number = 9000000000 + id
+                WHERE prefix = 'FCON' AND number = 0 AND status IN ('pendiente','rechazado','borrador')
+            ")->execute();
+
+            $paymentFormLocal   = ($tipoV === 'Contado') ? 1 : 2;
+            $paymentDueDaysLocal = ($paymentFormLocal === 2) ? $dias : 0;
+            $paymentMethodLocal = ($medio === 1) ? 14 : (($medio >= 2) ? 30 : 10);
+
+            $db->prepare("
+                INSERT INTO electronic_documents
+                (fecha, cod_cliente, customer_identification, customer_name, customer_email,
+                 type_document_id, prefix, number, status, total, cufe, dian_response,
+                 id_usuario, id_mediopago, efectivo, valorpagado1, pagada, EstadoFact,
+                 email_sent, nota, payment_form_id, payment_method_id, payment_due_days,
+                 abono, descuento)
+                VALUES (?, ?, ?, ?, ?, 1, 'FCON', 0, 'borrador', ?, '', '{}',
+                        ?, ?, ?, ?, 'N', 1, 0, ?, ?, ?, ?, ?, ?)
+            ")->execute([
+                date('Y-m-d'), $codigoCli, $identCli, $nombreCli, $customerEmail ?: null,
+                $total, $idUsuario, $medio, $efectivo, $valorpg,
+                $comentario, $paymentFormLocal, $paymentMethodLocal, $paymentDueDaysLocal,
+                $abono, $descto,
+            ]);
+            $docId = intval($db->lastInsertId());
+
+            // Guardar líneas del borrador para poder editarlas o reutilizarlas
+            $stmtDet = $db->prepare("
+                INSERT INTO detalle_document_electronic
+                (factura_n, items, unit_measure_id, invoiced_quantity, line_extension_amount,
+                 free_of_charge_indicator, description, type_item_identification_id,
+                 price_amount, PrecioCosto, discount_amount, base_quantity,
+                 tax_id, tax_amount, taxable_amount, tax_percent)
+                VALUES (?, ?, ?, ?, ?, 0, ?, 3, ?, ?, ?, ?, 1, ?, ?, ?)
+            ");
+            foreach ($items as $it) {
+                $itemId   = intval($it['items'] ?? 0);
+                $cant     = floatval($it['cantidad'] ?? 0);
+                $precio   = floatval($it['precio'] ?? 0);
+                $ivaPct   = floatval($it['iva'] ?? 0);
+                $desc     = floatval($it['descuento'] ?? 0);
+                $costo    = floatval($it['precio_costo'] ?? 0);
+                $descTemp = trim((string)($it['descripcion_temp'] ?? ''));
+                // Nombre — si es servicio con descripción temporal, usarla; sino leer el catálogo
+                $nombre = $descTemp;
+                if ($nombre === '') {
+                    $stmtN = $db->prepare("SELECT Nombres_Articulo FROM tblarticulos WHERE Items = ?");
+                    $stmtN->execute([$itemId]);
+                    $nombre = (string)$stmtN->fetchColumn();
+                }
+                $subtotal = ($cant * $precio) - $desc;
+                $ivaMonto = $ivaPct > 0 ? round($subtotal * $ivaPct / 100, 2) : 0;
+                $stmtDet->execute([
+                    $docId, $itemId, 70, $cant, $subtotal, $nombre,
+                    $precio, $costo, $desc, $cant, $ivaMonto, $subtotal, $ivaPct
+                ]);
+            }
+
+            $db->commit();
+            echo json_encode([
+                'success' => true,
+                'id' => $docId,
+                'status' => 'borrador',
+                'message' => 'Borrador guardado (' . count($items) . ' líneas)',
+            ], JSON_UNESCAPED_UNICODE);
+            break;
+
+        // Cargar borrador — devuelve cabecera + items + datos del cliente
+        // para pre-llenar Nueva Venta y permitir edición.
+        // GET/POST { id }
+        case 'cargar_borrador':
+            $id = intval($data['id'] ?? 0);
+            if (!$id) { echo json_encode(['success' => false, 'message' => 'ID requerido']); exit; }
+
+            $stmt = $db->prepare("SELECT * FROM electronic_documents WHERE id = ? AND status = 'borrador'");
+            $stmt->execute([$id]);
+            $doc = $stmt->fetch();
+            if (!$doc) { echo json_encode(['success' => false, 'message' => 'Borrador no encontrado o ya enviado']); exit; }
+
+            // Items del borrador — se leen de detalle_document_electronic
+            $stmt = $db->prepare("
+                SELECT d.*, a.Codigo, a.Nombres_Articulo, a.Existencia, a.Servicio, a.Iva as ArtIva, a.Precio_Costo as ArtCosto
+                FROM detalle_document_electronic d
+                LEFT JOIN tblarticulos a ON a.Items = d.items
+                WHERE d.factura_n = ?
+            ");
+            $stmt->execute([$id]);
+            $items = $stmt->fetchAll();
+
+            // Datos del cliente — si es genérico, usar customer_name/email del propio doc
+            $stmt = $db->prepare("SELECT * FROM tblclientes WHERE CodigoClien = ?");
+            $stmt->execute([$doc['cod_cliente']]);
+            $cliente = $stmt->fetch();
+
+            echo json_encode([
+                'success' => true,
+                'borrador' => [
+                    'id' => intval($doc['id']),
+                    'fecha' => $doc['fecha'],
+                    'cod_cliente' => intval($doc['cod_cliente']),
+                    'customer_identification' => $doc['customer_identification'],
+                    'customer_name' => $doc['customer_name'] ?: ($cliente['Razon_Social'] ?? ''),
+                    'customer_email' => $doc['customer_email'] ?: ($cliente['Email'] ?? ''),
+                    'cliente_telefono' => $cliente['Telefonos'] ?? '0',
+                    'cliente_direccion' => $cliente['Direccion'] ?? '-',
+                    'total' => floatval($doc['total']),
+                    'descuento' => floatval($doc['descuento']),
+                    'abono' => floatval($doc['abono']),
+                    'efectivo' => floatval($doc['efectivo']),
+                    'valorpagado1' => floatval($doc['valorpagado1']),
+                    'id_mediopago' => intval($doc['id_mediopago']),
+                    'payment_form_id' => intval($doc['payment_form_id']),
+                    'payment_due_days' => intval($doc['payment_due_days']),
+                    'nota' => $doc['nota'],
+                    'tipo' => intval($doc['payment_form_id']) === 2 ? 'Credito' : 'Contado',
+                ],
+                'items' => array_map(function($it) {
+                    return [
+                        'Items' => intval($it['items']),
+                        'Codigo' => $it['Codigo'] ?? '',
+                        'Nombres_Articulo' => $it['description'] ?: ($it['Nombres_Articulo'] ?? ''),
+                        'DescripcionTemp' => $it['description'],
+                        'Existencia' => floatval($it['Existencia'] ?? 0),
+                        'Servicio' => intval($it['Servicio'] ?? 0),
+                        'Cantidad' => floatval($it['invoiced_quantity']),
+                        'PrecioVenta' => floatval($it['price_amount']),
+                        'PrecioCosto' => floatval($it['PrecioCosto']),
+                        'Iva' => floatval($it['tax_percent']),
+                        'Descuento' => floatval($it['discount_amount']),
+                    ];
+                }, $items),
+            ], JSON_UNESCAPED_UNICODE);
+            break;
+
+        // Actualizar borrador — reemplaza los items y actualiza la cabecera.
+        // Solo funciona si el registro aún está en status='borrador'.
+        case 'actualizar_borrador':
+            $id = intval($data['id'] ?? 0);
+            if (!$id) { echo json_encode(['success' => false, 'message' => 'ID requerido']); exit; }
+
+            $stmt = $db->prepare("SELECT status FROM electronic_documents WHERE id = ?");
+            $stmt->execute([$id]);
+            $st = $stmt->fetchColumn();
+            if (!$st) { echo json_encode(['success' => false, 'message' => 'Borrador no encontrado']); exit; }
+            if ($st !== 'borrador') {
+                echo json_encode(['success' => false, 'message' => 'Solo se pueden editar borradores. Este documento está en estado: ' . $st]); exit;
+            }
+
+            $cli      = $data['cliente'] ?? [];
+            $itemsUp  = $data['items'] ?? [];
+            $tipoV    = $data['tipo'] ?? 'Contado';
+            $dias     = intval($data['dias'] ?? 0);
+            $medio    = intval($data['medio_pago'] ?? 0);
+            $total    = floatval($data['total'] ?? 0);
+            $descto   = floatval($data['descuento_global'] ?? 0);
+            $abono    = floatval($data['abono'] ?? 0);
+            $efectivo = floatval($data['efectivo'] ?? 0);
+            $valorpg  = floatval($data['valor_pagado'] ?? 0);
+            $comentario = $data['comentario'] ?? '-';
+            $customerEmail = trim((string)($data['customer_email'] ?? ''));
+            $codigoCli  = intval($cli['id'] ?? 130500);
+            $nombreCli  = trim((string)($cli['nombre'] ?? ''));
+            $identCli   = trim((string)($cli['nit'] ?? '0'));
+
+            if (empty($itemsUp)) { echo json_encode(['success' => false, 'message' => 'Sin líneas']); exit; }
+
+            $db->beginTransaction();
+            $paymentFormLocal   = ($tipoV === 'Contado') ? 1 : 2;
+            $paymentDueDaysLocal = ($paymentFormLocal === 2) ? $dias : 0;
+            $paymentMethodLocal = ($medio === 1) ? 14 : (($medio >= 2) ? 30 : 10);
+
+            $db->prepare("
+                UPDATE electronic_documents SET
+                    cod_cliente=?, customer_identification=?, customer_name=?, customer_email=?,
+                    total=?, id_mediopago=?, efectivo=?, valorpagado1=?,
+                    nota=?, payment_form_id=?, payment_method_id=?, payment_due_days=?,
+                    abono=?, descuento=?, updated_at=NOW()
+                WHERE id=?
+            ")->execute([
+                $codigoCli, $identCli, $nombreCli, $customerEmail ?: null,
+                $total, $medio, $efectivo, $valorpg,
+                $comentario, $paymentFormLocal, $paymentMethodLocal, $paymentDueDaysLocal,
+                $abono, $descto,
+                $id,
+            ]);
+
+            // Reemplazar items — borrar viejos y volver a insertar
+            $db->prepare("DELETE FROM detalle_document_electronic WHERE factura_n = ?")->execute([$id]);
+            $stmtDet = $db->prepare("
+                INSERT INTO detalle_document_electronic
+                (factura_n, items, unit_measure_id, invoiced_quantity, line_extension_amount,
+                 free_of_charge_indicator, description, type_item_identification_id,
+                 price_amount, PrecioCosto, discount_amount, base_quantity,
+                 tax_id, tax_amount, taxable_amount, tax_percent)
+                VALUES (?, ?, ?, ?, ?, 0, ?, 3, ?, ?, ?, ?, 1, ?, ?, ?)
+            ");
+            foreach ($itemsUp as $it) {
+                $itemId   = intval($it['items'] ?? 0);
+                $cant     = floatval($it['cantidad'] ?? 0);
+                $precio   = floatval($it['precio'] ?? 0);
+                $ivaPct   = floatval($it['iva'] ?? 0);
+                $desc     = floatval($it['descuento'] ?? 0);
+                $costo    = floatval($it['precio_costo'] ?? 0);
+                $descTemp = trim((string)($it['descripcion_temp'] ?? ''));
+                $nombre = $descTemp;
+                if ($nombre === '') {
+                    $stmtN = $db->prepare("SELECT Nombres_Articulo FROM tblarticulos WHERE Items = ?");
+                    $stmtN->execute([$itemId]);
+                    $nombre = (string)$stmtN->fetchColumn();
+                }
+                $subtotal = ($cant * $precio) - $desc;
+                $ivaMonto = $ivaPct > 0 ? round($subtotal * $ivaPct / 100, 2) : 0;
+                $stmtDet->execute([
+                    $id, $itemId, 70, $cant, $subtotal, $nombre,
+                    $precio, $costo, $desc, $cant, $ivaMonto, $subtotal, $ivaPct
+                ]);
+            }
+
+            $db->commit();
+            echo json_encode(['success' => true, 'id' => $id, 'message' => 'Borrador actualizado']);
+            break;
+
+        // Eliminar borrador — solo si aún no se envió a DIAN.
+        case 'eliminar_borrador':
+            $id = intval($data['id'] ?? 0);
+            if (!$id) { echo json_encode(['success' => false, 'message' => 'ID requerido']); exit; }
+
+            $stmt = $db->prepare("SELECT status, cufe FROM electronic_documents WHERE id = ?");
+            $stmt->execute([$id]);
+            $row = $stmt->fetch();
+            if (!$row) { echo json_encode(['success' => false, 'message' => 'No encontrado']); exit; }
+            if ($row['status'] !== 'borrador' || !empty($row['cufe'])) {
+                echo json_encode(['success' => false, 'message' => 'Solo se pueden eliminar borradores']); exit;
+            }
+
+            $db->beginTransaction();
+            $db->prepare("DELETE FROM detalle_document_electronic WHERE factura_n = ?")->execute([$id]);
+            $db->prepare("DELETE FROM electronic_documents WHERE id = ?")->execute([$id]);
+            $db->commit();
+            echo json_encode(['success' => true, 'message' => 'Borrador eliminado']);
+            break;
+
         case 'consultar':
             $zipKey = $data['zip_key'] ?? '';
             if (!$zipKey) { echo json_encode(['success' => false, 'message' => 'ZipKey requerido']); exit; }
