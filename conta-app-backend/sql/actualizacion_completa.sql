@@ -1687,6 +1687,48 @@ SET @sql = IF(@col_exists = 0,
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 -- ================================================================
+-- v4.3.75 — Backfill tipo de documento (bug migración VB6→React)
+-- ================================================================
+-- El modal de cliente en React no exponía el select "Tipo Doc." (sí estaba
+-- en VB6), por lo que todos los clientes creados desde la app quedaron con
+-- id_documento=2 (Cédula) por default. Al facturar electrónicamente, el
+-- JOIN con tipos_documentos devolvía code=13 y la FE salía como Cédula
+-- aunque el cliente fuera una empresa con NIT.
+--
+-- Fix estructural: la v4.3.75 agrega el select al modal. Este backfill
+-- corrige los datos ya creados. Reglas conservadoras: solo cambia si el
+-- cliente está marcado como Persona Jurídica O si el NIT tiene 9-10 dígitos
+-- (patrón típico colombiano) y sigue con el default de Cédula.
+
+-- Regla 1: Persona Jurídica (id_type_organization=1) con doc default → NIT
+UPDATE tblclientes
+SET id_documento = 1
+WHERE id_type_organization = 1
+  AND (id_documento IS NULL OR id_documento = 2);
+
+-- Regla 2: red de seguridad — NIT numérico de 9-10 dígitos con doc default
+-- (cubre clientes sin id_type_organization asignado pero claramente NIT).
+UPDATE tblclientes
+SET id_documento = 1
+WHERE (id_documento IS NULL OR id_documento = 2)
+  AND Nit IS NOT NULL
+  AND Nit REGEXP '^[0-9]+$'
+  AND LENGTH(Nit) BETWEEN 9 AND 10;
+
+-- Regla 3: corregir id_documento inválidos. El bug histórico en NuevaVenta
+-- (opción "Guardar como cliente" tras consulta DIAN) guardaba id_documento=6
+-- para NIT, pero la tabla tipos_documentos solo tiene ids 1-5. El JOIN en
+-- enviar.php caía al default (Cédula code=13) y la FE salía mal aunque el
+-- cliente fuera SAS. Todo id fuera del rango válido se corrige por defecto
+-- a NIT si el número parece NIT, o a Cédula si parece cédula.
+UPDATE tblclientes
+SET id_documento = CASE
+    WHEN Nit REGEXP '^[0-9]+$' AND LENGTH(Nit) BETWEEN 9 AND 10 THEN 1
+    ELSE 2
+END
+WHERE id_documento NOT IN (1, 2, 3, 4, 5) OR id_documento IS NULL;
+
+-- ================================================================
 -- VERIFICACIÓN FINAL
 -- ================================================================
 SELECT '✓ Actualización completa Conta FT aplicada' AS resultado;

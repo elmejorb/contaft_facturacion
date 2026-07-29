@@ -89,7 +89,12 @@ function BuscarClienteModal({ onSelect, onClose }: { onSelect: (c: any) => void;
   // Opción 2: guardar como cliente en tblclientes para uso recurrente.
   const guardarComoCliente = async () => {
     if (!dianResult) return;
-    const idDocLocal = dianResult.tipo === '31' ? 6 : 2; // 6=NIT local, 2=CC local
+    // Mapeo tipo DIAN → id_documento local. Debe COINCIDIR con la tabla
+    // tipos_documentos: id=1 NIT, id=2 CC, id=3 CE, id=4 Pasaporte, id=5 DIEX.
+    // El bug histórico ponía id=6 para NIT — id=6 no existe en la BD, el JOIN
+    // en enviar.php caía al default 'Cédula' y la FE salía mal clasificada.
+    const codigoDIANaId: Record<string, number> = { '31': 1, '13': 2, '22': 3, '41': 4, '42': 5 };
+    const idDocLocal = codigoDIANaId[dianResult.tipo] ?? 2;
     setConsultandoDIAN(true);
     try {
       const c = await fetch('http://localhost:80/conta-app-backend/api/clientes/listar.php', {

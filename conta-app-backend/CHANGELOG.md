@@ -5,6 +5,39 @@ Visible solo para administradores desde **Configuración → Acerca de → Ver h
 
 ---
 
+## 4.3.75 — 2026-07-29
+
+### Fix crítico: tipo de documento del cliente (NIT / Cédula) enviado a DIAN
+
+Se detectó que las facturas electrónicas se enviaban a DIAN con el **tipo de documento incorrecto** — clientes con NIT (empresas, S.A.S.) aparecían clasificados como "Cédula de ciudadanía" en el XML/PDF descargado. Causa: en la migración VB6→React se omitió el selector "Tipo Doc." en el modal de crear/editar cliente, y todos los clientes quedaban con el default `id_documento=2` (Cédula) sin poder cambiarlo.
+
+Cambios:
+
+- **Nuevo campo "Tipo Doc." en el modal de cliente**, exactamente donde estaba en el VB6 original (al lado del NIT). Lista las 5 opciones DIAN: NIT, Cédula ciudadanía, Cédula extranjería, Pasaporte, Doc. extranjero.
+- **Auto-sincronización con Tipo Adquiriente**: si seleccionas "Persona Jurídica" se sugiere NIT; si eliges "Persona Natural" se sugiere Cédula. Respeta si escogiste un tipo raro (Pasaporte/CE).
+- **Consulta DIAN mejorada**: cuando consultas un cliente por su NIT/CC vía Resolución 202/2025, ahora la respuesta actualiza automáticamente el Tipo Doc. y el Tipo Adquiriente (antes solo traía nombre y correo).
+- **Fix del flujo "Guardar como cliente" desde consulta DIAN en Nueva Venta**: guardaba `id_documento=6` (id inexistente en la BD) → el JOIN caía al default Cédula. Ahora usa el id correcto (1=NIT).
+
+### Backfill automático de clientes históricos
+
+El `actualizacion_completa.sql` corre 3 reglas idempotentes para corregir clientes existentes que quedaron mal clasificados:
+
+1. Personas Jurídicas con Cédula → NIT.
+2. NIT numérico de 9-10 dígitos marcado como Cédula → NIT (red de seguridad).
+3. `id_documento` inválido (fuera del rango 1-5, típicamente el `6` del bug histórico) → NIT o Cédula según la longitud del número.
+
+En clientes reales se corrigen automáticamente al aplicar la actualización — no se requiere edición manual.
+
+### Cómo validar tras actualizar
+
+En "Configuración → Impresión" está la opción **"Modo prueba FE"**: activa el envío al endpoint de previsualización (no gasta consecutivo, no firma). Emite una factura y verifica en el XML que aparece:
+- `<cbc:CompanyID ... schemeName="31">...</cbc:CompanyID>` para clientes NIT
+- `<cbc:CompanyID ... schemeName="13">...</cbc:CompanyID>` para clientes Cédula
+
+Los `preview_*.json` en `conta-app-backend/api/facturacion-electronica/logs/` guardan el JSON exacto que se envió a la API.
+
+---
+
 ## 4.3.74 — 2026-07-28
 
 ### Anulación de compras a proveedores

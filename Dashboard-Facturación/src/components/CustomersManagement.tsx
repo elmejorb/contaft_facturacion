@@ -82,7 +82,7 @@ export function CustomersManagement() {
   const [success, setSuccess] = useState('');
   const [form, setForm] = useState<any>({});
   const [consultandoDIAN, setConsultandoDIAN] = useState(false);
-  const [opciones, setOpciones] = useState<any>({ liabilities: [], organizations: [], regimes: [], municipalities: [] });
+  const [opciones, setOpciones] = useState<any>({ liabilities: [], organizations: [], regimes: [], municipalities: [], document_types: [] });
   const [detalleId, setDetalleId] = useState<number | null>(null);
   const [retenciones, setRetenciones] = useState<any[]>([]);
   const [retencionesCli, setRetencionesCli] = useState<number[]>([]);
@@ -214,7 +214,21 @@ export function CustomersManagement() {
     }
   });
 
-  const set = (field: string, value: any) => setForm((f: any) => ({ ...f, [field]: value }));
+  const set = (field: string, value: any) => setForm((f: any) => {
+    const next = { ...f, [field]: value };
+    // Auto-sincronizar tipo de documento con tipo de adquiriente:
+    //   Persona Jurídica (org=1) → NIT (id_documento=1)
+    //   Persona Natural  (org=2) → CC  (id_documento=2)
+    // Solo si el usuario NO ha elegido un tipo raro (Pasaporte/CE/DIEX = ids 3-5).
+    // Así respetamos casos legítimos como extranjero con pasaporte.
+    if (field === 'id_type_organization') {
+      const orgId = Number(value) || 0;
+      const currentDoc = Number(f.id_documento) || 0;
+      if (orgId === 1 && (currentDoc === 0 || currentDoc === 2)) next.id_documento = 1;      // Jurídica → NIT
+      else if (orgId === 2 && (currentDoc === 0 || currentDoc === 1)) next.id_documento = 2; // Natural → CC
+    }
+    return next;
+  });
 
   // Cálculo DV (DIAN Colombia)
   const calcularDV = (nit: string): string => {
@@ -239,27 +253,32 @@ export function CustomersManagement() {
   };
 
   // Mapea el id_documento local del cliente al código DIAN esperado por el
-  // endpoint GetAcquirer. Los IDs locales suelen coincidir con los de la API
-  // FE (2 = CC, 6 = NIT, etc.), pero por seguridad se detecta por longitud
-  // si no viene el tipo o si es "otro".
+  // endpoint GetAcquirer. Antes había un mapa hardcoded, pero estaba
+  // desincronizado con la BD (asumía id=1 Registro civil cuando la BD real
+  // tiene id=1=NIT). Ahora lee el `code` DIAN directamente del catálogo
+  // `opciones.document_types` que trae opciones.php desde tipos_documentos.
+  // Fallback por longitud del NIT solo si aún no cargaron las opciones o si
+  // el usuario no seleccionó tipo.
   const detectarTipoDIAN = (): string => {
-    // Mapa aproximado id_documento (local) → código DIAN
-    const map: Record<number, string> = {
-      1: '11',  // Registro civil
-      2: '13',  // Cédula ciudadanía
-      3: '21',  // Tarjeta de extranjería
-      4: '22',  // Cédula de extranjería
-      5: '41',  // Pasaporte
-      6: '31',  // NIT
-      7: '47',  // PEP
-      8: '12',  // Tarjeta identidad
-    };
     const idDoc = Number(form.id_documento) || 0;
-    if (map[idDoc]) return map[idDoc];
+    const docTypes: any[] = opciones.document_types || [];
+    const hit = docTypes.find((t: any) => Number(t.id) === idDoc);
+    if (hit?.code) return String(hit.code);
     // Fallback: NITs suelen tener 9+ dígitos; documentos personales <10
     const raw = (form.Nit || '').replace(/\D/g, '');
     if (raw.length >= 9) return '31';
     return '13';
+  };
+
+  // Mapea el código DIAN (ej: '31') al id_documento local. Inverso de
+  // detectarTipoDIAN. Al recibir la respuesta de la DIAN podemos corregir
+  // el tipo de documento si el usuario había supuesto uno distinto.
+  // Lee del catálogo `opciones.document_types` para no duplicar la fuente
+  // de verdad — la tabla tipos_documentos manda.
+  const codigoDIANaIdLocal = (code: string): number | null => {
+    const docTypes: any[] = opciones.document_types || [];
+    const hit = docTypes.find((t: any) => String(t.code) === String(code));
+    return hit ? Number(hit.id) : null;
   };
 
   const consultarDIAN = async () => {
@@ -273,11 +292,22 @@ export function CustomersManagement() {
       });
       const d = await r.json();
       if (d.success && d.name) {
-        setForm((prev: any) => ({
-          ...prev,
-          Razon_Social: d.name,
-          Email: d.email || prev.Email || '',
-        }));
+        // La DIAN devuelve el tipo REAL del documento — lo usamos como fuente
+        // de verdad. Si el usuario había puesto Cédula pero era NIT, corregimos.
+        const idDocResp = d.identification_type ? codigoDIANaIdLocal(String(d.identification_type)) : null;
+        setForm((prev: any) => {
+          const patch: any = {
+            ...prev,
+            Razon_Social: d.name,
+            Email: d.email || prev.Email || '',
+          };
+          if (idDocResp) {
+            patch.id_documento = idDocResp;
+            // Inferir tipo de adquiriente: NIT → Jurídica, resto → Natural.
+            patch.id_type_organization = idDocResp === 1 ? 1 : 2;
+          }
+          return patch;
+        });
         toast.success(`DIAN: ${d.name}`);
       } else {
         toast.error(d.message || 'Documento no encontrado en RUT/RADIAN');
@@ -514,11 +544,12 @@ export function CustomersManagement() {
                   <legend style={{ fontSize: 11, fontWeight: 700, color: '#7c3aed', padding: '0 6px' }}>Datos del Cliente</legend>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
                     {inp('Razón Social *', 'Razon_Social', { containerStyle: { gridColumn: 'span 3' } })}
+                    {sel('Tipo Doc. *', 'id_documento', opciones.document_types, 'id', 'name')}
                     {nitInput()}
                     {inp('Teléfono', 'Telefonos')}
                     {inp('WhatsApp', 'Whatsapp')}
                     {inp('Dirección', 'Direccion')}
-                    {inp('Email', 'Email', { containerStyle: { gridColumn: 'span 2' } })}
+                    {inp('Email', 'Email')}
                     {inp('Cupo Autorizado', 'CupoAutorizado')}
                     {inp('Término (días)', 'Termino')}
                     {inp('Cumpleaños', 'FechaCumple', { type: 'date' })}
