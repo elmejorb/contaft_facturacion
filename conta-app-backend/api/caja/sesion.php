@@ -288,6 +288,76 @@ try {
 
             echo json_encode(['success' => true, 'message' => "$nombreCaja abierta con base " . number_format($base, 0, ',', '.'), 'id_sesion' => $db->lastInsertId()]);
 
+        } elseif ($action === 'corregir_base') {
+            // Corrige el BaseInicial de una sesión ABIERTA cuando el usuario
+            // digitó mal el valor al abrir la caja. Solo permite si:
+            //   - La sesión está abierta
+            //   - No lleva mucho tiempo (evita corregir bases de sesiones muy viejas
+            //     donde ya se hicieron muchos movimientos)
+            //   - Viene con autorizado_por (admin) — solo admin puede corregir
+            //
+            // Deja rastro en Observacion para trazabilidad.
+            $sesionId       = intval($data['sesion_id'] ?? 0);
+            $baseNueva      = floatval($data['base_nueva'] ?? -1);
+            $usuarioId      = intval($data['usuario_id'] ?? 0);
+            $autorizadoPor  = intval($data['autorizado_por'] ?? 0);
+            $autorizadoNombre = trim($data['autorizado_por_nombre'] ?? '');
+            $motivo         = trim($data['motivo'] ?? 'Corrección de base');
+
+            if (!$sesionId || $baseNueva < 0) {
+                echo json_encode(['success' => false, 'message' => 'Datos incompletos']);
+                exit;
+            }
+
+            $stmt = $db->prepare("SELECT * FROM tblsesiones_caja WHERE Id_Sesion = ?");
+            $stmt->execute([$sesionId]);
+            $sesion = $stmt->fetch();
+            if (!$sesion) {
+                echo json_encode(['success' => false, 'message' => 'Sesión no encontrada']);
+                exit;
+            }
+            if ($sesion['Estado'] !== 'abierta') {
+                echo json_encode(['success' => false, 'message' => 'Solo se puede corregir la base de sesiones abiertas. Esta sesión ya está cerrada.']);
+                exit;
+            }
+
+            // Solo admin puede corregir. Si viene autorizado_por, se acepta.
+            // Si no, verificamos que el usuario_id que llama sea admin.
+            if (!$autorizadoPor && $usuarioId > 0) {
+                $stmtU = $db->prepare("SELECT Id_TiposUsuario FROM tblusuarios WHERE Id_Usuario = ?");
+                $stmtU->execute([$usuarioId]);
+                $tipoU = intval($stmtU->fetch()['Id_TiposUsuario'] ?? 0);
+                if ($tipoU !== 1) {
+                    echo json_encode([
+                        'success' => false, 'requiere_autorizacion' => true,
+                        'message' => 'Corregir la base requiere autorización del administrador.'
+                    ]);
+                    exit;
+                }
+            }
+
+            $baseAnterior = floatval($sesion['BaseInicial']);
+            $traza = "[BASE CORREGIDA " . date('Y-m-d H:i') . ": $baseAnterior → $baseNueva";
+            if ($autorizadoNombre) $traza .= " · autorizado por $autorizadoNombre";
+            if ($motivo && $motivo !== 'Corrección de base') $traza .= " · motivo: $motivo";
+            $traza .= "]";
+            $observacionActual = $sesion['Observacion'] ?? '';
+            $observacionNueva = trim(($observacionActual ? $observacionActual . ' ' : '') . $traza);
+            // La columna es VARCHAR(255) — truncar si se pasa
+            if (strlen($observacionNueva) > 250) {
+                $observacionNueva = substr($observacionNueva, -250);
+            }
+
+            $db->prepare("UPDATE tblsesiones_caja SET BaseInicial = ?, Observacion = ? WHERE Id_Sesion = ?")
+               ->execute([$baseNueva, $observacionNueva, $sesionId]);
+
+            echo json_encode([
+                'success' => true,
+                'message' => "Base corregida: $" . number_format($baseAnterior, 0, ',', '.') . " → $" . number_format($baseNueva, 0, ',', '.'),
+                'base_anterior' => $baseAnterior,
+                'base_nueva' => $baseNueva,
+            ]);
+
         } elseif ($action === 'cerrar') {
             $sesionId = intval($data['sesion_id'] ?? 0);
             $conteo = floatval($data['conteo'] ?? 0);

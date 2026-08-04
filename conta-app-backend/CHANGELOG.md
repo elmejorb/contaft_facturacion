@@ -5,6 +5,61 @@ Visible solo para administradores desde **Configuración → Acerca de → Ver h
 
 ---
 
+## 4.3.76 — 2026-08-04
+
+### Impresión de facturas — rediseño completo del ticket media carta
+
+- **Fix crítico**: el nombre del propietario NO salía en la impresión (aparecía "-" hardcoded en 4 componentes). Ahora se lee del campo `Propietario` de Datos Empresa.
+- Layout nuevo: nombre del negocio + propietario + NIT + dirección + teléfono **centrados** bajo el logo (izquierda) y el número de factura (derecha).
+- Nuevo campo **"Detalles / Actividad Económica"** aparece bajo los datos, centrado, multi-línea (respeta saltos de línea).
+- **Frase promocional configurable** al final del ticket ("GRACIAS POR SU COMPRA", "FELIZ NAVIDAD", etc.) — se cambia en Configuración → Impresión.
+- **Paginación automática** cuando hay muchos productos: se dividen en hojas (default 20 por hoja), con indicador "Página X de Y" y "Continúa en la siguiente página →" en las intermedias. La última página dice "— FINAL".
+- **Margen izquierdo** ampliado para evitar que la "F" de "Fecha" se corte en la impresora.
+- **Footer pegado al fondo** de la media carta (antes flotaba en el medio con espacio vacío).
+- **Marca "Facturado con Conta FT v4.3.76"** al pie de las 3 impresiones (media carta, carta, tirilla). Pequeña y discreta.
+
+### Compras a proveedores
+
+- **Fix del flete en `Precio_Costo`**: al comprar con flete, el precio de costo del inventario ahora refleja el costo real (con flete + IVA) de la compra. Antes el promedio ponderado con el stock previo diluía el flete cuando el producto ya tenía existencia.
+- **Fix botón "+ Nueva"**: si estabas editando una compra y le dabas "+ Nueva", los campos se limpiaban pero seguía en modo edición. Al guardar pisaba el pedido anterior. Ahora resetea completamente al modo "nueva compra".
+- **Campos Flete / Descuento / Retención**: ahora tienen formato moneda automático al perder foco y estilo destacado con colores propios (naranja/verde/rojo) para no confundirse.
+
+### Ventas y Cartera
+
+- **Fix bug de borradores FE**: si tenías un borrador de factura electrónica guardado, no podías enviar otras FE a DIAN (error `uq_prefix_number`). Corregido.
+- **Confirmación de anular factura** más clara — modal integrado en vez del cuadro genérico del navegador.
+- **Rendimiento del Listado de Ventas**: en PCs lentos (Celeron, poca RAM) ahora puede cargar 10x más rápido. Dos opciones nuevas en Configuración → Impresión:
+  - "Mostrar columna Saldo en Listado" (apagable — el saldo se consulta en el módulo Cartera si es necesario)
+  - "Traer máximo N facturas" (100 / 200 / 500 / 1000 / 2000)
+- **Detalle de factura** más rápido — hasta 14x en el modal por indexado adicional en pagos.
+
+### Caja Registradora
+
+- **Botón nuevo "Corregir base"**: si al abrir la caja el usuario digitó mal la base (por ejemplo $500.000 en vez de $50.000), un administrador puede corregirla sin cerrar la sesión. Queda registro en la observación.
+
+### Datos Empresa
+
+- **API Token oculto** con asteriscos por defecto. Botón ojo para mostrar/ocultar temporalmente. Botón copiar al portapapeles. Evita que se pueda copiar accidentalmente cuando otros ven la pantalla.
+
+### Actualizaciones automáticas
+
+- **Fix de configuración perdida al actualizar**: en clientes que vienen de versiones 4.1 o 4.2 y actualizaron a 4.3, la configuración quedaba "reseteada" porque Electron cambió la carpeta de datos. El sistema ahora detecta y copia automáticamente la configuración vieja a la nueva ubicación.
+
+### Base de datos
+
+- **Fix del script de actualización** para BDs muy antiguas (VB6): algunas vistas quedaban registradas como tabla por sintaxis antigua rechazada por MariaDB moderno, y hacía que el script fallara silenciosamente dejando la BD a medio actualizar. Ahora limpia ambos casos antes de crearlas.
+
+### Herramientas nuevas para soporte técnico
+
+Para diagnóstico y optimización en PCs de clientes (uso del desarrollador vía AnyDesk):
+
+- `verificar_migracion.bat` — reporta qué falta en la BD del cliente
+- `diagnostico_entorno.bat` — chequeo completo (MySQL, PHP, OpCache, Windows Defender, benchmark de queries reales)
+- `optimizar_entorno_xampp.bat` — aplica OpCache + buffer 512MB + exclusiones Defender con un click
+- `test_rendimiento.bat` — mide antes/después para confirmar mejora
+
+---
+
 ## 4.3.75 — 2026-07-29
 
 ### Fix crítico: tipo de documento del cliente (NIT / Cédula) enviado a DIAN

@@ -209,7 +209,8 @@ export function DetalleFacturaModal({ factN, onClose, onUpdate }: Props) {
         const emp = getEmpresaCache();
         return {
           nombre: emp.nombre, nit: emp.nit, telefono: emp.telefono, direccion: emp.direccion,
-          regimen: emp.regimen || '', propietario: '-', resolucion: emp.resolucion || '',
+          regimen: emp.regimen || '', propietario: emp.propietario || '',
+          resolucion: emp.resolucion || '', detalle: emp.detalle || '',
         };
       })(),
       caja: 1, logo: config.logo || undefined

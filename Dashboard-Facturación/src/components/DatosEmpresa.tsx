@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Save, Building2, FileText, Globe, Receipt, Camera, X } from 'lucide-react';
+import { Save, Building2, FileText, Globe, Receipt, Camera, X, Eye, EyeOff, Copy } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { getConfigImpresion, saveConfigImpresion, saveEmpresaCache } from './ConfiguracionSistema';
 
@@ -16,6 +16,7 @@ export function DatosEmpresa() {
   const [logoNuevoB64, setLogoNuevoB64] = useState<string | null>(null);
   // flag: el usuario quitó el logo y todavía no guardó
   const [logoEliminado, setLogoEliminado] = useState(false);
+  const [mostrarToken, setMostrarToken] = useState(false);
 
   // src para el <img>: prioridad al nuevo (preview), si no al del servidor.
   const logoSrc = logoNuevoB64 || (logoEliminado ? '' : (logoServerUrl || ''));
@@ -255,7 +256,43 @@ export function DatosEmpresa() {
         <div>
           <div style={{ display: 'flex', gap: 10, marginBottom: 10 }}>
             {campo('Email', 'email')}
-            {campo('API Token', 'api_token', { width: '200px' })}
+            {/* API Token: oculto por defecto (tipo password) para que otros
+                usuarios no puedan verlo por encima del hombro ni copiarlo.
+                Ojo → alterna mostrar/ocultar. Copiar → al portapapeles. */}
+            <div style={{ flex: '1', minWidth: '260px' }}>
+              <label style={lbl}>API Token</label>
+              <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                <input
+                  type={mostrarToken ? 'text' : 'password'}
+                  value={form.api_token ?? ''}
+                  onChange={e => set('api_token', e.target.value)}
+                  autoComplete="off"
+                  spellCheck={false}
+                  style={{ ...inp, flex: 1, fontFamily: mostrarToken ? 'monospace' : 'inherit', letterSpacing: mostrarToken ? '0.5px' : '3px' }} />
+                <button type="button"
+                  onClick={() => setMostrarToken(m => !m)}
+                  title={mostrarToken ? 'Ocultar token' : 'Mostrar token'}
+                  style={{ height: 30, width: 34, background: '#f3f4f6', border: '1px solid #d1d5db', borderRadius: 6, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#4b5563' }}>
+                  {mostrarToken ? <EyeOff size={14} /> : <Eye size={14} />}
+                </button>
+                <button type="button"
+                  onClick={() => {
+                    if (form.api_token) {
+                      navigator.clipboard.writeText(form.api_token);
+                      toast.success('Token copiado');
+                    }
+                  }}
+                  title="Copiar al portapapeles"
+                  style={{ height: 30, width: 34, background: '#f3f4f6', border: '1px solid #d1d5db', borderRadius: 6, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#4b5563' }}>
+                  <Copy size={14} />
+                </button>
+              </div>
+              <div style={{ fontSize: 10, color: '#6b7280', marginTop: 2 }}>
+                {mostrarToken
+                  ? 'Token visible. Ocúltalo cuando termines.'
+                  : 'Token oculto para tu seguridad. Toca el ojo para verlo.'}
+              </div>
+            </div>
           </div>
         </div>
       ))}

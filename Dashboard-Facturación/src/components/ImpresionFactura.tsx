@@ -1,7 +1,12 @@
 import { getConfigImpresion, getEmpresaCache } from './ConfiguracionSistema';
+import pkg from '../../package.json';
 
 const fmtMon = (v: number) => '$ ' + Math.round(v).toLocaleString('es-CO');
 const fmtMonDec = (v: number) => '$ ' + v.toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+// Marca del sistema al pie del ticket. Aparece muy pequeña — solo para
+// identificar qué software generó la factura si el cliente reclama.
+const MARCA_SISTEMA = `Facturado con Conta FT v${pkg.version}`;
 
 export interface DatosFactura {
   numero: number | string;
@@ -191,6 +196,8 @@ function tirilla(d: DatosFactura): string {
   html += `<div style="text-align:center;">Aceptación del Cliente</div>`;
   html += `<br><br>`;
   html += `<div style="text-align:center;font-weight:bold;letter-spacing:2px;">"GRACIAS POR SU COMPRA"</div>`;
+  // Marca del sistema — pequeña pero legible, centrada al final
+  html += `<div style="text-align:center;font-size:10px;color:#6b7280;margin-top:6px;">${MARCA_SISTEMA}</div>`;
   html += `</div>`;
   return html;
 }
@@ -210,43 +217,38 @@ function mediaCarta(
   const ml = lado === 'derecha' ? '50%' : '0';
 
   // Layout con paginación estilo VB6:
-  // - Padding lateral 2mm → margen izquierdo mínimo (era 4mm)
-  // - min-height 135mm (mitad de hoja carta) + flexbox → footer pegado abajo
+  // - Padding: 6mm arriba/abajo + 5mm laterales — evita corte y da respiro
+  // - min-height 200mm — media carta usa landscape (letter landscape = 279×216mm),
+  //   cada mitad tiene ~139mm ancho × 216mm alto. min-height:200mm hace que el
+  //   footer llegue casi al borde inferior de la hoja (antes 135mm dejaba el
+  //   footer flotando en el medio con mucho espacio vacío abajo).
   // - Cuando hay más de N productos (maxProductosMediaCarta) se dividen en chunks
   //   y cada chunk = un ticket completo en su propia hoja
-  let html = `<div style="width:${w};margin-left:${ml};font-family:Arial,sans-serif;font-size:12px;padding:4mm 2mm;box-sizing:border-box;min-height:135mm;display:flex;flex-direction:column;">`;
+  // padding top | right | bottom | left — el izquierdo un poco más grande
+  // porque las impresoras suelen recortar ~2-3mm del borde izquierdo.
+  let html = `<div style="width:${w};margin-left:${ml};font-family:Arial,sans-serif;font-size:12px;padding:6mm 5mm 6mm 9mm;box-sizing:border-box;min-height:200mm;display:flex;flex-direction:column;">`;
 
   if (d.enContingencia) html += BANNER_CONTINGENCIA_HTML;
 
-  // ===== HEADER: Nombre empresa centrado grande =====
-  html += `<div style="text-align:center;font-size:15px;font-weight:bold;margin-bottom:4px;word-wrap:break-word;">${d.empresa.nombre}</div>`;
+  // ===== HEADER — layout con posicionamiento:
+  //   [LOGO]      NUTRIGRANOS           [FACTURA Nº]
+  //           Julián Martínez Paternina    01254
+  //           NIT. XXX  Simplificado
+  //           CALLE XX Con carrera 5
+  //           Tel. 320 533 0508
+  //         (Detalle multi-línea centrado)
+  //
+  // El logo va absoluto arriba-izquierda, el recuadro Factura Nº arriba-derecha,
+  // y los datos de empresa quedan CENTRADOS entre ambos.
+  html += `<div style="position:relative;text-align:center;margin-bottom:6px;min-height:22mm;">`;
 
-  // Slogan/detalle bajo el nombre (viene de tbldatosempresa.Detalle)
-  if (d.empresa.detalle && d.empresa.detalle.trim() !== '' && d.empresa.detalle !== '-') {
-    html += `<div style="text-align:center;font-size:9px;font-style:italic;margin-bottom:4px;">${d.empresa.detalle}</div>`;
-  }
-
-  // Logo + datos empresa a la izquierda | Factura Nº a la derecha
-  html += `<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px;gap:4px;">`;
-  html += `<div style="display:flex;align-items:flex-start;gap:6px;flex:1;min-width:0;">`;
-  // Espacio del logo — si no existe, deja hueco reservado para que se pueda agregar
+  // Logo absoluto arriba-izquierda (opcional)
   if (d.logo) {
-    html += `<img src="${d.logo}" style="max-width:20mm;max-height:18mm;object-fit:contain;flex-shrink:0;" />`;
+    html += `<img src="${d.logo}" style="position:absolute;top:0;left:0;max-width:20mm;max-height:20mm;object-fit:contain;" />`;
   }
-  html += `<div style="min-width:0;">`;
-  if (config.mostrarPropietario && d.empresa.propietario && d.empresa.propietario !== '-') {
-    html += `<div style="font-size:11px;font-weight:600;">${d.empresa.propietario}</div>`;
-  }
-  html += `<div style="font-size:10px;">NIT. ${d.empresa.nit}${d.empresa.regimen ? ' &nbsp; ' + d.empresa.regimen : ''}</div>`;
-  if (config.mostrarDireccion && d.empresa.direccion && d.empresa.direccion !== '-') {
-    html += `<div style="font-size:10px;">${d.empresa.direccion}</div>`;
-  }
-  if (config.mostrarTelefono && d.empresa.telefono && d.empresa.telefono !== '0') {
-    html += `<div style="font-size:10px;">Tel. ${d.empresa.telefono}</div>`;
-  }
-  html += `</div></div>`;
-  // Recuadro Factura Nº — ancho reducido para no invadir el lado del cliente
-  html += `<div style="border:2px solid #000;padding:3px 8px;text-align:center;flex-shrink:0;">`;
+
+  // Recuadro Factura Nº absoluto arriba-derecha
+  html += `<div style="position:absolute;top:0;right:0;border:2px solid #000;padding:3px 8px;text-align:center;">`;
   html += `<div style="font-size:9px;font-weight:bold;">${titulo}</div>`;
   html += `<div style="font-size:18px;font-weight:bold;line-height:1;">${String(d.numero).padStart(5, '0')}</div>`;
   if (paginacion && paginacion.totalPaginas > 1) {
@@ -255,7 +257,31 @@ function mediaCarta(
       : `Pág. ${paginacion.pagina} de ${paginacion.totalPaginas}`;
     html += `<div style="font-size:8px;margin-top:2px;font-weight:${paginacion.esUltima ? 'bold' : 'normal'};">${etiqueta}</div>`;
   }
-  html += `</div></div>`;
+  html += `</div>`;
+
+  // Bloque centrado: nombre + propietario + NIT + dirección + tel
+  // padding lateral para dar espacio al logo y al recuadro
+  html += `<div style="padding:0 26mm 0 22mm;">`;
+  html += `<div style="font-size:16px;font-weight:bold;line-height:1.1;word-wrap:break-word;">${d.empresa.nombre}</div>`;
+  if (config.mostrarPropietario && d.empresa.propietario && d.empresa.propietario !== '-' && d.empresa.propietario.trim() !== '') {
+    html += `<div style="font-size:11px;font-weight:600;margin-top:1px;">${d.empresa.propietario}</div>`;
+  }
+  html += `<div style="font-size:10px;margin-top:1px;">NIT. ${d.empresa.nit}${d.empresa.regimen ? ' &nbsp; ' + d.empresa.regimen : ''}</div>`;
+  if (config.mostrarDireccion && d.empresa.direccion && d.empresa.direccion !== '-') {
+    html += `<div style="font-size:10px;">${d.empresa.direccion}</div>`;
+  }
+  if (config.mostrarTelefono && d.empresa.telefono && d.empresa.telefono !== '0') {
+    html += `<div style="font-size:10px;">Tel. ${d.empresa.telefono}</div>`;
+  }
+  html += `</div>`;
+  html += `</div>`;
+
+  // Detalle / Actividad Económica — multi-línea, centrado, ancho completo, después del bloque header
+  if (d.empresa.detalle && d.empresa.detalle.trim() !== '' && d.empresa.detalle !== '-') {
+    // white-space:pre-wrap respeta saltos de línea reales del texto guardado en la BD
+    const detalleEsc = d.empresa.detalle.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    html += `<div style="text-align:center;font-size:10px;font-style:italic;margin-bottom:4px;padding:0 2mm;white-space:pre-wrap;line-height:1.2;">${detalleEsc}</div>`;
+  }
 
   // Fecha y termino en línea
   html += `<div style="border:1px solid #000;padding:2px 6px;margin-bottom:4px;font-size:10px;">`;
@@ -350,6 +376,9 @@ function mediaCarta(
   html += `</div>`;
   html += `</div>`;
 
+  // Marca del sistema — pequeña pero legible, discreta al final de todo
+  html += `<div style="font-size:9px;color:#6b7280;text-align:right;margin-top:3px;">${MARCA_SISTEMA}</div>`;
+
   html += `</div>`;
   return html;
 }
@@ -371,7 +400,13 @@ function carta(d: DatosFactura): string {
   if (d.logo) html += `<img src="${d.logo}" style="max-width:35mm;max-height:22mm;" />`;
   html += `<div>`;
   html += `<div style="font-size:16px;font-weight:bold;">${d.empresa.nombre}</div>`;
+  if (config.mostrarPropietario && d.empresa.propietario && d.empresa.propietario !== '-') {
+    html += `<div style="font-size:12px;font-weight:600;">${d.empresa.propietario}</div>`;
+  }
   html += `<div style="font-size:11px;">Nit. ${d.empresa.nit} &nbsp;&nbsp; ${d.empresa.regimen}</div>`;
+  if (d.empresa.detalle && d.empresa.detalle.trim() !== '' && d.empresa.detalle !== '-') {
+    html += `<div style="font-size:10px;font-style:italic;">${d.empresa.detalle}</div>`;
+  }
   if (config.mostrarDireccion) html += `<div style="font-size:11px;">${d.empresa.direccion}</div>`;
   if (config.mostrarTelefono) html += `<div style="font-size:11px;">Tel. ${d.empresa.telefono}</div>`;
   html += `</div></div>`;
@@ -445,6 +480,9 @@ function carta(d: DatosFactura): string {
   html += `<div style="font-size:8px;margin-top:12px;border-top:1px solid #000;padding-top:4px;">`;
   html += `Esta Factura de Venta se asimila para todos los efectos legales, a una letra de cambio según el Artículo 772 - 774 del Comercio y causará intereses moratorios a las tasas vigentes a la fecha del vencimiento sobre los saldos no pagados oportunamente. No se aceptan devoluciones sin previa autorización escrita.`;
   html += `</div>`;
+
+  // Marca del sistema — pequeña pero legible, discreta al final
+  html += `<div style="font-size:10px;color:#6b7280;text-align:right;margin-top:4px;">${MARCA_SISTEMA}</div>`;
 
   html += `</div>`;
   return html;
@@ -642,7 +680,7 @@ export function buildDatosFactura(
       telefono: emp.telefono,
       direccion: emp.direccion,
       regimen: emp.regimen || '',
-      propietario: '-',
+      propietario: emp.propietario || '',
       resolucion: emp.resolucion || '',
       detalle: emp.detalle || '',
     },

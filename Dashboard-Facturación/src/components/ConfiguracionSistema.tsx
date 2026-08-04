@@ -88,7 +88,7 @@ const defaultConfig: ConfigImpresion = {
   mostrarDireccion: true,
   mostrarPrecioCosto: false,
   mediaCartaDerecha: false,
-  maxProductosMediaCarta: 12,
+  maxProductosMediaCarta: 20,
   logo: '',
   formatoFecha: 'dd/mm/yyyy',
   campoPredeterminado: 'codigo',
@@ -141,6 +141,7 @@ export interface EmpresaCache {
   resolucion?: string;
   logo_url?: string;   // URL del logo servido por el backend (tbldatosempresa.Logo)
   detalle?: string;    // slogan/descripción de la empresa (tbldatosempresa.Detalle) — sale bajo el nombre en la impresión
+  propietario?: string; // (tbldatosempresa.Propietario) — sale bajo el nombre de la empresa
 }
 
 const EMPRESA_KEY = 'empresa_cache';
@@ -193,6 +194,10 @@ export function saveEmpresaCache(emp: any) {
     // el nombre en la impresión, como el "Te ofrecemos todo lo relacionado con..."
     // del VB6 original.
     detalle: emp.Detalle || emp.detalle || '',
+    // Propietario (tbldatosempresa.Propietario) — nombre del dueño del negocio.
+    // Aparece bajo el nombre de la empresa en la impresión si está configurado
+    // mostrarPropietario=true (default) y el valor no está vacío.
+    propietario: emp.Propietario || emp.propietario || '',
   };
   localStorage.setItem(EMPRESA_KEY, JSON.stringify(cache));
 }
@@ -537,9 +542,9 @@ export function ConfiguracionSistema() {
       {/* Datos en Factura */}
       {seccion('Datos en la Factura Impresa', <FileText size={18} color="#2563eb" />, (
         <div>
-          {toggle('Mostrar propietario', 'mostrarPropietario')}
-          {toggle('Mostrar teléfono empresa', 'mostrarTelefono')}
-          {toggle('Mostrar dirección empresa', 'mostrarDireccion')}
+          {toggle('Mostrar propietario', 'mostrarPropietario', 'Imprime el nombre del propietario (Datos Empresa → Propietario) bajo el nombre del negocio')}
+          {toggle('Mostrar teléfono empresa', 'mostrarTelefono', 'Imprime el teléfono del negocio en el encabezado')}
+          {toggle('Mostrar dirección empresa', 'mostrarDireccion', 'Imprime la dirección del negocio en el encabezado')}
           {toggle('Mostrar precio costo', 'mostrarPrecioCosto', 'Muestra el costo al lado del precio de venta (solo para uso interno)')}
           {toggle('Media carta lado derecho', 'mediaCartaDerecha', 'Imprime en la mitad derecha de la hoja')}
           {selectField('Máx. productos en media carta', 'maxProductosMediaCarta', [

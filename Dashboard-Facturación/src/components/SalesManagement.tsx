@@ -155,8 +155,9 @@ export function SalesManagement({ onNavigate }: Props = {}) {
             telefono: emp.telefono,
             direccion: emp.direccion,
             regimen: emp.regimen || '',
-            propietario: '-',
+            propietario: emp.propietario || '',
             resolucion: emp.resolucion || '',
+            detalle: emp.detalle || '',
           };
         })(),
         caja: 1,

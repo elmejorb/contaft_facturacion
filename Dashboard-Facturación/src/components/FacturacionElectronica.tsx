@@ -84,8 +84,9 @@ function mapFEtoDatosFactura(doc: any, items: any[], empresa?: any): DatosFactur
       telefono: (empresa && empresa.Telefono) || emp.telefono,
       direccion: (empresa && empresa.Direccion) || emp.direccion,
       regimen: (empresa && empresa.Regimen) || emp.regimen || '',
-      propietario: '-',
+      propietario: (empresa && empresa.Propietario) || emp.propietario || '',
       resolucion: (empresa && empresa.Resolucion) || emp.resolucion || '',
+      detalle: (empresa && empresa.Detalle) || emp.detalle || '',
     },
     // ===== Datos específicos FE =====
     esFE: true,

@@ -1,9 +1,10 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Lock, Unlock, DollarSign, RefreshCw, Clock, ArrowDownRight, Plus, Settings } from 'lucide-react';
+import { Lock, Unlock, DollarSign, RefreshCw, Clock, ArrowDownRight, Plus, Settings, Edit3 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../contexts/AuthContext';
 import { getConfigImpresion } from './ConfiguracionSistema';
 import { confirmar } from './ConfirmDialog';
+import { AutorizacionAdminModal, type AdminAutorizado } from './AutorizacionAdminModal';
 
 const API = 'http://localhost:80/conta-app-backend/api/caja/sesion.php';
 const API_MOV = 'http://localhost:80/conta-app-backend/api/caja/movimientos.php';
@@ -27,6 +28,11 @@ export function CajaRegistradora() {
   const [historial, setHistorial] = useState<any[]>([]);
   const [showAdminCajas, setShowAdminCajas] = useState(false);
   const [nuevaCajaNombre, setNuevaCajaNombre] = useState('');
+  // Estado del modal "Corregir base": permite al admin arreglar la base cuando
+  // se digitó mal al abrir. Requiere autorización si el usuario no es admin.
+  const [showCorregirBase, setShowCorregirBase] = useState(false);
+  const [baseCorreccion, setBaseCorreccion] = useState('');
+  const [pedirAuthBase, setPedirAuthBase] = useState(false);
 
   // Estados para movimientos directos de caja principal
   const [movsPrincipal, setMovsPrincipal] = useState<any[]>([]);
@@ -112,6 +118,44 @@ export function CajaRegistradora() {
       if (d.success) { toast.success(d.message); setBase(''); cargar(); cargarCajas(); }
       else toast.error(d.message);
     } catch (e) { toast.error('Error'); }
+  };
+
+  // Corregir la base de la sesión abierta (si se digitó mal).
+  // Solo admin, deja trazabilidad en Observacion de la sesión.
+  const ejecutarCorregirBase = async (admin: AdminAutorizado | null) => {
+    if (!data?.sesion) return;
+    const val = parseInt(baseCorreccion) || 0;
+    if (val < 0) { toast.error('La base debe ser un número válido'); return; }
+    try {
+      const r = await fetch(API, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'corregir_base',
+          sesion_id: data.sesion.Id_Sesion,
+          base_nueva: val,
+          usuario_id: user?.id || 0,
+          autorizado_por: admin?.id || 0,
+          autorizado_por_nombre: admin?.nombre || '',
+        }),
+      });
+      const d = await r.json();
+      if (d.success) {
+        toast.success(d.message);
+        setShowCorregirBase(false);
+        setBaseCorreccion('');
+        cargar();
+      } else if (d.requiere_autorizacion) {
+        setPedirAuthBase(true);
+      } else {
+        toast.error(d.message || 'No se pudo corregir');
+      }
+    } catch { toast.error('Error de conexión'); }
+  };
+
+  const solicitarCorregirBase = () => {
+    if (!data?.res) return;
+    setBaseCorreccion(String(Math.round(data.res.base || 0)));
+    setShowCorregirBase(true);
   };
 
   const cerrarCaja = async () => {
@@ -551,6 +595,11 @@ export function CajaRegistradora() {
                     Base: {fmtMon(res.base)} | Desde: {new Date(res.fecha_apertura).toLocaleString('es-CO')}
                   </span>
                 </span>
+                <button onClick={solicitarCorregirBase}
+                  title="Corregir el valor de la base si se digitó mal al abrir. Requiere autorización de administrador."
+                  style={{ height: 28, padding: '0 10px', background: '#eef2ff', color: '#4338ca', border: '1px solid #a5b4fc', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <Edit3 size={13} /> Corregir base
+                </button>
                 <button onClick={() => setShowRetiro(true)}
                   style={{ height: 28, padding: '0 10px', background: '#fef3c7', color: '#d97706', border: '1px solid #d97706', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
                   <ArrowDownRight size={13} /> Retiro
@@ -749,6 +798,57 @@ export function CajaRegistradora() {
             </table>
           </div>
         </div>
+      )}
+
+      {/* Modal: Corregir base de la sesión abierta */}
+      {showCorregirBase && data?.res && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.5)' }} onClick={() => setShowCorregirBase(false)} />
+          <div style={{ position: 'relative', background: '#fff', borderRadius: 12, padding: 20, width: 380, maxWidth: '90%', boxShadow: '0 20px 50px rgba(0,0,0,0.3)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+              <Edit3 size={20} color="#4338ca" />
+              <span style={{ fontSize: 15, fontWeight: 700, color: '#1f2937' }}>Corregir base de la caja</span>
+            </div>
+            <div style={{ background: '#fef3c7', border: '1px solid #f59e0b', borderRadius: 6, padding: '8px 12px', fontSize: 11, color: '#78350f', marginBottom: 12 }}>
+              ⚠ Use solo si digitó mal la base al abrir. No afecta ventas ni pagos ya registrados — solo cambia el saldo inicial de referencia. Quedará registrado en la observación de la sesión con el usuario que autorizó.
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4, color: '#6b7280' }}>
+              <span>Base actual:</span>
+              <b style={{ color: '#1f2937' }}>{fmtMon(data.res.base || 0)}</b>
+            </div>
+            <label style={{ fontSize: 11, color: '#6b7280', display: 'block', marginBottom: 4, marginTop: 8, textTransform: 'uppercase', fontWeight: 600 }}>Base correcta</label>
+            <input type="text"
+              value={baseCorreccion}
+              onChange={e => setBaseCorreccion(e.target.value.replace(/[^0-9]/g, ''))}
+              onKeyDown={e => { if (e.key === 'Enter') ejecutarCorregirBase(null); }}
+              placeholder="Ingrese el valor real de la base"
+              autoFocus
+              style={{ width: '100%', height: 40, padding: '0 12px', border: '2px solid #4338ca', borderRadius: 8, fontSize: 18, fontWeight: 700, color: '#4338ca', outline: 'none', textAlign: 'right', boxSizing: 'border-box' }} />
+            <div style={{ fontSize: 11, color: '#6b7280', marginTop: 4, textAlign: 'right', minHeight: 14 }}>
+              {baseCorreccion ? fmtMon(parseInt(baseCorreccion) || 0) : ''}
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginTop: 16, justifyContent: 'flex-end' }}>
+              <button onClick={() => setShowCorregirBase(false)}
+                style={{ height: 36, padding: '0 16px', background: '#f3f4f6', color: '#374151', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                Cancelar
+              </button>
+              <button onClick={() => ejecutarCorregirBase(null)}
+                disabled={!baseCorreccion}
+                style={{ height: 36, padding: '0 16px', background: baseCorreccion ? '#4338ca' : '#9ca3af', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: baseCorreccion ? 'pointer' : 'not-allowed' }}>
+                Corregir base
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de autorización admin para corregir base (si el usuario no es admin) */}
+      {pedirAuthBase && (
+        <AutorizacionAdminModal
+          motivo={`Corregir base de la sesión #${data?.sesion?.Id_Sesion ?? ''}`}
+          onCancelar={() => setPedirAuthBase(false)}
+          onAutorizado={(admin) => { setPedirAuthBase(false); setTimeout(() => ejecutarCorregirBase(admin), 100); }}
+        />
       )}
 
       {/* Modal admin cajas */}
