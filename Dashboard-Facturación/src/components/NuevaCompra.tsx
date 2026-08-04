@@ -896,25 +896,102 @@ export function NuevaCompra({ pedidoEditar, onClose }: { pedidoEditar?: number; 
       <div style={{ background: '#fff', borderRadius: 12, padding: '8px 16px', marginTop: 6, boxShadow: '0 1px 3px rgba(0,0,0,0.08)', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0, flexWrap: 'wrap' }}>
         <div style={{ fontSize: 12, color: '#6b7280' }}><b>{lineas.length}</b> producto(s)</div>
         <div>
-          <label style={lbl}>FLETE</label>
+          <label style={{ ...lbl, color: '#d97706', fontWeight: 700 }}>FLETE (total)</label>
           {/* key={flete} fuerza re-mount cuando `flete` cambia externamente
               (ej. tras Guardar Compra o botón "+ Nueva" que hacen setFlete(0)
               o cuando se edita FleteUnit manual y el total se sincroniza).
-              Con solo `defaultValue` el input mostraba el valor viejo. */}
-          <input type="text" key={`flete-${flete}`} defaultValue={flete || ''} placeholder="0"
-            onBlur={e => setFlete(parseInt(e.target.value.replace(/[^0-9]/g, '')) || 0)}
-            onKeyDown={e => { soloNum(e); if (e.key === 'Enter') { setFlete(parseInt((e.target as HTMLInputElement).value.replace(/[^0-9]/g, '')) || 0); (e.target as HTMLInputElement).blur(); } }}
-            style={{ ...inp, width: 80, textAlign: 'right', fontSize: 11 }} />
+              Con solo `defaultValue` el input mostraba el valor viejo.
+              Formato moneda al perder foco; raw al enfocar para editar. */}
+          <input type="text" key={`flete-${flete}`}
+            defaultValue={flete ? fmtMon(flete) : ''}
+            placeholder="$ 0"
+            title="Flete TOTAL del pedido (no por unidad). El sistema lo distribuye entre las líneas."
+            onFocus={e => {
+              e.target.value = flete ? String(flete) : '';
+              e.target.select();
+            }}
+            onBlur={e => {
+              const val = parseInt(e.target.value.replace(/[^0-9]/g, '')) || 0;
+              setFlete(val);
+              e.target.value = val ? fmtMon(val) : '';
+            }}
+            onKeyDown={e => {
+              soloNum(e);
+              if (e.key === 'Enter') { (e.target as HTMLInputElement).blur(); }
+            }}
+            style={{
+              ...inp,
+              width: 120,
+              textAlign: 'right',
+              fontSize: 13,
+              fontWeight: 700,
+              color: '#d97706',
+              border: '2px solid #fbbf24',
+              background: '#fffbeb',
+              height: 32,
+            }} />
         </div>
         <div>
-          <label style={lbl}>DESCUENTO</label>
-          <input type="text" value={descuento || ''} onChange={e => setDescuento(parseInt(e.target.value.replace(/[^0-9]/g, '')) || 0)} onKeyDown={soloNum} placeholder="0"
-            style={{ ...inp, width: 80, textAlign: 'right', fontSize: 11 }} />
+          <label style={{ ...lbl, color: '#16a34a', fontWeight: 700 }}>DESCUENTO</label>
+          <input type="text" key={`desc-${descuento}`}
+            defaultValue={descuento ? fmtMon(descuento) : ''}
+            placeholder="$ 0"
+            title="Descuento total del pedido (se resta del total)."
+            onFocus={e => {
+              e.target.value = descuento ? String(descuento) : '';
+              e.target.select();
+            }}
+            onBlur={e => {
+              const val = parseInt(e.target.value.replace(/[^0-9]/g, '')) || 0;
+              setDescuento(val);
+              e.target.value = val ? fmtMon(val) : '';
+            }}
+            onKeyDown={e => {
+              soloNum(e);
+              if (e.key === 'Enter') { (e.target as HTMLInputElement).blur(); }
+            }}
+            style={{
+              ...inp,
+              width: 120,
+              textAlign: 'right',
+              fontSize: 13,
+              fontWeight: 700,
+              color: '#16a34a',
+              border: '2px solid #86efac',
+              background: '#f0fdf4',
+              height: 32,
+            }} />
         </div>
         <div>
-          <label style={lbl}>RETENCIÓN</label>
-          <input type="text" value={retencion || ''} onChange={e => setRetencion(parseInt(e.target.value.replace(/[^0-9]/g, '')) || 0)} onKeyDown={soloNum} placeholder="0"
-            style={{ ...inp, width: 80, textAlign: 'right', fontSize: 11 }} />
+          <label style={{ ...lbl, color: '#dc2626', fontWeight: 700 }}>RETENCIÓN</label>
+          <input type="text" key={`ret-${retencion}`}
+            defaultValue={retencion ? fmtMon(retencion) : ''}
+            placeholder="$ 0"
+            title="Retención en la fuente (se resta del total)."
+            onFocus={e => {
+              e.target.value = retencion ? String(retencion) : '';
+              e.target.select();
+            }}
+            onBlur={e => {
+              const val = parseInt(e.target.value.replace(/[^0-9]/g, '')) || 0;
+              setRetencion(val);
+              e.target.value = val ? fmtMon(val) : '';
+            }}
+            onKeyDown={e => {
+              soloNum(e);
+              if (e.key === 'Enter') { (e.target as HTMLInputElement).blur(); }
+            }}
+            style={{
+              ...inp,
+              width: 120,
+              textAlign: 'right',
+              fontSize: 13,
+              fontWeight: 700,
+              color: '#dc2626',
+              border: '2px solid #fca5a5',
+              background: '#fef2f2',
+              height: 32,
+            }} />
         </div>
         <div style={{ flex: 1 }} />
         <div style={{ display: 'flex', gap: 14, alignItems: 'center', fontSize: 12 }}>
@@ -924,7 +1001,24 @@ export function NuevaCompra({ pedidoEditar, onClose }: { pedidoEditar?: number; 
           <div style={{ fontSize: 20, fontWeight: 800, color: '#dc2626' }}>{fmtMon(totalCompra)}</div>
         </div>
         <div style={{ display: 'flex', gap: 6 }}>
-          <button onClick={() => { setLineas([]); setFlete(0); setDescuento(0); setRetencion(0); setFacturaCompra(''); setProveedor({ id: 0, nombre: '', nit: '' }); localStorage.removeItem(LS_KEY); }}
+          <button onClick={() => {
+              // Reset completo: si veníamos editando (pedidoN>0, modoEdicion=true),
+              // salimos del modo edición para que el próximo submit cree un pedido
+              // nuevo y no actualice el que estaba abierto.
+              setLineas([]);
+              setFlete(0);
+              setDescuento(0);
+              setRetencion(0);
+              setFacturaCompra('');
+              setProveedor({ id: 0, nombre: '', nit: '' });
+              setPedidoN(0);
+              setModoEdicion(false);
+              setTipo('Crédito');
+              setDias(30);
+              setFecha(new Date().toISOString().slice(0, 10));
+              setOpcionIva(0);
+              localStorage.removeItem(LS_KEY);
+            }}
             style={{ height: 30, padding: '0 10px', background: '#f3f4f6', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 11, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
             <Plus size={13} /> Nueva
           </button>

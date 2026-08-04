@@ -614,8 +614,60 @@ ipcMain.on('app:cierre-cancelado', () => {
   cierreEnProceso = false; // el usuario canceló → la próxima X vuelve a preguntar
 });
 
+// Migrar userData desde versiones anteriores del producto.
+// Bug histórico: el `productName` en package.json cambió DOS veces desde el
+// primer release (4.1 → 4.2 → 4.3), y en Electron ese nombre define la ruta
+// donde vive `userData` (localStorage, cookies, cache, IndexedDB). Cada
+// cambio dejó a los clientes existentes con su config en la carpeta vieja,
+// mientras la nueva instalación creaba una carpeta vacía y arrancaba con
+// defaults. Por eso reportan "se desconfiguró todo al actualizar".
+//
+// Cambios detectados en git:
+//   4.1.1  → productName="Conta FT 4.1"
+//   4.2    → cambió a "Conta FT 4.2"
+//   4.3.4  → cambió a "Conta FT 4.3"
+//
+// Este migrador se ejecuta al arrancar y copia el contenido de la carpeta
+// vieja a la nueva UNA sola vez, solo si la nueva está vacía. Preferimos
+// la versión más reciente si hay varias (ej: un cliente que pasó por 4.1 y
+// 4.2 antes de llegar a 4.3, debe migrar desde 4.2, no desde 4.1).
+function migrarUserDataDesdeVersionesViejas() {
+  try {
+    const userDataActual = app.getPath('userData');
+    const parent = path.dirname(userDataActual);
+    const nombreActual = path.basename(userDataActual);
+
+    // Si ya tenemos Local Storage, no migramos (la carpeta ya está en uso)
+    const lsActual = path.join(userDataActual, 'Local Storage');
+    if (fs.existsSync(lsActual)) return;
+
+    // Ordenado de más nuevo a más antiguo. Si hay varias carpetas viejas,
+    // migramos desde la más reciente (la que tiene la config más actual).
+    const posibles = ['Conta FT 4.3', 'Conta FT 4.2', 'Conta FT 4.1', 'Conta FT', 'ContaFT'];
+    for (const nombreViejo of posibles) {
+      if (nombreViejo === nombreActual) continue;
+      const rutaVieja = path.join(parent, nombreViejo);
+      const lsViejo = path.join(rutaVieja, 'Local Storage');
+      if (fs.existsSync(lsViejo)) {
+        console.log(`[migracion] Copiando userData desde "${nombreViejo}" → "${nombreActual}"`);
+        try {
+          if (!fs.existsSync(userDataActual)) fs.mkdirSync(userDataActual, { recursive: true });
+          fs.cpSync(rutaVieja, userDataActual, { recursive: true, force: false, errorOnExist: false });
+          console.log('[migracion] Migración completada');
+        } catch (e) {
+          console.log('[migracion] Error copiando:', e.message);
+        }
+        return; // solo migrar de la primera versión vieja encontrada (la más nueva)
+      }
+    }
+  } catch (e) {
+    console.log('[migracion] Error:', e.message);
+  }
+}
+
 app.whenReady().then(() => {
   Menu.setApplicationMenu(null);
+  migrarUserDataDesdeVersionesViejas();
   ensureConfigExists();
   syncBackend();
   createWindow();

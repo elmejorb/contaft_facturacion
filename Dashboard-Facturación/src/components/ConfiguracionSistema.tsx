@@ -59,6 +59,13 @@ export interface ConfigImpresion {
   validarPrecioMinimo: boolean;       // si true, bloquea PrecioVenta < Precio_Minimo y < Precio_Costo
   permitirRepetirProducto: boolean;   // si true, el mismo Item puede aparecer en varias líneas (útil para precios distintos por unidad, promociones)
   permitirFechaVenta: boolean;        // si true, muestra un campo Fecha en Nueva Venta para registrar la venta con fecha distinta a hoy (clientes que no facturan el mismo día)
+  // Rendimiento — ajustes para PCs lentos (Celeron, HDD, poca RAM).
+  // En equipos rápidos deben quedar así por default (mostrar saldo y 500 filas).
+  // En Celeron/lentos, apagar saldo (evita JOIN con vw_facturas_cliente_saldos)
+  // y reducir a 200 filas ayuda a que el listado de ventas cargue rápido.
+  mostrarSaldoEnListado: boolean;     // false = query más liviana; el saldo se consulta en el módulo Cartera
+  limiteListadoVentas: number;        // 100, 200, 500, 1000. Aplica al LIMIT del backend.
+  fraseFinalTicket: string;           // frase promocional que aparece al final de la impresión (ej: "Feliz Navidad", "Gracias por su compra"). Vacío = no imprime.
 }
 
 const CONFIG_KEY = 'config_sistema';
@@ -106,6 +113,9 @@ const defaultConfig: ConfigImpresion = {
   validarPrecioMinimo: true,
   permitirRepetirProducto: false,
   permitirFechaVenta: false,
+  mostrarSaldoEnListado: true,
+  limiteListadoVentas: 500,
+  fraseFinalTicket: 'GRACIAS POR SU COMPRA',
 };
 
 export function getConfigImpresion(): ConfigImpresion {
@@ -130,6 +140,7 @@ export interface EmpresaCache {
   regimen?: string;
   resolucion?: string;
   logo_url?: string;   // URL del logo servido por el backend (tbldatosempresa.Logo)
+  detalle?: string;    // slogan/descripción de la empresa (tbldatosempresa.Detalle) — sale bajo el nombre en la impresión
 }
 
 const EMPRESA_KEY = 'empresa_cache';
@@ -178,6 +189,10 @@ export function saveEmpresaCache(emp: any) {
     // desde tbldatosempresa.Logo). Es la fuente de verdad — no depende de
     // localStorage viejo de otra empresa.
     logo_url: emp.Logo_url || '',
+    // Slogan/detalle de la empresa (tbldatosempresa.Detalle). Se muestra bajo
+    // el nombre en la impresión, como el "Te ofrecemos todo lo relacionado con..."
+    // del VB6 original.
+    detalle: emp.Detalle || emp.detalle || '',
   };
   localStorage.setItem(EMPRESA_KEY, JSON.stringify(cache));
 }
@@ -532,6 +547,23 @@ export function ConfiguracionSistema() {
             { value: 12, label: '12 productos' }, { value: 15, label: '15 productos' },
             { value: 20, label: '20 productos (carta completa)' }
           ])}
+          {/* Frase promocional al final del ticket. Al estilo VB6 que mostraba
+              "** FELIZ NAVIDAD Y PROSPERO AÑO NUEVO **". Se puede cambiar por
+              cualquier frase (agradecimiento, temporada, promoción). Vacío = no imprime. */}
+          <div style={{ padding: '10px 14px', border: '1px solid #e5e7eb', borderRadius: 8, background: '#f9fafb', margin: '4px 0' }}>
+            <label style={{ fontSize: 12, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>
+              Frase al final del ticket
+            </label>
+            <input type="text"
+              value={config.fraseFinalTicket || ''}
+              onChange={e => set('fraseFinalTicket', e.target.value.toUpperCase())}
+              placeholder="Ej: GRACIAS POR SU COMPRA, FELIZ NAVIDAD..."
+              maxLength={80}
+              style={{ width: '100%', height: 32, padding: '0 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none', textTransform: 'uppercase' }} />
+            <div style={{ fontSize: 10, color: '#6b7280', marginTop: 4 }}>
+              Aparece centrada en negrita al final de la factura, antes del texto legal. Dejar vacío para no imprimir.
+            </div>
+          </div>
           {selectField('Formato de fecha', 'formatoFecha', [
             { value: 'dd/mm/yyyy', label: 'DD/MM/AAAA' },
             { value: 'yyyy-mm-dd', label: 'AAAA-MM-DD' },
@@ -612,6 +644,7 @@ export function ConfiguracionSistema() {
             { key: 'usarLotes', label: 'Fechas de vencimiento / Lotes', desc: 'Activa el manejo de lotes y fechas de vencimiento en compras y productos. Para farmacias, droguerías, alimentos, lácteos. Si está apagado, las compras NO piden fecha de vencimiento ni muestran productos perecederos aunque estén marcados así en el catálogo.' },
             { key: 'usarFinanciaciones', label: 'Financiaciones (créditos con cuotas)', desc: 'Activa el módulo de Financiaciones para negocios que venden a plazos (motos, electrodomésticos, muebles). Permite registrar contratos con cronograma de cuotas de fechas y valores libres, y llevar el cobro por cliente.' },
             { key: 'usarAnticipos', label: 'Anticipos de clientes (saldo a favor)', desc: 'Activa el módulo de Anticipos: el cliente entrega dinero hoy para usar en compras futuras. Aparece un saldo a favor que se aplica automáticamente al facturar. Útil en boutiques, ferreterías, motos, muebles.' },
+            { key: 'mostrarSaldoEnListado', label: 'Mostrar columna Saldo en Listado de Ventas', desc: 'DESACTIVAR EN PCs LENTOS (Celeron, HDD): calcular el saldo pendiente en cada venta agrega ~30ms por consulta. Con esta opción apagada el listado carga mucho más rápido; el saldo se consulta en el módulo Cartera o al abrir el detalle de la factura.' },
           ].map(m => (
             <label key={m.key}
               onClick={() => set(m.key as keyof ConfigImpresion, !(config as any)[m.key])}
@@ -630,6 +663,29 @@ export function ConfiguracionSistema() {
               </div>
             </label>
           ))}
+
+          {/* Rendimiento — cuántas facturas trae el Listado de Ventas.
+              PCs rápidos: 500-1000. Celeron/HDD: 100-200. */}
+          <div style={{ marginTop: 4, padding: '12px 14px', border: '1px dashed #93c5fd', borderRadius: 8, background: '#eff6ff' }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: '#1e40af', marginBottom: 6 }}>Rendimiento del listado de ventas</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <label style={{ fontSize: 12, color: '#374151' }}>Traer máximo:</label>
+              <select
+                value={config.limiteListadoVentas || 500}
+                onChange={e => set('limiteListadoVentas', parseInt(e.target.value))}
+                style={{ height: 30, width: 130, border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, padding: '0 8px', fontWeight: 700, color: '#1e40af' }}>
+                <option value={100}>100 facturas</option>
+                <option value={200}>200 facturas</option>
+                <option value={500}>500 facturas</option>
+                <option value={1000}>1000 facturas</option>
+                <option value={2000}>2000 facturas</option>
+              </select>
+              <span style={{ fontSize: 11, color: '#6b7280' }}>por consulta</span>
+            </div>
+            <div style={{ fontSize: 11, color: '#6b7280', marginTop: 6 }}>
+              Ideal <b>100-200</b> en PCs lentos (Celeron, HDD). <b>500</b> es el default. <b>1000+</b> solo en PCs modernos con SSD. Menos filas = tabla más rápida de renderizar.
+            </div>
+          </div>
 
           {/* Sub-config de Financiaciones — solo aparece si el módulo está activo.
               Deja la tasa en 0 para que el sistema NO cobre mora (opcional). */}

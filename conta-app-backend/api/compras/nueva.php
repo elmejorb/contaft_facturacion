@@ -335,9 +335,10 @@ try {
                     $ivaPct, $costoSinIva, $costoConIva, $fleteUnit, $costoFinalConIva, $costoActual, $costoPromedioConIva
                 ]);
 
-                // Update stock — Precio_Costo y Precio_CostoComp ambos con IVA
+                // Update stock — Precio_Costo con flete REAL (no promedio ponderado).
+                // Ver comentario en el flujo de nueva compra.
                 $db->prepare("UPDATE tblarticulos SET Existencia = ?, Precio_Costo = ?, Precio_CostoComp = ? WHERE Items = ?")
-                   ->execute([$nuevaExist, $costoPromedioConIva, $costoConIva, $itemId]);
+                   ->execute([$nuevaExist, $costoFinalConIva, $costoFinalConIva, $itemId]);
 
                 // Kardex: entrada (SIN IVA — contable)
                 $db->prepare("
@@ -369,7 +370,7 @@ try {
                             : $costoFinal;
 
                         $db->prepare("UPDATE tblarticulos SET Existencia = ?, Precio_Costo = ?, Precio_CostoComp = ? WHERE Items = ?")
-                           ->execute([$nuevaExist, $costoPromedioConIva, $costoConIva, $itemId]);
+                           ->execute([$nuevaExist, $costoFinalConIva, $costoFinalConIva, $itemId]);
 
                         if ($diferencia > 0) {
                             // Entrada adicional (kardex sin IVA)
@@ -391,9 +392,9 @@ try {
                             ]);
                         }
                     } else {
-                        // Solo actualizar precios si cambiaron — Precio_Costo CON IVA
+                        // Solo actualizar precios si cambiaron — Precio_Costo CON IVA + flete
                         $db->prepare("UPDATE tblarticulos SET Precio_Costo = ?, Precio_CostoComp = ?, Precio_Venta = ? WHERE Items = ?")
-                           ->execute([$costoFinalConIva, $costoConIva, $precioVenta > 0 ? $precioVenta : $artActual['Precio_Venta'], $itemId]);
+                           ->execute([$costoFinalConIva, $costoFinalConIva, $precioVenta > 0 ? $precioVenta : $artActual['Precio_Venta'], $itemId]);
                     }
 
                     // Update detail record — PrecioC/CostoFinal/CostoPromedio CON IVA
@@ -542,9 +543,13 @@ try {
                 $ivaPct, $costoSinIva, $costoConIva, $fleteUnit, $costoFinalConIva, $costoAnt, $costoPromedioConIva
             ]);
 
-            // Update stock and cost — Precio_Costo con IVA
+            // Update stock and cost. El cliente pidió que Precio_Costo del
+            // inventario refleje el costo REAL de la última compra CON flete
+            // (no un promedio ponderado que diluía el flete al mezclar con el
+            // stock previo). Usamos $costoFinalConIva que es el valor mostrado
+            // en pantalla al usuario al momento de digitar (CostoConIva + FleteUnit).
             $updateFields = "Existencia = ?, Precio_Costo = ?, Precio_CostoComp = ?, CodigoPro = ?, Flete = ?";
-            $updateParams = [$nuevaExist, $costoPromedioConIva, $costoConIva, $codigoPro, $fleteUnit];
+            $updateParams = [$nuevaExist, $costoFinalConIva, $costoFinalConIva, $codigoPro, $fleteUnit];
             // Update sale price only if provided and > 0
             if ($precioVenta > 0) {
                 $updateFields .= ", Precio_Venta = ?";

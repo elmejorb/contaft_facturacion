@@ -10,6 +10,7 @@ import { getConfigImpresion, getEmpresaCache } from './ConfiguracionSistema';
 import { imprimirFactura, type DatosFactura } from './ImpresionFactura';
 import { DetalleFacturaModal } from './DetalleFacturaModal';
 import { AutorizacionAdminModal, type AdminAutorizado } from './AutorizacionAdminModal';
+import { confirmar } from './ConfirmDialog';
 import { useAuth } from '../contexts/AuthContext';
 
 ModuleRegistry.registerModules([AllCommunityModule]);
@@ -73,7 +74,13 @@ export function SalesManagement({ onNavigate }: Props = {}) {
   const cargar = async (buscar?: string) => {
     setLoading(true);
     try {
-      let url = `${API}?anio=${anio}&estado=${filtroEstado}`;
+      // Modo rendimiento: en PCs lentos, apagar el JOIN con la vista de
+      // saldos (30 ms extra en cada query) y reducir el LIMIT. El saldo
+      // se consulta en el módulo Cartera si el usuario lo necesita.
+      const cfg = getConfigImpresion();
+      const conSaldo = cfg.mostrarSaldoEnListado !== false ? 1 : 0;
+      const limite = cfg.limiteListadoVentas || 500;
+      let url = `${API}?anio=${anio}&estado=${filtroEstado}&con_saldo=${conSaldo}&limit=${limite}`;
       if (mes > 0) url += `&mes=${mes}`;
       if (dia > 0) url += `&dia=${dia}`;
       if (buscar) url += `&buscar=${encodeURIComponent(buscar)}`;
@@ -181,7 +188,16 @@ export function SalesManagement({ onNavigate }: Props = {}) {
       setAutorizacionAnul({ factN, motivo: `Anular Factura FV-${factN}` });
       return;
     }
-    if (!adminAuth && !confirm(`¿Anular la factura FV-${factN}?\n\nSe devolverá todo el inventario al stock. Acción irreversible.`)) return;
+    if (!adminAuth) {
+      const ok = await confirmar({
+        title: `¿Anular factura FV-${factN}?`,
+        message: 'Se devolverá todo el inventario al stock. Si fue de contado, se registrará egreso por reembolso en la caja abierta. Acción irreversible.',
+        type: 'danger',
+        confirmText: 'Sí, Anular Factura',
+        cancelText: 'Cancelar',
+      });
+      if (!ok) return;
+    }
     setAnulando(true);
     try {
       const r = await fetch('http://localhost:80/conta-app-backend/api/ventas/detalle-factura.php', {
@@ -263,6 +279,8 @@ export function SalesManagement({ onNavigate }: Props = {}) {
     { headerName: 'Total', field: 'Total', width: 135, sortable: true, cellStyle: { textAlign: 'right' },
       cellRenderer: (p: any) => <span style={{ fontWeight: 700 }}>{fmtMon(p.value || 0)}</span> },
     { headerName: 'Saldo', field: 'Saldo', width: 130, sortable: true, cellStyle: { textAlign: 'right' },
+      // Se oculta si el usuario apagó la columna en Configuración (modo rendimiento).
+      hide: getConfigImpresion().mostrarSaldoEnListado === false,
       cellRenderer: (p: any) => {
         const v = p.value || 0;
         return v > 0 ? <span style={{ fontWeight: 600, color: '#dc2626' }}>{fmtMon(v)}</span> : <span style={{ color: '#16a34a' }}>$ 0</span>;

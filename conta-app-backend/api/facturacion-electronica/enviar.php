@@ -627,16 +627,20 @@ try {
 
             // PASO 1: Guardar en local con status "pendiente" ANTES de enviar a DIAN.
             // OJO: la tabla tiene UNIQUE (prefix, number) — uq_prefix_number. Si un
-            // envío anterior falló, su fila quedó en (FCON, 0, 'rechazado'); para que
-            // siga visible en el listado FE (y el usuario pueda reintentarla o
-            // editarla) la movemos a un number alto fuera del rango de consecutivos
-            // DIAN (9000000000 + id local). NO la borramos: el usuario quiere ver
-            // sus intentos fallidos en el módulo de FE y poder accionar sobre ellos.
-            // 9_000_000_000 es seguro: DIAN no asigna consecutivos cerca de ese rango.
+            // envío anterior falló, su fila quedó en (FCON, 0, 'rechazado' o
+            // 'pendiente'); si el usuario dejó un borrador guardado también estará
+            // en (FCON, 0, 'borrador'). Para que sigan visibles en el listado FE (y
+            // el usuario pueda reintentar/editar/enviar cada uno) las movemos a un
+            // number alto fuera del rango de consecutivos DIAN (9000000000 + id
+            // local). NO las borramos. 9_000_000_000 es seguro: DIAN no asigna
+            // consecutivos cerca de ese rango.
+            // Bug histórico (fix 4.3.76): el filtro no incluía 'borrador' → un
+            // borrador guardado bloqueaba con UNIQUE VIOLATION cualquier intento
+            // posterior de enviar otra factura a DIAN.
             $db->prepare("
                 UPDATE electronic_documents
                 SET number = 9000000000 + id
-                WHERE prefix = 'FCON' AND number = 0 AND status IN ('pendiente', 'rechazado')
+                WHERE prefix = 'FCON' AND number = 0 AND status IN ('pendiente', 'rechazado', 'borrador')
             ")->execute();
 
             $notaFactura = $factura['Comentario'] ?? '-';
@@ -1086,7 +1090,7 @@ try {
                 $db->prepare("
                     UPDATE electronic_documents
                     SET number = 9000000000 + id
-                    WHERE prefix = 'FCON' AND number = 0 AND status IN ('pendiente', 'rechazado')
+                    WHERE prefix = 'FCON' AND number = 0 AND status IN ('pendiente', 'rechazado', 'borrador')
                 ")->execute();
 
                 $notaFactura = $factura['Comentario'] ?? '-';

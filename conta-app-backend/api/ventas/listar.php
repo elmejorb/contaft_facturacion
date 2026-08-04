@@ -66,7 +66,13 @@ try {
         $tipo = $_GET['tipo'] ?? null;
         $estado = $_GET['estado'] ?? 'Valida';
         $cliente = $_GET['cliente'] ?? null;
-        $limit = $_GET['limit'] ?? 500;
+        $limit = max(50, min(intval($_GET['limit'] ?? 500), 5000));
+        // Toggle de rendimiento — el frontend lo controla desde config del PC.
+        // En equipos lentos (Celeron), el JOIN con vw_facturas_cliente_saldos
+        // agrega ~30ms porque la vista suma pagos con REGEXP sobre tblpagos.
+        // Cuando `con_saldo=0`, no hacemos ese JOIN — el saldo se consulta en
+        // el módulo Cartera si el usuario lo necesita puntualmente.
+        $conSaldo = ($_GET['con_saldo'] ?? '1') === '1';
 
         // Rango de fechas en lugar de YEAR()/MONTH()/DAY() para que MySQL
         // pueda USAR el índice idx_fecha. Con funciones sobre la columna,
@@ -105,25 +111,41 @@ try {
             $params[':buscar_like'] = "%$buscar%";
         }
 
-        // Saldo desde la vista (fuente real desde tblpagos). Contado/Anulada no
-        // están en la vista → COALESCE a 0.
+        // Query dinámica según modo de rendimiento:
+        //   con_saldo=1 → incluye JOIN a vw_facturas_cliente_saldos (más caro)
+        //   con_saldo=0 → omite el JOIN, saldo=0 en el frontend. Ideal para
+        //                 PCs lentos; el usuario consulta cartera en el
+        //                 módulo dedicado si necesita el saldo real.
+        //
+        // El conteo de items por factura ANTES era una subquery correlacionada
+        // (una por fila) → se cambió a JOIN agregado (una sola query).
+        $selectSaldo = $conSaldo ? "COALESCE(s.Saldo, 0) AS Saldo" : "0 AS Saldo";
+        $joinSaldo   = $conSaldo ? "LEFT JOIN vw_facturas_cliente_saldos s ON s.Factura_N = v.Factura_N" : "";
+
         $stmt = $db->prepare("
             SELECT v.Factura_N, v.Fecha, v.Tipo, v.CodigoCli, v.A_nombre, v.Identificacion,
-                   v.Total, COALESCE(s.Saldo, 0) AS Saldo,
+                   v.Total, $selectSaldo,
                    v.EstadoFact, v.Descuento, v.Impuesto,
                    v.id_mediopago, v.Hora, v.Id_Usuario, v.enviada_dian, v.cufe,
                    COALESCE(m.nombre_medio, 'Efectivo') as MedioPago,
-                   COALESCE(u.Nombre, '') as NombreUsuario,
-                   (SELECT COUNT(*) FROM tbldetalle_venta d WHERE d.Factura_N = v.Factura_N) as Total_Items
+                   COALESCE(items.n, 0) as Total_Items
             FROM tblventas v
             LEFT JOIN tblmedios_pago m ON v.id_mediopago = m.id_mediopago
-            LEFT JOIN tblusuarios u ON v.Id_Usuario = u.Id_Usuario
-            LEFT JOIN vw_facturas_cliente_saldos s ON s.Factura_N = v.Factura_N
+            $joinSaldo
+            LEFT JOIN (
+                SELECT Factura_N, COUNT(*) as n
+                FROM tbldetalle_venta
+                WHERE Factura_N IN (
+                    SELECT v2.Factura_N FROM tblventas v2 WHERE " . str_replace('v.', 'v2.', $where) . "
+                )
+                GROUP BY Factura_N
+            ) items ON items.Factura_N = v.Factura_N
             WHERE $where
             ORDER BY v.Factura_N DESC
-            LIMIT " . intval($limit)
-        );
-        $stmt->execute($params);
+            LIMIT $limit
+        ");
+        // Params se duplican porque $where aparece dos veces (subquery + WHERE final).
+        $stmt->execute(array_merge($params, $params));
         $ventas = $stmt->fetchAll();
 
         foreach ($ventas as &$v) {
@@ -140,9 +162,18 @@ try {
         $totalContado = array_sum(array_map(fn($v) => $v['Tipo'] === 'Contado' ? $v['Total'] : 0, $ventas));
         $totalCredito = array_sum(array_map(fn($v) => $v['Tipo'] !== 'Contado' ? $v['Total'] : 0, $ventas));
 
-        // Años disponibles
-        $stmtAnios = $db->query("SELECT DISTINCT YEAR(Fecha) as anio FROM tblventas ORDER BY anio DESC");
-        $aniosDisp = array_column($stmtAnios->fetchAll(), 'anio');
+        // Años disponibles.
+        // ANTES: SELECT DISTINCT YEAR(Fecha) FROM tblventas — no usa el índice
+        // idx_fecha porque YEAR(x) es función sobre columna → full table scan.
+        // En 85k ventas y Celeron tomaba 1-3s.
+        // AHORA: solo pedimos min y max de Fecha (O(1) con índice idx_fecha) y
+        // generamos el rango de años en PHP. También filtramos fechas basura
+        // (< 2000 o > año actual + 1) que aparecen en BDs legacy VB6.
+        $rangoFecha = $db->query("SELECT MIN(Fecha) as fmin, MAX(Fecha) as fmax FROM tblventas")->fetch();
+        $anioMin = max(2000, intval(substr($rangoFecha['fmin'] ?? '2020', 0, 4)));
+        $anioMax = min(intval(date('Y')) + 1, intval(substr($rangoFecha['fmax'] ?? date('Y'), 0, 4)));
+        $aniosDisp = [];
+        for ($y = $anioMax; $y >= $anioMin; $y--) $aniosDisp[] = $y;
 
         echo json_encode([
             "success" => true,

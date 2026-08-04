@@ -86,6 +86,10 @@ CALL crearIdx('tblpagos', 'idx_codigo',      'Codigo');
 CALL crearIdx('tblpagos', 'idx_fact',        'Fact_N');
 CALL crearIdx('tblpagos', 'idx_estado',      'Estado, Fecha');
 CALL crearIdx('tblpagos', 'idx_id_usuario',  'id_usuario');
+-- El detalle de factura busca pagos con `(Fact_N = X OR NFactAnt = X)`.
+-- Sin este índice, MySQL barre TODA la tabla para la parte NFactAnt (17ms
+-- en 25k pagos, mucho más en Celeron). Con el índice: <0.5 ms.
+CALL crearIdx('tblpagos', 'idx_nfactant',    'NFactAnt');
 
 -- ================================================================
 -- KARDEX — la tabla más grande (>200k filas típico)

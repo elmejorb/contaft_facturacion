@@ -201,6 +201,8 @@ SET @sql = IF(@col_exists = 0, "ALTER TABLE tbldetalle_pedido ADD COLUMN IvaPct 
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 -- 7. Vistas: Diagnóstico e Inventario
+-- Fix legacy: en dumps VB6 el nombre puede haber quedado como TABLE (no VIEW) por sintaxis antigua rechazada por MariaDB. Eliminar ambos por seguridad.
+DROP TABLE IF EXISTS vw_item_ventas_30d;
 DROP VIEW IF EXISTS vw_item_ventas_30d;
 CREATE VIEW vw_item_ventas_30d AS
 SELECT
@@ -212,6 +214,8 @@ INNER JOIN tblventas v ON d.Factura_N = v.Factura_N
 WHERE v.Fecha >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
 GROUP BY d.Items;
 
+-- Fix legacy: en dumps VB6 el nombre puede haber quedado como TABLE (no VIEW) por sintaxis antigua rechazada por MariaDB. Eliminar ambos por seguridad.
+DROP TABLE IF EXISTS vw_diagnostico_inventario_30d;
 DROP VIEW IF EXISTS vw_diagnostico_inventario_30d;
 CREATE VIEW vw_diagnostico_inventario_30d AS
 SELECT
@@ -237,6 +241,8 @@ FROM tblarticulos a
 LEFT JOIN vw_item_ventas_30d v ON a.Items = v.Items
 WHERE a.Estado = 1;
 
+-- Fix legacy: en dumps VB6 el nombre puede haber quedado como TABLE (no VIEW) por sintaxis antigua rechazada por MariaDB. Eliminar ambos por seguridad.
+DROP TABLE IF EXISTS vw_item_ventas_90d;
 DROP VIEW IF EXISTS vw_item_ventas_90d;
 CREATE VIEW vw_item_ventas_90d AS
 SELECT
@@ -250,6 +256,8 @@ INNER JOIN tblventas v ON d.Factura_N = v.Factura_N
 WHERE v.Fecha >= DATE_SUB(CURDATE(), INTERVAL 90 DAY)
 GROUP BY d.Items;
 
+-- Fix legacy: en dumps VB6 el nombre puede haber quedado como TABLE (no VIEW) por sintaxis antigua rechazada por MariaDB. Eliminar ambos por seguridad.
+DROP TABLE IF EXISTS vw_auditoria_inventario_90d;
 DROP VIEW IF EXISTS vw_auditoria_inventario_90d;
 CREATE VIEW vw_auditoria_inventario_90d AS
 SELECT
@@ -337,6 +345,8 @@ CREATE TABLE IF NOT EXISTS tblmovimientos_distribucion (
     KEY idx_destino (Items_Destino)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- Fix legacy: en dumps VB6 el nombre puede haber quedado como TABLE (no VIEW) por sintaxis antigua rechazada por MariaDB. Eliminar ambos por seguridad.
+DROP TABLE IF EXISTS vw_productos_stock_bajo;
 DROP VIEW IF EXISTS vw_productos_stock_bajo;
 CREATE VIEW vw_productos_stock_bajo AS
 SELECT
@@ -473,6 +483,8 @@ SET @sql = IF(@col_exists = 0,
     'SELECT 1');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
+-- Fix legacy: en dumps VB6 el nombre puede haber quedado como TABLE (no VIEW) por sintaxis antigua rechazada por MariaDB. Eliminar ambos por seguridad.
+DROP TABLE IF EXISTS vw_lotes_por_vencer;
 DROP VIEW IF EXISTS vw_lotes_por_vencer;
 CREATE VIEW vw_lotes_por_vencer AS
 SELECT
@@ -508,6 +520,8 @@ SET @sql = IF(@col_exists = 0,
     'SELECT 1');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
+-- Fix legacy: en dumps VB6 el nombre puede haber quedado como TABLE (no VIEW) por sintaxis antigua rechazada por MariaDB. Eliminar ambos por seguridad.
+DROP TABLE IF EXISTS vw_componentes_detalle;
 DROP VIEW IF EXISTS vw_componentes_detalle;
 CREATE VIEW vw_componentes_detalle AS
 SELECT
@@ -521,6 +535,8 @@ FROM tblproducto_componentes c
 INNER JOIN tblarticulos p ON c.Items_Padre = p.Items
 INNER JOIN tblarticulos h ON c.Items_Componente = h.Items;
 
+-- Fix legacy: en dumps VB6 el nombre puede haber quedado como TABLE (no VIEW) por sintaxis antigua rechazada por MariaDB. Eliminar ambos por seguridad.
+DROP TABLE IF EXISTS vw_capacidad_compuestos;
 DROP VIEW IF EXISTS vw_capacidad_compuestos;
 CREATE VIEW vw_capacidad_compuestos AS
 SELECT
@@ -886,6 +902,8 @@ WHERE COALESCE(Fact_N, 0) = 0
 -- cuando (abonos + descuentos) igualan el Total. Caso AMMI Fact 932: Yonis
 -- Guerra con Total 160.000, pagos 145.000 + desc 15.000 aparecía con saldo
 -- 15.000 en cartera aunque el cache de tblventas ya estaba en 0.
+-- Fix legacy: en dumps VB6 el nombre puede haber quedado como TABLE (no VIEW) por sintaxis antigua rechazada por MariaDB. Eliminar ambos por seguridad.
+DROP TABLE IF EXISTS vw_facturas_cliente_saldos;
 DROP VIEW IF EXISTS vw_facturas_cliente_saldos;
 CREATE VIEW vw_facturas_cliente_saldos AS
 SELECT
@@ -1118,6 +1136,8 @@ SET @sql = IF(@tb=1 AND @is_ai=0,
   'SELECT 1');
 PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
 
+-- Fix legacy: en dumps VB6 el nombre puede haber quedado como TABLE (no VIEW) por sintaxis antigua rechazada por MariaDB. Eliminar ambos por seguridad.
+DROP TABLE IF EXISTS vw_prov_facturas_anteriores_saldos;
 DROP VIEW IF EXISTS vw_prov_facturas_anteriores_saldos;
 CREATE VIEW vw_prov_facturas_anteriores_saldos AS
 SELECT
@@ -1144,6 +1164,8 @@ GROUP BY f.FacturaN, f.CodigoProv, p.RazonSocial, f.Fecha, f.Dias;
 -- Vista de pedidos crédito con saldo REAL calculado desde tblegresos.
 -- Reemplaza la lectura del cache `tblpedidos.Saldo` que suele estar
 -- desincronizado en BDs legacy (misma lógica que usa el software VB6).
+-- Fix legacy: en dumps VB6 el nombre puede haber quedado como TABLE (no VIEW) por sintaxis antigua rechazada por MariaDB. Eliminar ambos por seguridad.
+DROP TABLE IF EXISTS vw_prov_pedidos_credito_saldos;
 DROP VIEW IF EXISTS vw_prov_pedidos_credito_saldos;
 CREATE VIEW vw_prov_pedidos_credito_saldos AS
 SELECT
@@ -1172,6 +1194,8 @@ WHERE b.TipoPedido <> 'Contado'
   AND b.EstadoPedido = 'Recibido';
 
 -- Aging unificado: facturas anteriores + pedidos crédito, solo con Saldo>0
+-- Fix legacy: en dumps VB6 el nombre puede haber quedado como TABLE (no VIEW) por sintaxis antigua rechazada por MariaDB. Eliminar ambos por seguridad.
+DROP TABLE IF EXISTS vw_prov_cxp_aging;
 DROP VIEW IF EXISTS vw_prov_cxp_aging;
 CREATE VIEW vw_prov_cxp_aging AS
 SELECT
@@ -1191,6 +1215,8 @@ FROM (
 ) x;
 
 -- Saldo actual por proveedor (agregado)
+-- Fix legacy: en dumps VB6 el nombre puede haber quedado como TABLE (no VIEW) por sintaxis antigua rechazada por MariaDB. Eliminar ambos por seguridad.
+DROP TABLE IF EXISTS vw_proveedores_saldo_actual;
 DROP VIEW IF EXISTS vw_proveedores_saldo_actual;
 CREATE VIEW vw_proveedores_saldo_actual AS
 SELECT
