@@ -247,10 +247,19 @@ function buildInvoiceJSON($db, $factura, $items, $companyId, $customerEmailOverr
 
     // Payment form: 1=Contado, 2=Crédito
     $paymentFormId = $factura['Tipo'] === 'Contado' ? 1 : 2;
-    $paymentMethodId = 10; // Efectivo por defecto
-    $medioPago = intval($factura['id_mediopago'] ?? 0);
-    if ($medioPago === 1) $paymentMethodId = 14; // Tarjeta
-    elseif ($medioPago >= 2) $paymentMethodId = 30; // Transferencia
+
+    // payment_method_id: override explícito desde el modal de confirmación FE.
+    // Si viene, se usa tal cual (catálogo DIAN 10/20/30/31/41/42/47/48/49...).
+    // Si no, mapeo automático desde id_mediopago interno.
+    $override = intval($factura['payment_method_id_override'] ?? 0);
+    if ($override > 0) {
+        $paymentMethodId = $override;
+    } else {
+        $paymentMethodId = 10; // Efectivo por defecto
+        $medioPago = intval($factura['id_mediopago'] ?? 0);
+        if ($medioPago === 1) $paymentMethodId = 49; // Tarjeta débito
+        elseif ($medioPago >= 2) $paymentMethodId = 30; // Transferencia crédito
+    }
 
     // Para ventas a CRÉDITO, DIAN exige payment_due_date (regla FAN04) y
     // duration_measure. Sin estos el envío se rechaza con
@@ -264,15 +273,10 @@ function buildInvoiceJSON($db, $factura, $items, $companyId, $customerEmailOverr
         $paymentDueDate = date('Y-m-d', strtotime($factura['Fecha'] . " +{$diasFact} days"));
     }
 
-    // Abono inicial al momento de emitir la factura — va en pre_paid_amount.
-    // Sólo aplica a Crédito con abono > 0 (en Contado el pago está implícito).
-    // Suma Abono + lo recibido en efectivo/transferencia al emitir.
+    // Anticipos DIAN: NO se envían. Los abonos al momento de emitir son movimientos
+    // internos de cartera/caja, no anticipos previos a la factura. Enviarlos rompe
+    // la regla FAU12 (exige detalle de anticipos individuales que sumen el total).
     $prePaidAmount = 0.0;
-    if ($paymentFormId === 2) {
-        $prePaidAmount = floatval($factura['Abono'] ?? 0)
-                       + floatval($factura['efectivo'] ?? 0)
-                       + floatval($factura['valorpagado1'] ?? 0);
-    }
 
     // === Retenciones aplicadas a esta factura (DIAN WithholdingTaxTotal) ===
     $withholdingTaxes = [];
@@ -597,6 +601,13 @@ try {
                 ");
                 $stmtPrev->execute([$factura['Identificacion']]);
                 $customerEmailOverride = trim((string)($stmtPrev->fetchColumn() ?: ''));
+            }
+
+            // payment_method_id explícito desde el modal de confirmación FE.
+            // Se inyecta en $factura para que buildInvoiceJSON lo use tal cual.
+            $pmOverride = intval($data['payment_method_id'] ?? 0);
+            if ($pmOverride > 0) {
+                $factura['payment_method_id_override'] = $pmOverride;
             }
 
             // Build JSON (recibe el email override para inyectarlo en el customer)

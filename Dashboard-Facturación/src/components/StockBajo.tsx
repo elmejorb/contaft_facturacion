@@ -77,21 +77,6 @@ export function StockBajo() {
   );
 }
 
-// Hook reutilizable: cuenta productos con stock bajo (para badge en sidebar)
-export function useStockBajoCount() {
-  const [count, setCount] = useState(0);
-  useEffect(() => {
-    let cancelled = false;
-    const cargar = async () => {
-      try {
-        const r = await fetch(API);
-        const d = await r.json();
-        if (!cancelled && d.success) setCount(d.total || 0);
-      } catch (e) {}
-    };
-    cargar();
-    const timer = setInterval(cargar, 5 * 60 * 1000); // cada 5 min
-    return () => { cancelled = true; clearInterval(timer); };
-  }, []);
-  return count;
-}
+// Hook movido a src/hooks/useStockBajoCount.ts para permitir code-splitting.
+// Importa desde allá: `import { useStockBajoCount } from '../hooks/useStockBajoCount'`.
+export { useStockBajoCount } from '../hooks/useStockBajoCount';

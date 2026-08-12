@@ -547,11 +547,32 @@ export function ConfiguracionSistema() {
           {toggle('Mostrar dirección empresa', 'mostrarDireccion', 'Imprime la dirección del negocio en el encabezado')}
           {toggle('Mostrar precio costo', 'mostrarPrecioCosto', 'Muestra el costo al lado del precio de venta (solo para uso interno)')}
           {toggle('Media carta lado derecho', 'mediaCartaDerecha', 'Imprime en la mitad derecha de la hoja')}
-          {selectField('Máx. productos en media carta', 'maxProductosMediaCarta', [
-            { value: 8, label: '8 productos' }, { value: 10, label: '10 productos' },
-            { value: 12, label: '12 productos' }, { value: 15, label: '15 productos' },
-            { value: 20, label: '20 productos (carta completa)' }
-          ])}
+          {/* Editable libremente: si la factura tiene más de N productos se
+              divide en varias hojas. Recomendado 20; según tipo de impresora
+              y tamaño de letra pueden caber hasta 30. */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #f9fafb' }}>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 500, color: '#374151' }}>Máx. productos en media carta</div>
+              <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 2 }}>Recomendado: 20 · Rango típico: 8 a 30</div>
+            </div>
+            <input
+              type="number"
+              min={1}
+              max={60}
+              value={config.maxProductosMediaCarta}
+              onChange={e => {
+                const n = parseInt(e.target.value, 10);
+                if (!isNaN(n) && n > 0) set('maxProductosMediaCarta', n);
+              }}
+              onBlur={e => {
+                // Clamp al perder foco: mínimo 1, máximo 60 para no romper el layout
+                const n = parseInt(e.target.value, 10);
+                if (isNaN(n) || n < 1) set('maxProductosMediaCarta', 20);
+                else if (n > 60) set('maxProductosMediaCarta', 60);
+              }}
+              style={{ width: 80, height: 28, border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, padding: '0 8px', textAlign: 'center' }}
+            />
+          </div>
           {/* Frase promocional al final del ticket. Al estilo VB6 que mostraba
               "** FELIZ NAVIDAD Y PROSPERO AÑO NUEVO **". Se puede cambiar por
               cualquier frase (agradecimiento, temporada, promoción). Vacío = no imprime. */}

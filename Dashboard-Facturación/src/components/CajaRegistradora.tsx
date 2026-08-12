@@ -153,8 +153,11 @@ export function CajaRegistradora() {
   };
 
   const solicitarCorregirBase = () => {
-    if (!data?.res) return;
-    setBaseCorreccion(String(Math.round(data.res.base || 0)));
+    // Bug histórico: el campo del backend es `resumen`, no `res` — al leer
+    // `data?.res` siempre era undefined y el modal nunca abría. `res` es solo
+    // el alias local declarado más abajo en el render.
+    if (!data?.resumen) return;
+    setBaseCorreccion(String(Math.round(data.resumen.base || 0)));
     setShowCorregirBase(true);
   };
 
@@ -801,7 +804,7 @@ export function CajaRegistradora() {
       )}
 
       {/* Modal: Corregir base de la sesión abierta */}
-      {showCorregirBase && data?.res && (
+      {showCorregirBase && data?.resumen && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.5)' }} onClick={() => setShowCorregirBase(false)} />
           <div style={{ position: 'relative', background: '#fff', borderRadius: 12, padding: 20, width: 380, maxWidth: '90%', boxShadow: '0 20px 50px rgba(0,0,0,0.3)' }}>
@@ -814,13 +817,15 @@ export function CajaRegistradora() {
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4, color: '#6b7280' }}>
               <span>Base actual:</span>
-              <b style={{ color: '#1f2937' }}>{fmtMon(data.res.base || 0)}</b>
+              <b style={{ color: '#1f2937' }}>{fmtMon(data.resumen.base || 0)}</b>
             </div>
             <label style={{ fontSize: 11, color: '#6b7280', display: 'block', marginBottom: 4, marginTop: 8, textTransform: 'uppercase', fontWeight: 600 }}>Base correcta</label>
             <input type="text"
               value={baseCorreccion}
               onChange={e => setBaseCorreccion(e.target.value.replace(/[^0-9]/g, ''))}
               onKeyDown={e => { if (e.key === 'Enter') ejecutarCorregirBase(null); }}
+              onFocus={e => e.target.select()}
+              onClick={e => (e.target as HTMLInputElement).select()}
               placeholder="Ingrese el valor real de la base"
               autoFocus
               style={{ width: '100%', height: 40, padding: '0 12px', border: '2px solid #4338ca', borderRadius: 8, fontSize: 18, fontWeight: 700, color: '#4338ca', outline: 'none', textAlign: 'right', boxSizing: 'border-box' }} />

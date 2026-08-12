@@ -14,10 +14,13 @@ $db = $database->getConnection();
 try {
     if ($_SERVER['REQUEST_METHOD'] === 'GET') {
         // Buscar artículos.
-        // Devuelve `last_iva_compra`: el IvaPct de la última compra de cada producto.
-        // El frontend lo usa como default al agregar el producto a la grilla, para
-        // que clientes en Régimen Simple (catálogo Iva=0) no tengan que recordar
-        // qué IVA tenía en la factura anterior.
+        // Devuelve además metadatos de la ÚLTIMA COMPRA del producto para que
+        // el usuario vea de una el precio/proveedor/fecha antes de agregarlo:
+        //   - last_iva_compra: IvaPct de la última línea (para default en Régimen Simple)
+        //   - ultimo_costo: costo unitario final (con IVA + flete) de la última compra
+        //   - ultima_fecha_compra: fecha de esa compra
+        //   - ultimo_proveedor: nombre del proveedor de esa compra
+        // Se filtran compras Anuladas para no confundir al usuario.
         if (isset($_GET['buscar'])) {
             $q = $_GET['buscar'];
             $stmt = $db->prepare("
@@ -28,7 +31,26 @@ try {
                        (SELECT d.IvaPct
                         FROM tbldetalle_pedido d
                         WHERE d.Items = a.Items
-                        ORDER BY d.Id_DetallePedido DESC LIMIT 1) AS last_iva_compra
+                        ORDER BY d.Id_DetallePedido DESC LIMIT 1) AS last_iva_compra,
+                       (SELECT CASE WHEN d.CostoFinal > 0 THEN d.CostoFinal ELSE d.PrecioC END
+                        FROM tbldetalle_pedido d
+                        INNER JOIN tblpedidos p2 ON p2.Pedido_N = d.Pedido_N
+                        WHERE d.Items = a.Items
+                          AND (p2.EstadoPedido IS NULL OR p2.EstadoPedido != 'Anulada')
+                        ORDER BY p2.Fecha DESC, d.Id_DetallePedido DESC LIMIT 1) AS ultimo_costo,
+                       (SELECT p2.Fecha
+                        FROM tbldetalle_pedido d
+                        INNER JOIN tblpedidos p2 ON p2.Pedido_N = d.Pedido_N
+                        WHERE d.Items = a.Items
+                          AND (p2.EstadoPedido IS NULL OR p2.EstadoPedido != 'Anulada')
+                        ORDER BY p2.Fecha DESC, d.Id_DetallePedido DESC LIMIT 1) AS ultima_fecha_compra,
+                       (SELECT pr.RazonSocial
+                        FROM tbldetalle_pedido d
+                        INNER JOIN tblpedidos p2 ON p2.Pedido_N = d.Pedido_N
+                        LEFT JOIN tblproveedores pr ON pr.CodigoPro = p2.CodigoPro
+                        WHERE d.Items = a.Items
+                          AND (p2.EstadoPedido IS NULL OR p2.EstadoPedido != 'Anulada')
+                        ORDER BY p2.Fecha DESC, d.Id_DetallePedido DESC LIMIT 1) AS ultimo_proveedor
                 FROM tblarticulos a
                 LEFT JOIN tblcategoria c ON a.Id_Categoria = c.Id_Categoria
                 WHERE a.Estado = 1 AND (a.Codigo LIKE :cod OR a.Nombres_Articulo LIKE :nom)
@@ -56,8 +78,55 @@ try {
                 $a['Iva'] = floatval($a['Iva']);
                 $a['Flete'] = floatval($a['Flete']);
                 $a['last_iva_compra'] = $a['last_iva_compra'] !== null ? floatval($a['last_iva_compra']) : null;
+                $a['ultimo_costo'] = $a['ultimo_costo'] !== null ? floatval($a['ultimo_costo']) : null;
+                // ultima_fecha_compra queda como string YYYY-MM-DD HH:MM:SS (o null)
+                // ultimo_proveedor queda como string (o null)
             }
             echo json_encode(['success' => true, 'articulos' => $arts], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        // Lookup: dado un FacturaCompra_N (número del proveedor, varchar) y opcional
+        // Items, devolver el Pedido_N (int auto_increment interno). Se usa desde
+        // el Kardex — el detalle muestra "Compras según Fact Nº X" pero para
+        // abrir el modal necesitamos el Pedido_N.
+        //
+        // Si hay varios pedidos con la misma FacturaCompra_N (proveedores distintos
+        // pueden coincidir), items desambigua: elegimos el más reciente que
+        // contenga ese Items.
+        //
+        // GET ?lookup_pedido=1&factura=40382&items=63
+        if (isset($_GET['lookup_pedido'])) {
+            $factura = trim($_GET['factura'] ?? '');
+            $items = intval($_GET['items'] ?? 0);
+            if ($factura === '') {
+                echo json_encode(['success' => false, 'message' => 'Factura requerida']);
+                exit;
+            }
+            if ($items > 0) {
+                $stmt = $db->prepare("
+                    SELECT p.Pedido_N
+                    FROM tblpedidos p
+                    INNER JOIN tbldetalle_pedido d ON d.Pedido_N = p.Pedido_N
+                    WHERE p.FacturaCompra_N = :factura AND d.Items = :items
+                    ORDER BY p.Fecha DESC, p.Pedido_N DESC
+                    LIMIT 1
+                ");
+                $stmt->execute([':factura' => $factura, ':items' => $items]);
+            } else {
+                $stmt = $db->prepare("
+                    SELECT Pedido_N FROM tblpedidos
+                    WHERE FacturaCompra_N = :factura
+                    ORDER BY Fecha DESC, Pedido_N DESC LIMIT 1
+                ");
+                $stmt->execute([':factura' => $factura]);
+            }
+            $pedidoN = $stmt->fetchColumn();
+            if (!$pedidoN) {
+                echo json_encode(['success' => false, 'message' => "No se encontró compra con factura {$factura}"]);
+                exit;
+            }
+            echo json_encode(['success' => true, 'pedido_n' => intval($pedidoN)]);
             exit;
         }
 

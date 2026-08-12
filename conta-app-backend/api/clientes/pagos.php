@@ -154,15 +154,31 @@ try {
             $totalPagado = 0;
             $facturasAfectadas = 0;
 
+            // INSERT ampliado que también acepta NFactAnt cuando se paga una
+            // factura anterior (número "AT-..." migrado desde el sistema viejo).
+            // El Fact_N va como 0 en esos casos porque no existe en tblventas.
+            $stmtInsertAnt = $db->prepare("
+                INSERT INTO tblpagos (RecCajaN, Codigo, Fact_N, ValorPago, Fecha, DetallePago,
+                    ValorFact, SaldoAct, Descuento, Retencion, Estado, Afectada, id_mediopago, NFactAnt, Nfact_electronica, FechaMod, id_usuario)
+                VALUES (:rec, :codigo, 0, :valor, :fecha, :detalle, :valor_fact, :saldo_act,
+                    :descuento, 0, 'Valida', '1110', :medio, :nfact_ant, '', NOW(), :id_user)
+            ");
+            $stmtUpdateAnt = $db->prepare("
+                UPDATE tblfacturasanteriores
+                SET Saldo = Saldo - :pago
+                WHERE ID_FactAnteriores = :id
+            ");
+
+            $totalPagado = 0;
+            $facturasAfectadas = 0;
+
             foreach ($pagos as $pago) {
                 $factN = $pago->factura_n;
                 $valor = floatval($pago->valor);
                 $descuento = floatval($pago->descuento ?? 0);
 
                 // Rechazar negativos explícitamente. Un pago con ValorPago<0
-                // o Descuento<0 inserta una fila que envenena la vista de saldos
-                // (caso JAIME OSTEN factura 213: $-4.037.000 inflaba el saldo
-                // de $1.032.000 a $5.069.000). Mejor abortar el bulk completo.
+                // o Descuento<0 inserta una fila que envenena la vista de saldos.
                 if ($valor < 0 || $descuento < 0) {
                     $db->rollBack();
                     http_response_code(400);
@@ -173,8 +189,64 @@ try {
 
                 $valorTotal = $valor + $descuento;
 
+                // Detectar si es factura anterior (prefijo "AT-") o normal.
+                // Las anteriores viven en tblfacturasanteriores y usan NFactAnt
+                // en tblpagos (Fact_N queda en 0 porque no existen en tblventas).
+                $esAnterior = is_string($factN) && stripos($factN, 'AT-') === 0;
+
+                if ($esAnterior) {
+                    // Buscar la factura anterior por (FacturaN, CodigoCli)
+                    $stmtBusca = $db->prepare("
+                        SELECT ID_FactAnteriores, Valor, Saldo
+                        FROM tblfacturasanteriores
+                        WHERE FacturaN = :fact AND CodigoCli = :cli
+                        LIMIT 1
+                    ");
+                    $stmtBusca->execute([':fact' => $factN, ':cli' => $clienteId]);
+                    $facAnt = $stmtBusca->fetch();
+                    if (!$facAnt) continue;
+
+                    $saldoActual = floatval($facAnt['Saldo']);
+                    $valorFact = floatval($facAnt['Valor']);
+                    if ($saldoActual <= 0.001) continue;
+
+                    if ($valorTotal > $saldoActual) $valorTotal = $saldoActual;
+                    if ($valor > $saldoActual - $descuento) $valor = max($saldoActual - $descuento, 0);
+
+                    $nuevoSaldo = $saldoActual - $valorTotal;
+                    $esPagoFinal = $saldoActual > 0.001 && $nuevoSaldo <= 0.001;
+                    $detalle = ($esPagoFinal ? "Pago Final" : "Abono") . " de factura anterior Nº {$factN}";
+
+                    $stmtInsertAnt->execute([
+                        ':rec' => $recCaja,
+                        ':codigo' => $clienteId,
+                        ':valor' => $valor,
+                        ':fecha' => $fechaPago,
+                        ':detalle' => $detalle,
+                        ':valor_fact' => $valorFact,
+                        ':saldo_act' => max($nuevoSaldo, 0),
+                        ':descuento' => $descuento,
+                        ':medio' => $medioPago,
+                        ':nfact_ant' => $factN,
+                        ':id_user' => $idUsuario,
+                    ]);
+
+                    // Actualizar el saldo cacheado en tblfacturasanteriores.
+                    // La vista vw_facturas_anteriores_cliente recalcula desde
+                    // tblpagos.NFactAnt, así que este UPDATE es redundante pero
+                    // mantiene el cache consistente si algún reporte lee directo.
+                    $stmtUpdateAnt->execute([
+                        ':pago' => $valorTotal,
+                        ':id' => intval($facAnt['ID_FactAnteriores']),
+                    ]);
+
+                    $totalPagado += $valor;
+                    $facturasAfectadas++;
+                    continue;
+                }
+
+                // === Factura NORMAL (tblventas) ===
                 // Saldo desde la VISTA (fuente de verdad calculada desde tblpagos).
-                // El Saldo cacheado en tblventas puede estar desincronizado.
                 $stmt = $db->prepare("
                     SELECT v.Total, COALESCE(s.Saldo, v.Total) AS Saldo
                     FROM tblventas v
@@ -187,25 +259,12 @@ try {
 
                 $saldoActual = floatval($factura['Saldo']);
                 $valorFact = floatval($factura['Total']);
-
-                // Si el saldo real ya está saldado (≤0), no aceptar más pagos.
-                // Esto evita el bug histórico donde un cache corrupto en negativo
-                // hacía que el clamp "no sobrepagar" convirtiera pagos positivos
-                // en negativos. Caso JAIME OSTEN: cache de 213 en -$4.037.000 +
-                // distribución de $456.000 → terminó insertando -$4.037.000.
                 if ($saldoActual <= 0.001) continue;
 
-                // Don't overpay — usar max(.., 0) por defensa para que un saldo
-                // raro nunca produzca un ValorPago negativo aunque pase el guard.
                 if ($valorTotal > $saldoActual) $valorTotal = $saldoActual;
                 if ($valor > $saldoActual - $descuento) $valor = max($saldoActual - $descuento, 0);
 
                 $nuevoSaldo = $saldoActual - $valorTotal;
-                // Solo etiquetar como "Pago Final" si arrancábamos con saldo real
-                // pendiente y el pago lo cierra. Antes, si el saldo cacheado venía
-                // corrupto en 0 o negativo, hasta un abono de $44.000 sobre una
-                // factura de $950.000 se grababa como "Pago Final" (caso recibo
-                // #42 de Jaime Osten — factura 183).
                 $esPagoFinal = $saldoActual > 0.001 && $nuevoSaldo <= 0.001;
 
                 $detalle = ($esPagoFinal ? "Pago Final" : "Abono") . " de factura Nº {$factN}";
@@ -224,8 +283,7 @@ try {
                     ':id_user' => $idUsuario,
                 ]);
 
-                // Recalcular Saldo desde la fuente de verdad (tblpagos),
-                // no incremental. Auto-cura el cache si estaba desincronizado.
+                // Recalcular Saldo desde la fuente de verdad (tblpagos).
                 recalcularSaldoFactura($db, intval($factN));
 
                 $totalPagado += $valor;
@@ -286,22 +344,39 @@ try {
             $stmt = $db->prepare("UPDATE tblpagos SET Estado = 'Anulada', FechaMod = NOW() WHERE Id_Pagos = :id");
             $stmt->execute([':id' => $idPago]);
 
-            // Reverse: add back to invoice saldo
-            $factN = $pago['NFactAnt'] ?: $pago['Fact_N'];
+            // Reverse: restaurar saldo de la factura.
+            // Si el pago era de factura anterior (NFactAnt con prefijo "AT-"),
+            // devolver el valor al Saldo cacheado en tblfacturasanteriores.
+            // Si era de factura normal, recalcularSaldoFactura hace el trabajo.
+            $nFactAnt = $pago['NFactAnt'] ?? '';
+            $factN = $pago['Fact_N'] ?? 0;
+            $esAnterior = is_string($nFactAnt) && stripos($nFactAnt, 'AT-') === 0;
 
-            if ($factN && $factN != '0') {
-                // Antes el UPDATE delta sumaba el valor del pago anulado al Saldo,
-                // arrastrando errores previos. Ahora se recalcula desde tblpagos —
-                // como el pago ya quedó marcado Estado='Anulada' antes de este punto,
-                // el helper lo excluye correctamente.
+            if ($esAnterior) {
+                // Sumar de vuelta el valor + descuento al Saldo de la factura anterior
+                $totalRevertir = floatval($pago['ValorPago']) + floatval($pago['Descuento']);
+                $db->prepare("
+                    UPDATE tblfacturasanteriores
+                    SET Saldo = Saldo + :val
+                    WHERE FacturaN = :fact AND CodigoCli = :cli
+                ")->execute([
+                    ':val' => $totalRevertir,
+                    ':fact' => $nFactAnt,
+                    ':cli' => intval($pago['Codigo']),
+                ]);
+                $facturaLabel = $nFactAnt;
+            } elseif ($factN && $factN != '0') {
                 recalcularSaldoFactura($db, intval($factN));
+                $facturaLabel = $factN;
+            } else {
+                $facturaLabel = '(desconocida)';
             }
 
             $db->commit();
 
             echo json_encode([
                 "success" => true,
-                "message" => "Pago #{$pago['RecCajaN']} anulado. Saldo de factura $factN restaurado."
+                "message" => "Pago #{$pago['RecCajaN']} anulado. Saldo de factura $facturaLabel restaurado."
             ], JSON_UNESCAPED_UNICODE);
 
         } elseif ($action === 'editar') {

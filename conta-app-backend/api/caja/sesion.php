@@ -134,8 +134,13 @@ try {
         $filtroUsuarioPagos = $idUsuarioSesion > 0 ? ' AND id_usuario = ?' : ''; // tblpagos / tblegresos en minúscula
         $paramsUsuario = $idUsuarioSesion > 0 ? [$fechaApertura, $idUsuarioSesion] : [$fechaApertura];
 
-        // Ventas contado (tblventas) — efectivo NETO = efectivo recibido menos cambio devuelto
-        $stmt = $db->prepare("SELECT COALESCE(SUM(efectivo - COALESCE(Cambio,0)),0) as ef, COALESCE(SUM(valorpagado1),0) as tr, COALESCE(SUM(Total),0) as t, COUNT(*) as c FROM tblventas WHERE Fecha >= ? AND EstadoFact = 'Valida' AND Tipo = 'Contado'$filtroUsuario");
+        // Ventas contado (tblventas) — efectivo NETO = efectivo recibido menos cambio devuelto.
+        // INCLUYE las anuladas del día por diseño contable: cada venta se cuenta
+        // como entrada bruta y la anulación aparece como salida separada en la
+        // línea "Anulaciones". Esto evita el doble descuento que había antes
+        // (excluir anuladas AQUÍ + restar anulaciones aparte descontaba 2 veces).
+        // Es el mismo criterio que usaba el sistema VB6.
+        $stmt = $db->prepare("SELECT COALESCE(SUM(efectivo - COALESCE(Cambio,0)),0) as ef, COALESCE(SUM(valorpagado1),0) as tr, COALESCE(SUM(Total),0) as t, COUNT(*) as c FROM tblventas WHERE Fecha >= ? AND EstadoFact IN ('Valida','Anulada') AND Tipo = 'Contado'$filtroUsuario");
         $stmt->execute($paramsUsuario);
         $vc = $stmt->fetch();
 
@@ -171,9 +176,10 @@ try {
             'c' => intval($vcr['c'])  + intval($vfecr['c']),
         ];
 
-        // Ventas por medio de pago
+        // Ventas por medio de pago — mismo criterio que "Ventas contado":
+        // incluir anuladas para que el desglose por medio cuadre con el total.
         $filtroUsuarioV = $idUsuarioSesion > 0 ? ' AND v.Id_Usuario = ?' : '';
-        $stmt = $db->prepare("SELECT COALESCE(m.nombre_medio,'Efectivo') as medio, v.id_mediopago, COALESCE(SUM(v.Total),0) as total, COALESCE(SUM(v.efectivo - COALESCE(v.Cambio,0)),0) as efectivo, COALESCE(SUM(v.valorpagado1),0) as transferencia FROM tblventas v LEFT JOIN tblmedios_pago m ON v.id_mediopago = m.id_mediopago WHERE v.Fecha >= ? AND v.EstadoFact = 'Valida' AND v.Tipo = 'Contado'$filtroUsuarioV GROUP BY v.id_mediopago, m.nombre_medio");
+        $stmt = $db->prepare("SELECT COALESCE(m.nombre_medio,'Efectivo') as medio, v.id_mediopago, COALESCE(SUM(v.Total),0) as total, COALESCE(SUM(v.efectivo - COALESCE(v.Cambio,0)),0) as efectivo, COALESCE(SUM(v.valorpagado1),0) as transferencia FROM tblventas v LEFT JOIN tblmedios_pago m ON v.id_mediopago = m.id_mediopago WHERE v.Fecha >= ? AND v.EstadoFact IN ('Valida','Anulada') AND v.Tipo = 'Contado'$filtroUsuarioV GROUP BY v.id_mediopago, m.nombre_medio");
         $stmt->execute($paramsUsuario);
         $ventasMedio = $stmt->fetchAll();
 
@@ -390,7 +396,7 @@ try {
             $filtroUm = $idUsuarioSesion > 0 ? ' AND id_usuario = ?' : '';
             $params = $idUsuarioSesion > 0 ? [$fa, $idUsuarioSesion] : [$fa];
 
-            $stmt = $db->prepare("SELECT COALESCE(SUM(efectivo - COALESCE(Cambio,0)),0) as ef, COALESCE(SUM(valorpagado1),0) as tr, COALESCE(SUM(Total),0) as t FROM tblventas WHERE Fecha >= ? AND EstadoFact = 'Valida' AND Tipo = 'Contado'$filtroU");
+            $stmt = $db->prepare("SELECT COALESCE(SUM(efectivo - COALESCE(Cambio,0)),0) as ef, COALESCE(SUM(valorpagado1),0) as tr, COALESCE(SUM(Total),0) as t FROM tblventas WHERE Fecha >= ? AND EstadoFact IN ('Valida','Anulada') AND Tipo = 'Contado'$filtroU");
             $stmt->execute($params); $vc = $stmt->fetch();
             // + FE Contado (solo si el cliente tiene FE)
             $vfe = ['ef' => 0, 'tr' => 0, 't' => 0];

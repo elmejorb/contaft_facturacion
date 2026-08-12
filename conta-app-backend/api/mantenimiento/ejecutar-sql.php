@@ -39,6 +39,12 @@ $SCRIPTS = [
         'descripcion'=> 'Crea índices en las columnas más consultadas (Fecha, CodigoCli, Items, etc.) para acelerar los listados. Recomendado en BDs grandes (>50k ventas).',
         'destructivo'=> false,
     ],
+    'fix_saldos_proveedores' => [
+        'archivo'    => 'fix_vista_saldos_proveedores.sql',
+        'titulo'     => 'Fix: Saldos de proveedores (recomendado)',
+        'descripcion'=> 'Reconcilia el cache de saldos de compras a crédito y optimiza la vista de Cuentas por Pagar (100x más rápido). Aplicar si hay saldos fantasma en proveedores o el listado de CxP tarda en cargar. Toma 30-60 seg.',
+        'destructivo'=> false,
+    ],
 ];
 
 /**

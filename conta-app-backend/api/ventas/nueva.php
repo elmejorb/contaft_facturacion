@@ -159,6 +159,20 @@ try {
     // así que el total ES el subtotal. Cuando IvaIncluido=0 el IVA se agrega
     // al subtotal para llegar al total.
     $total = $ivaIncluidoCfg ? $subtotal : ($subtotal + $totalIva);
+
+    // Guardarraíl: en crédito el abono debe ser ESTRICTAMENTE menor que el total.
+    // Si es igual, la venta es contado (no crédito con abono). Si es mayor, es
+    // error de digitación. Bug reportado: usuaria digitó $24.500.000 en factura
+    // de $116.700 (le sobraron 3 ceros) → pago fantasma de $24.5M en tblpagos.
+    if ($tipo !== 'Contado' && $abono > 0 && $abono >= $total && $total > 0) {
+        http_response_code(400);
+        echo json_encode([
+            'success' => false,
+            'message' => "El abono ($abono) debe ser MENOR que el total ($total). Si va a pagar completo, cambie el término a Contado.",
+        ]);
+        exit;
+    }
+
     $saldo = $tipo === 'Contado' ? 0 : max($total - $abono, 0);
     $pagada = $tipo === 'Contado' ? '1' : ($saldo <= 0 ? '1' : '');
     $pago = $tipo === 'Contado' ? ($efectivo + $valorPagado) : $abono;

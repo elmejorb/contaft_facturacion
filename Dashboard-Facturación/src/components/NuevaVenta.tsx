@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Search, Trash2, Plus, Save, X, ShoppingCart, Lock, Unlock, PackagePlus, Loader2 } from 'lucide-react';
+import { Search, Trash2, Plus, Save, X, ShoppingCart, Lock, Unlock, PackagePlus, Loader2, Send, DollarSign, BookOpen } from 'lucide-react';
+import { HistorialPreciosVentaModal } from './HistorialPreciosVentaModal';
+import { KardexArticuloModal } from './KardexArticuloModal';
 import { EditarArticuloModal } from './EditarArticuloModal';
 import toast from 'react-hot-toast';
 import { getConfigImpresion, getEmpresaCache, saveEmpresaCache } from './ConfiguracionSistema';
@@ -71,6 +73,11 @@ function BuscarClienteModal({ onSelect, onClose }: { onSelect: (c: any) => void;
   // con nombre y email sobrescritos). Los datos van a tblventas.A_nombre /
   // Identificacion / email y de ahí al JSON de la FE. Ideal para compradores
   // ocasionales que solo quieren su factura y no volverán.
+  //
+  // NOTA: NO propagamos el email que devuelve DIAN. La API responde con el
+  // email del último EMISOR que le facturó al NIT, no del cliente consultado
+  // (ej: consultar cédula → devuelve "facturasnoprocesadas@olimpica.com.co").
+  // Si el usuario quiere email, lo escribe manual en el input del cliente.
   const usarSoloEnEstaVenta = () => {
     if (!dianResult) return;
     onSelect({
@@ -79,7 +86,7 @@ function BuscarClienteModal({ onSelect, onClose }: { onSelect: (c: any) => void;
       Razon_Social: dianResult.name,
       Identificacion: dianResult.documento,
       Nit: dianResult.documento,
-      Email: dianResult.email,
+      Email: '',                    // NO usar el email de DIAN — es basura
       Telefono: '0',
       Direccion: '-',
       _ocasional: true,             // hint para el padre — no es cliente real
@@ -103,7 +110,10 @@ function BuscarClienteModal({ onSelect, onClose }: { onSelect: (c: any) => void;
           Razon_Social: dianResult.name,
           Nit: dianResult.documento,
           Identificacion: dianResult.documento,
-          Email: dianResult.email,
+          // El email que devuelve DIAN es del último EMISOR, no del cliente
+          // (ver comentario en usarSoloEnEstaVenta). Se guarda vacío para no
+          // ensuciar la ficha; el usuario lo edita después si lo necesita.
+          Email: '',
           Telefonos: '0', Direccion: '-',
           id_documento: idDocLocal,
         }),
@@ -117,7 +127,7 @@ function BuscarClienteModal({ onSelect, onClose }: { onSelect: (c: any) => void;
           Razon_Social: dianResult.name,
           Identificacion: dianResult.documento,
           Nit: dianResult.documento,
-          Email: dianResult.email,
+          Email: '',
           Telefono: '0',
           Direccion: '-',
         });
@@ -176,8 +186,12 @@ function BuscarClienteModal({ onSelect, onClose }: { onSelect: (c: any) => void;
                   <div style={{ fontSize: 13, fontWeight: 700, color: '#0f172a' }}>{dianResult.name}</div>
                   <div style={{ fontSize: 11, color: '#475569', marginTop: 2 }}>
                     Doc: <b>{dianResult.documento}</b>
-                    {dianResult.email && <> · Email: <b>{dianResult.email}</b></>}
                   </div>
+                  {dianResult.email && (
+                    <div style={{ marginTop: 6, padding: '6px 8px', background: '#fef3c7', border: '1px solid #fbbf24', borderRadius: 6, fontSize: 10, color: '#92400e', lineHeight: 1.4 }}>
+                      <b>Aviso:</b> la DIAN devolvió el email <b>{dianResult.email}</b>, pero suele ser el del último emisor que le facturó a este NIT, no del cliente. Se ignora — si necesita enviar por correo, escríbalo manualmente en el campo Cliente.
+                    </div>
+                  )}
                   <div style={{ display: 'flex', gap: 6, marginTop: 12 }}>
                     <button onClick={usarSoloEnEstaVenta} disabled={consultandoDIAN}
                       style={{ flex: 1, height: 34, background: '#7c3aed', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: 'pointer' }}
@@ -245,7 +259,7 @@ export interface TabState {
   dias: number;
   listaPrecio: number;
   descuentoGlobal: number;
-  cliente: { id: number; nombre: string; nit: string; tel: string; dir: string; cupo: number; esCliente: boolean };
+  cliente: { id: number; nombre: string; nit: string; tel: string; dir: string; cupo: number; esCliente: boolean; preciocosto?: number; ultimoprecio?: number };
   lineas: LineaVenta[];
   // Tipo de documento de la pestaña: pos | electronica | soporte | cotizacion.
   // Se persiste en el state para que VentasTabs pueda cambiarlo desde fuera
@@ -291,7 +305,12 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
   // Reglas de Venta → "Permitir cambiar la fecha de la venta" está activo.
   const hoyISO = () => new Date().toISOString().slice(0, 10);
   const [fechaVenta, setFechaVenta] = useState<string>(hoyISO());
-  const [enviarEmailFE, setEnviarEmailFE] = useState(false);
+  const [enviarEmailFE, setEnviarEmailFE] = useState<boolean>(() => {
+    // Si el cliente inicial tiene un correo válido, prender el envío por defecto.
+    const emailIni = (init.cliente?.email || '').split(/[;,]+/).map(s => s.trim()).filter(Boolean);
+    const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return emailIni.some(t => re.test(t));
+  });
   const [nota, setNota] = useState('');
   const [pedidoOrigenId, setPedidoOrigenId] = useState(0);
   const [showCrearProducto, setShowCrearProducto] = useState(false);
@@ -304,6 +323,16 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
   const [infoCredito, setInfoCredito] = useState<any>(null);
   const [showAuthCupo, setShowAuthCupo] = useState<{ motivo: string } | null>(null);
   const [authCupoAdmin, setAuthCupoAdmin] = useState<AdminAutorizado | null>(null);
+  // Medio de pago DIAN — se muestra en la barra superior cuando el documento es
+  // Factura Electrónica o Doc. Soporte. Va como payment_method_id al backend.
+  const [medioDian, setMedioDian] = useState<number>(10);
+  // Modal simple de confirmación previo al envío DIAN (sin abono, sin pago).
+  const [showConfirmFE, setShowConfirmFE] = useState(false);
+  // Consulta rápida por línea del carrito: precios anteriores y kardex.
+  const [historialItems, setHistorialItems] = useState<number | null>(null);
+  const [kardexItems, setKardexItems] = useState<{ items: number; codigo: string; nombre: string } | null>(null);
+  // Mismo criterio que DetalleFacturaModal — tipoUsuario===1 identifica admin.
+  const esAdmin = (user as any)?.tipoUsuario === 1 || (user as any)?.tipoUsuario === '1';
   const [tipo, setTipo] = useState(init.tipo);
   const [dias, setDias] = useState(init.dias);
   const [cliente, setCliente] = useState(init.cliente);
@@ -364,18 +393,30 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
 
   const seleccionarCliente = (c: any) => {
     const email = c.Email || '';
+    const pc = parseInt(c.Preciocosto ?? 0) === 1 ? 1 : 0;
+    const up = parseInt(c.UltimoPrecio ?? 0) === 1 ? 1 : 0;
     setCliente({
       id: c.CodigoClien, nombre: c.Nombre_Cliente, nit: c.Identificacion || '0',
       tel: c.Telefono || '0', dir: c.Direccion || '-',
-      cupo: parseFloat(c.Cupo) || 0, esCliente: true, email
+      cupo: parseFloat(c.Cupo) || 0, esCliente: true, email,
+      preciocosto: pc,
+      ultimoprecio: up,
     });
+    // Preciocosto tiene prioridad sobre UltimoPrecio si ambos están activos
+    // (facturar a costo es más restrictivo — es una decisión de negocio explícita).
+    if (pc === 1) {
+      toast('Cliente marcado como "Facturar a precio costo" — los productos usarán el costo, no el precio de venta.', { icon: 'ℹ️', duration: 6000 });
+    } else if (up === 1) {
+      toast('Cliente marcado como "Facturar al último precio" — al agregar productos se buscará el precio de la última venta a este cliente.', { icon: 'ℹ️', duration: 6000 });
+    }
     // Si no tiene email válido completo (algo@dominio.tld), desactivar envío.
     // Antes solo verificaba "include('@')" → permitía pasar "abc@" (sin dominio)
     // y la factura salía sin correo a la DIAN sin avisar al usuario.
     const emailRegexValido = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     const tokensCheck = email.split(/[;,]+/).map((s: string) => s.trim()).filter((s: string) => s.length > 0);
     const hayValido = tokensCheck.some((t: string) => emailRegexValido.test(t));
-    if (!hayValido) setEnviarEmailFE(false);
+    // Si hay correo válido, prender por defecto; si no, apagar.
+    setEnviarEmailFE(hayValido);
     setClienteBusqueda('');
     setShowClienteDropdown(false);
     productoInputRef.current?.focus();
@@ -409,7 +450,7 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
     }, 200);
   };
 
-  const agregarProducto = (art: any) => {
+  const agregarProducto = async (art: any) => {
     const cfg = getConfigImpresion();
     // Defensivo: si Servicio viene como string ("0"/"1") el operador `!!`
     // trata "0" como truthy. Usamos Number() === 1 para validar solo el 1.
@@ -449,7 +490,36 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
           return;
         }
       }
-      const precio = listaPrecio === 2 ? (art.Precio_Venta2 || art.Precio_Venta) : listaPrecio === 3 ? (art.Precio_Venta3 || art.Precio_Venta) : art.Precio_Venta;
+      // Precio a aplicar — orden de prioridad:
+      //   1. Preciocosto=1: siempre usa Precio_Costo (más restrictivo, decisión de negocio)
+      //   2. UltimoPrecio=1: busca el último precio al que se le vendió a ESTE cliente
+      //      Si el producto nunca se le ha vendido, cae al precio de lista normal.
+      //   3. Lista de precios (1/2/3) — comportamiento por defecto.
+      let precio: number;
+      if (cliente.preciocosto === 1) {
+        precio = art.Precio_Costo || 0;
+      } else if (cliente.ultimoprecio === 1 && cliente.id && cliente.id !== 130500 && !esServicio) {
+        try {
+          const r = await fetch(`http://localhost:80/conta-app-backend/api/ventas/ultimo-precio.php?items=${art.Items}&cliente=${cliente.id}`);
+          const d = await r.json();
+          if (d.success && d.precio && d.precio > 0) {
+            precio = d.precio;
+            toast(`Último precio a este cliente: ${fmtMon(d.precio)} (Fra. #${d.factura_n})`, { icon: '💰', duration: 4000 });
+          } else {
+            precio = listaPrecio === 2 ? (art.Precio_Venta2 || art.Precio_Venta)
+                  : listaPrecio === 3 ? (art.Precio_Venta3 || art.Precio_Venta)
+                  : art.Precio_Venta;
+          }
+        } catch {
+          precio = listaPrecio === 2 ? (art.Precio_Venta2 || art.Precio_Venta)
+                : listaPrecio === 3 ? (art.Precio_Venta3 || art.Precio_Venta)
+                : art.Precio_Venta;
+        }
+      } else {
+        precio = listaPrecio === 2 ? (art.Precio_Venta2 || art.Precio_Venta)
+              : listaPrecio === 3 ? (art.Precio_Venta3 || art.Precio_Venta)
+              : art.Precio_Venta;
+      }
       const nueva: LineaVenta = {
         id: ++lineaId, Items: art.Items, Codigo: art.Codigo, Nombre: art.Nombres_Articulo,
         Existencia: esServicio ? 0 : art.Existencia, Cantidad: cantInicial, PrecioCosto: art.Precio_Costo,
@@ -922,6 +992,15 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
       setError('El cliente genérico "VENTAS AL CONTADO" no puede usarse en ventas a crédito. Seleccione un cliente real para que la deuda aparezca en Cuentas por Cobrar.');
       return;
     }
+    // FE / Doc. Soporte: sin modal de pago con abono (FAU12). Solo confirmación.
+    // El medio DIAN ya se eligió arriba en la barra; contado o crédito se define
+    // por el select de TÉRMINO. Los pagos son movimiento interno posterior.
+    if (tipoDocumento === 'electronica' || tipoDocumento === 'soporte') {
+      setError('');
+      setPagoEfectivo(''); setPagoTransferencia(''); setPagoAbono('');
+      setShowConfirmFE(true);
+      return;
+    }
     setPagoEfectivo('');
     setPagoTransferencia('');
     setPagoAbono('');
@@ -969,7 +1048,17 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
 
   // Confirmar venta
   const confirmarVenta = async () => {
-    if (tipo === 'Contado' && totalPagado < total) { setError('El pago no cubre el total'); return; }
+    // La validación de "pago cubre el total" solo aplica al modal POS con abono.
+    // Para FE/Soporte no abrimos ese modal — el medio DIAN cubre implícitamente.
+    const esFE = tipoDocumento === 'electronica' || tipoDocumento === 'soporte';
+    if (!esFE && tipo === 'Contado' && totalPagado < total) { setError('El pago no cubre el total'); return; }
+    // Guardarraíl: en crédito, abono debe ser ESTRICTAMENTE menor que el total.
+    // Si es igual, la venta es contado (no crédito con abono). Si es mayor, es
+    // error de digitación (bug reportado: $24.5M en factura de $116k).
+    if (tipo === 'Crédito' && pagoAbonoNum >= total && total > 0) {
+      setError(`El abono ($${pagoAbonoNum.toLocaleString('es-CO')}) debe ser MENOR que el total ($${Math.round(total).toLocaleString('es-CO')}). Si va a pagar completo, cambie el término a Contado.`);
+      return;
+    }
 
     // Pre-check de distribución
     const check = await verificarDistribucion();
@@ -1058,6 +1147,7 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
         body: JSON.stringify({
           action: 'factura', factura_n: factN, send_email: enviarEmailFE,
           customer_email: cliente.email || '',
+          payment_method_id: medioDian,
         })
       });
       const dDian = await rDian.json();
@@ -1108,7 +1198,29 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
     }
 
     setGuardando(true); setError('');
-    const medioFinal = pagoTransfNum > 0 && pagoEfectivoNum === 0 ? pagoMedioTransf : pagoTransfNum > 0 ? pagoMedioTransf : 0;
+    // Para POS: id_mediopago se deriva del reparto efectivo/transferencia del modal.
+    // Para FE/Soporte Contado: no hubo modal, así que el reparto se deduce del
+    // medio DIAN elegido en la barra. Efectivo/transferencia se poblarán abajo
+    // para que la caja cuadre por SUM(efectivo)/SUM(valorpagado1) en tblventas.
+    const esFEContado = (tipoDocumento === 'electronica' || tipoDocumento === 'soporte') && tipo === 'Contado';
+    let medioFinal: number;
+    let efectivoFinal: number;
+    let valorPagadoFinal: number;
+    if (esFEContado) {
+      if (medioDian === 10) {                    // Efectivo puro
+        medioFinal = 0;
+        efectivoFinal = total;
+        valorPagadoFinal = 0;
+      } else {                                   // Cae en cuenta interna
+        medioFinal = pagoMedioTransf;
+        efectivoFinal = 0;
+        valorPagadoFinal = total;
+      }
+    } else {
+      medioFinal = pagoTransfNum > 0 && pagoEfectivoNum === 0 ? pagoMedioTransf : pagoTransfNum > 0 ? pagoMedioTransf : 0;
+      efectivoFinal = pagoEfectivoNum;
+      valorPagadoFinal = pagoTransfNum;
+    }
     try {
       // Si hay gross-up, las líneas se re-escalan individualmente multiplicando cada precio por factorGrossUp
       const lineasFinal = factorGrossUp !== 1
@@ -1129,7 +1241,7 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
         medio_pago: medioFinal, vendedor: user?.id || 0, descuento_global: descuentoGlobal, comentario: nota || '-',
         autorizado_por: authCupoAdmin?.id || null,
         autorizado_por_nombre: authCupoAdmin?.nombre || null,
-        efectivo: pagoEfectivoNum, valor_pagado: pagoTransfNum,
+        efectivo: efectivoFinal, valor_pagado: valorPagadoFinal,
         abono: tipo !== 'Contado' ? pagoAbonoNum : 0,
         items: lineasFinal.map(l => ({
           items: l.Items, cantidad: l.Cantidad, precio: l.PrecioVenta,
@@ -1185,6 +1297,8 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
                 // Va a electronic_documents.customer_email y al JSON DIAN, sin
                 // ensuciar tblventas ni tblclientes.
                 customer_email: cliente.email || '',
+                // Medio de pago DIAN confirmado en el modal (10/20/30/31/41/42/47/48/49...).
+                payment_method_id: medioDian,
               })
             });
             const dDian = await rDian.json();
@@ -1389,6 +1503,40 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
             ))}
           </div>
         </div>
+        {(tipoDocumento === 'electronica' || tipoDocumento === 'soporte') && (
+          <div>
+            <label style={{ fontSize: 9, color: '#6b7280', display: 'block', marginBottom: 2 }}>MEDIO DE PAGO (DIAN)</label>
+            <select value={medioDian} onChange={e => {
+              const v = parseInt(e.target.value);
+              setMedioDian(v);
+              // Sincronizar cuenta destino sugerida: tarjeta → 1; resto no-efectivo → Bancolombia
+              if (v === 48 || v === 49) setPagoMedioTransf(1);
+              else if (v !== 10 && pagoMedioTransf === 1) setPagoMedioTransf(2);
+            }}
+              style={{ height: 28, border: '1px solid #d1d5db', borderRadius: 6, fontSize: 12, padding: '0 4px', width: 220 }}>
+              <option value={10}>10 — Efectivo</option>
+              <option value={20}>20 — Cheque</option>
+              <option value={30}>30 — Transferencia crédito</option>
+              <option value={31}>31 — Débito domiciliado</option>
+              <option value={41}>41 — Concentración efectivo / cheque</option>
+              <option value={42}>42 — Consignación bancaria</option>
+              <option value={47}>47 — Transferencia PSE / botón de pagos</option>
+              <option value={48}>48 — Tarjeta crédito</option>
+              <option value={49}>49 — Tarjeta débito</option>
+            </select>
+          </div>
+        )}
+        {(tipoDocumento === 'electronica' || tipoDocumento === 'soporte') && tipo === 'Contado' && medioDian !== 10 && (
+          <div title="Cuenta interna donde cae el dinero (para cuadre de caja / bancos)">
+            <label style={{ fontSize: 9, color: '#6b7280', display: 'block', marginBottom: 2 }}>CUENTA</label>
+            <select value={pagoMedioTransf} onChange={e => setPagoMedioTransf(parseInt(e.target.value))}
+              style={{ height: 28, border: '1px solid #d1d5db', borderRadius: 6, fontSize: 12, padding: '0 4px', width: 110 }}>
+              <option value={1}>Tarjeta</option>
+              <option value={2}>Bancolombia</option>
+              <option value={3}>Nequi</option>
+            </select>
+          </div>
+        )}
         {tipoDocumento === 'electronica' && (() => {
           // Parsear y validar cada email del cliente. Soporta varios separados
           // por coma o punto y coma. Cada uno se muestra como un badge.
@@ -1476,11 +1624,30 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
           </div>
         </div>
         <div style={{ flex: 1 }}>
-          <label style={{ fontSize: 9, color: '#6b7280', display: 'block', marginBottom: 2 }}>CLIENTE</label>
+          <label style={{ fontSize: 9, color: '#6b7280', display: 'block', marginBottom: 2 }}>
+            CLIENTE
+            {cliente.preciocosto === 1 && (
+              <span title="Facturar a precio costo (definido en la ficha del cliente)"
+                style={{ marginLeft: 6, padding: '1px 6px', background: '#fef3c7', color: '#d97706', borderRadius: 4, fontSize: 9, fontWeight: 700 }}>
+                A COSTO
+              </span>
+            )}
+            {cliente.preciocosto !== 1 && cliente.ultimoprecio === 1 && (
+              <span title="Facturar al último precio de venta a este cliente"
+                style={{ marginLeft: 6, padding: '1px 6px', background: '#dbeafe', color: '#1d4ed8', borderRadius: 4, fontSize: 9, fontWeight: 700 }}>
+                ÚLTIMO PRECIO
+              </span>
+            )}
+          </label>
           <input type="text" value={cliente.nombre}
             onChange={e => setClienteField('nombre', e.target.value)}
             readOnly={cliente.esCliente}
-            style={{ width: '100%', height: 28, padding: '0 8px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, fontWeight: 600, outline: 'none', background: cliente.esCliente ? '#f9fafb' : '#fff' }} />
+            style={{
+              width: '100%', height: 28, padding: '0 8px',
+              border: `1px solid ${cliente.preciocosto === 1 ? '#f59e0b' : cliente.ultimoprecio === 1 ? '#60a5fa' : '#d1d5db'}`,
+              borderRadius: 6, fontSize: 13, fontWeight: 600, outline: 'none',
+              background: cliente.preciocosto === 1 ? '#fffbeb' : cliente.ultimoprecio === 1 ? '#eff6ff' : cliente.esCliente ? '#f9fafb' : '#fff'
+            }} />
         </div>
         <div>
           <label style={{ fontSize: 9, color: '#6b7280', display: 'block', marginBottom: 2 }}>NIT / CC</label>
@@ -1690,8 +1857,20 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
                   </td>
                   <td style={{ padding: '4px 4px', textAlign: 'center', width: 40, color: '#6b7280', fontSize: 10 }}>{l.Iva}%</td>
                   <td style={{ padding: '4px 8px', textAlign: 'right', width: 100, fontWeight: 700 }}>{fmtMon(l.Subtotal)}</td>
-                  <td style={{ padding: '4px 4px', width: 30 }}>
-                    <button onClick={() => eliminarLinea(l.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2 }}>
+                  <td style={{ padding: '4px 4px', width: esAdmin ? 82 : 60, whiteSpace: 'nowrap' }}>
+                    <button onClick={() => setHistorialItems(l.Items)} title="Historial de precios de venta"
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2 }}>
+                      <DollarSign size={13} color="#7c3aed" />
+                    </button>
+                    {esAdmin && (
+                      <button onClick={() => setKardexItems({ items: l.Items, codigo: l.Codigo || '', nombre: l.Nombre || '' })}
+                        title="Kardex del artículo (admin)"
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2 }}>
+                        <BookOpen size={13} color="#0891b2" />
+                      </button>
+                    )}
+                    <button onClick={() => eliminarLinea(l.id)} title="Eliminar línea"
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2 }}>
                       <Trash2 size={13} color="#dc2626" />
                     </button>
                   </td>
@@ -2111,9 +2290,29 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
                       <div style={{ fontSize: 10, color: '#6b7280' }}>Deje en 0 si no hay abono</div>
                     </div>
                     <input type="text" placeholder="$ 0" value={pagoAbono}
-                      onChange={e => setPagoAbono(e.target.value.replace(/[^0-9]/g, ''))}
+                      onChange={e => {
+                        // Bloqueo estricto: el abono a crédito debe ser SIEMPRE menor
+                        // que el total. Si es igual o mayor, no es crédito con abono
+                        // sino contado (o error de digitación como sucedió con la
+                        // factura 103497 — le sobraron 3 ceros al abono).
+                        const raw = e.target.value.replace(/[^0-9]/g, '');
+                        const n = parseInt(raw || '0');
+                        if (n >= total && total > 0) {
+                          const cap = Math.max(0, Math.round(total) - 1);
+                          setPagoAbono(String(cap));
+                          toast.error(`El abono debe ser MENOR que el total ($${Math.round(total).toLocaleString('es-CO')}). Si va a pagar completo, cambie a Contado.`, { duration: 5000 });
+                        } else {
+                          setPagoAbono(raw);
+                        }
+                      }}
                       autoFocus
-                      style={{ width: 130, height: 32, textAlign: 'right', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 14, fontWeight: 700, padding: '0 10px', outline: 'none' }} />
+                      style={{
+                        width: 130, height: 32, textAlign: 'right',
+                        border: `1px solid ${pagoAbonoNum >= total && total > 0 ? '#dc2626' : '#d1d5db'}`,
+                        borderRadius: 8, fontSize: 14, fontWeight: 700, padding: '0 10px', outline: 'none',
+                        background: pagoAbonoNum >= total && total > 0 ? '#fef2f2' : '#fff',
+                        color: pagoAbonoNum >= total && total > 0 ? '#dc2626' : '#111827',
+                      }} />
                   </div>
                   <div style={{ borderTop: '1px solid #e5e7eb', paddingTop: 12 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 4 }}>
@@ -2160,6 +2359,81 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
             setShowAuthCupo(null);
             setTimeout(() => ejecutarVenta(), 100);
           }}
+        />
+      )}
+
+      {/* Modal simple de confirmación FE — el medio DIAN ya está en la barra */}
+      {showConfirmFE && (() => {
+        const medioLabel = ({
+          10:'10 — Efectivo',20:'20 — Cheque',30:'30 — Transferencia crédito',
+          31:'31 — Débito domiciliado',41:'41 — Concentración efectivo / cheque',
+          42:'42 — Consignación bancaria',47:'47 — Transferencia PSE / botón de pagos',
+          48:'48 — Tarjeta crédito',49:'49 — Tarjeta débito'
+        } as Record<number,string>)[medioDian] || `${medioDian}`;
+        const tipoDocLabel = tipoDocumento === 'electronica' ? 'Factura Electrónica' : 'Doc. Soporte';
+        return (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+          <div style={{ background: '#fff', borderRadius: 10, width: 440, boxShadow: '0 10px 30px rgba(0,0,0,0.3)', overflow: 'hidden' }}>
+            <div style={{ padding: '14px 20px', background: '#1e40af', color: '#fff', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Send size={18} />
+              <div style={{ fontSize: 15, fontWeight: 700 }}>Confirmar envío a DIAN</div>
+            </div>
+            <div style={{ padding: 20 }}>
+              <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: 12, marginBottom: 12 }}>
+                <div style={{ fontSize: 10, color: '#065f46', fontWeight: 700, letterSpacing: 0.5 }}>TOTAL A PAGAR</div>
+                <div style={{ fontSize: 26, fontWeight: 800, color: '#16a34a', marginTop: 2 }}>{fmtMon(total)}</div>
+                <div style={{ fontSize: 11, color: '#374151', marginTop: 4 }}>
+                  {tipoDocLabel} · {tipo}{tipo === 'Crédito' ? ` · ${dias} días` : ''} — {cliente.nombre || 'Sin cliente'}
+                </div>
+              </div>
+              <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>Medio de pago DIAN:</div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: '#111827' }}>{medioLabel}</div>
+              {tipo === 'Contado' && medioDian !== 10 && (
+                <>
+                  <div style={{ fontSize: 12, color: '#6b7280', marginTop: 10, marginBottom: 4 }}>Cuenta destino (cuadre):</div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: '#111827' }}>
+                    {(['','Tarjeta','Bancolombia','Nequi'][pagoMedioTransf] || 'Efectivo')}
+                  </div>
+                </>
+              )}
+              <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 10 }}>
+                Para cambiar, cancele y ajústelo en la barra superior.
+              </div>
+            </div>
+            <div style={{ padding: '12px 20px', borderTop: '1px solid #e5e7eb', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button
+                onClick={() => setShowConfirmFE(false)}
+                style={{ height: 34, padding: '0 16px', background: '#f3f4f6', color: '#374151', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 13, cursor: 'pointer' }}>
+                Cancelar
+              </button>
+              <button
+                autoFocus
+                disabled={guardando}
+                onClick={() => {
+                  setShowConfirmFE(false);
+                  setTimeout(() => confirmarVenta(), 50);
+                }}
+                style={{ height: 34, padding: '0 20px', background: '#16a34a', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, opacity: guardando ? 0.6 : 1 }}>
+                <Send size={14} /> Enviar a DIAN
+              </button>
+            </div>
+          </div>
+        </div>
+        );
+      })()}
+
+      {/* Historial de precios de venta por producto */}
+      {historialItems !== null && (
+        <HistorialPreciosVentaModal items={historialItems} onClose={() => setHistorialItems(null)} />
+      )}
+
+      {/* Kardex del producto — reservado a admin */}
+      {kardexItems !== null && (
+        <KardexArticuloModal
+          items={kardexItems.items}
+          codigo={kardexItems.codigo}
+          nombre={kardexItems.nombre}
+          onClose={() => setKardexItems(null)}
         />
       )}
     </div>

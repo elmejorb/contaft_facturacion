@@ -37,7 +37,7 @@ try {
                            c.CupoAutorizado, c.Fecha_Ingreso, c.FechaCumple,
                            c.Nombres, c.Apellidos, c.Direcion_R,
                            c.Nombre_C, c.Apellidos_C, c.Telefonos_C, c.Direccion_C, c.Cargo_C,
-                           c.Termino, c.FacVenc, c.Preciocosto,
+                           c.Termino, c.FacVenc, c.Preciocosto, c.UltimoPrecio,
                            c.id_documento, c.id_municipio, c.id_type_liability, c.id_type_organization, c.id_type_regime,
                            COALESCE(v.Total_Ventas, 0) as Total_Ventas,
                            COALESCE(v.Monto_Ventas, 0) as Monto_Ventas,
@@ -96,10 +96,10 @@ try {
                 INSERT INTO tblclientes (CodigoClien, Razon_Social, Nit, Identificacion, Telefonos, Direccion,
                     Email, Whatsapp, CupoAutorizado, Fecha_Ingreso, FechaCumple,
                     Nombres, Apellidos, Direcion_R, Nombre_C, Apellidos_C, Telefonos_C, Direccion_C, Cargo_C,
-                    Termino, FacVenc, Preciocosto, id_documento, id_municipio, id_type_liability, id_type_organization, id_type_regime)
+                    Termino, FacVenc, Preciocosto, UltimoPrecio, id_documento, id_municipio, id_type_liability, id_type_organization, id_type_regime)
                 VALUES (:id, :razon, :nit, :ident, :tel, :dir, :email, :whats, :cupo, NOW(), :cumple,
                     :nombres, :apellidos, :dir_r, :nom_c, :ape_c, :tel_c, :dir_c, :cargo_c,
-                    :termino, :facvenc, :preciocosto, :id_doc, :id_mun, :id_liab, :id_org, :id_reg)
+                    :termino, :facvenc, :preciocosto, :ultimoprecio, :id_doc, :id_mun, :id_liab, :id_org, :id_reg)
             ");
             $stmt->execute([
                 ':id' => $nextId,
@@ -123,6 +123,7 @@ try {
                 ':termino' => $data->Termino ?? 0,
                 ':facvenc' => $data->FacVenc ?? 0,
                 ':preciocosto' => $data->Preciocosto ?? 0,
+                ':ultimoprecio' => $data->UltimoPrecio ?? 0,
                 ':id_doc' => $data->id_documento ?? 2,
                 ':id_mun' => $data->id_municipio ?? null,
                 ':id_liab' => $data->id_type_liability ?? null,
@@ -158,7 +159,7 @@ try {
                     Nombres = :nombres, Apellidos = :apellidos, Direcion_R = :dir_r,
                     Nombre_C = :nom_c, Apellidos_C = :ape_c, Telefonos_C = :tel_c,
                     Direccion_C = :dir_c, Cargo_C = :cargo_c,
-                    Termino = :termino, FacVenc = :facvenc, Preciocosto = :preciocosto,
+                    Termino = :termino, FacVenc = :facvenc, Preciocosto = :preciocosto, UltimoPrecio = :ultimoprecio,
                     id_documento = :id_doc, id_municipio = :id_mun,
                     id_type_liability = :id_liab, id_type_organization = :id_org, id_type_regime = :id_reg,
                     FechaMod = NOW()
@@ -186,6 +187,7 @@ try {
                 ':termino' => $data->Termino ?? 0,
                 ':facvenc' => $data->FacVenc ?? 0,
                 ':preciocosto' => $data->Preciocosto ?? 0,
+                ':ultimoprecio' => $data->UltimoPrecio ?? 0,
                 ':id_doc' => $data->id_documento ?? 2,
                 ':id_mun' => $data->id_municipio ?? null,
                 ':id_liab' => $data->id_type_liability ?? null,

@@ -63,7 +63,14 @@ export function ClienteDetalle({ clienteId, onClose, tabInicial = 'ventas' }: Pr
     try {
       const r = await fetch(`${API_PAGOS}?cliente=${clienteId}`);
       const d = await r.json();
-      if (d.success) { setPagosData(d); setAbonos(new Map()); setPagoGlobal(''); setDescuentoGlobal(''); }
+      if (d.success) {
+        setPagosData(d);
+        setAbonos(new Map());
+        setPagoGlobal('');
+        setDescuentoGlobal('');
+        // Re-mount inputs uncontrolled — evita mostrar montos del cliente anterior
+        setFormVersion(v => v + 1);
+      }
     } catch (e) { console.error(e); }
   };
 
@@ -78,6 +85,10 @@ export function ClienteDetalle({ clienteId, onClose, tabInicial = 'ventas' }: Pr
       restante -= pago;
     }
     setAbonos(newAbonos);
+    // Los inputs de abono son uncontrolled (defaultValue). Sin incrementar
+    // formVersion no se re-mount y se ven vacíos hasta que se hace focus/blur
+    // en cada celda — bug reportado tras usar "Distribuir" o "Todo".
+    setFormVersion(v => v + 1);
   };
 
   const descGlobal = parseInt(descuentoGlobal.replace(/[^0-9]/g, '') || '0');

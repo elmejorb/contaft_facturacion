@@ -4,12 +4,20 @@ import { Search, RefreshCw, Edit2, Eye } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { NuevaCompra } from './NuevaCompra';
 import { DetalleCompraModal } from './DetalleCompraModal';
+
+// Clave temporal usada como puente entre PurchasesManagement y ComprasTabs
+// para abrir una compra existente en un tab nuevo sin perder tabs abiertos.
+const LS_PENDING_EDIT = 'compras_pending_edit_id';
 import { useAuth } from '../contexts/AuthContext';
 
 const API = 'http://localhost:80/conta-app-backend/api/compras/nueva.php';
 const fmtMon = (v: number) => '$ ' + Math.round(v).toLocaleString('es-CO');
 
-export function PurchasesManagement() {
+interface PurchasesManagementProps {
+  onNavigate?: (view: string) => void;
+}
+
+export function PurchasesManagement({ onNavigate }: PurchasesManagementProps = {}) {
   const { user } = useAuth();
   const esAdmin = user?.tipoUsuario === 1 || user?.tipoUsuario === '1';
   // Permiso granular: admin siempre puede; para otros roles depende de que
@@ -54,6 +62,22 @@ export function PurchasesManagement() {
 
   const totalCompras = filtradas.reduce((s, c) => s + c.Total, 0);
 
+  // Abrir compra existente en un tab nuevo de ComprasTabs. Usamos localStorage
+  // como puente porque ComprasTabs se monta en otro view (nueva-compra) y
+  // necesita saber qué compra editar al aparecer. ComprasTabs lee y borra la
+  // clave al montar.
+  const abrirEditarEnTab = (pedidoN: number) => {
+    if (!puedeEditar) return;
+    try { localStorage.setItem(LS_PENDING_EDIT, String(pedidoN)); } catch (e) {}
+    if (onNavigate) {
+      onNavigate('nueva-compra');
+    } else {
+      // Fallback si el prop no llegó (retro-compatibilidad): flujo in-place viejo
+      setEditarPedido(pedidoN);
+    }
+  };
+
+  // Solo se usa como fallback si no hay onNavigate (versión antigua).
   if (editarPedido !== null && puedeEditar) {
     return <NuevaCompra pedidoEditar={editarPedido} onClose={() => { setEditarPedido(null); cargar(); }} />;
   }
@@ -95,7 +119,9 @@ export function PurchasesManagement() {
             <Eye size={15} color="#2563eb" />
           </button>
           {puedeEditar && p.data.EstadoPedido !== 'Anulada' && (
-            <button onClick={() => setEditarPedido(p.data.Pedido_N)} title="Editar compra"
+            <button
+              onClick={() => abrirEditarEnTab(p.data.Pedido_N)}
+              title="Editar compra en pestaña nueva"
               style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2 }}>
               <Edit2 size={14} color="#7c3aed" />
             </button>

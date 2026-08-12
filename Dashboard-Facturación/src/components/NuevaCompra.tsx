@@ -3,6 +3,7 @@ import { Search, Trash2, Plus, Save, X, Package, Landmark, CreditCard, Smartphon
 import { ProductosProveedor } from './ProductosProveedor';
 import toast from 'react-hot-toast';
 import { EditarArticuloModal } from './EditarArticuloModal';
+import { HistorialPreciosModal } from './HistorialPreciosModal';
 import { useAuth } from '../contexts/AuthContext';
 import { getConfigImpresion, getEmpresaCache } from './ConfiguracionSistema';
 
@@ -42,14 +43,45 @@ function loadSaved() {
   return null;
 }
 
-export function NuevaCompra({ pedidoEditar, onClose }: { pedidoEditar?: number; onClose?: () => void } = {}) {
+// Estado persistible de una compra en armado. Lo usa ComprasTabs para mantener
+// una compra por tab en memoria — cada tab tiene su propio TabStateCompra
+// independiente, sin colisionar entre ellas.
+export interface TabStateCompra {
+  tipo: string;
+  dias: number;
+  fecha: string;
+  facturaCompra: string;
+  proveedor: { id: number; nombre: string; nit: string };
+  opcionIva: number;
+  lineas: LineaCompra[];
+  flete: number;
+  descuento: number;
+  retencion: number;
+}
+
+interface NuevaCompraProps {
+  pedidoEditar?: number;
+  onClose?: () => void;
+  // Modo controlado (ComprasTabs pasa estos props). Si vienen, ignoramos el
+  // localStorage global y usamos el estado del tab. Sin ellos, comportamiento
+  // clásico con LS_KEY (para retro-compatibilidad con Dashboard viejo).
+  initialState?: TabStateCompra;
+  onStateChange?: (state: TabStateCompra) => void;
+}
+
+export function NuevaCompra({ pedidoEditar, onClose, initialState, onStateChange }: NuevaCompraProps = {}) {
   const { user } = useAuth();
   // Si el negocio NO maneja lotes/vencimientos (boutique, ferretería, accesorios),
   // ignoramos completamente el flag requiere_lote del catálogo: no se muestra
   // la fila de vencimiento ni el badge "PERECEDERO". Se activa en
   // Configuración → Módulos opcionales del negocio → "Fechas de vencimiento / Lotes".
   const usarLotes = getConfigImpresion().usarLotes;
-  const saved = pedidoEditar ? null : loadSaved();
+
+  // Origen del estado inicial: modo tab (initialState) tiene prioridad.
+  // Sin tab y sin edición → cargar borrador de localStorage.
+  const controlled = !!initialState;
+  const saved: any = controlled ? initialState : (pedidoEditar ? null : loadSaved());
+
   const [pedidoN, setPedidoN] = useState(pedidoEditar || 0);
   const [modoEdicion, setModoEdicion] = useState(!!pedidoEditar);
   const [tipo, setTipo] = useState(saved?.tipo || 'Crédito');
@@ -76,15 +108,34 @@ export function NuevaCompra({ pedidoEditar, onClose }: { pedidoEditar?: number; 
   // descuenta la caja; los demás quedan como egreso registrado.
   const [showPagoModal, setShowPagoModal] = useState(false);
   const [medioPago, setMedioPago] = useState(0);
+  // Modal de historial de precios de un producto de la compra.
+  // Guarda el Items del producto seleccionado; null = modal cerrado.
+  const [historialItems, setHistorialItems] = useState<number | null>(null);
   const searchTimer = useRef<any>(null);
   const codigoRef = useRef<HTMLInputElement>(null);
   const buscarInputRef = useRef<HTMLInputElement>(null);
 
-  // Persistir en localStorage
+  // Persistencia del estado de la compra en armado.
+  //
+  // Dos modos:
+  //   1) Controlado por ComprasTabs (controlled=true): notificamos cada
+  //      cambio al padre via onStateChange. El padre guarda por tab. NO
+  //      tocamos localStorage global — con múltiples tabs colisiona.
+  //   2) Modo clásico (controlled=false): persistimos en LS_KEY como antes,
+  //      excepto en modo edición (evita sobrescribir el borrador con datos
+  //      de una compra que se abrió a consultar).
+  const onStateChangeRef = useRef(onStateChange);
+  onStateChangeRef.current = onStateChange;
   useEffect(() => {
+    if (modoEdicion) return;
+    if (controlled) {
+      const data: TabStateCompra = { tipo, dias, fecha, facturaCompra, proveedor, opcionIva, lineas, flete, descuento, retencion };
+      onStateChangeRef.current?.(data);
+      return;
+    }
     const data = { tipo, dias, fecha, facturaCompra, proveedor, opcionIva, lineas, flete, descuento, retencion };
     localStorage.setItem(LS_KEY, JSON.stringify(data));
-  }, [tipo, dias, fecha, facturaCompra, proveedor, opcionIva, lineas, flete, descuento, retencion]);
+  }, [controlled, modoEdicion, tipo, dias, fecha, facturaCompra, proveedor, opcionIva, lineas, flete, descuento, retencion]);
 
   useEffect(() => {
     fetch(`${API}?proveedores=1`).then(r => r.json()).then(d => { if (d.success) setProveedores(d.proveedores); });
@@ -811,7 +862,19 @@ export function NuevaCompra({ pedidoEditar, onClose }: { pedidoEditar?: number; 
                       style={{ width: 70, height: 22, textAlign: 'right', border: '1px solid #d1d5db', borderRadius: 4, fontSize: 11, color: '#7c3aed', fontWeight: 600 }} />
                   </td>
                   <td style={{ padding: '3px 6px', textAlign: 'right', fontWeight: 700, whiteSpace: 'nowrap' }}>{fmtMon(l.Subtotal)}</td>
-                  <td style={{ padding: '2px' }}><button onClick={() => eliminarLinea(l.id)} style={{ background: 'none', border: 'none', cursor: 'pointer' }}><Trash2 size={12} color="#dc2626" /></button></td>
+                  <td style={{ padding: '2px', display: 'flex', gap: 3, alignItems: 'center', justifyContent: 'center', height: '100%' }}>
+                    <button type="button"
+                      onClick={() => setHistorialItems(l.Items)}
+                      title="Ver historial de precios de compra de este producto"
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2 }}>
+                      <BarChart3 size={12} color="#7c3aed" />
+                    </button>
+                    <button onClick={() => eliminarLinea(l.id)}
+                      title="Eliminar línea"
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2 }}>
+                      <Trash2 size={12} color="#dc2626" />
+                    </button>
+                  </td>
                 </tr>
                 {l.RequiereLote ? (
                   <tr style={{ borderBottom: '1px solid #f3f4f6', background: '#fffbeb' }}>
@@ -857,18 +920,47 @@ export function NuevaCompra({ pedidoEditar, onClose }: { pedidoEditar?: number; 
                     style={{ width: '100%', height: 24, padding: '0 6px', border: '1px solid #d1d5db', borderRadius: 4, fontSize: 11 }} />
                   {showProdDrop && buscarInputRef.current && (() => {
                     const rect = buscarInputRef.current!.getBoundingClientRect();
+                    // Ancho holgado para que los nombres largos + la sub-línea
+                    // "Última: $X · Proveedor · hace Y días" respiren.
+                    // Cap al viewport para no salir de pantalla en monitores chicos.
+                    const anchoDeseado = Math.max(rect.width, 750);
+                    const anchoFinal = Math.min(anchoDeseado, window.innerWidth - rect.left - 16);
                     return (
-                      <div style={{ position: 'fixed', top: rect.bottom + 2, left: rect.left, width: Math.max(rect.width, 500), background: '#fff', border: '1px solid #d1d5db', borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,0.15)', maxHeight: 250, overflow: 'auto', zIndex: 9999 }}>
-                        {prodResults.length > 0 ? prodResults.map(a => (
-                          <div key={a.Items} onClick={() => agregarProducto(a)}
-                            style={{ padding: '5px 10px', cursor: 'pointer', fontSize: 12, borderBottom: '1px solid #f3f4f6', display: 'flex', gap: 6 }}
-                            onMouseOver={e => (e.currentTarget.style.background = '#fef2f2')} onMouseOut={e => (e.currentTarget.style.background = '')}>
-                            <span style={{ color: '#6b7280', width: 85, flexShrink: 0, fontSize: 11 }}>{a.Codigo}</span>
-                            <span style={{ flex: 1, fontWeight: 500 }}>{a.Nombres_Articulo}</span>
-                            <span style={{ color: '#16a34a', fontWeight: 600, width: 40, textAlign: 'right' }}>{a.Existencia}</span>
-                            <span style={{ color: '#dc2626', fontWeight: 600, width: 80, textAlign: 'right' }}>{fmtMon(a.Precio_Costo)}</span>
-                          </div>
-                        )) : buscarProd.length >= 2 && (
+                      <div style={{ position: 'fixed', top: rect.bottom + 2, left: rect.left, width: anchoFinal, background: '#fff', border: '1px solid #d1d5db', borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,0.15)', maxHeight: 320, overflow: 'auto', zIndex: 9999 }}>
+                        {prodResults.length > 0 ? prodResults.map(a => {
+                          // Info de última compra (viene del endpoint enriquecido):
+                          // costo unitario final (con IVA + flete), proveedor y fecha.
+                          // Útil para ver de un vistazo si el precio actual está
+                          // subiendo antes de agregar el producto.
+                          const ultCosto = a.ultimo_costo ? Number(a.ultimo_costo) : null;
+                          const ultProv = a.ultimo_proveedor || '';
+                          const ultFecha = a.ultima_fecha_compra;
+                          let diasAtras = '';
+                          if (ultFecha) {
+                            const dt = new Date(ultFecha);
+                            const diff = Math.floor((Date.now() - dt.getTime()) / 86400000);
+                            diasAtras = diff <= 0 ? 'hoy' : diff === 1 ? 'ayer' : `hace ${diff} días`;
+                          }
+                          return (
+                            <div key={a.Items} onClick={() => agregarProducto(a)}
+                              style={{ padding: '5px 10px', cursor: 'pointer', fontSize: 12, borderBottom: '1px solid #f3f4f6' }}
+                              onMouseOver={e => (e.currentTarget.style.background = '#fef2f2')} onMouseOut={e => (e.currentTarget.style.background = '')}>
+                              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                                <span style={{ color: '#6b7280', width: 85, flexShrink: 0, fontSize: 11 }}>{a.Codigo}</span>
+                                <span style={{ flex: 1, fontWeight: 500 }}>{a.Nombres_Articulo}</span>
+                                <span style={{ color: '#16a34a', fontWeight: 600, width: 40, textAlign: 'right', fontSize: 11 }} title="Existencia actual">{a.Existencia}</span>
+                                <span style={{ color: '#dc2626', fontWeight: 600, width: 80, textAlign: 'right', fontSize: 11 }} title="Costo del catálogo">{fmtMon(a.Precio_Costo)}</span>
+                              </div>
+                              {ultCosto !== null && (
+                                <div style={{ marginTop: 2, marginLeft: 91, display: 'flex', gap: 8, fontSize: 10, color: '#7c3aed', flexWrap: 'wrap' }}>
+                                  <span style={{ fontWeight: 600 }}>Última: {fmtMon(ultCosto)}</span>
+                                  {ultProv && <span style={{ color: '#6b7280' }}>· {ultProv}</span>}
+                                  {diasAtras && <span style={{ color: '#9ca3af' }}>· {diasAtras}</span>}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        }) : buscarProd.length >= 2 && (
                           <div style={{ padding: '12px 10px', textAlign: 'center', color: '#9ca3af', fontSize: 12 }}>
                             No se encontró "{buscarProd}"
                           </div>
@@ -1248,6 +1340,11 @@ export function NuevaCompra({ pedidoEditar, onClose }: { pedidoEditar?: number; 
           }}
           modo="nuevo"
         />
+      )}
+
+      {/* Modal historial de precios del producto */}
+      {historialItems !== null && (
+        <HistorialPreciosModal items={historialItems} onClose={() => setHistorialItems(null)} />
       )}
     </div>
   );

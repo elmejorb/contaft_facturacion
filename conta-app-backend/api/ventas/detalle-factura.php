@@ -79,33 +79,131 @@ try {
         $factN = intval($data['factura_n'] ?? 0);
 
         if ($action === 'editar') {
-            // Verificar que se puede editar
-            $stmt = $db->prepare("SELECT COUNT(*) as c FROM tblpagos WHERE Fact_N = ? AND Estado = 'Valida'");
+            // Leer estado ACTUAL de la factura antes de modificar. Necesitamos
+            // Tipo/Total/id_mediopago previos para detectar los cambios y decidir
+            // qué hacer con tblpagos y con los campos efectivo/valorpagado1.
+            $stmtCurr = $db->prepare("SELECT Tipo, Total, id_mediopago FROM tblventas WHERE Factura_N = ?");
+            $stmtCurr->execute([$factN]);
+            $curr = $stmtCurr->fetch();
+            $tipoAnterior = $curr['Tipo'] ?? '';
+            $totalFactura = floatval($curr['Total'] ?? 0);
+            $medioAnterior = intval($curr['id_mediopago'] ?? 0);
+
+            $nuevoTipo = $data['tipo'];
+            $nuevoMedio = intval($data['id_mediopago'] ?? 0);
+
+            // Chequeo "no editar si tiene pagos" — pero excluye los pagos
+            // AUTOMÁTICOS creados por este mismo flujo al convertir a Contado
+            // (DetallePago LIKE 'Pago total al convertir%'). Esos sí se pueden
+            // anular porque no fueron cobros manuales reales del cliente.
+            $stmt = $db->prepare("
+                SELECT COUNT(*) as c FROM tblpagos
+                WHERE Fact_N = ? AND Estado = 'Valida'
+                  AND DetallePago NOT LIKE 'Pago total al convertir%'
+                  AND DetallePago NOT LIKE 'Backfill:%'
+            ");
             $stmt->execute([$factN]);
             if ($stmt->fetch()['c'] > 0) {
-                echo json_encode(['success' => false, 'message' => 'No se puede editar: tiene pagos registrados']);
+                echo json_encode(['success' => false, 'message' => 'No se puede editar: tiene pagos manuales registrados']);
                 exit;
             }
 
+            // Calcular campos efectivo / valorpagado1 según el nuevo Tipo y medio.
+            // Regla: id_mediopago=0 → efectivo; id_mediopago>0 → valorpagado1.
+            $efectivoNuevo = 0.0;
+            $valorpagado1Nuevo = 0.0;
+            if ($nuevoTipo === 'Contado') {
+                if ($nuevoMedio === 0) $efectivoNuevo = $totalFactura;
+                else                    $valorpagado1Nuevo = $totalFactura;
+            }
+
+            // UPDATE consolidado incluyendo campos de caja
             $stmt = $db->prepare("
                 UPDATE tblventas SET
                     CodigoCli = ?, A_nombre = ?, Identificacion = ?, Direccion = ?, Telefono = ?,
-                    Tipo = ?, Dias = ?, Fecha = ?
+                    Tipo = ?, Dias = ?, Fecha = ?,
+                    id_mediopago = ?, efectivo = ?, valorpagado1 = ?
                 WHERE Factura_N = ? AND EstadoFact = 'Valida'
             ");
             $stmt->execute([
                 $data['cliente_id'], $data['cliente_nombre'], $data['identificacion'],
                 $data['direccion'], $data['telefono'],
-                $data['tipo'], intval($data['dias'] ?? 0), $data['fecha'],
+                $nuevoTipo, intval($data['dias'] ?? 0), $data['fecha'],
+                $nuevoMedio, $efectivoNuevo, $valorpagado1Nuevo,
                 $factN
             ]);
 
-            // Si cambió a contado, poner saldo en 0
-            if ($data['tipo'] === 'Contado') {
+            // Saldo/pagada según Tipo
+            if ($nuevoTipo === 'Contado') {
                 $db->prepare("UPDATE tblventas SET Saldo = 0, pagada = '1' WHERE Factura_N = ?")->execute([$factN]);
+            } else {
+                // Volvió a Crédito: restaurar Saldo = Total y pagada = ''
+                $db->prepare("UPDATE tblventas SET Saldo = ?, pagada = '' WHERE Factura_N = ?")->execute([$totalFactura, $factN]);
             }
 
-            echo json_encode(['success' => true, 'message' => 'Factura actualizada']);
+            // Detectar tipos de cambio
+            $convertidaAContado    = ($tipoAnterior !== 'Contado' && $nuevoTipo === 'Contado');
+            $revertidaACredito     = ($tipoAnterior === 'Contado' && $nuevoTipo !== 'Contado');
+            $cambioSoloMedioPago   = ($tipoAnterior === 'Contado' && $nuevoTipo === 'Contado' && $medioAnterior !== $nuevoMedio);
+
+            // === CASO 1: Crédito → Contado ===
+            // Registrar el cobro en tblpagos con Fecha=NOW() para que aparezca
+            // en la caja del día en que se hace el cambio.
+            if ($convertidaAContado && $totalFactura > 0) {
+                $idUsuario = intval($data['id_usuario'] ?? 0);
+
+                $stmtRec = $db->query("SELECT COALESCE(MAX(RecCajaN), 0) + 1 AS n FROM tblpagos");
+                $recN = intval($stmtRec->fetch()['n']);
+
+                $stmtPago = $db->prepare("
+                    INSERT INTO tblpagos (RecCajaN, Codigo, Fact_N, ValorPago, Fecha, DetallePago,
+                        ValorFact, SaldoAct, Descuento, Retencion, Estado, Afectada, id_mediopago,
+                        NFactAnt, Nfact_electronica, FechaMod, id_usuario)
+                    VALUES (:rec, :codigo, :fact_n, :valor, NOW(), :detalle,
+                        :valor_fact, 0, 0, 0, 'Valida', '1110', :medio,
+                        '', '', NOW(), :id_user)
+                ");
+                $stmtPago->execute([
+                    ':rec'        => $recN,
+                    ':codigo'     => intval($data['cliente_id'] ?? 0),
+                    ':fact_n'     => $factN,
+                    ':valor'      => $totalFactura,
+                    ':detalle'    => "Pago total al convertir a Contado - Fra $factN",
+                    ':valor_fact' => $totalFactura,
+                    ':medio'      => $nuevoMedio,
+                    ':id_user'    => $idUsuario,
+                ]);
+            }
+
+            // === CASO 2: Contado → Crédito ===
+            // Anular el pago automático que se había creado (si existe). No lo
+            // borramos — regla contable de inmutabilidad — sino que lo marcamos
+            // Anulada para que deje de sumar en caja.
+            if ($revertidaACredito) {
+                $db->prepare("
+                    UPDATE tblpagos SET Estado = 'Anulada', FechaMod = NOW()
+                    WHERE Fact_N = ? AND Estado = 'Valida'
+                      AND DetallePago LIKE 'Pago total al convertir%'
+                ")->execute([$factN]);
+            }
+
+            // === CASO 3: Contado → Contado, cambio de medio de pago ===
+            // Si existe un pago automático previo (del caso 1 anterior),
+            // actualizar su id_mediopago para que la caja lo sume por el nuevo
+            // medio. Solo se toca el registro automático, no cobros manuales.
+            if ($cambioSoloMedioPago) {
+                $db->prepare("
+                    UPDATE tblpagos SET id_mediopago = ?, FechaMod = NOW()
+                    WHERE Fact_N = ? AND Estado = 'Valida'
+                      AND DetallePago LIKE 'Pago total al convertir%'
+                ")->execute([$nuevoMedio, $factN]);
+            }
+
+            $msg = $convertidaAContado ? 'Factura actualizada y cobro registrado en caja'
+                : ($revertidaACredito ? 'Factura revertida a Crédito y cobro anulado'
+                : ($cambioSoloMedioPago ? 'Medio de pago actualizado'
+                : 'Factura actualizada'));
+            echo json_encode(['success' => true, 'message' => $msg]);
 
         } elseif ($action === 'devolucion') {
             $items = $data['items'] ?? []; // [{id_detalle, cant_devolver}]

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, lazy, Suspense } from 'react';
 import { Button } from './ui/button';
 import toast from 'react-hot-toast';
 import appIcon from '../assets/icon.png';
@@ -44,57 +44,69 @@ import {
   Smartphone,
   CalendarDays
 } from 'lucide-react';
-import { IncomeOverview } from './IncomeOverview';
-import { ProductsManagement } from './ProductsManagement';
-import { CustomersManagement } from './CustomersManagement';
-import { ProveedoresManagement } from './ProveedoresManagement';
-import { ProductosProveedor } from './ProductosProveedor';
-import { VentasTabs } from './VentasTabs';
-import { PurchasesManagement } from './PurchasesManagement';
-import { SalesManagement } from './SalesManagement';
-import { VentasPorTipoPago } from './VentasPorTipoPago';
-import { FacturacionElectronica } from './FacturacionElectronica';
-import { FacturasRecibidas } from './FacturasRecibidas';
-import { CajaRegistradora } from './CajaRegistradora';
-import { HistorialCajas } from './HistorialCajas';
-import { ListadoPagosClientes, ListadoPagosProveedores } from './ListadoPagos';
-import { GastosManagement } from './GastosManagement';
-import { BancosManagement } from './BancosManagement';
-import { ConfigCategoriasGasto } from './ConfigCategoriasGasto';
-import { ConfigRetenciones } from './ConfigRetenciones';
-import { ConfigEtiquetas } from './ConfigEtiquetas';
-import { ConfigCajas } from './ConfigCajas';
-import { ConfigServidor } from './ConfigServidor';
-import { ConfigPermisos } from './ConfigPermisos';
-import { DashboardVendedor } from './DashboardVendedor';
-import { InventarioManagement } from './InventarioManagement';
-import { DiagnosticoInventario } from './DiagnosticoInventario';
-import { AuditoriaInventario } from './AuditoriaInventario';
-import { CategoriasManagement } from './CategoriasManagement';
-import { ConteoInventario } from './ConteoInventario';
-import { FamiliasProducto } from './FamiliasProducto';
-import { DistribuirProductos } from './DistribuirProductos';
-import { StockBajo, useStockBajoCount } from './StockBajo';
-import { NotasArticulo } from './NotasArticulo';
-import { LotesPorVencer } from './LotesPorVencer';
+// LIGEROS (necesarios en el arranque) — imports estáticos
 import { PantallaInicio } from './PantallaInicio';
+import { NotificacionEmergente } from './NotificacionEmergente';
+import { DashboardVendedor } from './DashboardVendedor';
 import { useNotificaciones } from '../hooks/useNotificaciones';
 import { useAutoSyncVendedores } from '../hooks/useAutoSyncVendedores';
-import { InformesHub } from './informes/InformesHub';
-import { ConfiguracionSistema, saveEmpresaCache, getConfigImpresion } from './ConfiguracionSistema';
-import { FinanciacionesManagement } from './FinanciacionesManagement';
-import { BackupBD } from './BackupBD';
-import { MantenimientoBD } from './MantenimientoBD';
-import { AnticiposClientes } from './AnticiposClientes';
-import { DatosEmpresa } from './DatosEmpresa';
-import { NuevaCompra } from './NuevaCompra';
-import { UsuariosManagement } from './UsuariosManagement';
-import { VendedoresMovil } from './VendedoresMovil';
-import { VendedoresPedidos } from './VendedoresPedidos';
 import { useVendedoresConfig } from '../hooks/useVendedoresConfig';
-import { CuentasPorCobrar } from './CuentasPorCobrar';
-import { TopClientes } from './TopClientes';
-import { CumpleanosClientes, useCumpleanosHoy } from './CumpleanosClientes';
+import { useStockBajoCount } from '../hooks/useStockBajoCount';
+import { useCumpleanosHoy } from '../hooks/useCumpleanosHoy';
+// Estos exports NO son componentes (funciones/consts) → deben ser estáticos.
+// Se usan en efectos y helpers fuera del área de rendering perezoso.
+import { saveEmpresaCache, getConfigImpresion } from './ConfiguracionSistema';
+
+// PESADOS (usan AG Grid, xlsx, recharts, tabs enteros) — lazy con code-splitting.
+// Cada uno se descarga cuando el usuario navega a esa sección. Reduce el bundle
+// inicial y arranca más rápido, sobre todo en Celeron.
+const IncomeOverview = lazy(() => import('./IncomeOverview').then(m => ({ default: m.IncomeOverview })));
+const ProductsManagement = lazy(() => import('./ProductsManagement').then(m => ({ default: m.ProductsManagement })));
+const CustomersManagement = lazy(() => import('./CustomersManagement').then(m => ({ default: m.CustomersManagement })));
+const ProveedoresManagement = lazy(() => import('./ProveedoresManagement').then(m => ({ default: m.ProveedoresManagement })));
+const ProductosProveedor = lazy(() => import('./ProductosProveedor').then(m => ({ default: m.ProductosProveedor })));
+const VentasTabs = lazy(() => import('./VentasTabs').then(m => ({ default: m.VentasTabs })));
+const PurchasesManagement = lazy(() => import('./PurchasesManagement').then(m => ({ default: m.PurchasesManagement })));
+const SalesManagement = lazy(() => import('./SalesManagement').then(m => ({ default: m.SalesManagement })));
+const VentasPorTipoPago = lazy(() => import('./VentasPorTipoPago').then(m => ({ default: m.VentasPorTipoPago })));
+const FacturacionElectronica = lazy(() => import('./FacturacionElectronica').then(m => ({ default: m.FacturacionElectronica })));
+const FacturasRecibidas = lazy(() => import('./FacturasRecibidas').then(m => ({ default: m.FacturasRecibidas })));
+const CajaRegistradora = lazy(() => import('./CajaRegistradora').then(m => ({ default: m.CajaRegistradora })));
+const HistorialCajas = lazy(() => import('./HistorialCajas').then(m => ({ default: m.HistorialCajas })));
+const ListadoPagosClientes = lazy(() => import('./ListadoPagos').then(m => ({ default: m.ListadoPagosClientes })));
+const ListadoPagosProveedores = lazy(() => import('./ListadoPagos').then(m => ({ default: m.ListadoPagosProveedores })));
+const GastosManagement = lazy(() => import('./GastosManagement').then(m => ({ default: m.GastosManagement })));
+const BancosManagement = lazy(() => import('./BancosManagement').then(m => ({ default: m.BancosManagement })));
+const ConfigCategoriasGasto = lazy(() => import('./ConfigCategoriasGasto').then(m => ({ default: m.ConfigCategoriasGasto })));
+const ConfigRetenciones = lazy(() => import('./ConfigRetenciones').then(m => ({ default: m.ConfigRetenciones })));
+const ConfigEtiquetas = lazy(() => import('./ConfigEtiquetas').then(m => ({ default: m.ConfigEtiquetas })));
+const ConfigCajas = lazy(() => import('./ConfigCajas').then(m => ({ default: m.ConfigCajas })));
+const ConfigServidor = lazy(() => import('./ConfigServidor').then(m => ({ default: m.ConfigServidor })));
+const ConfigPermisos = lazy(() => import('./ConfigPermisos').then(m => ({ default: m.ConfigPermisos })));
+const InventarioManagement = lazy(() => import('./InventarioManagement').then(m => ({ default: m.InventarioManagement })));
+const DiagnosticoInventario = lazy(() => import('./DiagnosticoInventario').then(m => ({ default: m.DiagnosticoInventario })));
+const AuditoriaInventario = lazy(() => import('./AuditoriaInventario').then(m => ({ default: m.AuditoriaInventario })));
+const CategoriasManagement = lazy(() => import('./CategoriasManagement').then(m => ({ default: m.CategoriasManagement })));
+const ConteoInventario = lazy(() => import('./ConteoInventario').then(m => ({ default: m.ConteoInventario })));
+const FamiliasProducto = lazy(() => import('./FamiliasProducto').then(m => ({ default: m.FamiliasProducto })));
+const DistribuirProductos = lazy(() => import('./DistribuirProductos').then(m => ({ default: m.DistribuirProductos })));
+const StockBajo = lazy(() => import('./StockBajo').then(m => ({ default: m.StockBajo })));
+const NotasArticulo = lazy(() => import('./NotasArticulo').then(m => ({ default: m.NotasArticulo })));
+const LotesPorVencer = lazy(() => import('./LotesPorVencer').then(m => ({ default: m.LotesPorVencer })));
+const InformesHub = lazy(() => import('./informes/InformesHub').then(m => ({ default: m.InformesHub })));
+const ConfiguracionSistema = lazy(() => import('./ConfiguracionSistema').then(m => ({ default: m.ConfiguracionSistema })));
+const FinanciacionesManagement = lazy(() => import('./FinanciacionesManagement').then(m => ({ default: m.FinanciacionesManagement })));
+const BackupBD = lazy(() => import('./BackupBD').then(m => ({ default: m.BackupBD })));
+const MantenimientoBD = lazy(() => import('./MantenimientoBD').then(m => ({ default: m.MantenimientoBD })));
+const AnticiposClientes = lazy(() => import('./AnticiposClientes').then(m => ({ default: m.AnticiposClientes })));
+const DatosEmpresa = lazy(() => import('./DatosEmpresa').then(m => ({ default: m.DatosEmpresa })));
+const ComprasTabs = lazy(() => import('./ComprasTabs').then(m => ({ default: m.ComprasTabs })));
+const UsuariosManagement = lazy(() => import('./UsuariosManagement').then(m => ({ default: m.UsuariosManagement })));
+const VendedoresMovil = lazy(() => import('./VendedoresMovil').then(m => ({ default: m.VendedoresMovil })));
+const VendedoresPedidos = lazy(() => import('./VendedoresPedidos').then(m => ({ default: m.VendedoresPedidos })));
+const CuentasPorCobrar = lazy(() => import('./CuentasPorCobrar').then(m => ({ default: m.CuentasPorCobrar })));
+const TopClientes = lazy(() => import('./TopClientes').then(m => ({ default: m.TopClientes })));
+const CumpleanosClientes = lazy(() => import('./CumpleanosClientes').then(m => ({ default: m.CumpleanosClientes })));
 import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
 import {
   DropdownMenu,
@@ -709,7 +721,18 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
           </div>
         </header>
 
+        {/* Notificaciones emergentes de sugerencias — flotan sobre cualquier vista.
+            Aparecen una a una en el tiempo, dan efecto "app viva" descubriendo cosas. */}
+        <NotificacionEmergente onNavigate={(v) => setCurrentView(v as View)} esAdmin={esAdmin} />
+
         <div className={currentView === 'inicio' ? 'flex-1 min-h-0' : 'p-6 flex-1 min-h-0 overflow-auto'}>
+          <Suspense fallback={
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh', color: '#6b7280', fontSize: 13 }}>
+              <div style={{ width: 22, height: 22, border: '3px solid #e5e7eb', borderTopColor: '#7c3aed', borderRadius: '50%', animation: 'sp 0.8s linear infinite', marginRight: 10 }} />
+              Cargando módulo…
+              <style>{`@keyframes sp { to { transform: rotate(360deg) } }`}</style>
+            </div>
+          }>
           {currentView === 'inicio' && <PantallaInicio user={user} onNavigate={(v) => setCurrentView(v as View)} esAdmin={esAdmin} esVendedor={esVendedor} />}
           {currentView === 'overview' && (esVendedor ? <DashboardVendedor user={user} /> : <IncomeOverview />)}
           {currentView === 'inventario' && <InventarioManagement />}
@@ -736,8 +759,8 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
           {currentView === 'suppliers' && <ProveedoresManagement />}
           {currentView === 'productos-proveedor' && <ProductosProveedor />}
           {currentView === 'cuentas-pagar' && <ProveedoresManagement modoCxP />}
-          {currentView === 'purchases' && <PurchasesManagement />}
-          {currentView === 'nueva-compra' && <NuevaCompra />}
+          {currentView === 'purchases' && <PurchasesManagement onNavigate={(v) => setCurrentView(v as View)} />}
+          {currentView === 'nueva-compra' && <ComprasTabs />}
           {currentView === 'sales' && <SalesManagement onNavigate={(v) => setCurrentView(v as View)} />}
           {currentView === 'ventas-tipo-pago' && <VentasPorTipoPago />}
           {currentView === 'nueva-venta' && <VentasTabs />}
@@ -759,6 +782,7 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
           {currentView === 'backup-bd' && <BackupBD />}
           {currentView === 'mantenimiento-bd' && <MantenimientoBD />}
           {currentView === 'anticipos-clientes' && <AnticiposClientes />}
+          </Suspense>
         </div>
       </main>
 

@@ -58,6 +58,7 @@ interface Cliente {
   Termino: number;
   FacVenc: number;
   Preciocosto: number;
+  UltimoPrecio: number;
   id_documento: number;
   id_municipio: number | null;
   id_type_liability: number | null;
@@ -141,7 +142,7 @@ export function CustomersManagement() {
       Razon_Social: '', Nit: '', Identificacion: '', Telefonos: '', Direccion: '',
       Email: '', Whatsapp: '', CupoAutorizado: 0, FechaCumple: '',
       Nombres: '', Apellidos: '', Nombre_C: '', Apellidos_C: '',
-      Telefonos_C: '', Direccion_C: '', Cargo_C: '', Termino: 0, FacVenc: 0, Preciocosto: 0,
+      Telefonos_C: '', Direccion_C: '', Cargo_C: '', Termino: 0, FacVenc: 0, Preciocosto: 0, UltimoPrecio: 0,
       id_documento: 2, id_municipio: null, id_type_liability: 4, id_type_organization: 2, id_type_regime: 3
     });
     setModal('crear');
@@ -579,6 +580,7 @@ export function CustomersManagement() {
                   <div style={{ display: 'flex', gap: 24, padding: '4px 0' }}>
                     {chk('Facturar con vencimientos', 'FacVenc')}
                     {chk('Facturar a precio costo', 'Preciocosto')}
+                    {chk('Facturar al último precio del cliente', 'UltimoPrecio')}
                   </div>
                 </fieldset>
 

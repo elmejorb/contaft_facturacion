@@ -148,6 +148,19 @@ export function InventarioManagement() {
     cargarArticulos();
   }, [estado]);
 
+  // Aplicar filtros pendientes provenientes del Panel de Sugerencias o
+  // NotificacionEmergente. Ej.: sugerencia "Top producto" envía el código
+  // aquí para que se muestre solo ese producto al abrir el módulo.
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('filtros_pendientes:inventario');
+      if (!raw) return;
+      const f = JSON.parse(raw);
+      localStorage.removeItem('filtros_pendientes:inventario');
+      if (f.codigo) setBusqueda(String(f.codigo));
+    } catch { /* silencio */ }
+  }, []);
+
   const cargarArticulos = async () => {
     try {
       setLoading(true);
@@ -211,11 +224,14 @@ export function InventarioManagement() {
       type: 'numericColumn' as const,
       cellRenderer: (params: { value: number }) => {
         const val = params.value || 0;
+        // Formato colombiano con separador de miles (28175 → "28.175")
+        // y hasta 3 decimales para productos por kilogramo/litro.
+        const display = val.toLocaleString('es-CO', { maximumFractionDigits: 3 });
         return <span style={{
           background: val > 0 ? '#dbeafe' : '#fee2e2',
           color: val > 0 ? '#1d4ed8' : '#dc2626',
           padding: '2px 8px', borderRadius: 4, fontSize: 11, fontWeight: 500
-        }}>{val}</span>;
+        }}>{display}</span>;
       },
     },
     {

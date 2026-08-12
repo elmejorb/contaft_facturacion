@@ -28,6 +28,7 @@ import { ReciboImpresion } from './ReciboImpresion';
 import { getConfigImpresion } from './ConfiguracionSistema';
 import { useAuth } from '../contexts/AuthContext';
 import { confirmar } from './ConfirmDialog';
+import { moneyInputHandlers } from '../utils/moneyInput';
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
@@ -47,6 +48,72 @@ export function ProveedoresManagement({ modoCxP = false }: { modoCxP?: boolean }
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const gridRef = useRef<AgGridReact>(null);
+
+  // Modal "Registrar Factura Anterior" — para saldos de proveedor previos al
+  // sistema (migración desde otro software, cartera heredada). No es una compra
+  // nueva; solo registra la deuda para poder aplicar abonos después.
+  const [showFactAnt, setShowFactAnt] = useState(false);
+  const [faProvId, setFaProvId] = useState(0);
+  const [faProvNombre, setFaProvNombre] = useState('');
+  const [faFacturaN, setFaFacturaN] = useState('');
+  const [faFecha, setFaFecha] = useState(new Date().toISOString().slice(0, 10));
+  const [faValor, setFaValor] = useState(0);
+  const [faSaldo, setFaSaldo] = useState(0);
+  const [faDias, setFaDias] = useState('30');
+  const [faProvSearch, setFaProvSearch] = useState('');
+  const [faProvResults, setFaProvResults] = useState<any[]>([]);
+  const [faShowDrop, setFaShowDrop] = useState(false);
+  const [faGuardando, setFaGuardando] = useState(false);
+
+  const buscarProvFA = (q: string) => {
+    setFaProvSearch(q);
+    if (!q || q.length < 2) { setFaProvResults([]); setFaShowDrop(false); return; }
+    const norm = q.toLowerCase();
+    const results = proveedores.filter(p =>
+      (p.RazonSocial || '').toLowerCase().includes(norm) ||
+      String(p.Nit || '').includes(q) ||
+      String(p.CodigoPro).includes(q)
+    ).slice(0, 15);
+    setFaProvResults(results);
+    setFaShowDrop(true);
+  };
+
+  const guardarFactAnt = async () => {
+    if (!faProvId || !faFacturaN || !(faValor > 0)) {
+      setError('Complete proveedor, número de factura y valor');
+      return;
+    }
+    setFaGuardando(true);
+    setError('');
+    try {
+      const r = await fetch('http://localhost:80/conta-app-backend/api/proveedores/factura-anterior.php', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'crear',
+          proveedor_id: faProvId,
+          factura_n: faFacturaN,
+          fecha: faFecha,
+          valor: faValor,
+          saldo: faSaldo > 0 ? faSaldo : faValor,
+          dias: parseInt(faDias) || 30,
+        }),
+      });
+      const d = await r.json();
+      if (d.success) {
+        setSuccess(d.message);
+        setTimeout(() => setSuccess(''), 4000);
+        setShowFactAnt(false);
+        setFaFacturaN(''); setFaValor(0); setFaSaldo(0);
+        setFaProvId(0); setFaProvNombre(''); setFaProvSearch('');
+        cargar();
+      } else {
+        setError(d.message || 'Error al guardar');
+      }
+    } catch (e) {
+      setError('Error de red');
+    }
+    setFaGuardando(false);
+  };
 
   const cargar = async () => {
     setLoading(true);
@@ -186,6 +253,9 @@ export function ProveedoresManagement({ modoCxP = false }: { modoCxP?: boolean }
           }}>{f.label}</button>
         ))}
         <div style={{ flex: 1 }} />
+        <button onClick={() => setShowFactAnt(true)} title="Registrar factura anterior (saldo previo al sistema)" style={{
+          height: 32, padding: '0 12px', background: '#fff', color: '#d97706', border: '1px solid #fed7aa', borderRadius: 8, fontSize: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600
+        }}><Receipt size={13} /> Factura Anterior</button>
         <button onClick={() => { setForm({ RazonSocial: '', Nit: '', Telefonos: '', Direccion: '', Nombres: '', Apellidos: '' }); setModal('crear'); }} style={{
           height: 32, padding: '0 14px', background: '#7c3aed', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6
         }}><Plus size={14} /> Nuevo</button>
@@ -240,6 +310,116 @@ export function ProveedoresManagement({ modoCxP = false }: { modoCxP?: boolean }
       {/* Modal detalle */}
       {detalleId !== null && (
         <ProveedorDetalle provId={detalleId} onClose={() => { setDetalleId(null); cargar(); }} />
+      )}
+
+      {/* Modal: Registrar Factura Anterior de Proveedor.
+          Se usa para saldos previos al sistema (migración, cartera heredada).
+          Escribe directo en tblfacturasanterioresproveedor — no genera compra
+          ni movimiento de inventario. */}
+      {showFactAnt && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.5)' }} onClick={() => setShowFactAnt(false)} />
+          <div style={{ position: 'relative', background: '#fff', borderRadius: 14, width: 520, maxWidth: '95vw', boxShadow: '0 20px 50px rgba(0,0,0,0.3)' }}>
+            <div style={{ padding: '14px 20px', borderBottom: '2px solid #d97706', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <Receipt size={18} color="#d97706" />
+                <div>
+                  <div style={{ fontSize: 15, fontWeight: 700 }}>Registrar Factura Anterior</div>
+                  <div style={{ fontSize: 11, color: '#6b7280', marginTop: 1 }}>Saldo previo al sistema (no genera compra)</div>
+                </div>
+              </div>
+              <button onClick={() => setShowFactAnt(false)} style={{ width: 28, height: 28, background: '#f3f4f6', border: 'none', borderRadius: 6, cursor: 'pointer' }}><X size={14} /></button>
+            </div>
+            <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div style={{ position: 'relative' }}>
+                <label style={{ fontSize: 11, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>PROVEEDOR</label>
+                <input type="text"
+                  placeholder="Buscar por nombre, NIT o código..."
+                  value={faProvNombre || faProvSearch}
+                  onChange={e => { setFaProvNombre(''); setFaProvId(0); buscarProvFA(e.target.value); }}
+                  onFocus={() => { if (faProvSearch.length >= 2) setFaShowDrop(true); }}
+                  onBlur={() => setTimeout(() => setFaShowDrop(false), 200)}
+                  style={{ width: '100%', height: 34, padding: '0 10px', border: `1px solid ${faProvId ? '#16a34a' : '#d1d5db'}`, borderRadius: 6, fontSize: 13, background: faProvId ? '#f0fdf4' : '#fff', outline: 'none' }} />
+                {faShowDrop && faProvResults.length > 0 && (
+                  <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, maxHeight: 200, overflow: 'auto', background: '#fff', border: '1px solid #d1d5db', borderRadius: 6, boxShadow: '0 8px 24px rgba(0,0,0,0.12)', zIndex: 10, marginTop: 2 }}>
+                    {faProvResults.map(p => (
+                      <div key={p.CodigoPro}
+                        onMouseDown={e => {
+                          e.preventDefault();
+                          setFaProvId(p.CodigoPro);
+                          setFaProvNombre(p.RazonSocial);
+                          setFaProvSearch('');
+                          setFaShowDrop(false);
+                        }}
+                        style={{ padding: '6px 10px', cursor: 'pointer', fontSize: 12, borderBottom: '1px solid #f3f4f6' }}
+                        onMouseOver={e => (e.currentTarget.style.background = '#f9fafb')}
+                        onMouseOut={e => (e.currentTarget.style.background = '')}>
+                        <div style={{ fontWeight: 600 }}>{p.RazonSocial}</div>
+                        <div style={{ fontSize: 10, color: '#6b7280' }}>Cod: {p.CodigoPro} · NIT: {p.Nit || '-'}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <div>
+                  <label style={{ fontSize: 11, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>Nº FACTURA</label>
+                  <div style={{ display: 'flex', alignItems: 'stretch', border: '1px solid #d1d5db', borderRadius: 6, overflow: 'hidden' }}>
+                    <span style={{ padding: '0 10px', background: '#f3f4f6', color: '#7c3aed', fontSize: 13, fontWeight: 700, display: 'flex', alignItems: 'center', borderRight: '1px solid #d1d5db' }}>AT-</span>
+                    <input type="text" value={faFacturaN} onChange={e => setFaFacturaN(e.target.value.replace(/^AT-/i, ''))}
+                      placeholder="12345"
+                      style={{ flex: 1, height: 32, padding: '0 10px', border: 'none', fontSize: 13, outline: 'none' }} />
+                  </div>
+                </div>
+                <div>
+                  <label style={{ fontSize: 11, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>FECHA</label>
+                  <input type="date" value={faFecha} onChange={e => setFaFecha(e.target.value)}
+                    style={{ width: '100%', height: 32, padding: '0 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13 }} />
+                </div>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 90px', gap: 10 }}>
+                <div>
+                  <label style={{ fontSize: 11, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>VALOR TOTAL</label>
+                  <input type="text" key={`fa-valor-${faValor}`}
+                    {...moneyInputHandlers(faValor, v => {
+                      setFaValor(v);
+                      if (faSaldo === 0 || faSaldo > v) setFaSaldo(v);
+                    })}
+                    placeholder="$ 0"
+                    style={{ width: '100%', height: 32, padding: '0 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, textAlign: 'right', fontWeight: 600 }} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 11, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>SALDO PENDIENTE</label>
+                  <input type="text" key={`fa-saldo-${faSaldo}`}
+                    {...moneyInputHandlers(faSaldo, setFaSaldo)}
+                    placeholder="$ 0"
+                    title="Si ya se le abonó parcialmente, indica lo que aún se debe. Si es la deuda completa, deja el mismo valor total."
+                    style={{ width: '100%', height: 32, padding: '0 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, textAlign: 'right', fontWeight: 600, color: '#dc2626' }} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 11, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>DÍAS</label>
+                  <input type="number" value={faDias} onChange={e => setFaDias(e.target.value)}
+                    style={{ width: '100%', height: 32, padding: '0 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, textAlign: 'center' }} />
+                </div>
+              </div>
+              {faValor > 0 && faSaldo > 0 && faSaldo < faValor && (
+                <div style={{ fontSize: 11, color: '#6b7280', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 6, padding: '6px 10px' }}>
+                  Se registrará como si ya se hubieran abonado <b>{fmtMon(faValor - faSaldo)}</b> de esta factura.
+                </div>
+              )}
+              <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+                <button onClick={() => setShowFactAnt(false)} style={{ flex: 1, height: 34, background: '#f3f4f6', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Cancelar</button>
+                <button onClick={guardarFactAnt} disabled={faGuardando || !faProvId || !faFacturaN || !(faValor > 0)} style={{
+                  flex: 2, height: 34, background: (!faProvId || !faFacturaN || !(faValor > 0)) ? '#d1d5db' : '#d97706',
+                  color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, opacity: faGuardando ? 0.6 : 1,
+                }}>
+                  <Save size={14} /> {faGuardando ? 'Guardando...' : 'Registrar Factura Anterior'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -427,7 +607,14 @@ function ProveedorDetalle({ provId, onClose }: { provId: number; onClose: () => 
           {tab === 'pagar' && (
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
-                <button onClick={() => { const m = new Map<number, number>(); pendientes.forEach((f: any) => m.set(f.ID_FactAnterioresP, f.Saldo)); setAbonos(m); }}
+                <button onClick={() => {
+                  const m = new Map<number, number>();
+                  pendientes.forEach((f: any) => m.set(f.ID_FactAnterioresP, f.Saldo));
+                  setAbonos(m);
+                  // Inputs uncontrolled: sin incrementar formVersion los defaultValue
+                  // no se refrescan hasta que se hace focus/blur en cada celda.
+                  setFormVersion(v => v + 1);
+                }}
                   style={{ height: 28, padding: '0 10px', background: '#16a34a', color: '#fff', border: 'none', borderRadius: 6, fontSize: 11, cursor: 'pointer' }}>Pagar Todo</button>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                   <label style={{ fontSize: 10, color: '#6b7280', fontWeight: 600 }}>MEDIO:</label>
@@ -574,6 +761,7 @@ function ProveedorDetalle({ provId, onClose }: { provId: number; onClose: () => 
           onClose={() => setReciboImprimir(null)}
         />
       )}
+
     </div>
   );
 }

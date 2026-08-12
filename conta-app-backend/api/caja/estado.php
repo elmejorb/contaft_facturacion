@@ -39,22 +39,24 @@ try {
         $base = floatval($cajaAbierta['Base']);
 
         // Calcular resumen del día desde la apertura
-        // Ventas al contado (efectivo)
-        $stmt = $db->prepare("SELECT COALESCE(SUM(efectivo), 0) as efectivo, COALESCE(SUM(valorpagado1), 0) as transferencia, COALESCE(SUM(Total), 0) as total, COUNT(*) as cantidad FROM tblventas WHERE DATE(Fecha) = ? AND EstadoFact = 'Valida' AND Tipo = 'Contado'");
+        // Ventas al contado (efectivo) — INCLUYE anuladas por diseño contable:
+        // cada venta se cuenta bruta y la anulación aparece como salida separada
+        // (evita doble descuento). Mismo criterio que VB6 y ERPs estándar.
+        $stmt = $db->prepare("SELECT COALESCE(SUM(efectivo), 0) as efectivo, COALESCE(SUM(valorpagado1), 0) as transferencia, COALESCE(SUM(Total), 0) as total, COUNT(*) as cantidad FROM tblventas WHERE DATE(Fecha) = ? AND EstadoFact IN ('Valida','Anulada') AND Tipo = 'Contado'");
         $stmt->execute([$fechaCaja]);
         $ventasContado = $stmt->fetch();
 
-        // Ventas a crédito
-        $stmt = $db->prepare("SELECT COALESCE(SUM(Total), 0) as total, COUNT(*) as cantidad FROM tblventas WHERE DATE(Fecha) = ? AND EstadoFact = 'Valida' AND Tipo != 'Contado'");
+        // Ventas a crédito — mismo criterio (incluir anuladas)
+        $stmt = $db->prepare("SELECT COALESCE(SUM(Total), 0) as total, COUNT(*) as cantidad FROM tblventas WHERE DATE(Fecha) = ? AND EstadoFact IN ('Valida','Anulada') AND Tipo != 'Contado'");
         $stmt->execute([$fechaCaja]);
         $ventasCredito = $stmt->fetch();
 
-        // Ventas por medio de pago
+        // Ventas por medio de pago — mismo criterio
         $stmt = $db->prepare("
             SELECT COALESCE(m.nombre_medio, 'Efectivo') as medio, COALESCE(SUM(v.Total), 0) as total
             FROM tblventas v
             LEFT JOIN tblmedios_pago m ON v.id_mediopago = m.id_mediopago
-            WHERE DATE(v.Fecha) = ? AND v.EstadoFact = 'Valida' AND v.Tipo = 'Contado'
+            WHERE DATE(v.Fecha) = ? AND v.EstadoFact IN ('Valida','Anulada') AND v.Tipo = 'Contado'
             GROUP BY v.id_mediopago, m.nombre_medio
         ");
         $stmt->execute([$fechaCaja]);
@@ -178,7 +180,7 @@ try {
             $fechaCaja = date('Y-m-d', strtotime($caja['Fecha']));
             $base = floatval($caja['Base']);
 
-            $stmt = $db->prepare("SELECT COALESCE(SUM(efectivo), 0) as ef, COALESCE(SUM(valorpagado1), 0) as tr, COALESCE(SUM(Total), 0) as t FROM tblventas WHERE DATE(Fecha) = ? AND EstadoFact = 'Valida' AND Tipo = 'Contado'");
+            $stmt = $db->prepare("SELECT COALESCE(SUM(efectivo), 0) as ef, COALESCE(SUM(valorpagado1), 0) as tr, COALESCE(SUM(Total), 0) as t FROM tblventas WHERE DATE(Fecha) = ? AND EstadoFact IN ('Valida','Anulada') AND Tipo = 'Contado'");
             $stmt->execute([$fechaCaja]);
             $vc = $stmt->fetch();
 

@@ -83,7 +83,8 @@ export function DetalleFacturaModal({ factN, onClose, onUpdate }: Props) {
           fecha: d.factura.Fecha?.split(' ')[0] || '',
           cliente_id: d.factura.CodigoCli, cliente_nombre: d.factura.A_nombre,
           identificacion: d.factura.Identificacion, direccion: d.factura.Direccion,
-          telefono: d.factura.Telefono
+          telefono: d.factura.Telefono,
+          id_mediopago: parseInt(d.factura.id_mediopago) || 0,
         });
       }
     } catch (e) {}
@@ -97,7 +98,13 @@ export function DetalleFacturaModal({ factN, onClose, onUpdate }: Props) {
     try {
       const r = await fetch(API, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'editar', factura_n: factN, ...editData })
+        body: JSON.stringify({
+          action: 'editar', factura_n: factN, ...editData,
+          // id_usuario para el registro de tblpagos cuando la factura se
+          // convierte de Crédito a Contado (el backend registra el cobro
+          // automáticamente para que aparezca en la caja del día).
+          id_usuario: user?.id || 0,
+        })
       });
       const d = await r.json();
       if (d.success) { toast.success(d.message); setModo('ver'); cargar(); onUpdate?.(); }
@@ -274,6 +281,19 @@ export function DetalleFacturaModal({ factN, onClose, onUpdate }: Props) {
               {editData.tipo === 'Crédito' && <div>
                 <label style={lbl}>DÍAS</label>
                 <input type="text" value={editData.dias} onChange={e => setEditData({ ...editData, dias: e.target.value })} style={{ ...inp, width: 60 }} />
+              </div>}
+              {editData.tipo === 'Contado' && <div>
+                <label style={lbl}>MEDIO DE PAGO</label>
+                <select
+                  value={editData.id_mediopago ?? 0}
+                  onChange={e => setEditData({ ...editData, id_mediopago: parseInt(e.target.value) })}
+                  style={{ ...inp, width: '100%' }}
+                >
+                  <option value={0}>Efectivo</option>
+                  <option value={1}>Tarjeta</option>
+                  <option value={2}>Bancolombia</option>
+                  <option value={3}>Nequi</option>
+                </select>
               </div>}
               <div style={{ gridColumn: 'span 2' }}>
                 <label style={lbl}>CLIENTE</label>

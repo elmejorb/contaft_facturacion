@@ -61,3 +61,6 @@ fix_precio_costo_remoto.sql
 
 # Credenciales/datos sensibles
 datos.txt
+# secrets.php contiene API keys de Groq/OpenAI/etc. — jamás debe subirse.
+# Cada instalación tiene el suyo copiándolo desde secrets.example.php.
+conta-app-backend/api/config/secrets.php

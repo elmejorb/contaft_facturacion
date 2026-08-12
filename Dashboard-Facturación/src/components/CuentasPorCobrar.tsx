@@ -19,6 +19,7 @@ const myTheme = themeQuartz.withParams({
 });
 import { Search, RefreshCw, Users, DollarSign, AlertTriangle, Clock, Wallet, Eye, Printer, Plus, X, Ban, RotateCcw, Award } from 'lucide-react';
 import { confirmar } from './ConfirmDialog';
+import { moneyInputHandlers } from '../utils/moneyInput';
 import { ClienteDetalle } from './ClienteDetalle';
 import { getEmpresaCache } from './ConfiguracionSistema';
 import toast from 'react-hot-toast';
@@ -59,6 +60,7 @@ interface ClienteCartera {
   Saldo_Total: number;
   Factura_Mas_Antigua: string;
   Dias_Mayor_Vencimiento: number;
+  Vence_Prox_7d?: number; // 1 si tiene al menos una factura por vencer en los próx 7 días
   CupoAutorizado: number;
   comportamiento?: Comportamiento;
   cartera_castigada?: number;
@@ -81,8 +83,8 @@ export function CuentasPorCobrar() {
   const [faClienteNombre, setFaClienteNombre] = useState('');
   const [faFacturaN, setFaFacturaN] = useState('');
   const [faFecha, setFaFecha] = useState(hoyLocal());
-  const [faValor, setFaValor] = useState('');
-  const [faSaldo, setFaSaldo] = useState('');
+  const [faValor, setFaValor] = useState(0);
+  const [faSaldo, setFaSaldo] = useState(0);
   const [faDias, setFaDias] = useState('30');
   const faTimer = useRef<any>(null);
   const gridRef = useRef<AgGridReact>(null);
@@ -441,19 +443,38 @@ export function CuentasPorCobrar() {
   };
 
   const guardarFactAnt = async () => {
-    if (!faClienteId || !faFacturaN || !(parseInt(faValor) > 0)) { toast.error('Complete cliente, número y valor'); return; }
+    if (!faClienteId || !faFacturaN || !(faValor > 0)) { toast.error('Complete cliente, número y valor'); return; }
     try {
       const r = await fetch('http://localhost:80/conta-app-backend/api/clientes/factura-anterior.php', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'crear', cliente_id: faClienteId, factura_n: faFacturaN, fecha: faFecha, valor: parseInt(faValor), saldo: parseInt(faSaldo || faValor), dias: parseInt(faDias) || 30 })
+        body: JSON.stringify({ action: 'crear', cliente_id: faClienteId, factura_n: faFacturaN, fecha: faFecha, valor: faValor, saldo: faSaldo > 0 ? faSaldo : faValor, dias: parseInt(faDias) || 30 })
       });
       const d = await r.json();
-      if (d.success) { toast.success(d.message); setShowFactAnt(false); setFaFacturaN(''); setFaValor(''); setFaSaldo(''); setFaClienteId(0); setFaClienteNombre(''); cargar(); }
+      if (d.success) { toast.success(d.message); setShowFactAnt(false); setFaFacturaN(''); setFaValor(0); setFaSaldo(0); setFaClienteId(0); setFaClienteNombre(''); cargar(); }
       else toast.error(d.message);
     } catch (e) { toast.error('Error'); }
   };
 
   useEffect(() => { cargar(); }, []);
+
+  // Aplicar filtros pendientes provenientes del Panel de Sugerencias o
+  // NotificacionEmergente. Se guardan en localStorage por el emisor bajo la
+  // clave 'filtros_pendientes:cuentas-cobrar'. Se leen y borran al montar.
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('filtros_pendientes:cuentas-cobrar');
+      if (!raw) return;
+      const f = JSON.parse(raw);
+      localStorage.removeItem('filtros_pendientes:cuentas-cobrar');
+      if (f.mora_min_dias === 60 && f.solo_vencidos) {
+        setFiltro('mas60');
+        toast.success('Filtrado: cartera con más de 60 días de mora', { duration: 4000 });
+      } else if (f.vencen_dias === 7) {
+        setFiltro('vence_prox_7d');
+        toast.success('Filtrado: clientes con facturas por vencer en los próximos 7 días', { duration: 4500 });
+      }
+    } catch { /* silencio */ }
+  }, []);
 
   const filtrados = clientes.filter(c => {
     const b = busqueda.toLowerCase();
@@ -472,6 +493,7 @@ export function CuentasPorCobrar() {
     const d = c.Dias_Mayor_Vencimiento;
     switch (filtro) {
       case 'sin_vencer': return d <= 0;
+      case 'vence_prox_7d': return (c.Vence_Prox_7d ?? 0) === 1;
       case '1a30': return d >= 1 && d <= 30;
       case '31a60': return d >= 31 && d <= 60;
       case 'mas60': return d > 60;
@@ -668,59 +690,97 @@ export function CuentasPorCobrar() {
         })}
       </div>
 
-      {/* Toolbar */}
+      {/* Toolbar — 2 filas: fila 1 buscador + botones acción · fila 2 filtros con wrap */}
       <div style={{
-        background: '#fff', borderRadius: 12, padding: '10px 16px', marginBottom: 12,
+        background: '#fff', borderRadius: 12, padding: '10px 14px', marginBottom: 12,
         boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
-        display: 'flex', alignItems: 'center', gap: 10
       }}>
-        <div style={{ position: 'relative', flex: '0 0 280px' }}>
-          <Search size={16} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: '#9ca3af' }} />
-          <input
-            type="text" placeholder="Buscar por nombre, NIT..."
-            value={busqueda} onChange={e => setBusqueda(e.target.value)}
-            style={{ width: '100%', height: 32, paddingLeft: 32, border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 13, outline: 'none' }}
-          />
+        {/* Fila 1: buscador + acciones */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+          <div style={{ position: 'relative', flex: 1, maxWidth: 380 }}>
+            <Search size={16} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: '#9ca3af' }} />
+            <input
+              type="text" placeholder="Buscar por nombre, NIT o teléfono..."
+              value={busqueda} onChange={e => setBusqueda(e.target.value)}
+              style={{ width: '100%', height: 34, paddingLeft: 34, border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 13, outline: 'none' }}
+            />
+          </div>
+          <div style={{ flex: 1 }} />
+          <button onClick={recalcularComportamiento} title="Recalcula categorías de puntualidad de todos los clientes" style={{
+            height: 34, padding: '0 12px', background: '#fff', color: '#16a34a',
+            border: '1px solid #16a34a', borderRadius: 8, fontSize: 12, cursor: 'pointer',
+            display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600, whiteSpace: 'nowrap'
+          }}>
+            <Award size={13} /> Recalcular
+          </button>
+          <button onClick={cargar} style={{
+            height: 34, padding: '0 14px', background: '#7c3aed', color: '#fff',
+            border: 'none', borderRadius: 8, fontSize: 13, cursor: 'pointer',
+            display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap'
+          }}>
+            <RefreshCw size={14} /> Refrescar
+          </button>
         </div>
 
-        {[
-          { id: 'todos', label: 'Activos' },
-          { id: 'sin_vencer', label: 'Sin Vencer' },
-          { id: '1a30', label: 'De 1 a 30' },
-          { id: '31a60', label: 'De 31 a 60' },
-          { id: 'mas60', label: 'Más de 60' },
-          { id: 'alto', label: 'Saldo >$500k' },
-          { id: 'mejores', label: '⭐ Mejores' },
-          { id: 'morosos', label: '⚠ Morosos' },
-          { id: 'castigadas', label: '⛔ Castigadas' },
-          { id: 'todos_incluyendo_castigadas', label: 'Todas' },
-        ].map(f => (
-          <button key={f.id} onClick={() => setFiltro(f.id)} style={{
-            height: 28, padding: '0 10px', fontSize: 12, borderRadius: 6, cursor: 'pointer',
-            border: filtro === f.id ? '1px solid #7c3aed' : '1px solid #e5e7eb',
-            background: filtro === f.id ? '#f3e8ff' : '#fff',
-            color: filtro === f.id ? '#7c3aed' : '#374151',
-            fontWeight: filtro === f.id ? 600 : 400,
-          }}>
-            {f.label}
-          </button>
-        ))}
-
-        <div style={{ flex: 1 }} />
-        <button onClick={recalcularComportamiento} title="Recalcula categorías de puntualidad de todos los clientes" style={{
-          height: 32, padding: '0 12px', background: '#fff', color: '#16a34a',
-          border: '1px solid #16a34a', borderRadius: 8, fontSize: 12, cursor: 'pointer',
-          display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600
-        }}>
-          <Award size={13} /> Recalcular
-        </button>
-        <button onClick={cargar} style={{
-          height: 32, padding: '0 14px', background: '#7c3aed', color: '#fff',
-          border: 'none', borderRadius: 8, fontSize: 13, cursor: 'pointer',
-          display: 'flex', alignItems: 'center', gap: 6
-        }}>
-          <RefreshCw size={14} /> Refrescar
-        </button>
+        {/* Fila 2: filtros — agrupados con separadores, wrap automático */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 10, color: '#9ca3af', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, marginRight: 4 }}>Filtro:</span>
+          {/* Grupo A: Estado general */}
+          {[
+            { id: 'todos', label: 'Activos' },
+            { id: 'sin_vencer', label: 'Sin vencer' },
+            { id: 'vence_prox_7d', label: '⏰ Vence 7 d' },
+          ].map(f => (
+            <button key={f.id} onClick={() => setFiltro(f.id)} style={{
+              height: 28, padding: '0 12px', fontSize: 12, borderRadius: 14, cursor: 'pointer',
+              border: filtro === f.id ? '1px solid #7c3aed' : '1px solid #e5e7eb',
+              background: filtro === f.id ? '#f3e8ff' : '#fff',
+              color: filtro === f.id ? '#7c3aed' : '#374151',
+              fontWeight: filtro === f.id ? 600 : 400,
+              whiteSpace: 'nowrap',
+            }}>
+              {f.label}
+            </button>
+          ))}
+          <div style={{ width: 1, height: 20, background: '#e5e7eb', margin: '0 4px' }} />
+          {/* Grupo B: Rangos de mora */}
+          {[
+            { id: '1a30', label: '1–30 d' },
+            { id: '31a60', label: '31–60 d' },
+            { id: 'mas60', label: '+60 d' },
+          ].map(f => (
+            <button key={f.id} onClick={() => setFiltro(f.id)} style={{
+              height: 28, padding: '0 12px', fontSize: 12, borderRadius: 14, cursor: 'pointer',
+              border: filtro === f.id ? '1px solid #7c3aed' : '1px solid #e5e7eb',
+              background: filtro === f.id ? '#f3e8ff' : '#fff',
+              color: filtro === f.id ? '#7c3aed' : '#374151',
+              fontWeight: filtro === f.id ? 600 : 400,
+              whiteSpace: 'nowrap',
+            }}>
+              {f.label}
+            </button>
+          ))}
+          <div style={{ width: 1, height: 20, background: '#e5e7eb', margin: '0 4px' }} />
+          {/* Grupo C: Categorías */}
+          {[
+            { id: 'alto', label: 'Saldo >$500k' },
+            { id: 'mejores', label: '⭐ Mejores' },
+            { id: 'morosos', label: '⚠ Morosos' },
+            { id: 'castigadas', label: '⛔ Castigadas' },
+            { id: 'todos_incluyendo_castigadas', label: 'Ver todas' },
+          ].map(f => (
+            <button key={f.id} onClick={() => setFiltro(f.id)} style={{
+              height: 28, padding: '0 12px', fontSize: 12, borderRadius: 14, cursor: 'pointer',
+              border: filtro === f.id ? '1px solid #7c3aed' : '1px solid #e5e7eb',
+              background: filtro === f.id ? '#f3e8ff' : '#fff',
+              color: filtro === f.id ? '#7c3aed' : '#374151',
+              fontWeight: filtro === f.id ? 600 : 400,
+              whiteSpace: 'nowrap',
+            }}>
+              {f.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Grid */}
@@ -796,8 +856,17 @@ export function CuentasPorCobrar() {
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
               <div>
                 <label style={{ fontSize: 10, fontWeight: 600, color: '#6b7280', display: 'block', marginBottom: 4 }}>Nº FACTURA</label>
-                <input type="text" value={faFacturaN} onChange={e => setFaFacturaN(e.target.value)} placeholder="AT-12345"
-                  style={{ width: '100%', height: 32, border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, padding: '0 10px', boxSizing: 'border-box' }} />
+                {/* Prefijo fijo "AT-" — el usuario solo digita el número.
+                    El backend antepone "AT-" al guardar. */}
+                <div style={{ display: 'flex', alignItems: 'stretch', border: '1px solid #d1d5db', borderRadius: 8, overflow: 'hidden', boxSizing: 'border-box' }}>
+                  <span style={{
+                    padding: '0 10px', background: '#f3f4f6', color: '#7c3aed',
+                    fontSize: 13, fontWeight: 700, display: 'flex', alignItems: 'center',
+                    borderRight: '1px solid #d1d5db',
+                  }}>AT-</span>
+                  <input type="text" value={faFacturaN} onChange={e => setFaFacturaN(e.target.value.replace(/^AT-/i, ''))} placeholder="12345"
+                    style={{ flex: 1, height: 32, border: 'none', fontSize: 13, padding: '0 10px', outline: 'none' }} />
+                </div>
               </div>
               <div>
                 <label style={{ fontSize: 10, fontWeight: 600, color: '#6b7280', display: 'block', marginBottom: 4 }}>FECHA</label>
@@ -809,13 +878,21 @@ export function CuentasPorCobrar() {
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 80px', gap: 10, marginBottom: 16 }}>
               <div>
                 <label style={{ fontSize: 10, fontWeight: 600, color: '#6b7280', display: 'block', marginBottom: 4 }}>VALOR</label>
-                <input type="text" value={faValor} onChange={e => { setFaValor(e.target.value.replace(/[^0-9]/g, '')); if (!faSaldo) setFaSaldo(e.target.value.replace(/[^0-9]/g, '')); }} placeholder="$ 0"
-                  style={{ width: '100%', height: 32, border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, fontWeight: 700, padding: '0 10px', boxSizing: 'border-box' }} />
+                {/* Formato moneda al blur, número crudo al focus. */}
+                <input type="text" key={`fa-valor-${faValor}`}
+                  {...moneyInputHandlers(faValor, v => {
+                    setFaValor(v);
+                    if (faSaldo === 0 || faSaldo > v) setFaSaldo(v);
+                  })}
+                  placeholder="$ 0"
+                  style={{ width: '100%', height: 32, border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, fontWeight: 700, padding: '0 10px', boxSizing: 'border-box', textAlign: 'right' }} />
               </div>
               <div>
                 <label style={{ fontSize: 10, fontWeight: 600, color: '#6b7280', display: 'block', marginBottom: 4 }}>SALDO</label>
-                <input type="text" value={faSaldo} onChange={e => setFaSaldo(e.target.value.replace(/[^0-9]/g, ''))} placeholder="= Valor"
-                  style={{ width: '100%', height: 32, border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, fontWeight: 700, padding: '0 10px', color: '#dc2626', boxSizing: 'border-box' }} />
+                <input type="text" key={`fa-saldo-${faSaldo}`}
+                  {...moneyInputHandlers(faSaldo, setFaSaldo)}
+                  placeholder="= Valor"
+                  style={{ width: '100%', height: 32, border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, fontWeight: 700, padding: '0 10px', color: '#dc2626', boxSizing: 'border-box', textAlign: 'right' }} />
               </div>
               <div>
                 <label style={{ fontSize: 10, fontWeight: 600, color: '#6b7280', display: 'block', marginBottom: 4 }}>DÍAS</label>

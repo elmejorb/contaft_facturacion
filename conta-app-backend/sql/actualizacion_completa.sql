@@ -1071,6 +1071,13 @@ SET @idx = (SELECT COUNT(*) FROM information_schema.STATISTICS WHERE TABLE_SCHEM
 SET @sql = IF(@idx=0, "ALTER TABLE tblclientes ADD INDEX idx_cartera_castigada (cartera_castigada)", 'SELECT 1');
 PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
 
+-- Marca "Facturar al último precio del cliente" (mismo patrón que Preciocosto).
+-- Cuando =1, al agregar un producto a una nueva venta se busca el último precio
+-- al que se le vendió a este cliente y se usa en vez de la lista de precios.
+SET @col = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='tblclientes' AND COLUMN_NAME='UltimoPrecio');
+SET @sql = IF(@col=0, "ALTER TABLE tblclientes ADD COLUMN UltimoPrecio TINYINT(1) DEFAULT 0", 'SELECT 1');
+PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
+
 -- ================================================================
 -- v5.6 — Vistas de proveedores (saldos, aging, facturas anteriores,
 --        pedidos crédito). Antes solo se creaban en algunas BDs;
@@ -1167,6 +1174,16 @@ GROUP BY f.FacturaN, f.CodigoProv, p.RazonSocial, f.Fecha, f.Dias;
 -- Fix legacy: en dumps VB6 el nombre puede haber quedado como TABLE (no VIEW) por sintaxis antigua rechazada por MariaDB. Eliminar ambos por seguridad.
 DROP TABLE IF EXISTS vw_prov_pedidos_credito_saldos;
 DROP VIEW IF EXISTS vw_prov_pedidos_credito_saldos;
+-- La vista lee del cache `tblpedidos.Saldo` que el sistema mantiene
+-- actualizado al aplicar pagos (proveedores/listar.php action=pagar).
+-- Antes esta vista recalculaba desde tblegresos con JOIN + GROUP BY, tardando
+-- 1-3 segundos en BDs con miles de pedidos (bug ICOPLASTIC agosto 2026).
+-- Ahora tarda ~15ms.
+--
+-- IMPORTANTE: para clientes existentes puede que el cache esté desincronizado
+-- por bugs históricos. Correr `fix_vista_saldos_proveedores.sql` que hace un
+-- UPDATE one-shot que recalcula el cache desde ambos formatos de pago
+-- (FactN + NFacturaAnt) y luego crea esta vista.
 CREATE VIEW vw_prov_pedidos_credito_saldos AS
 SELECT
   b.FacturaCompra_N                 AS FacturaN,
@@ -1176,22 +1193,14 @@ SELECT
   b.Dias                            AS Dias,
   b.Fecha + INTERVAL b.Dias DAY     AS Fechav,
   b.Total                           AS Total,
-  COALESCE(pag.TotalPagos, 0)       AS TotalPagos,
-  GREATEST(b.Total - COALESCE(pag.TotalPagos, 0), 0) AS Saldo,
+  b.Total - b.Saldo                 AS TotalPagos,
+  b.Saldo                           AS Saldo,
   b.TipoPedido,
   b.EstadoPedido,
   b.Pedido_N
 FROM tblpedidos b
 INNER JOIN tblproveedores p ON p.CodigoPro = b.CodigoPro
-LEFT JOIN (
-  SELECT CodigoPro, CAST(FactN AS UNSIGNED) AS FactN_cast, SUM(Valor) AS TotalPagos
-  FROM tblegresos
-  WHERE Estado = 'Valida' AND FactN IS NOT NULL
-  GROUP BY CodigoPro, CAST(FactN AS UNSIGNED)
-) pag ON pag.CodigoPro = b.CodigoPro
-       AND pag.FactN_cast = b.Pedido_N
-WHERE b.TipoPedido <> 'Contado'
-  AND b.EstadoPedido = 'Recibido';
+WHERE b.TipoPedido <> 'Contado' AND b.EstadoPedido = 'Recibido';
 
 -- Aging unificado: facturas anteriores + pedidos crédito, solo con Saldo>0
 -- Fix legacy: en dumps VB6 el nombre puede haber quedado como TABLE (no VIEW) por sintaxis antigua rechazada por MariaDB. Eliminar ambos por seguridad.

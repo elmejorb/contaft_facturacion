@@ -516,7 +516,7 @@ export function imprimirFactura(datos: DatosFactura, formatoOverride?: 'tirilla'
       break;
     case 'media-carta': {
       const lado = config.mediaCartaDerecha ? 'derecha' : 'izquierda';
-      const maxPorHoja = config.maxProductosMediaCarta || 12;
+      const maxPorHoja = config.maxProductosMediaCarta || 20;
       // Paginación estilo VB6: si el detalle supera maxProductosMediaCarta,
       // se divide en varias hojas. Cada hoja tiene el header/cliente/tabla
       // parcial. La ÚLTIMA hoja tiene los totales y firma. Las intermedias

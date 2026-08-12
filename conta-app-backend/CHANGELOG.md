@@ -5,6 +5,270 @@ Visible solo para administradores desde **Configuración → Acerca de → Ver h
 
 ---
 
+## 4.3.87 — 2026-08-12
+
+### Hotfix — "Corregir base" tumbaba la app
+
+- El fix de la 4.3.86 arregló 2 de las 3 referencias a `data.res.base`; quedaba una tercera dentro del modal (línea del título "Base actual") que lanzaba `Cannot read properties of undefined (reading 'base')` y la pantalla quedaba en blanco al clickear el botón.
+- Ahora las tres referencias apuntan al campo real `data.resumen.base`.
+
+### UX
+
+- El input **"Base correcta"** del modal Corregir base selecciona todo el valor automáticamente al hacer click o recibir foco. Se puede escribir el número nuevo directo sin borrar.
+
+---
+
+## 4.3.86 — 2026-08-12
+
+### Fix crítico — abono a crédito no puede superar el total
+
+- Bug reportado en cliente: usuaria digitó $200.000 como abono en factura de $20.100 (le sobró un cero) y $24.500.000 en otra de $116.700. El sistema aceptaba y registraba un pago fantasma en `tblpagos` que además impactaba el cuadre de caja del día — la sesión terminaba con un faltante ficticio de decenas de millones.
+- **Validación en 3 niveles**:
+  1. **Input del abono**: al tipear un número ≥ total, se recorta automáticamente a `total - 1`, se muestra en rojo y aparece un toast explicativo.
+  2. **Al confirmar la venta**: el frontend bloquea el guardado si `abono >= total` con mensaje claro (si el cliente va a pagar completo, se debe cambiar el término a Contado).
+  3. **Backend** (`api/ventas/nueva.php`): defensa en profundidad — rechaza con HTTP 400 si el JSON llega con abono ≥ total, por si viene manipulado.
+- Regla clave: en venta a Crédito, el abono debe ser ESTRICTAMENTE menor que el total. Si es igual, la venta es Contado.
+
+### Fix — botón "Corregir base" no hacía nada
+
+- En Caja Registradora, al presionar "Corregir base" el modal no aparecía. Causa: el código leía `data.res` pero el backend devuelve el campo como `data.resumen` — la condición era siempre falsa y el modal nunca se renderizaba.
+- Corregido en las dos referencias (`solicitarCorregirBase` y el render condicional del modal).
+- Ahora el botón abre el modal con la base actual pre-cargada; se puede corregir la base cuando el usuario se equivoca al abrir la caja. Requiere autorización admin si no es admin quien lo hace.
+
+---
+
+## 4.3.85 — 2026-08-11
+
+### Performance (arranque -87% de bundle, -55% de memoria)
+
+- **Code splitting con React.lazy** en 45 componentes pesados del Dashboard (AG Grid, Recharts, xlsx). Bundle inicial: **3.37 MB → 432 KB (gzip: 890 KB → 133 KB)**. Los módulos se descargan bajo demanda al navegar.
+- **Memoria post-arranque**: 43 MB → 19 MB (-55%). Sin leaks en stress de 5 rondas de navegación.
+- **Cache TTL 60s en `sugerencias.php`** vía nueva utilidad `utils/cachedFetch.ts` (sessionStorage). Evita re-fetch al volver a la Pantalla de Inicio.
+- **Throttle 2s en `useNotificaciones`** — antes cada POST disparaba 3 fetches (lotes, stock-bajo, cumpleaños); ahora se ignoran las llamadas repetidas dentro de 2s.
+
+### Consultas rápidas en Ventas (patrón portado de Compras)
+
+- **Botón "Buscar Venta"** en la barra de VentasTabs — abre modal con filtros por mes/año y búsqueda por factura/cliente/NIT. Si el tab activo tiene cliente real, arranca prefiltrado por ese cliente.
+- **Icono $ Historial de Precios de Venta** junto a cada línea del carrito — muestra las últimas 20 ventas del producto con precio unitario, cliente, deltas vs venta anterior y vs promedio.
+- **Icono 📖 Kardex del artículo** junto a cada línea (solo admin) — modal compacto con entradas, salidas, saldo y costo unitario por fecha, con filtros por mes/año.
+- Backend: nuevo endpoint `api/ventas/historial-precios.php`.
+
+### Facturar al último precio del cliente
+
+- Nueva opción en la ficha del cliente: **"Facturar al último precio del cliente"** (junto a "Facturar a precio costo"). Al activarla, cuando se agrega un producto en una nueva venta a ese cliente, el sistema busca automáticamente el último precio al que se le vendió y lo aplica en vez del precio de lista.
+- Toast confirma el precio aplicado con número de factura de referencia. Si el producto nunca se le vendió a ese cliente, cae al precio de lista P1/P2/P3 normal.
+- Badge azul **ÚLTIMO PRECIO** en la barra de venta cuando el cliente tiene la marca.
+- Backend: endpoint `api/ventas/ultimo-precio.php`.
+- ⚠️ Requiere ejecutar `actualizacion_completa.sql` para agregar la columna `UltimoPrecio` a `tblclientes`. Puede hacerse desde **Configuración → Mantenimiento BD → Aplicar Actualización Completa**.
+
+### Facturar a costo (activación en ficha del cliente)
+
+- Ahora el checkbox **"Facturar a precio costo"** que ya existía en la ficha del cliente REALMENTE se aplica al facturar (antes se guardaba pero no se usaba).
+- Al seleccionar un cliente marcado, toast avisa y aparece badge naranja **A COSTO** en la barra. Los productos entran al carrito usando `Precio_Costo` en lugar de la lista de precios.
+
+### Fix crítico — email fantasma de la DIAN
+
+- La consulta DIAN de adquiriente devuelve el email del **último emisor que le facturó a ese NIT**, no el del cliente consultado. Al usar los datos DIAN para crear un cliente o facturar ocasional, el sistema estaba guardando ese email (típicos: `facturasnoprocesadas@olimpica.com.co`, `info1@danncarlton.com`).
+- Corrección: los flujos "Usar solo aquí" y "Guardar como cliente" ya NO usan el email de DIAN. El panel muestra un aviso amarillo indicando por qué se ignora.
+- Si necesita enviar la factura por correo a un cliente ocasional, el email debe escribirse manualmente.
+
+### Fix — inputs de abono en modales de pago (efecto "no muestra el texto")
+
+- En **Cuentas por Cobrar** (pagos a facturas de un cliente) y en **Proveedores** (pagos a facturas de crédito), al presionar los botones **Distribuir / Todo / Pagar Todo**, los abonos calculados aparecían en el state pero los inputs mostraban vacío hasta hacer focus/blur en cada celda. Causa: los inputs son uncontrolled (`defaultValue`) y necesitan re-mount al cambiar el state completo.
+- Corrección: incrementar `formVersion` en los tres puntos que redistribuyen abonos, forzando el re-render inmediato.
+
+### UX
+
+- El checkbox **"Enviar por correo"** en la barra de FE se activa automáticamente si el cliente seleccionado tiene un correo válido (antes había que marcarlo cada vez).
+- Fix del listado de historial de precios de venta — se corrigieron los nombres de columnas en el endpoint (`A_nombre`, `Razon_Social`).
+
+---
+
+## 4.3.84 — 2026-08-10
+
+### Fix crítico FE — rechazo DIAN FAU12 en facturas con abono
+
+- Al emitir FE de crédito con abono inicial, el JSON llevaba `pre_paid_amount` con el valor del abono pero sin el detalle de anticipos individuales que exige la regla DIAN **FAU12** ("Valor del Anticipo Total es distinto a la Suma de todos los anticipos"). Rechazo garantizado.
+- Corrección: los abonos al momento de emitir **NO son anticipos DIAN** — son movimiento interno de cartera. La factura ahora sale por el total completo (`payable_amount = total`) sin `pre_paid_amount`.
+- El abono se sigue registrando internamente en Cuentas por Cobrar como siempre.
+
+### Flujo FE simplificado
+
+- **Selector MEDIO DE PAGO (DIAN) directo en la barra superior** cuando el documento es Factura Electrónica o Doc. Soporte. Muestra el catálogo oficial: 10 Efectivo, 20 Cheque, 30 Transferencia crédito, 31 Débito domiciliado, 41 Concentración, 42 Consignación, 47 PSE, 48 Tarjeta crédito, 49 Tarjeta débito.
+- **Sin modal de Abono para FE** — al presionar "Guardar y Enviar a DIAN" aparece un modal simple de confirmación con Total + medio DIAN + cuenta destino. Un solo paso.
+- **Selector CUENTA destino** (Bancolombia/Nequi/Tarjeta) aparece automáticamente cuando FE Contado y el medio DIAN no es Efectivo, para que la caja cuadre por cuenta interna.
+- Sincronización inteligente: al elegir DIAN 48/49 (Tarjeta) la cuenta salta a Tarjeta. Otras opciones vuelven a Bancolombia por defecto.
+- Mapeo automático del `payment_method_id` cuando el modal no interviene (compat POS).
+
+### UX
+
+- **Checkbox "Enviar por correo"** ahora se activa automáticamente si el cliente tiene un email válido (antes había que marcarlo cada vez).
+
+### Backend
+
+- `api/facturacion-electronica/enviar.php` — acepta `payment_method_id` explícito del frontend; si no viene, mapeo automático desde `id_mediopago` interno (mapeo corregido: tarjeta ahora es DIAN 49 en vez del código 14 que no existe).
+- `pre_paid_amount` siempre 0 en el JSON DIAN.
+
+---
+
+## 4.3.83 — 2026-08-07
+
+### Fix crítico — Factura Anterior de Proveedor (modal no abría)
+
+- El botón "Factura Anterior" del listado de Proveedores no abría el modal por un error en la ubicación del JSX del modal (estaba dentro del componente ProveedorDetalle en vez del componente principal). El estado sí cambiaba pero el modal no se renderizaba. Movido al lugar correcto — ahora abre normal.
+
+### Fix crítico BD — saldos fantasma en proveedores
+
+- **Vista `vw_prov_pedidos_credito_saldos`** solo miraba pagos con formato viejo (`tblegresos.FactN` casteado a int contra `tblpedidos.Pedido_N`). Los pagos hechos con el flujo nuevo (`NFacturaAnt = FacturaCompra_N`) eran invisibles para la vista → las facturas pagadas aparecían con saldo pendiente falso.
+- El detalle del proveedor mostraba `SALDO PENDIENTE $X` arriba, pero abajo todas las facturas en `Pagada / $0`. Inconsistencia entre cache y vista.
+- Ningún dato se perdió — los pagos siempre estuvieron correctos en `tblegresos`. Solo el resumen mentía.
+- **Fix aplicado en `actualizacion_completa.sql`** — la vista ahora suma pagos por AMBOS formatos.
+- Script separado `sql/fix_vista_saldos_proveedores.sql` para aplicar solo este fix rápido (5-10 seg).
+- ⚠️ **Requiere ejecución manual del SQL** en cada BD de cliente (el updater no aplica migraciones de BD por diseño).
+
+---
+
+## 4.3.82 — 2026-08-07
+
+### Facturas Anteriores (saldos migrados)
+
+- **Registrar Factura Anterior de PROVEEDOR** — nuevo botón en el listado de Proveedores (color naranja). Permite migrar saldos que se le deben a un proveedor antes del sistema, sin crear compra ni afectar inventario. Los saldos aparecen en Cuentas por Pagar para aplicar abonos.
+- **Prefijo automático `AT-`** en el número de factura anterior (para clientes y proveedores). El usuario digita solo el número; el sistema guarda `AT-12345` para diferenciar de facturas del sistema.
+- **No permite duplicar número por cliente/proveedor** — evita ambigüedad al aplicar pagos. Sí se permite el mismo número entre distintos clientes/proveedores.
+
+### Pagos — fix crítico
+
+- **Fix crítico**: al aplicar un pago a una factura anterior (número `AT-*`), el sistema NO lo estaba registrando — el pago se perdía silenciosamente porque el endpoint solo buscaba en `tblventas`. Ahora detecta el prefijo `AT-` y actualiza correctamente `tblfacturasanteriores`.
+- Al **anular** un pago de factura anterior, el saldo se restaura correctamente en `tblfacturasanteriores`.
+
+### Kardex — navegación sin salir
+
+- **Número de factura clickeable** en la columna Detalle del Kardex:
+  - **Ventas y devoluciones** → abre `DetalleFacturaModal` encima del kardex
+  - **Compras** → hace lookup del `Pedido_N` y abre `DetalleCompraModal`
+- Al cerrar el modal, el Kardex sigue visible con la posición de scroll intacta.
+
+### Utilidad reusable
+
+- Nuevo helper `moneyInputHandlers()` en `src/utils/moneyInput.ts` — inputs monetarios que muestran `$ 1.234` al blur y el número raw al focus. Se aplica en los modales de Factura Anterior y en cualquier input futuro que maneje dinero.
+
+### Inventario — formato visual
+
+- Columna **Exist.** en el Listado de Artículos ahora muestra con separador de miles (`28.175` en vez de `28175`). Formato colombiano consistente con el resto del sistema.
+
+### Backend
+
+- Nuevos endpoints:
+  - `/api/proveedores/factura-anterior.php` (POST create/eliminar)
+  - `/api/compras/nueva.php?lookup_pedido=1` (lookup FacturaCompra_N → Pedido_N)
+- Endpoint mejorado: `/api/clientes/factura-anterior.php` (prefijo AT- + validación duplicado + validación saldo ≤ valor)
+- Endpoint fixeado: `/api/clientes/pagos.php` (soporte facturas anteriores en pagar/anular)
+
+---
+
+## 4.3.81 — 2026-08-06
+
+### Compras — Multi-tab estilo Chrome + herramientas de precio
+
+**Tabs múltiples en Nueva Compra** (base de la mejora):
+- Se pueden tener varias compras en armado simultáneamente sin perder trabajo.
+- Barra de pestañas superior estilo Chrome con `+` para nueva y `X` para cerrar (con confirmación si hay líneas).
+- Cada tab guarda su propio estado — se pueden armar 2 compras a proveedores distintos en paralelo.
+- **Fix del bug reportado**: al dar click al lápiz de una compra existente desde el listado, ahora abre en **tab nuevo** en vez de reemplazar la compra en armado. Ya no se pierde trabajo al consultar otra compra.
+- Persistencia en localStorage: al cerrar la app, las compras a medio armar se conservan.
+
+**Botón 📊 Historial de Precios en cada fila:**
+- Al agregar un producto a la compra, el usuario puede ver las últimas 20 compras de ese producto.
+- Muestra: fecha, proveedor, factura, cantidad, costo unitario final (con IVA + flete).
+- **Deltas visuales**: variación % vs compra anterior + vs promedio histórico. Rojo si subió, verde si bajó, gris si igual.
+- Estadísticas del producto: precio promedio, mínimo, máximo y total de compras.
+- Utilidad: detectar aumentos de precio anómalos antes de aceptar una nueva compra.
+
+**Botón "Buscar Compra" en la barra:**
+- Modal buscable (por proveedor, pedido o número de factura) con filtro por año/mes.
+- Al elegir una compra, se abre en un **tab nuevo** — no destruye tabs abiertos.
+
+**Dropdown de búsqueda de productos enriquecido:**
+- Al buscar un producto para agregar a la compra, además del nombre y precio de catálogo, se muestra debajo: `Última: $X · Proveedor Y · hace Z días`.
+- El usuario ve de un vistazo si el precio va bien vs lo histórico, sin abrir modales.
+- Ancho del dropdown aumentado (750px) para que los nombres largos + la sub-línea respiren.
+
+### Backend
+- Nuevo endpoint `/compras/historial-precios.php?items=N` → devuelve compras + estadísticas + deltas.
+- `/compras/nueva.php?buscar=X` enriquecido con `ultimo_costo`, `ultima_fecha_compra`, `ultimo_proveedor` por producto.
+
+---
+
+## 4.3.80 — 2026-08-06
+
+### Conteo de Inventario — rendimiento y fix visual
+
+- **Fix crítico**: al guardar el valor de una casilla, el input quedaba vacío visualmente aunque el dato sí estaba en BD. Ahora el `valorInicial` del input lee del Map de cambios local (no solo de la fila) → el valor se mantiene visible después del ✓.
+- **Fix foco perdido**: al pulsar Enter para pasar a la siguiente casilla, el cursor se perdía por remount de celdas al terminar el POST async. Fix: enfoque con `setTimeout(120ms)` + reintentos, y eliminación del timer de 2 seg que borraba `savedItems` (era el disparador principal del remount).
+- **Optimización de re-renders**: input extraído a componente memoizado externo (`InputConteoCell` con `React.memo`), `colsDetalle` en `useMemo` con deps mínimas, `guardarItem` y `handleSaveInput` en `useCallback`, `getRowStyle` estable → menos remounts, cursor estable, mejor rendimiento con 1.000+ productos.
+- **✓ verde permanente** en casillas guardadas — se acumulan durante la sesión como indicador visual de progreso.
+
+### Caja — fix crítico de doble descuento en anulaciones
+
+- **Bug**: al anular una venta Contado, el sistema descontaba el valor **dos veces** del Total en Efectivo:
+  1. La venta anulada se excluía de "Ventas Contado" (`WHERE EstadoFact = 'Valida'`)
+  2. Además se restaba en la línea "Anulaciones" (movimiento de reembolso)
+  → Resultado: caja descuadrada en el valor de la anulación.
+- **Fix**: las consultas de Ventas Contado y desglose por medio de pago ahora **incluyen las anuladas del día** (`EstadoFact IN ('Valida','Anulada')`). La anulación aparece como salida separada en "Anulaciones". Neto correcto y trazable — igual que hacía el sistema VB6.
+- **Afecta**: `caja/sesion.php` (Resumen de Sesión, ventas por medio, post-cierre) y `caja/estado.php` (Resumen del día, ventas por medio, actualización de totales).
+- **Ejemplo**: caja con Ventas Contado $2.306.100 y una anulación de $184.000 (venta original $184.000). Antes daba $2.218.100. Ahora: Ventas Contado $2.490.100 − Anulaciones $184.000 = **$2.306.100 efectivo neto** (correcto).
+
+---
+
+## 4.3.79 — 2026-08-06
+
+### Ventas — edición de factura al estilo VB6
+
+- **Cambio Crédito ↔ Contado bidireccional**: se puede convertir una factura de Crédito a Contado y viceversa desde el modal Editar Factura.
+- **Medio de pago editable**: cuando el Tipo es Contado, aparece dropdown Medio de Pago (Efectivo / Tarjeta / Bancolombia / Nequi). Útil para corregir un medio mal ingresado sin tener que anular y rehacer.
+- **Fix crítico Crédito → Contado no aparecía en caja**: cuando se convertía una factura, se cambiaba el Tipo pero NO se registraba el cobro. La venta quedaba invisible en la caja del día. Ahora se registra automáticamente en `tblpagos` con Fecha del cambio para que aparezca en la sesión activa.
+- **Contado → Crédito**: anula el cobro automático que se había creado (lo marca `Estado='Anulada'`, no se borra por regla de inmutabilidad contable).
+- **Contado → Contado con otro medio**: actualiza el registro sin generar nuevo cobro.
+- **SQL de backfill** disponible en `sql/fix_ventas_convertidas_contado.sql` para corregir facturas históricas que se convirtieron antes del fix.
+
+### Conteo de Inventario — UI compacta
+
+- Las 4 tarjetas de estadísticas (Total / Contados / Con Diferencia / Valor Diferencia) se colapsaron en **una sola barra horizontal delgada** de ~36px. Antes ocupaban ~96px de alto en cards separadas.
+- La grilla del detalle **crece ~60px** al aprovechar el espacio recuperado — más filas visibles en monitores pequeños.
+
+---
+
+## 4.3.78 — 2026-08-05
+
+### Conteo de Inventario — CRÍTICO: auto-guardado por celda
+
+- **Auto-guardado inmediato**: al salir de cada casilla (Tab, Enter o click fuera), la cantidad contada se guarda en la BD al instante. **Ya no es posible perder trabajo digitado** si se cae la app, se va la luz o se cierra por error.
+- Indicador visual en cada celda: `⟳` violeta mientras guarda · borde verde + `✓` dos segundos al confirmar.
+- El botón "Guardar (N)" queda como respaldo si algún guardado individual fallara (por corte de red, etc.).
+- **Contexto**: en versiones anteriores el conteo se guardaba en memoria y solo se persistía al dar click en "Guardar" o al cerrar el conteo — un crash o cierre accidental perdía todo lo digitado desde el último guardado.
+
+### Impresión de facturas — media carta
+
+- Campo **"Máx. productos en media carta"** ahora se puede escribir libremente (antes era select fijo 8/10/12/15/20). Rango permitido: 1 a 60. Hint: recomendado 20, típico 8-30.
+- Fix menor: el fallback cuando el valor no estaba definido usaba 12; ahora usa 20 (coincide con el default).
+
+### Diseño
+
+- **Conteo de Inventario** ahora usa el mismo estilo que **Listado de Artículos**: header violeta pastel, tipografía 12px, hover suave, mismo locale español en los menús del grid. Se ve como del mismo sistema.
+
+---
+
+## 4.3.77 — 2026-08-05
+
+### Conteo de Inventario
+
+- **Exportar a Excel** — nuevo botón verde en el detalle del conteo, genera `.xlsx` con: Código, Descripción, Categoría, Costo Unit, Existencia, Conteo, Diferencia, Valor Diferencia y Observación. Formato de moneda aplicado en columnas de dinero.
+- **Reporte Final** — cuando el conteo está Cerrado o Cancelado, aparece un botón "Reporte Final" con las columnas: Existencia · Conteo · Diferencia · Valor Dif., más una fila de totales. Portrait carta, con colores por celda (verde=cuadra, rojo=faltante, azul=sobrante).
+- Los botones **Ciego** y **Sistema** solo aparecen mientras el conteo está Abierto (son hojas de trabajo). El Reporte Final reemplaza esos dos cuando ya se cerró.
+- **Grilla del detalle más alta** — se aprovecha el espacio vertical (110px más de tabla visible).
+
+---
+
 ## 4.3.76 — 2026-08-04
 
 ### Impresión de facturas — rediseño completo del ticket media carta

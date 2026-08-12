@@ -5,6 +5,8 @@ import toast from 'react-hot-toast';
 import { getConfigImpresion } from './ConfiguracionSistema';
 import { imprimirFactura, buildDatosFactura } from './ImpresionFactura';
 import { confirmar } from './ConfirmDialog';
+import { BuscarVentaModal } from './BuscarVentaModal';
+import { DetalleFacturaModal } from './DetalleFacturaModal';
 
 const API = 'http://localhost:80/conta-app-backend/api/ventas';
 const LS_KEY = 'ventas_tabs';
@@ -44,6 +46,10 @@ export function VentasTabs() {
   const [listaGuardadas, setListaGuardadas] = useState<any[]>([]);
   const [filtroGuardadas, setFiltroGuardadas] = useState('');
   const [showConfirmNueva, setShowConfirmNueva] = useState(false);
+  // Modal "Buscar Venta" — abre facturas ya registradas para ver su detalle
+  // sin salir del contexto de armado de la factura actual.
+  const [showBuscar, setShowBuscar] = useState(false);
+  const [detalleFactN, setDetalleFactN] = useState<number | null>(null);
   const tabCounter = useRef(tabs.length);
 
   // Persistir en localStorage
@@ -393,6 +399,10 @@ export function VentasTabs() {
             title="Cotizaciones guardadas" style={btnStyle()}>
             <BookOpen size={13} /> Cotizaciones
           </button>
+          <button onClick={() => setShowBuscar(true)}
+            title="Buscar una venta ya registrada y ver su detalle" style={btnStyle()}>
+            <Search size={13} /> Buscar Venta
+          </button>
         </div>
       </div>
 
@@ -404,6 +414,25 @@ export function VentasTabs() {
           onStateChange={onStateChange}
           onFacturaCreada={onFacturaCreada}
           onCotizar={guardarCotizacion}
+        />
+      )}
+
+      {/* Modal buscar venta — al seleccionar una factura, abre el DetalleFacturaModal.
+          Si el tab activo tiene cliente real, arranca con filtro por ese cliente
+          (el usuario podrá quitar el filtro con los selectores del modal). */}
+      {showBuscar && (
+        <BuscarVentaModal
+          soloClienteId={activeTab?.state.cliente?.id && activeTab.state.cliente.id !== 130500 ? activeTab.state.cliente.id : undefined}
+          soloClienteNombre={activeTab?.state.cliente?.id && activeTab.state.cliente.id !== 130500 ? activeTab.state.cliente.nombre : undefined}
+          onClose={() => setShowBuscar(false)}
+          onAbrir={(factN) => { setDetalleFactN(factN); setShowBuscar(false); }}
+        />
+      )}
+      {detalleFactN !== null && (
+        <DetalleFacturaModal
+          factN={detalleFactN}
+          onClose={() => setDetalleFactN(null)}
+          onUpdate={() => {}}
         />
       )}
 
