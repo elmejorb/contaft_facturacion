@@ -1,7 +1,7 @@
 -- =====================================================================
 -- LIMPIAR BD para usar como plantilla de cliente nuevo
 -- =====================================================================
--- Aplicar sobre una COPIA de una BD funcional (ej: dbammiaccesorios).
+-- Aplicar sobre una COPIA de una BD funcional (ej: conta_innovacion).
 -- Borra todos los datos transaccionales y operativos, deja solo la
 -- estructura, los catálogos estándar y los registros mínimos.
 --
@@ -9,7 +9,7 @@
 --
 -- Uso recomendado:
 --   1. mysql -u root -p -e "CREATE DATABASE conta_template;"
---   2. mysqldump -u root -p dbammiaccesorios | mysql -u root -p conta_template
+--   2. mysqldump -u root -p conta_innovacion | mysql -u root -p conta_template
 --   3. mysql -u root -p conta_template < limpiar_para_cliente_nuevo.sql
 --   4. mysqldump -u root -p conta_template > conta_template_limpio.sql
 --      ← este archivo es el que importas en el cliente nuevo
@@ -33,12 +33,17 @@ DELIMITER ;
 CALL sp_truncate_if_exists('tbldetalle_venta');
 CALL sp_truncate_if_exists('tblventas');
 CALL sp_truncate_if_exists('tbldevolucion_ventas');
+CALL sp_truncate_if_exists('tblventa_retenciones');
 CALL sp_truncate_if_exists('electronic_documents');
 CALL sp_truncate_if_exists('detalle_document_electronic');
 
--- 2. COMPRAS
+-- 2. COMPRAS Y ÓRDENES
 CALL sp_truncate_if_exists('tbldetalle_pedido');
 CALL sp_truncate_if_exists('tblpedidos');
+CALL sp_truncate_if_exists('tbldetalleorden');
+CALL sp_truncate_if_exists('tbldetalleorden2');
+CALL sp_truncate_if_exists('tbldetalleorden3');
+CALL sp_truncate_if_exists('tbldetalleplansepare');
 
 -- 3. CAJA (sesiones, movimientos, cierres)
 CALL sp_truncate_if_exists('tblmov_caja');
@@ -56,37 +61,50 @@ CALL sp_truncate_if_exists('tblpagos');
 CALL sp_truncate_if_exists('tblegresos');
 CALL sp_truncate_if_exists('tblpagos_proveedor');
 CALL sp_truncate_if_exists('tblpagosproveedor');
+CALL sp_truncate_if_exists('tblgastos');
 
 -- 5. CARTERA (cuentas por cobrar/pagar)
 CALL sp_truncate_if_exists('tblcuentasxcobrar');
 CALL sp_truncate_if_exists('tblcuentasxpagar');
 
--- 6. INVENTARIO
+-- 6. INVENTARIO (artículos + kardex + lotes + notas)
 CALL sp_truncate_if_exists('tblarticulos');
 CALL sp_truncate_if_exists('tblkardex');
+CALL sp_truncate_if_exists('tblmovimiento');
+CALL sp_truncate_if_exists('tblmovimientos_distribucion');
 CALL sp_truncate_if_exists('tblproductos_lotes');
 CALL sp_truncate_if_exists('tblnotas_articulo');
 CALL sp_truncate_if_exists('tblconteos_inventario');
+CALL sp_truncate_if_exists('tblconteo_detalle');
 CALL sp_truncate_if_exists('tblcomponentes_articulo');
 
--- 7. CLIENTES (mantener solo el genérico) y PROVEEDORES
-DELETE FROM tblclientes WHERE CodigoClien <> 130500;
-CALL sp_truncate_if_exists('tblproveedores');
+-- 7. CONTABILIDAD (asientos)
+CALL sp_truncate_if_exists('tbldetallecomprobantediario');
+CALL sp_truncate_if_exists('tblcomprobantediario');
 
--- 8. BANCOS (limpiar movimientos pero conservar cuentas, resetear saldos)
+-- 8. CLIENTES — conservar solo los genéricos (Ventas al Contado + Consumidor Final)
+DELETE FROM tblclientes WHERE CodigoClien NOT IN (130500, 130502);
+
+-- 9. PROVEEDORES — conservar solo "Compras al Contado" (CodigoPro 220500)
+DELETE FROM tblproveedores WHERE CodigoPro <> 220500;
+
+-- Normalizar nombre del proveedor default (el original tenía typo "COMPARAS")
+UPDATE tblproveedores SET RazonSocial = 'COMPRAS AL CONTADO' WHERE CodigoPro = 220500;
+
+-- 10. BANCOS (limpiar movimientos pero conservar cuentas, resetear saldos)
 CALL sp_truncate_if_exists('tblmov_bancos');
 SET @hay_saldo = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tblbancos' AND COLUMN_NAME = 'Saldo');
 SET @sql = IF(@hay_saldo = 1, 'UPDATE tblbancos SET Saldo = 0', 'SELECT 1');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
--- 9. SINCRONIZACIÓN
-CALL sp_truncate_if_exists('tbl_cambios_sincronizar');
-
--- 10. VENDEDORES MÓVILES
+-- 11. VENDEDORES MÓVILES
 CALL sp_truncate_if_exists('tbl_pedidos_vendedor');
 CALL sp_truncate_if_exists('tbl_vendedores_movil');
 
--- 11. USUARIOS — mantener solo "root", resetear contraseña a 1234
+-- 12. SINCRONIZACIÓN
+CALL sp_truncate_if_exists('tbl_cambios_sincronizar');
+
+-- 13. USUARIOS — mantener solo "root", contraseña codificada = "1234"
 DELETE FROM tblusuarios WHERE Usuario <> 'root';
 INSERT IGNORE INTO tblusuarios
   (Id_Usuario, Usuario, Nombre, Indentificacion, contrasena, Id_TiposUsuario)
@@ -94,7 +112,7 @@ VALUES
   (1, 'root', 'Administrador', 1001, '0110001011001001100110110100', 1);
 UPDATE tblusuarios SET contrasena = '0110001011001001100110110100' WHERE Usuario = 'root';
 
--- 12. EMPRESA — resetear a placeholder
+-- 14. EMPRESA — resetear a placeholder
 UPDATE tbldatosempresa SET
   Empresa       = 'NOMBRE DE LA EMPRESA',
   Propietario   = 'Propietario',
@@ -113,7 +131,17 @@ SET @hay_token = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SC
 SET @sql = IF(@hay_token = 1, 'UPDATE tbldatosempresa SET api_token = NULL WHERE Id_Empresa = 1', 'SELECT 1');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
--- 13. CONFIGURACIÓN VENDEDORES — resetear toggle a OFF
+-- Limpiar credenciales DIAN (email_factelect, password_factelect) si existen
+SET @hay_dian = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tbldatosempresa' AND COLUMN_NAME = 'email_factelect');
+SET @sql = IF(@hay_dian = 1, "UPDATE tbldatosempresa SET email_factelect = '', password_factelect = '' WHERE Id_Empresa = 1", 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- Resetear campos de resolución DIAN sincronizada
+SET @hay_res = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tbldatosempresa' AND COLUMN_NAME = 'ResolucionTextoCompleto');
+SET @sql = IF(@hay_res = 1, "UPDATE tbldatosempresa SET ResolucionTextoCompleto = NULL, ResolucionVence = NULL, ResolucionSyncAt = NULL, ResolucionRemaining = NULL, ResolucionUsagePct = NULL, ResolucionNextConsec = NULL, ResolucionTechnicalKey = NULL WHERE Id_Empresa = 1", 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- 15. CONFIGURACIÓN VENDEDORES — resetear toggle a OFF
 SET @t = (SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tbl_config_vendedores');
 SET @sql = IF(@t = 1, "UPDATE tbl_config_vendedores SET habilitado = 0, api_email = '', api_token_empresa = '', ultimo_pull_id = 0, ultimo_pull_ventas = NULL WHERE id = 1", 'SELECT 1');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
@@ -124,7 +152,7 @@ DROP PROCEDURE IF EXISTS sp_truncate_if_exists;
 SET FOREIGN_KEY_CHECKS = 1;
 
 -- ============================================================
--- VERIFICACIÓN FINAL — solo cuenta tablas que sí existen
+-- VERIFICACIÓN FINAL
 -- ============================================================
 SELECT '✓ BD limpiada — lista para usar como plantilla de cliente nuevo' AS resultado;
 SELECT

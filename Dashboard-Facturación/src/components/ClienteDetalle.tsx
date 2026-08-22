@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
 import { AgGridReact } from 'ag-grid-react';
 import { AllCommunityModule, ModuleRegistry, ColDef } from 'ag-grid-community';
-import { X, FileText, ShoppingBag, BarChart3, DollarSign, Receipt, CreditCard, Wallet, Save, CheckCircle, Search, Ban, Pencil, Printer } from 'lucide-react';
+import { X, FileText, ShoppingBag, BarChart3, DollarSign, Receipt, CreditCard, Wallet, Save, CheckCircle, Search, Ban, Pencil, Printer, MapPin } from 'lucide-react';
 import { ReciboImpresion } from './ReciboImpresion';
 import { DetalleFacturaModal } from './DetalleFacturaModal';
 import { getConfigImpresion } from './ConfiguracionSistema';
 import { confirmar } from './ConfirmDialog';
+import { useVendedoresConfig } from '../hooks/useVendedoresConfig';
 import toast from 'react-hot-toast';
 import { useAuth } from '../contexts/AuthContext';
 import { hoyLocal, inicioMesLocal, fechaLocal } from '../utils/fecha';
@@ -25,6 +26,7 @@ interface Props {
 
 export function ClienteDetalle({ clienteId, onClose, tabInicial = 'ventas' }: Props) {
   const { user } = useAuth();
+  const { habilitado: modVendedores } = useVendedoresConfig();
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<'ventas' | 'productos' | 'grafico' | 'pagar' | 'historial'>(tabInicial);
@@ -354,6 +356,32 @@ export function ClienteDetalle({ clienteId, onClose, tabInicial = 'ventas' }: Pr
               Código: {cliente?.CodigoClien} | NIT: {cliente?.Nit || '-'} | Tel: {cliente?.Telefonos || '-'}
             </div>
           </div>
+
+          {/* Botón mapa — solo si módulo vendedores está activo y hay GPS */}
+          {modVendedores && cliente?.latitud && cliente?.longitud && (
+            <button
+              onClick={() => {
+                const lat = parseFloat(cliente.latitud);
+                const lng = parseFloat(cliente.longitud);
+                if (!isNaN(lat) && !isNaN(lng)) {
+                  window.open(`https://www.google.com/maps?q=${lat},${lng}`, '_blank');
+                }
+              }}
+              title={`Abrir ubicación en Google Maps\n${cliente?.gps_capturado_at ? `Capturado: ${cliente.gps_capturado_at}` : ''}`}
+              style={{
+                height: 32, padding: '0 12px', display: 'flex', alignItems: 'center', gap: 6,
+                background: '#dbeafe', color: '#1d4ed8',
+                border: '1px solid #93c5fd', borderRadius: 8, cursor: 'pointer',
+                fontSize: 12, fontWeight: 600,
+                transition: 'all 0.15s',
+              }}
+              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#bfdbfe'; }}
+              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = '#dbeafe'; }}
+            >
+              <MapPin size={14} /> Ver en mapa
+            </button>
+          )}
+
           <select
             value={anio}
             onChange={e => setAnio(parseInt(e.target.value))}

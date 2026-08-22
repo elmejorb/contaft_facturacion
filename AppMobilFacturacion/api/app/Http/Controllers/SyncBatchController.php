@@ -342,6 +342,23 @@ class SyncBatchController extends Controller
                     'updated_at'           => \Carbon\Carbon::now(),
                 ];
 
+                // GPS: solo agregamos al $data si el push trae valor. Si viene
+                // null, dejamos lo que Lumen ya tenga (evita perder GPS que un
+                // vendedor capturó desde móvil cuando el desktop no lo tenía).
+                if (isset($r['latitud']) && $r['latitud'] !== null && $r['latitud'] !== '') {
+                    $data['latitud']  = (float) $r['latitud'];
+                    $data['longitud'] = isset($r['longitud']) ? (float) $r['longitud'] : null;
+                    if (isset($r['precision_gps_metros'])) {
+                        $data['precision_gps_metros'] = (float) $r['precision_gps_metros'];
+                    }
+                    if (!empty($r['gps_capturado_at'])) {
+                        // Normalizar cualquier formato de fecha a lo que MySQL acepta
+                        try {
+                            $data['gps_capturado_at'] = \Carbon\Carbon::parse($r['gps_capturado_at'])->format('Y-m-d H:i:s');
+                        } catch (\Throwable $e) {}
+                    }
+                }
+
                 $existing = DB::table('clientes')
                     ->where('id_empresa', $empresa->id_empresa)
                     ->where('codvb6', $codvb6)

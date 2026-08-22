@@ -64,6 +64,139 @@ class SyncVendedorController extends Controller
     }
 
     // ========================================================================
+    // POST /sync/vendedor-clientes/asignar
+    // Reemplaza el conjunto de clientes asignados a un vendedor.
+    // Body: { email, token_api, id_vendedor_conta, codvb6: [130501, 130503, ...] }
+    // La operación es "set-based": borra las asignaciones anteriores del
+    // vendedor y crea solo las nuevas. Los clientes que ese vendedor haya
+    // creado desde móvil se preservan (los mantiene su relación original).
+    // ========================================================================
+
+    public function asignarClientes(Request $request): JsonResponse
+    {
+        $empresa = $this->authBatch($request);
+        if (!$empresa) return $this->unauthorized();
+
+        $idVendConta = intval($request->input('id_vendedor_conta', 0));
+        $codvb6List  = $request->input('codvb6', []);
+        if ($idVendConta <= 0 || !is_array($codvb6List)) {
+            return response()->json(['error' => true, 'mensaje' => 'id_vendedor_conta y codvb6[] son obligatorios'], 422);
+        }
+
+        // Vendedor móvil (en la nube) → tomar su id de mobile_vendedores.
+        $vendedor = DB::table('mobile_vendedores')
+            ->where('id_empresa', $empresa->id_empresa)
+            ->where('id_vendedor_conta', $idVendConta)
+            ->first();
+        if (!$vendedor) {
+            return response()->json(['error' => true, 'mensaje' => 'Vendedor no encontrado en la nube'], 404);
+        }
+
+        // Resolver id_cliente en Lumen a partir de cada codvb6 del desktop.
+        $codvb6Str = array_map(fn($x) => (string)$x, $codvb6List);
+        $clientesIds = DB::table('clientes')
+            ->where('id_empresa', $empresa->id_empresa)
+            ->whereIn('codvb6', $codvb6Str)
+            ->pluck('id_cliente')
+            ->toArray();
+
+        DB::beginTransaction();
+        try {
+            DB::table('mobile_vendedor_clientes')
+                ->where('id_vendedor_mobile', $vendedor->id)
+                ->delete();
+
+            $now = \Carbon\Carbon::now();
+            $inserts = array_map(fn($idCliente) => [
+                'id_vendedor_mobile' => $vendedor->id,
+                'id_cliente'         => $idCliente,
+                'fecha_asignacion'   => $now,
+            ], $clientesIds);
+
+            if ($inserts) {
+                DB::table('mobile_vendedor_clientes')->insert($inserts);
+            }
+            DB::commit();
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            return response()->json(['error' => true, 'mensaje' => 'Error asignando clientes', 'detalle' => $e->getMessage()], 500);
+        }
+
+        return response()->json([
+            'error'     => false,
+            'mensaje'   => 'Clientes asignados',
+            'asignados' => count($clientesIds),
+            'solicitados' => count($codvb6Str),
+        ]);
+    }
+
+    // ========================================================================
+    // GET /sync/vendedor-clientes/asignados?id_vendedor_conta=N
+    // Devuelve los codvb6 asignados a un vendedor. Sirve al modal del desktop
+    // para pre-marcar los que ya están asignados.
+    // ========================================================================
+
+    public function clientesAsignados(Request $request): JsonResponse
+    {
+        $empresa = $this->authBatch($request);
+        if (!$empresa) return $this->unauthorized();
+
+        $idVendConta = intval($request->query('id_vendedor_conta', 0));
+        if ($idVendConta <= 0) {
+            return response()->json(['error' => true, 'mensaje' => 'id_vendedor_conta requerido'], 422);
+        }
+
+        $vendedor = DB::table('mobile_vendedores')
+            ->where('id_empresa', $empresa->id_empresa)
+            ->where('id_vendedor_conta', $idVendConta)
+            ->first();
+        if (!$vendedor) {
+            return response()->json(['error' => false, 'codvb6' => []]);
+        }
+
+        $codvb6 = DB::table('mobile_vendedor_clientes as mvc')
+            ->join('clientes as c', 'c.id_cliente', '=', 'mvc.id_cliente')
+            ->where('mvc.id_vendedor_mobile', $vendedor->id)
+            ->whereNotNull('c.codvb6')
+            ->pluck('c.codvb6')
+            ->toArray();
+
+        return response()->json([
+            'error'   => false,
+            'total'   => count($codvb6),
+            'codvb6'  => $codvb6,
+        ]);
+    }
+
+    // ========================================================================
+    // GET /sync/vendedores/todos
+    // Devuelve todos los vendedores móviles de la empresa. El desktop lo usa
+    // para importar los vendedores que NO existen en tbl_vendedores_movil
+    // local (típico cuando se crean primero en la nube antes que en el desktop).
+    // ========================================================================
+
+    public function vendedoresTodos(Request $request): JsonResponse
+    {
+        $empresa = $this->authBatch($request);
+        if (!$empresa) return $this->unauthorized();
+
+        $rows = DB::table('mobile_vendedores')
+            ->where('id_empresa', $empresa->id_empresa)
+            ->orderBy('codigo')
+            ->get([
+                'id', 'id_vendedor_conta', 'codigo', 'nombre', 'email',
+                'telefono', 'cedula', 'zona', 'can_edit_clients', 'activo',
+                'ultimo_login', 'created_at',
+            ]);
+
+        return response()->json([
+            'error'      => false,
+            'total'      => $rows->count(),
+            'vendedores' => $rows,
+        ]);
+    }
+
+    // ========================================================================
     // VENDEDORES BATCH (POST /sync/vendedores/batch)
     // ========================================================================
 

@@ -1,8 +1,8 @@
 export const colors = {
-  primary: '#2563EB',
-  primaryDark: '#1D4ED8',
-  primaryLight: '#DBEAFE',
-  primarySoft: '#EFF6FF',
+  primary: '#7C3AED',
+  primaryDark: '#5B21B6',
+  primaryLight: '#EDE9FE',
+  primarySoft: '#F5F3FF',
 
   success: '#10B981',
   successLight: '#D1FAE5',

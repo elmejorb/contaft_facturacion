@@ -78,6 +78,7 @@ import { LotesPorVencer } from './LotesPorVencer';
 import { PantallaInicio } from './PantallaInicio';
 import { useNotificaciones } from '../hooks/useNotificaciones';
 import { useAutoSyncVendedores } from '../hooks/useAutoSyncVendedores';
+import { useEntitlements } from '../hooks/useEntitlements';
 import { InformesHub } from './informes/InformesHub';
 import { ConfiguracionSistema, saveEmpresaCache } from './ConfiguracionSistema';
 import { DatosEmpresa } from './DatosEmpresa';
@@ -85,6 +86,7 @@ import { NuevaCompra } from './NuevaCompra';
 import { UsuariosManagement } from './UsuariosManagement';
 import { VendedoresMovil } from './VendedoresMovil';
 import { VendedoresPedidos } from './VendedoresPedidos';
+import { InformeVendedores } from './InformeVendedores';
 import { useVendedoresConfig } from '../hooks/useVendedoresConfig';
 import { CuentasPorCobrar } from './CuentasPorCobrar';
 import { TopClientes } from './TopClientes';
@@ -111,7 +113,7 @@ interface DashboardProps {
   user?: UserData | null;
 }
 
-type View = 'overview' | 'products' | 'customers' | 'suppliers' | 'purchases' | 'sales' | 'inventario' | 'diagnostico' | 'auditoria' | 'categorias' | 'conteo' | 'configuracion' | 'cuentas-cobrar' | 'top-clientes' | 'cumpleanos' | 'cuentas-pagar' | 'productos-proveedor' | 'nueva-venta' | 'ventas-tipo-pago' | 'datos-empresa' | 'usuarios' | 'nueva-compra' | 'facturacion-electronica' | 'caja' | 'caja-historial' | 'pagos-clientes' | 'pagos-proveedores' | 'gastos' | 'bancos' | 'config-categorias-gasto' | 'config-cajas' | 'config-servidor' | 'config-permisos' | 'familias' | 'distribuir' | 'stock-bajo' | 'config-retenciones' | 'informes-hub' | 'notas-articulo' | 'lotes-vencer' | 'inicio' | 'config-etiquetas' | 'vendedores-gestion' | 'vendedores-pedidos';
+type View = 'overview' | 'products' | 'customers' | 'suppliers' | 'purchases' | 'sales' | 'inventario' | 'diagnostico' | 'auditoria' | 'categorias' | 'conteo' | 'configuracion' | 'cuentas-cobrar' | 'top-clientes' | 'cumpleanos' | 'cuentas-pagar' | 'productos-proveedor' | 'nueva-venta' | 'ventas-tipo-pago' | 'datos-empresa' | 'usuarios' | 'nueva-compra' | 'facturacion-electronica' | 'caja' | 'caja-historial' | 'pagos-clientes' | 'pagos-proveedores' | 'gastos' | 'bancos' | 'config-categorias-gasto' | 'config-cajas' | 'config-servidor' | 'config-permisos' | 'familias' | 'distribuir' | 'stock-bajo' | 'config-retenciones' | 'informes-hub' | 'notas-articulo' | 'lotes-vencer' | 'inicio' | 'config-etiquetas' | 'vendedores-gestion' | 'vendedores-pedidos' | 'vendedores-informe';
 
 interface MenuItem {
   id: string;
@@ -153,6 +155,14 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
   const esAdmin = user?.tipoUsuario === 1 || user?.tipoUsuario === '1';
   const esVendedor = user?.tipoUsuario === 2 || user?.tipoUsuario === '2';
   const { habilitado: vendedoresHabilitado, pedidosPendientes } = useVendedoresConfig();
+  const { modulos: entitlements, source: entitSource, loading: entitLoading } = useEntitlements();
+  // CRM manda 100%: el módulo Vendedores solo aparece si el CRM lo tiene
+  // activo. Durante la carga inicial (~1 seg) usamos el valor local para
+  // evitar flash de "aparece/desaparece" en cada arranque.
+  const vendedorMovilOK = entitLoading
+    ? vendedoresHabilitado
+    : entitlements?.vendedor_movil?.activo === true;
+  const feEntitlementOK = entitlements?.facturacion_electronica?.activo === true;
   const [showCambiarClave, setShowCambiarClave] = useState(false);
   const [claveActual, setClaveActual] = useState('');
   const [claveNueva, setClaveNueva] = useState('');
@@ -267,6 +277,7 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
       children: [
         { id: 'vendedores-gestion', label: 'Gestión de Vendedores', view: 'vendedores-gestion' as View },
         { id: 'vendedores-pedidos', label: 'Pedidos de Campo', view: 'vendedores-pedidos' as View },
+        { id: 'vendedores-informe', label: 'Ranking de Vendedores', view: 'vendedores-informe' as View },
       ]
     },
     {
@@ -314,7 +325,8 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
   };
 
   // Filtrar menú por permisos y habilitación de módulos
-  const baseMenuItems = allMenuItems.filter(item => item.id !== 'vendedores' || vendedoresHabilitado);
+  // Vendedores: gate por entitlements CRM con grandfathering local
+  const baseMenuItems = allMenuItems.filter(item => item.id !== 'vendedores' || vendedorMovilOK);
   const menuItems = esAdmin ? baseMenuItems : baseMenuItems
     .map(item => {
       if (item.children) {
@@ -679,6 +691,7 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
           {currentView === 'usuarios' && <UsuariosManagement />}
           {currentView === 'vendedores-gestion' && <VendedoresMovil />}
           {currentView === 'vendedores-pedidos' && <VendedoresPedidos onNavigate={(v) => setCurrentView(v as View)} />}
+          {currentView === 'vendedores-informe' && <InformeVendedores />}
           {currentView === 'cuentas-cobrar' && <CuentasPorCobrar />}
           {currentView === 'top-clientes' && <TopClientes />}
           {currentView === 'cumpleanos' && <CumpleanosClientes />}

@@ -45,16 +45,37 @@ try {
                     $nextId = $stmtNext->fetch()['next_id'];
                     $nit = $pedido['nit_cliente'] ?? '';
                     $ident = !empty($nit) ? intval(preg_replace('/[^0-9]/', '', $nit)) : 0;
+
+                    // Las columnas de FE v5.2 (id_documento, id_municipio, etc.) solo
+                    // existen en BDs con módulo FE aplicado. Chequeamos existencia y
+                    // solo las incluimos si están, para no reventar en BDs viejas.
+                    $colsFE = ['id_documento', 'id_municipio', 'id_type_liability', 'id_type_organization', 'id_type_regime'];
+                    $colsExtras = [];
+                    $valsExtras = [];
+                    foreach ($colsFE as $c) {
+                        $chk = $db->prepare("SELECT COUNT(*) FROM information_schema.COLUMNS
+                                             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tblclientes' AND COLUMN_NAME = ?");
+                        $chk->execute([$c]);
+                        if ((int)$chk->fetchColumn() > 0) {
+                            $colsExtras[] = $c;
+                            // id_documento → 2 (cédula por defecto); resto NULL
+                            $valsExtras[] = $c === 'id_documento' ? '2' : 'NULL';
+                        }
+                    }
+
+                    $extrasSql = $colsExtras ? ', ' . implode(', ', $colsExtras) : '';
+                    $extrasVals = $colsExtras ? ', ' . implode(', ', $valsExtras) : '';
+
                     $db->prepare("
                         INSERT INTO tblclientes
                         (CodigoClien, Razon_Social, Nit, Identificacion, Telefonos, Direccion,
                          Email, Whatsapp, CupoAutorizado, Fecha_Ingreso,
                          Nombres, Apellidos, Direcion_R, Nombre_C, Apellidos_C, Telefonos_C, Direccion_C, Cargo_C,
-                         Termino, FacVenc, Preciocosto, id_documento, id_municipio, id_type_liability, id_type_organization, id_type_regime)
+                         Termino, FacVenc, Preciocosto{$extrasSql})
                         VALUES
                         (?, ?, ?, ?, '', '', '', '', 0, NOW(),
                          '', '', '', '', '', '', '', '',
-                         0, 0, 0, 2, null, null, null, null)
+                         0, 0, 0{$extrasVals})
                     ")->execute([
                         $nextId,
                         $pedido['nombre_cliente'],
@@ -149,13 +170,14 @@ try {
         if ($fechaHasta !== '') { $wherePed[] = "fecha <= ?";              $paramsPed[] = $fechaHasta; }
         $whereStrPed = implode(' AND ', $wherePed);
 
-        $stmt = $db->prepare("SELECT *, 'pedido' AS tipo
+        $stmt = $db->prepare("SELECT *
             FROM tbl_pedidos_vendedor
             WHERE $whereStrPed
             ORDER BY fecha DESC, id DESC");
         $stmt->execute($paramsPed);
         $pedidos = $stmt->fetchAll();
         foreach ($pedidos as &$p) {
+            $p['tipo']  = 'pedido';
             $p['items'] = json_decode($p['items_json'] ?? '[]', true);
         }
         unset($p);
@@ -194,14 +216,17 @@ try {
                     END AS forma_pago,
                     NULL AS observaciones,
                     ed.status AS estado,
-                    ed.cufe,
-                    'factura' AS tipo
+                    ed.cufe
                 FROM electronic_documents ed
                 LEFT JOIN tblclientes cl ON cl.CodigoClien = ed.cod_cliente
                 WHERE $whereStrFE
                 ORDER BY ed.fecha DESC, ed.id DESC");
             $stmt->execute($paramsFE);
             $facturas = $stmt->fetchAll();
+            foreach ($facturas as &$f) {
+                $f['tipo'] = 'factura';
+            }
+            unset($f);
         }
 
         // Combinar y ordenar por fecha DESC
@@ -400,6 +425,27 @@ try {
             $facturaN = intval($data['factura_n'] ?? 0);
             $db->prepare("UPDATE tbl_pedidos_vendedor SET estado = 'procesado', convertido_factura_n = ?, fecha_mod = NOW() WHERE id = ?")
                ->execute([$facturaN, $id]);
+
+            // Propagar el vendedor móvil a la factura: resolvemos el CodigoEmp
+            // del empleado vinculado (tbl_vendedores_movil.id_remoto) y lo
+            // guardamos en tblventas.CodigoEmp — así los informes por vendedor
+            // legacy (que usan CodigoEmp) también cuadran, y podemos filtrar
+            // facturas por vendedor sin JOIN.
+            if ($facturaN > 0) {
+                $stmtV = $db->prepare("
+                    SELECT vm.id_remoto AS codigo_emp
+                    FROM tbl_pedidos_vendedor p
+                    LEFT JOIN tbl_vendedores_movil vm ON vm.id = p.id_vendedor_remoto
+                    WHERE p.id = ?
+                ");
+                $stmtV->execute([$id]);
+                $codigoEmp = intval($stmtV->fetchColumn() ?: 0);
+                if ($codigoEmp > 0) {
+                    $db->prepare("UPDATE tblventas SET CodigoEmp = ? WHERE Factura_N = ?")
+                       ->execute([$codigoEmp, $facturaN]);
+                }
+            }
+
             echo json_encode(['success' => true, 'message' => 'Pedido marcado como procesado'], JSON_UNESCAPED_UNICODE);
             exit;
         }

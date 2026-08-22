@@ -133,6 +133,15 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
   const [authCupoAdmin, setAuthCupoAdmin] = useState<AdminAutorizado | null>(null);
   const [tipo, setTipo] = useState(init.tipo);
   const [dias, setDias] = useState(init.dias);
+
+  // Guardarraíl: si el estado quedó con 'Credito' sin tilde (por HMR, tabs
+  // legacy, o un initialState viejo), normalizamos a 'Crédito' con tilde
+  // para que coincida con el <option value="Crédito"> y con las comparaciones
+  // del modal. Sin esto, el select muestra "Contado" pero el modal cae al
+  // else de crédito y pide abono.
+  useEffect(() => {
+    if (tipo === 'Credito') setTipo('Crédito');
+  }, [tipo]);
   const [cliente, setCliente] = useState(init.cliente);
   const [clienteBusqueda, setClienteBusqueda] = useState('');
   const [clienteResults, setClienteResults] = useState<any[]>([]);
@@ -433,9 +442,12 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
           toast('Cliente no encontrado localmente. Seleccione el cliente correcto.', { icon: '⚠️' });
         }
 
-        // Forma de pago
+        // Forma de pago — 'Crédito' con tilde para que matchee con el <option>
+        // y con las comparaciones del resto del componente (busca 'Crédito').
         const fp = (d.forma_pago || 'contado').toLowerCase();
-        setTipo(fp === 'contado' ? 'Contado' : 'Credito');
+        const nuevoTipo = fp === 'contado' ? 'Contado' : 'Crédito';
+        setTipo(nuevoTipo);
+        if (nuevoTipo === 'Crédito') setDias(30);
 
         // Tipo de documento — el backend lo envía si la copia viene de FE,
         // en cuyo caso preseleccionamos "Factura Electrónica". Para pedidos
@@ -1244,19 +1256,30 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
                         tip = `Costo: ${fmtMon(l.PrecioCosto)}   Margen: ${signo}${fmtMon(margen)} (${pct.toFixed(1)}%)`;
                       }
                       return (
-                        <input type="text" key={`precio-${l.id}-${l.PrecioVenta}`} defaultValue={String(l.PrecioVenta)}
+                        <input type="text" key={`precio-${l.id}-${l.PrecioVenta}`}
+                          defaultValue={l.PrecioVenta > 0 ? l.PrecioVenta.toLocaleString('es-CO') : ''}
                           title={tip}
-                          onFocus={e => e.target.select()}
-                          onBlur={e => { const v = parseFloat(e.target.value) || 0; actualizarLinea(l.id, 'PrecioVenta', v); e.target.value = v.toLocaleString('es-CO'); }}
+                          onFocus={e => { e.target.value = l.PrecioVenta > 0 ? String(l.PrecioVenta) : ''; e.target.select(); }}
+                          onBlur={e => {
+                            const v = parseFloat(String(e.target.value).replace(/[^\d.-]/g, '')) || 0;
+                            actualizarLinea(l.id, 'PrecioVenta', v);
+                            e.target.value = v > 0 ? v.toLocaleString('es-CO') : '';
+                          }}
                           onKeyDown={e => { soloNum(e); if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
                           style={{ width: 80, height: 24, textAlign: 'right', border: '1px solid #d1d5db', borderRadius: 4, fontSize: 12, outline: 'none' }} />
                       );
                     })()}
                   </td>
                   <td style={{ padding: '3px 4px', textAlign: 'right', width: 75 }}>
-                    <input type="text" defaultValue={l.Descuento > 0 ? String(l.Descuento) : ''} placeholder="0"
-                      onFocus={e => e.target.select()}
-                      onBlur={e => { const v = parseFloat(e.target.value) || 0; actualizarLinea(l.id, 'Descuento', v); }}
+                    <input type="text" key={`desc-${l.id}-${l.Descuento}`}
+                      defaultValue={l.Descuento > 0 ? l.Descuento.toLocaleString('es-CO') : ''}
+                      placeholder="0"
+                      onFocus={e => { e.target.value = l.Descuento > 0 ? String(l.Descuento) : ''; e.target.select(); }}
+                      onBlur={e => {
+                        const v = parseFloat(String(e.target.value).replace(/[^\d.-]/g, '')) || 0;
+                        actualizarLinea(l.id, 'Descuento', v);
+                        e.target.value = v > 0 ? v.toLocaleString('es-CO') : '';
+                      }}
                       onKeyDown={e => { soloNum(e); if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
                       style={{ width: 60, height: 24, textAlign: 'right', border: '1px solid #d1d5db', borderRadius: 4, fontSize: 12, outline: 'none' }} />
                   </td>

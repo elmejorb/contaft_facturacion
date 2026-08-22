@@ -1,9 +1,11 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Platform,
   Pressable,
   RefreshControl,
   ScrollView,
+  StatusBar,
   StyleSheet,
   Text,
   View,
@@ -11,8 +13,8 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { Card, Screen } from '../components';
-import { colors, radius, shadows, spacing, typography } from '../theme';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { colors, radius, spacing } from '../theme';
 import { RootStackParamList } from '../navigation/types';
 import { formatCurrency, formatDateTime, initials } from '../utils/format';
 import { dashboardApi, DashboardResumen } from '../services/api';
@@ -26,10 +28,22 @@ import { pendingClientsRepo } from '../db/pendingClientsRepo';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
 
+const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+const DIAS = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+
+const fechaHoy = () => {
+  const d = new Date();
+  const dia = DIAS[d.getDay()];
+  const mes = MESES[d.getMonth()];
+  return `${dia.charAt(0).toUpperCase() + dia.slice(1)}, ${d.getDate()} de ${mes}`;
+};
+
 export const DashboardScreen: React.FC = () => {
   const nav = useNavigation<Nav>();
+  const insets = useSafeAreaInsets();
   const modes = useCompanyModes();
   const vendor = useAuthStore((s) => s.vendor);
+  const logout = useAuthStore((s) => s.logout);
   const online = useNetworkStore((s) => s.online);
   const lastSyncAt = useSyncStore((s) => s.lastSyncAt);
   const [resumen, setResumen] = useState<DashboardResumen | null>(null);
@@ -67,7 +81,6 @@ export const DashboardScreen: React.FC = () => {
     }, [fetchResumen, fetchPendingCount]),
   );
 
-  // Cuando una sync (auto o manual) termina, re-obtenemos contador y resumen
   useEffect(() => {
     if (lastSyncAt) {
       fetchPendingCount();
@@ -84,47 +97,69 @@ export const DashboardScreen: React.FC = () => {
   const isOnline = online;
 
   return (
-    <Screen edges={['top', 'left', 'right']}>
+    <View style={{ flex: 1, backgroundColor: '#f8fafc' }}>
+      <StatusBar barStyle="light-content" backgroundColor={colors.primary} />
+
       <ScrollView
-        contentContainerStyle={styles.scroll}
         showsVerticalScrollIndicator={false}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#fff" colors={['#fff']} progressBackgroundColor={colors.primary} />}
       >
-        <View style={styles.topBar}>
-          <View style={styles.avatarWrap}>
-            <View style={styles.avatar}>
-              <Text style={styles.avatarText}>
-                {vendor ? initials(vendor.nombre) : '··'}
-              </Text>
+        {/* HERO — Header morado con blobs */}
+        <View style={[styles.hero, { paddingTop: insets.top + 12 }]}>
+          <View style={styles.blob1} />
+          <View style={styles.blob2} />
+
+          <View style={styles.heroTop}>
+            <View style={styles.brandRow}>
+              <View style={styles.brandDot} />
+              <Text style={styles.brandText}>CONTA FT MÓVIL</Text>
             </View>
-            <View>
-              <Text style={styles.greeting} numberOfLines={1}>
-                ¡Hola, {vendor?.nombre.split(' ')[0] ?? 'Vendedor'}!
+            <Pressable onPress={logout} hitSlop={8} style={styles.iconBtn}>
+              <Ionicons name="log-out-outline" size={20} color="#fff" />
+            </Pressable>
+          </View>
+
+          <View style={styles.userRow}>
+            <View style={styles.avatarWrap}>
+              <View style={styles.avatar}>
+                <Text style={styles.avatarText}>
+                  {vendor ? initials(vendor.nombre) : '··'}
+                </Text>
+              </View>
+              <View style={styles.avatarBadge}>
+                <Ionicons name="checkmark" size={12} color="#fff" />
+              </View>
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.dateText}>{fechaHoy()}</Text>
+              <Text style={styles.userName} numberOfLines={1}>
+                {vendor?.nombre?.toUpperCase() ?? 'VENDEDOR'}
               </Text>
-              <Text style={styles.greetingSub} numberOfLines={1}>
-                {vendor?.codigo ?? ''}
-                {vendor?.zona ? ` · ${vendor.zona}` : ''}
-              </Text>
+              <View style={styles.rolePill}>
+                <Ionicons name="briefcase-outline" size={12} color="#fff" />
+                <Text style={styles.roleText}>
+                  {vendor?.codigo ?? 'V000'}{vendor?.zona ? ` · ${vendor.zona}` : ''}
+                </Text>
+              </View>
             </View>
           </View>
-          <Pressable hitSlop={8} style={styles.bellBtn}>
-            <Ionicons name="notifications-outline" size={22} color={colors.text} />
-          </Pressable>
+
+          {/* Stats banda dentro del hero */}
+          <View style={styles.statsBar}>
+            <StatItem value={String(resumen?.hoy.ventas ?? 0)} label="HOY" />
+            <View style={styles.statDivider} />
+            <StatItem value={String(pendingSync)} label="POR SYNC" tint={pendingSync > 0 ? '#fbbf24' : undefined} />
+            <View style={styles.statDivider} />
+            <StatItem value={String(resumen?.mes.ventas ?? 0)} label="MES" />
+            <View style={styles.statDivider} />
+            <StatItem value={String(resumen?.clientes_asignados ?? 0)} label="CLIENTES" />
+          </View>
         </View>
 
-        <View style={[styles.statusBar, isOnline ? styles.statusOnline : styles.statusOffline]}>
-          <View
-            style={[
-              styles.statusDot,
-              { backgroundColor: isOnline ? colors.success : colors.warning },
-            ]}
-          />
-          <Text
-            style={[
-              styles.statusText,
-              { color: isOnline ? colors.successDark : colors.warningDark },
-            ]}
-          >
+        {/* Estado conexión */}
+        <View style={styles.statusStrip}>
+          <View style={[styles.statusDot, { backgroundColor: isOnline ? '#16a34a' : '#f59e0b' }]} />
+          <Text style={[styles.statusText, { color: isOnline ? '#15803d' : '#b45309' }]}>
             {isOnline
               ? pendingSync > 0
                 ? `Conectado · ${pendingSync} por sincronizar`
@@ -133,310 +168,376 @@ export const DashboardScreen: React.FC = () => {
           </Text>
           {pendingSync > 0 && (
             <Pressable onPress={() => nav.navigate('Sync')} style={styles.pendingTag}>
-              <Text style={styles.pendingText}>{pendingSync} pend.</Text>
+              <Text style={styles.pendingTagText}>Sync</Text>
             </Pressable>
           )}
         </View>
 
+        {/* KPI Ventas del día — card blanca destacada */}
         {loading && !resumen ? (
           <View style={styles.loadingBox}>
             <ActivityIndicator color={colors.primary} />
-            <Text style={styles.loadingText}>Cargando resumen...</Text>
+            <Text style={styles.loadingText}>Cargando...</Text>
           </View>
         ) : (
-          <>
-            <View style={styles.heroCard}>
-              <Text style={styles.heroLabel}>Ventas del día</Text>
-              <Text style={styles.heroAmount}>
-                {formatCurrency(resumen?.hoy.total ?? 0)}
-              </Text>
-              <View style={styles.heroRow}>
-                <View style={styles.heroItem}>
-                  <Ionicons name="receipt-outline" size={16} color={colors.textInverse} style={{ opacity: 0.8 }} />
-                  <Text style={styles.heroItemText}>{resumen?.hoy.ventas ?? 0} hoy</Text>
-                </View>
-                <View style={styles.heroDivider} />
-                <View style={styles.heroItem}>
-                  <Ionicons name="trending-up-outline" size={16} color={colors.textInverse} style={{ opacity: 0.8 }} />
-                  <Text style={styles.heroItemText}>{resumen?.mes.ventas ?? 0} en el mes</Text>
-                </View>
+          <View style={styles.salesCard}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.salesLabel}>Ventas del día</Text>
+              <Text style={styles.salesAmount}>{formatCurrency(resumen?.hoy.total ?? 0)}</Text>
+              <View style={styles.salesMetaRow}>
+                <Ionicons name="trending-up" size={14} color="#16a34a" />
+                <Text style={styles.salesMetaText}>
+                  Mes: {formatCurrency(resumen?.mes.total ?? 0)}
+                </Text>
               </View>
             </View>
-
-            <View style={styles.quickActions}>
-              {modes.pedidos && (
-                <QuickAction
-                  icon="add-circle"
-                  label="Nuevo Pedido"
-                  color={colors.primary}
-                  bg={colors.primaryLight}
-                  onPress={() => nav.navigate('CreateOrder')}
-                />
-              )}
-              {modes.algunaFactura && (
-                <QuickAction
-                  icon="document-text"
-                  label="Nueva Factura"
-                  color={colors.success}
-                  bg={colors.successLight}
-                  onPress={() => nav.navigate('CreateInvoice')}
-                />
-              )}
-              <QuickAction
-                icon="cube"
-                label="Productos"
-                color={colors.warningDark}
-                bg={colors.warningLight}
-                onPress={() => nav.navigate('Products')}
-              />
-              <QuickAction
-                icon="people"
-                label="Clientes"
-                color={colors.primaryDark}
-                bg={colors.infoLight}
-                onPress={() => nav.navigate('Clients')}
-              />
+            <View style={styles.salesIcon}>
+              <Ionicons name="cash" size={28} color={colors.primary} />
             </View>
-
-            <View style={styles.kpiRow}>
-              <View style={styles.kpiCard}>
-                <View style={[styles.kpiIcon, { backgroundColor: colors.primaryLight }]}>
-                  <Ionicons name="people-outline" size={18} color={colors.primary} />
-                </View>
-                <Text style={styles.kpiValue}>{resumen?.clientes_asignados ?? 0}</Text>
-                <Text style={styles.kpiLabel}>Clientes asignados</Text>
-              </View>
-              <View style={styles.kpiCard}>
-                <View style={[styles.kpiIcon, { backgroundColor: colors.successLight }]}>
-                  <Ionicons name="cash-outline" size={18} color={colors.successDark} />
-                </View>
-                <Text style={styles.kpiValue}>{formatCurrency(resumen?.mes.total ?? 0)}</Text>
-                <Text style={styles.kpiLabel}>Ventas del mes</Text>
-              </View>
-            </View>
-
-            <View style={styles.sectionHeader}>
-              <Text style={typography.h3}>Actividad reciente</Text>
-              <Pressable hitSlop={8} onPress={() => nav.navigate('Main', { screen: 'Invoices' })}>
-                <Text style={styles.linkText}>Ver todo</Text>
-              </Pressable>
-            </View>
-
-            {resumen?.ventas_recientes.length === 0 ? (
-              <View style={styles.emptyBox}>
-                <Ionicons name="document-outline" size={32} color={colors.textMuted} />
-                <Text style={styles.emptyText}>Aún no hay ventas registradas</Text>
-                <Text style={styles.emptySubtext}>Crea tu primera venta con el botón de arriba</Text>
-              </View>
-            ) : (
-              <View style={{ gap: spacing.md }}>
-                {resumen?.ventas_recientes.map((v) => (
-                  <Card
-                    key={v.id_venta}
-                    onPress={() => nav.navigate('InvoiceDetail', { invoiceId: String(v.id_venta) })}
-                  >
-                    <View style={styles.activityRow}>
-                      <View style={styles.activityIcon}>
-                        <Ionicons name="receipt-outline" size={20} color={colors.primary} />
-                      </View>
-                      <View style={{ flex: 1 }}>
-                        <Text style={styles.activityTitle} numberOfLines={1}>
-                          {v.nombre_razon_social}
-                        </Text>
-                        <Text style={styles.activityMeta}>
-                          {v.numero_factura} · {formatDateTime(v.created_at)}
-                        </Text>
-                      </View>
-                      <Text style={styles.activityAmount}>
-                        {formatCurrency(parseFloat(v.total))}
-                      </Text>
-                      <Ionicons
-                        name="chevron-forward"
-                        size={18}
-                        color={colors.textMuted}
-                        style={{ marginLeft: 4 }}
-                      />
-                    </View>
-                  </Card>
-                ))}
-              </View>
-            )}
-          </>
+          </View>
         )}
+
+        {/* Sección OPERACIONES */}
+        <Text style={styles.sectionTitle}>OPERACIONES</Text>
+
+        <View style={styles.opsGrid}>
+          {modes.pedidos && (
+            <OpCard
+              badge={String(pendingSync)}
+              badgeShow={pendingSync > 0}
+              icon="cube"
+              title="Nuevo Pedido"
+              subtitle="Toma pedidos de clientes"
+              gradient={['#7c3aed', '#5b21b6']}
+              onPress={() => nav.navigate('CreateOrder')}
+            />
+          )}
+          {modes.algunaFactura && (
+            <OpCard
+              icon="document-text"
+              title="Nueva Factura"
+              subtitle="POS o Electrónica"
+              gradient={['#059669', '#065f46']}
+              onPress={() => nav.navigate('CreateInvoice')}
+            />
+          )}
+          <OpCard
+            icon="people"
+            title="Clientes"
+            subtitle={`${resumen?.clientes_asignados ?? 0} asignados`}
+            gradient={['#2563eb', '#1e40af']}
+            onPress={() => nav.navigate('Clients')}
+          />
+          <OpCard
+            icon="pricetags"
+            title="Productos"
+            subtitle="Catálogo disponible"
+            gradient={['#ea580c', '#9a3412']}
+            onPress={() => nav.navigate('Products')}
+          />
+        </View>
+
+        {/* Actividad reciente */}
+        <View style={styles.recentHeader}>
+          <Text style={styles.sectionTitle}>ACTIVIDAD RECIENTE</Text>
+          <Pressable hitSlop={8} onPress={() => nav.navigate('Main', { screen: 'Invoices' })}>
+            <Text style={styles.linkText}>Ver todo</Text>
+          </Pressable>
+        </View>
+
+        {resumen?.ventas_recientes.length === 0 ? (
+          <View style={styles.tipsCard}>
+            <View style={styles.tipsHead}>
+              <Ionicons name="information-circle" size={18} color={colors.primary} />
+              <Text style={styles.tipsTitle}>Tips rápidos</Text>
+            </View>
+            <Text style={styles.tipsLine}>• Toca <Text style={styles.tipBold}>Nuevo Pedido</Text> para tomar pedidos de tus clientes en ruta.</Text>
+            <Text style={styles.tipsLine}>• Si no tienes red, los pedidos se guardan y se sincronizan cuando vuelvas.</Text>
+            <Text style={styles.tipsLine}>• Desliza hacia abajo para refrescar los totales.</Text>
+          </View>
+        ) : (
+          <View style={styles.activityList}>
+            {resumen?.ventas_recientes.slice(0, 5).map((v) => (
+              <Pressable
+                key={v.id_venta}
+                onPress={() => nav.navigate('InvoiceDetail', { invoiceId: String(v.id_venta) })}
+                android_ripple={{ color: '#f5f3ff' }}
+                style={({ pressed }) => [styles.activityRow, pressed && Platform.OS === 'ios' && { opacity: 0.7 }]}
+              >
+                <View style={styles.activityIcon}>
+                  <Ionicons name="receipt-outline" size={18} color={colors.primary} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.activityTitle} numberOfLines={1}>
+                    {v.nombre_razon_social}
+                  </Text>
+                  <Text style={styles.activityMeta}>
+                    {v.numero_factura} · {formatDateTime(v.created_at)}
+                  </Text>
+                </View>
+                <View style={{ alignItems: 'flex-end' }}>
+                  <Text style={styles.activityAmount}>{formatCurrency(parseFloat(v.total))}</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={16} color="#9ca3af" style={{ marginLeft: 4 }} />
+              </Pressable>
+            ))}
+          </View>
+        )}
+
+        <View style={{ height: spacing.huge }} />
       </ScrollView>
-    </Screen>
+
+      {errorMsg && (
+        <View style={styles.errorToast}>
+          <Ionicons name="cloud-offline-outline" size={14} color="#fff" />
+          <Text style={styles.errorToastText}>{errorMsg}</Text>
+        </View>
+      )}
+    </View>
   );
 };
 
-const QuickAction: React.FC<{
+const StatItem: React.FC<{ value: string; label: string; tint?: string }> = ({ value, label, tint }) => (
+  <View style={{ flex: 1, alignItems: 'center' }}>
+    <Text style={[styles.statValue, tint && { color: tint }]}>{value}</Text>
+    <Text style={styles.statLabel}>{label}</Text>
+  </View>
+);
+
+const OpCard: React.FC<{
   icon: keyof typeof Ionicons.glyphMap;
-  label: string;
-  color: string;
-  bg: string;
+  title: string;
+  subtitle: string;
+  gradient: [string, string];
+  badge?: string;
+  badgeShow?: boolean;
   onPress: () => void;
-}> = ({ icon, label, color, bg, onPress }) => (
+}> = ({ icon, title, subtitle, gradient, badge, badgeShow, onPress }) => (
   <Pressable
     onPress={onPress}
-    android_ripple={{ color: colors.primarySoft }}
-    style={({ pressed }) => [styles.quickCard, pressed && { opacity: 0.85 }]}
+    android_ripple={{ color: 'rgba(255,255,255,0.2)' }}
+    style={({ pressed }) => [
+      styles.opCard,
+      { backgroundColor: gradient[0] },
+      pressed && { opacity: 0.9, transform: [{ scale: 0.98 }] },
+    ]}
   >
-    <View style={[styles.quickIcon, { backgroundColor: bg }]}>
-      <Ionicons name={icon} size={24} color={color} />
+    <View style={styles.opTopRow}>
+      <View style={styles.opIconBox}>
+        <Ionicons name={icon} size={22} color="#fff" />
+      </View>
+      {badgeShow && badge && (
+        <View style={styles.opBadge}>
+          <Text style={styles.opBadgeText}>{badge}</Text>
+        </View>
+      )}
     </View>
-    <Text style={styles.quickLabel}>{label}</Text>
+    <Text style={styles.opTitle}>{title}</Text>
+    <Text style={styles.opSubtitle}>{subtitle}</Text>
   </Pressable>
 );
 
 const styles = StyleSheet.create({
-  scroll: { paddingHorizontal: spacing.lg, paddingBottom: spacing.huge },
-  topBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingTop: spacing.sm,
-    paddingBottom: spacing.lg,
-  },
-  avatarWrap: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, flex: 1 },
-  avatar: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+  hero: {
     backgroundColor: colors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  avatarText: { color: colors.textInverse, fontWeight: '700', fontSize: 15 },
-  greeting: { ...typography.h3 },
-  greetingSub: { ...typography.caption, marginTop: 2 },
-  bellBtn: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-
-  statusBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    paddingBottom: 60,
     paddingHorizontal: spacing.lg,
-    paddingVertical: 10,
-    borderRadius: radius.md,
-    marginBottom: spacing.lg,
-    gap: spacing.sm,
+    borderBottomLeftRadius: 32,
+    borderBottomRightRadius: 32,
+    overflow: 'hidden',
   },
-  statusOnline: { backgroundColor: colors.successLight },
-  statusOffline: { backgroundColor: colors.dangerLight },
+  blob1: {
+    position: 'absolute',
+    width: 260, height: 260, borderRadius: 130,
+    backgroundColor: 'rgba(255,255,255,0.09)',
+    top: -100, right: -60,
+  },
+  blob2: {
+    position: 'absolute',
+    width: 180, height: 180, borderRadius: 90,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    bottom: -60, left: -40,
+  },
+
+  heroTop: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+  },
+  brandRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  brandDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#fbbf24' },
+  brandText: { color: '#fff', fontSize: 12, fontWeight: '800', letterSpacing: 3 },
+  iconBtn: {
+    width: 36, height: 36, borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.25)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+
+  userRow: {
+    flexDirection: 'row', alignItems: 'center', gap: spacing.md,
+    marginTop: spacing.xl,
+  },
+  avatarWrap: { position: 'relative' },
+  avatar: {
+    width: 68, height: 68, borderRadius: 34,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    borderWidth: 2, borderColor: 'rgba(255,255,255,0.35)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  avatarText: { color: '#fff', fontWeight: '800', fontSize: 22 },
+  avatarBadge: {
+    position: 'absolute', bottom: -2, right: -2,
+    width: 22, height: 22, borderRadius: 11,
+    backgroundColor: '#16a34a',
+    borderWidth: 2, borderColor: colors.primary,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  dateText: { color: 'rgba(255,255,255,0.75)', fontSize: 12, marginBottom: 2 },
+  userName: { color: '#fff', fontSize: 20, fontWeight: '800', letterSpacing: 0.3 },
+  rolePill: {
+    marginTop: 6,
+    alignSelf: 'flex-start',
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    paddingHorizontal: 10, paddingVertical: 4,
+    borderRadius: 999,
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.25)',
+  },
+  roleText: { color: '#fff', fontSize: 11, fontWeight: '600' },
+
+  statsBar: {
+    flexDirection: 'row', alignItems: 'center',
+    marginTop: spacing.xl,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    borderRadius: 16,
+    paddingVertical: 12,
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.15)',
+  },
+  statValue: { color: '#fff', fontSize: 22, fontWeight: '800' },
+  statLabel: {
+    color: 'rgba(255,255,255,0.75)', fontSize: 9, fontWeight: '700',
+    letterSpacing: 1, marginTop: 3,
+  },
+  statDivider: { width: 1, height: 26, backgroundColor: 'rgba(255,255,255,0.18)' },
+
+  statusStrip: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    marginHorizontal: spacing.lg, marginTop: -40,
+    padding: 12,
+    backgroundColor: '#fff', borderRadius: 12,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 8, elevation: 2,
+    borderWidth: 1, borderColor: '#f1f5f9',
+  },
   statusDot: { width: 8, height: 8, borderRadius: 4 },
-  statusText: { ...typography.caption, fontWeight: '600', flex: 1 },
+  statusText: { flex: 1, fontSize: 12, fontWeight: '600' },
   pendingTag: {
-    backgroundColor: 'rgba(255,255,255,0.6)',
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 3,
-    borderRadius: radius.pill,
-  },
-  pendingText: { ...typography.caption, fontWeight: '700', color: colors.warningDark },
-
-  heroCard: {
     backgroundColor: colors.primary,
-    borderRadius: radius.xl,
-    padding: spacing.xl,
-    marginBottom: spacing.lg,
-    ...shadows.raised,
-    shadowColor: colors.primary,
+    paddingHorizontal: 10, paddingVertical: 4,
+    borderRadius: 999,
   },
-  heroLabel: { ...typography.caption, color: 'rgba(255,255,255,0.8)', fontWeight: '600' },
-  heroAmount: {
-    ...typography.displayLg,
-    color: colors.textInverse,
-    marginTop: spacing.xs,
-    fontSize: 36,
-  },
-  heroRow: { flexDirection: 'row', alignItems: 'center', marginTop: spacing.lg, gap: spacing.lg },
-  heroItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  heroItemText: { color: colors.textInverse, fontWeight: '600', fontSize: 13 },
-  heroDivider: { width: 1, height: 14, backgroundColor: 'rgba(255,255,255,0.3)' },
+  pendingTagText: { color: '#fff', fontSize: 10, fontWeight: '700' },
 
-  quickActions: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.md,
-    marginBottom: spacing.lg,
-  },
-  quickCard: {
-    flex: 1,
-    minWidth: '45%',
-    backgroundColor: colors.surface,
-    borderRadius: radius.lg,
+  loadingBox: { alignItems: 'center', padding: spacing.huge, gap: 8 },
+  loadingText: { color: '#6b7280', fontSize: 12 },
+
+  salesCard: {
+    marginHorizontal: spacing.lg, marginTop: spacing.md,
     padding: spacing.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    ...shadows.card,
+    backgroundColor: '#fff', borderRadius: 16,
+    flexDirection: 'row', alignItems: 'center',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 2,
+    borderWidth: 1, borderColor: '#f1f5f9',
   },
-  quickIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: radius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: spacing.md,
+  salesLabel: { color: '#6b7280', fontSize: 11, fontWeight: '700', letterSpacing: 1 },
+  salesAmount: { color: '#111827', fontSize: 26, fontWeight: '800', marginTop: 4 },
+  salesMetaRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6 },
+  salesMetaText: { color: '#6b7280', fontSize: 12, fontWeight: '500' },
+  salesIcon: {
+    width: 52, height: 52, borderRadius: 14,
+    backgroundColor: '#f5f3ff',
+    alignItems: 'center', justifyContent: 'center',
   },
-  quickLabel: { ...typography.bodyStrong, fontSize: 14 },
 
-  kpiRow: { flexDirection: 'row', gap: spacing.md, marginBottom: spacing.xl },
-  kpiCard: {
-    flex: 1,
-    backgroundColor: colors.surface,
-    borderRadius: radius.lg,
-    padding: spacing.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
+  sectionTitle: {
+    color: '#6b7280', fontSize: 11, fontWeight: '800',
+    letterSpacing: 1.5,
+    marginHorizontal: spacing.lg, marginTop: spacing.xl, marginBottom: spacing.sm,
   },
-  kpiIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: spacing.sm,
-  },
-  kpiValue: { ...typography.h2, fontSize: 22 },
-  kpiLabel: { ...typography.caption, marginTop: 2 },
 
-  sectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  opsGrid: {
+    flexDirection: 'row', flexWrap: 'wrap',
+    gap: 12,
+    paddingHorizontal: spacing.lg,
+  },
+  opCard: {
+    flex: 1, minWidth: '45%',
+    borderRadius: 20,
+    padding: 16,
+    minHeight: 130,
     justifyContent: 'space-between',
-    marginBottom: spacing.md,
-    marginTop: spacing.sm,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.12, shadowRadius: 8, elevation: 4,
   },
-  linkText: { ...typography.bodyStrong, color: colors.primary, fontSize: 14 },
-
-  activityRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
-  activityIcon: {
-    width: 40,
-    height: 40,
+  opTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
+  opIconBox: {
+    width: 42, height: 42, borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.22)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  opBadge: {
+    minWidth: 26, height: 24, paddingHorizontal: 8,
     borderRadius: 12,
-    backgroundColor: colors.primaryLight,
-    alignItems: 'center',
-    justifyContent: 'center',
+    backgroundColor: '#fff',
+    alignItems: 'center', justifyContent: 'center',
   },
-  activityTitle: { ...typography.bodyStrong },
-  activityMeta: { ...typography.caption, marginTop: 2 },
-  activityAmount: { ...typography.bodyStrong, fontSize: 15 },
+  opBadgeText: { color: '#111827', fontSize: 11, fontWeight: '800' },
+  opTitle: { color: '#fff', fontSize: 16, fontWeight: '800', marginTop: 12 },
+  opSubtitle: { color: 'rgba(255,255,255,0.85)', fontSize: 11, marginTop: 2, fontWeight: '500' },
 
-  loadingBox: { alignItems: 'center', paddingVertical: spacing.huge, gap: spacing.md },
-  loadingText: { ...typography.caption },
-
-  emptyBox: {
-    alignItems: 'center',
-    padding: spacing.xxl,
-    backgroundColor: colors.surfaceAlt,
-    borderRadius: radius.lg,
+  recentHeader: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    marginTop: spacing.lg,
+    paddingRight: spacing.lg,
   },
-  emptyText: { ...typography.bodyStrong, marginTop: spacing.md },
-  emptySubtext: { ...typography.caption, marginTop: 4, textAlign: 'center' },
+  linkText: { color: colors.primary, fontSize: 13, fontWeight: '700', marginTop: spacing.xl },
+
+  tipsCard: {
+    marginHorizontal: spacing.lg, marginTop: spacing.sm,
+    padding: spacing.lg,
+    backgroundColor: '#eff6ff',
+    borderRadius: 14,
+    borderWidth: 1, borderColor: '#bfdbfe',
+  },
+  tipsHead: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 },
+  tipsTitle: { color: colors.primary, fontSize: 13, fontWeight: '800' },
+  tipsLine: { color: '#374151', fontSize: 12, lineHeight: 20 },
+  tipBold: { fontWeight: '800' },
+
+  activityList: {
+    marginHorizontal: spacing.lg, marginTop: spacing.sm,
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    overflow: 'hidden',
+    borderWidth: 1, borderColor: '#f1f5f9',
+  },
+  activityRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    paddingHorizontal: 14, paddingVertical: 12,
+    borderBottomWidth: 1, borderBottomColor: '#f8fafc',
+  },
+  activityIcon: {
+    width: 38, height: 38, borderRadius: 10,
+    backgroundColor: '#f5f3ff',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  activityTitle: { color: '#111827', fontSize: 13, fontWeight: '700' },
+  activityMeta: { color: '#6b7280', fontSize: 11, marginTop: 2 },
+  activityAmount: { color: '#16a34a', fontSize: 14, fontWeight: '800' },
+
+  errorToast: {
+    position: 'absolute', bottom: 90, alignSelf: 'center',
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: '#dc2626',
+    paddingHorizontal: 14, paddingVertical: 8,
+    borderRadius: 999,
+  },
+  errorToastText: { color: '#fff', fontSize: 12, fontWeight: '600' },
 });

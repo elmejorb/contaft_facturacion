@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react';
-import { Save, Printer, CheckCircle, Settings, FileText, ShoppingCart, Tag, Plus, Trash2, RotateCcw, Smartphone, Link2, RefreshCw, History, Info } from 'lucide-react';
+import { Save, Printer, CheckCircle, Settings, FileText, ShoppingCart, Tag, Plus, Trash2, RotateCcw, Smartphone, Link2, RefreshCw, History, Info, Lock } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { HistorialVersiones } from './HistorialVersiones';
+import { useAuth } from '../contexts/AuthContext';
+import { useEntitlements } from '../hooks/useEntitlements';
 import pkg from '../../package.json';
 
 export interface ConfigImpresion {
@@ -153,6 +155,22 @@ export function saveEmpresaCache(emp: any) {
 const API_CAT = 'http://localhost:80/conta-app-backend/api/movimientos/categorias-gasto.php';
 
 export function ConfiguracionSistema() {
+  const { user } = useAuth();
+  // Solo el usuario 'root' (dueño real / soporte) puede habilitar módulos
+  // que requieren configuración de servicios externos (Vendedores Móviles,
+  // Facturación Electrónica). Los admins normales podrán ver la configuración
+  // pero no cambiarla — evitamos que activen sin credenciales correctas y
+  // dejen el sistema en estado inconsistente.
+  const isRoot = user?.username === 'root';
+
+  // Entitlements del CRM: si el cliente no tiene el módulo contratado, el
+  // toggle correspondiente se bloquea. Grandfathering: si el cliente ya lo
+  // tenía prendido antes (legacy), lo dejamos habilitar hasta que reconcilie
+  // en el CRM.
+  const { modulos: entitlements } = useEntitlements();
+  const feActivaCRM = entitlements?.facturacion_electronica?.activo === true;
+  const vendMovilActivoCRM = entitlements?.vendedor_movil?.activo === true;
+
   const [config, setConfig] = useState<ConfigImpresion>(getConfigImpresion);
   const [showHistorial, setShowHistorial] = useState(false);
   const [categoriasGasto, setCategoriasGasto] = useState<any[]>([]);
@@ -242,6 +260,14 @@ export function ConfiguracionSistema() {
       return next;
     });
   };
+
+  // Sync CRM → local: si la suscripción trae FE activa y el config local
+  // aún la tiene apagada, forzamos ON. El CRM es la fuente de verdad.
+  useEffect(() => {
+    if (feActivaCRM && !config.usarFacturacionElectronica) {
+      setConfig(c => ({ ...c, usarFacturacionElectronica: true } as ConfigImpresion));
+    }
+  }, [feActivaCRM]);
 
   const guardar = () => {
     saveConfigImpresion(config);
@@ -616,24 +642,66 @@ export function ConfiguracionSistema() {
             { key: 'usarCotizaciones', label: 'Cotizaciones', desc: 'Crear y guardar cotizaciones para clientes antes de facturar.' },
             { key: 'usarConteoInventario', label: 'Conteo de inventario', desc: 'Realizar conteos físicos de inventario con compensación automática de ventas durante el conteo.' },
             { key: 'usarLotes', label: 'Fechas de vencimiento / Lotes', desc: 'Activa el manejo de lotes y fechas de vencimiento en compras y productos. Para farmacias, droguerías, alimentos, lácteos. Si está apagado, las compras NO piden fecha de vencimiento ni muestran productos perecederos aunque estén marcados así en el catálogo.' },
-          ].map(m => (
+          ].map(m => {
+            const currentValue = (config as any)[m.key];
+            // Gate por entitlements: solo aplica a FE. Si CRM la cortó y el
+            // usuario no la tenía activa localmente → toggle bloqueado.
+            // Grandfathering: si ya la tenía prendida, se puede seguir usando.
+            const esFE = m.key === 'usarFacturacionElectronica';
+            // El CRM manda 100% para FE: displayValue refleja exactamente
+            // el estado de la suscripción. El valor local se preserva
+            // internamente por si el CRM se reactiva, pero visualmente el
+            // toggle solo refleja lo que el CRM dice.
+            const displayValue = esFE ? feActivaCRM : currentValue;
+            const bloqueadaPorCRM = esFE;
+            return (
             <label key={m.key}
-              onClick={() => set(m.key as keyof ConfigImpresion, !(config as any)[m.key])}
-              style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 14px', borderRadius: 8, cursor: 'pointer', border: `2px solid ${(config as any)[m.key] ? '#7c3aed' : '#e5e7eb'}`, background: (config as any)[m.key] ? '#f5f3ff' : '#fff', transition: 'all 0.15s' }}>
+              onClick={() => {
+                if (bloqueadaPorCRM) {
+                  if (feActivaCRM) {
+                    toast('Facturación Electrónica está activa por su suscripción CRM. No se puede desactivar manualmente.', { icon: '🔒' });
+                  } else {
+                    toast.error('Facturación Electrónica no está activa en su suscripción. Contacte a Innovación Digital.');
+                  }
+                  return;
+                }
+                set(m.key as keyof ConfigImpresion, !currentValue);
+              }}
+              style={{
+                display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 14px', borderRadius: 8,
+                cursor: bloqueadaPorCRM ? 'not-allowed' : 'pointer',
+                border: `2px solid ${displayValue ? '#7c3aed' : '#e5e7eb'}`,
+                background: displayValue ? '#f5f3ff' : (bloqueadaPorCRM ? '#f9fafb' : '#fff'),
+                opacity: bloqueadaPorCRM && !displayValue ? 0.65 : 1,
+                transition: 'all 0.15s',
+              }}>
               <div style={{
                 width: 20, height: 20, borderRadius: 4, flexShrink: 0, marginTop: 2,
-                border: `2px solid ${(config as any)[m.key] ? '#7c3aed' : '#d1d5db'}`,
-                background: (config as any)[m.key] ? '#7c3aed' : '#fff',
+                border: `2px solid ${displayValue ? '#7c3aed' : '#d1d5db'}`,
+                background: displayValue ? '#7c3aed' : '#fff',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
               }}>
-                {(config as any)[m.key] && <span style={{ color: '#fff', fontSize: 14, fontWeight: 700, lineHeight: 1 }}>✓</span>}
+                {displayValue && <span style={{ color: '#fff', fontSize: 14, fontWeight: 700, lineHeight: 1 }}>✓</span>}
               </div>
-              <div>
-                <div style={{ fontSize: 13, fontWeight: 600, color: (config as any)[m.key] ? '#7c3aed' : '#374151' }}>{m.label}</div>
-                <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>{m.desc}</div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: displayValue ? '#7c3aed' : '#374151', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  {m.label}
+                  {bloqueadaPorCRM && <Lock size={12} color="#9ca3af" />}
+                  {esFE && feActivaCRM && (
+                    <span style={{ fontSize: 10, background: '#dcfce7', color: '#166534', padding: '1px 6px', borderRadius: 4, fontWeight: 600 }}>Suscripción activa</span>
+                  )}
+                  {esFE && !feActivaCRM && (
+                    <span style={{ fontSize: 10, background: '#fee2e2', color: '#991b1b', padding: '1px 6px', borderRadius: 4, fontWeight: 600 }}>Sin suscripción</span>
+                  )}
+                </div>
+                <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>
+                  {esFE && feActivaCRM ? 'Habilitado por su suscripción. Se gestiona desde el CRM.' :
+                   esFE && !feActivaCRM ? 'Módulo no contratado. Contacte a Innovación Digital para activarlo.' :
+                   m.desc}
+                </div>
               </div>
             </label>
-          ))}
+          );})}
         </div>
       </div>
 
@@ -646,14 +714,33 @@ export function ConfiguracionSistema() {
         <p style={{ fontSize: 12, color: '#6b7280', marginBottom: 16 }}>Conecte vendedores de campo con la app móvil</p>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 8, cursor: 'pointer', border: `2px solid ${vendConfig.habilitado ? '#7c3aed' : '#e5e7eb'}`, background: vendConfig.habilitado ? '#f5f3ff' : '#fff' }}
-            onClick={() => setVendConfig(c => ({ ...c, habilitado: c.habilitado ? 0 : 1 }))}>
+          <label style={{
+              display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 8,
+              cursor: isRoot ? 'pointer' : 'not-allowed',
+              border: `2px solid ${vendConfig.habilitado ? '#7c3aed' : '#e5e7eb'}`,
+              background: vendConfig.habilitado ? '#f5f3ff' : (isRoot ? '#fff' : '#f9fafb'),
+              opacity: isRoot ? 1 : 0.8,
+            }}
+            onClick={() => {
+              if (!isRoot) {
+                toast.error('Solo el usuario "root" puede activar o desactivar este módulo');
+                return;
+              }
+              setVendConfig(c => ({ ...c, habilitado: c.habilitado ? 0 : 1 }));
+            }}>
             <div style={{ width: 20, height: 20, borderRadius: 4, border: `2px solid ${vendConfig.habilitado ? '#7c3aed' : '#d1d5db'}`, background: vendConfig.habilitado ? '#7c3aed' : '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              {vendConfig.habilitado && <span style={{ color: '#fff', fontSize: 14, fontWeight: 700 }}>✓</span>}
+              {vendConfig.habilitado ? <span style={{ color: '#fff', fontSize: 14, fontWeight: 700 }}>✓</span> : null}
             </div>
-            <div>
-              <div style={{ fontSize: 13, fontWeight: 600, color: vendConfig.habilitado ? '#7c3aed' : '#374151' }}>Habilitar módulo de vendedores móviles</div>
-              <div style={{ fontSize: 11, color: '#6b7280' }}>Aparece la sección Vendedores en el menú y se activa la sincronización</div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: vendConfig.habilitado ? '#7c3aed' : '#374151', display: 'flex', alignItems: 'center', gap: 6 }}>
+                Habilitar módulo de vendedores móviles
+                {!isRoot && <Lock size={12} color="#9ca3af" />}
+              </div>
+              <div style={{ fontSize: 11, color: '#6b7280' }}>
+                {isRoot
+                  ? 'Aparece la sección Vendedores en el menú y se activa la sincronización'
+                  : 'Solo el usuario "root" puede modificar este ajuste — contacte al administrador del sistema'}
+              </div>
             </div>
           </label>
 
@@ -694,10 +781,28 @@ export function ConfiguracionSistema() {
                   { key: 'modo_factura_electronica' as const, label: 'Factura electrónica DIAN', desc: 'El vendedor genera factura electrónica con CUFE. Requiere que la empresa tenga FE activa con certificado y resolución.' },
                 ].map(m => {
                   const active = (vendConfig as any)[m.key] === 1;
+                  // Gate estricto: el sub-módulo FE del vendedor requiere que
+                  // el CRM tenga FE contratada. No hay grandfathering aquí
+                  // porque es una capacidad nueva del módulo Vendedores.
+                  const requiereFE = m.key === 'modo_factura_electronica';
+                  const bloqueadaCRM = requiereFE && !feActivaCRM;
                   return (
                     <label key={m.key}
-                      onClick={() => setVendConfig(c => ({ ...c, [m.key]: active ? 0 : 1 }))}
-                      style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '8px 10px', borderRadius: 6, cursor: 'pointer', border: `2px solid ${active ? '#7c3aed' : '#e5e7eb'}`, background: active ? '#f5f3ff' : '#fff', marginBottom: 6 }}>
+                      onClick={() => {
+                        if (bloqueadaCRM) {
+                          toast.error('Facturación Electrónica no está activa en su suscripción. Contacte a Innovación Digital.');
+                          return;
+                        }
+                        setVendConfig(c => ({ ...c, [m.key]: active ? 0 : 1 }));
+                      }}
+                      style={{
+                        display: 'flex', alignItems: 'flex-start', gap: 10, padding: '8px 10px', borderRadius: 6,
+                        cursor: bloqueadaCRM ? 'not-allowed' : 'pointer',
+                        border: `2px solid ${active ? '#7c3aed' : '#e5e7eb'}`,
+                        background: active ? '#f5f3ff' : (bloqueadaCRM ? '#f9fafb' : '#fff'),
+                        opacity: bloqueadaCRM ? 0.65 : 1,
+                        marginBottom: 6,
+                      }}>
                       <div style={{
                         width: 18, height: 18, borderRadius: 4, flexShrink: 0, marginTop: 1,
                         border: `2px solid ${active ? '#7c3aed' : '#d1d5db'}`,
@@ -706,9 +811,14 @@ export function ConfiguracionSistema() {
                       }}>
                         {active && <span style={{ color: '#fff', fontSize: 12, fontWeight: 700, lineHeight: 1 }}>✓</span>}
                       </div>
-                      <div>
-                        <div style={{ fontSize: 12, fontWeight: 600, color: active ? '#7c3aed' : '#374151' }}>{m.label}</div>
-                        <div style={{ fontSize: 10, color: '#6b7280', marginTop: 2 }}>{m.desc}</div>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: active ? '#7c3aed' : '#374151', display: 'flex', alignItems: 'center', gap: 5 }}>
+                          {m.label}
+                          {bloqueadaCRM && <Lock size={11} color="#9ca3af" />}
+                        </div>
+                        <div style={{ fontSize: 10, color: '#6b7280', marginTop: 2 }}>
+                          {bloqueadaCRM ? 'Requiere Facturación Electrónica activa en su suscripción. Contacte a Innovación Digital.' : m.desc}
+                        </div>
                       </div>
                     </label>
                   );

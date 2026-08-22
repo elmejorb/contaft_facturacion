@@ -1,13 +1,28 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { AgGridReact } from 'ag-grid-react';
-import { AllCommunityModule, ModuleRegistry } from 'ag-grid-community';
-import { Smartphone, RefreshCw, Filter, ArrowRight, Receipt, FileText, Eye, Ban } from 'lucide-react';
+import { AllCommunityModule, ModuleRegistry, themeQuartz } from 'ag-grid-community';
+import { Smartphone, RefreshCw, Filter, ArrowRight, Receipt, FileText, Eye, Ban, DollarSign, CreditCard, Package, Inbox } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useVendedoresConfig } from '../hooks/useVendedoresConfig';
 import { confirmar } from './ConfirmDialog';
 import { AG_GRID_LOCALE_ES } from '../utils/agGridLocaleEs';
 
 ModuleRegistry.registerModules([AllCommunityModule]);
+
+// Mismo tema que InventarioManagement — coherente en toda la app.
+const myTheme = themeQuartz.withParams({
+  headerBackgroundColor: '#f3e8ff',
+  headerTextColor: '#6b21a8',
+  headerFontSize: 12,
+  headerFontWeight: 600,
+  fontSize: 12,
+  rowBorder: { color: '#f3f4f6', width: 1 },
+  borderColor: '#e5e7eb',
+  borderRadius: 8,
+  rowHoverColor: '#faf5ff',
+  selectedRowBackgroundColor: '#f3e8ff',
+  spacing: 6,
+});
 
 const API = 'http://localhost:80/conta-app-backend/api/vendedores/pedidos.php';
 const API_VENDEDORES = 'http://localhost:80/conta-app-backend/api/vendedores/vendedores.php';
@@ -184,88 +199,110 @@ export function VendedoresPedidos({ onNavigate }: Props) {
         return (
           <span style={{
             display: 'inline-flex', alignItems: 'center', gap: 4,
-            fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 12,
+            padding: '2px 8px', borderRadius: 4, fontSize: 11, fontWeight: 500,
             background: isFactura ? '#dcfce7' : '#fef3c7',
             color: isFactura ? '#15803d' : '#92400e',
           }}>
             {isFactura ? <FileText size={11} /> : <Receipt size={11} />}
-            {isFactura ? 'FACTURA' : 'PEDIDO'}
+            {isFactura ? 'Factura' : 'Pedido'}
           </span>
         );
       },
     },
     { field: 'fecha', headerName: 'Fecha', width: 105 },
-    { field: 'numero_pedido', headerName: 'Nº', width: 105 },
-    { field: 'nombre_vendedor', headerName: 'Vendedor', width: 150, filter: true },
-    { field: 'nombre_cliente', headerName: 'Cliente', width: 180, filter: true },
     {
-      field: 'total', headerName: 'Total', width: 115,
-      type: 'numericColumn',
+      field: 'numero_pedido', headerName: 'Nº', width: 110,
+      cellStyle: { color: '#7c3aed', fontWeight: 600 },
+    },
+    { field: 'nombre_vendedor', headerName: 'Vendedor', width: 160, filter: true, cellStyle: { fontWeight: 500 } },
+    { field: 'nombre_cliente', headerName: 'Cliente', flex: 1, minWidth: 200, filter: true, cellStyle: { fontWeight: 500 } },
+    {
+      field: 'total', headerName: 'Total', width: 120,
+      type: 'numericColumn' as const,
       valueFormatter: (p: any) => fmt(p.value),
-      cellStyle: { fontWeight: 700, textAlign: 'right' },
+      cellStyle: { color: '#16a34a', fontWeight: 600 },
     },
     {
       field: 'forma_pago', headerName: 'Pago', width: 100,
       cellRenderer: (p: any) => {
         const v = (p.value || '').toLowerCase();
+        if (!v) return <span style={{ color: '#d1d5db', fontSize: 11 }}>—</span>;
+        const bg = v === 'contado' ? '#dcfce7' : v === 'credito' ? '#fee2e2' : '#f3f4f6';
         const color = v === 'contado' ? '#16a34a' : v === 'credito' ? '#dc2626' : '#6b7280';
-        return <span style={{ color, fontWeight: 600, textTransform: 'capitalize' }}>{v || '—'}</span>;
+        return <span style={{
+          background: bg, color,
+          padding: '2px 8px', borderRadius: 4, fontSize: 11, fontWeight: 500,
+          textTransform: 'capitalize',
+        }}>{v}</span>;
       },
     },
     {
       field: 'estado', headerName: 'Estado', width: 110,
       cellRenderer: (p: any) => {
         const v = (p.value || '').toLowerCase();
-        const color = v === 'pendiente' ? '#f59e0b' :
+        if (!v) return <span style={{ color: '#d1d5db', fontSize: 11 }}>—</span>;
+        const bg = v === 'pendiente' ? '#fef3c7' :
+                   v === 'procesado' || v === 'autorizado' || v === 'enviado' ? '#dcfce7' :
+                   v === 'anulado' || v === 'error' ? '#fee2e2' : '#f3f4f6';
+        const color = v === 'pendiente' ? '#92400e' :
                       v === 'procesado' || v === 'autorizado' || v === 'enviado' ? '#16a34a' :
                       v === 'anulado' || v === 'error' ? '#dc2626' : '#6b7280';
-        return <span style={{ color, fontWeight: 600, fontSize: 12, textTransform: 'capitalize' }}>{p.value || '—'}</span>;
+        return <span style={{
+          background: bg, color,
+          padding: '2px 8px', borderRadius: 4, fontSize: 11, fontWeight: 500,
+          textTransform: 'capitalize',
+        }}>{v}</span>;
       },
     },
     {
-      headerName: 'Acciones', width: 160, pinned: 'right' as any,
+      headerName: 'Acciones', width: 180, pinned: 'right' as any,
+      sortable: false, filter: false,
       cellRenderer: (p: any) => {
-        const btnBase: React.CSSProperties = {
-          width: 30, height: 30, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-          border: 'none', borderRadius: 8, cursor: 'pointer', transition: 'all 0.15s',
-        };
+        const btn = (color: string): React.CSSProperties => ({
+          background: 'transparent', color, width: 30, height: 30,
+          borderRadius: 6, border: `1.5px solid ${color}`, cursor: 'pointer',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          transition: 'all 0.15s',
+        });
         return (
-          <div style={{ display: 'flex', gap: 6, alignItems: 'center', height: '100%' }}>
-            <button
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, height: '100%' }}
+            onMouseOver={(e) => {
+              e.currentTarget.querySelectorAll('button').forEach(b => {
+                b.addEventListener('mouseenter', () => { b.style.background = b.dataset.hc || ''; b.style.color = '#fff'; });
+                b.addEventListener('mouseleave', () => { b.style.background = 'transparent'; b.style.color = b.dataset.c || ''; });
+              });
+            }}
+          >
+            <button title={p.data.tipo === 'factura' ? 'Ver factura' : 'Ver pedido'}
+              data-c="#7c3aed" data-hc="#7c3aed"
               onClick={() => verDetalle(p.data.id)}
-              title={p.data.tipo === 'factura' ? 'Ver factura' : 'Ver pedido'}
-              style={{ ...btnBase, background: '#eff6ff', color: '#2563eb' }}
-              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#dbeafe'; }}
-              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = '#eff6ff'; }}
-            >
+              style={btn('#7c3aed')}>
               <Eye size={15} />
             </button>
             {p.data.tipo === 'pedido' && p.data.estado === 'pendiente' && (
               <>
-                <button
+                <button title="Convertir pedido a factura"
+                  data-c="#16a34a" data-hc="#16a34a"
                   onClick={() => convertir(p.data)}
-                  title="Convertir pedido a factura (pedirá confirmación)"
-                  style={{ ...btnBase, background: '#dcfce7', color: '#16a34a' }}
-                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#bbf7d0'; }}
-                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = '#dcfce7'; }}
-                >
+                  style={btn('#16a34a')}>
                   <ArrowRight size={15} strokeWidth={2.5} />
                 </button>
-                <button
+                <button title="Anular pedido"
+                  data-c="#ef4444" data-hc="#ef4444"
                   onClick={() => anular(p.data.id)}
-                  title="Anular pedido"
-                  style={{ ...btnBase, background: '#fee2e2', color: '#dc2626' }}
-                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#fecaca'; }}
-                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = '#fee2e2'; }}
-                >
+                  style={btn('#ef4444')}>
                   <Ban size={15} />
                 </button>
               </>
             )}
             {p.data.convertido_factura_n && (
               <span title="Factura creada a partir de este pedido"
-                style={{ fontSize: 10, color: '#6b7280', marginLeft: 4 }}>
-                → FV-{p.data.convertido_factura_n}
+                style={{
+                  background: '#dcfce7', color: '#16a34a',
+                  padding: '2px 8px', borderRadius: 4, fontSize: 11, fontWeight: 500,
+                  marginLeft: 4,
+                }}>
+                ✓ FV-{p.data.convertido_factura_n}
               </span>
             )}
           </div>
@@ -306,17 +343,43 @@ export function VendedoresPedidos({ onNavigate }: Props) {
 
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <Smartphone size={22} color="#7c3aed" />
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18,
+        padding: '14px 18px', borderRadius: 12,
+        background: 'linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)',
+        boxShadow: '0 4px 12px rgba(124,58,237,0.25)',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+          <div style={{
+            width: 44, height: 44, borderRadius: 12,
+            background: 'rgba(255,255,255,0.2)', backdropFilter: 'blur(10px)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            border: '1px solid rgba(255,255,255,0.3)',
+          }}>
+            <Smartphone size={22} color="#fff" />
+          </div>
           <div>
-            <h2 style={{ fontSize: 20, fontWeight: 700, margin: 0 }}>Pedidos y Facturas de Campo</h2>
-            <p style={{ fontSize: 12, color: '#6b7280', margin: 0 }}>Cuadre de lo que vendieron los vendedores desde la app móvil</p>
+            <h2 style={{ fontSize: 20, fontWeight: 700, margin: 0, color: '#fff', letterSpacing: 0.2 }}>
+              Pedidos y Facturas de Campo
+            </h2>
+            <p style={{ fontSize: 12, color: 'rgba(255,255,255,0.85)', margin: '2px 0 0' }}>
+              Cuadre de lo que vendieron los vendedores desde la app móvil
+            </p>
           </div>
         </div>
         <button onClick={async () => { const d = await pullAhora(); toast.success(d.message || 'Pull completado'); cargar(); }}
-          style={{ height: 34, padding: '0 14px', background: '#f3f4f6', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
-          <RefreshCw size={14} /> Descargar ahora
+          style={{
+            height: 38, padding: '0 16px',
+            background: '#fff', color: '#7c3aed',
+            border: 'none', borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: 'pointer',
+            display: 'flex', alignItems: 'center', gap: 8,
+            boxShadow: '0 2px 8px rgba(0,0,0,0.12)',
+            transition: 'transform 0.15s',
+          }}
+          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.transform = 'translateY(-1px)'; }}
+          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.transform = 'none'; }}
+        >
+          <RefreshCw size={15} /> Descargar ahora
         </button>
       </div>
 
@@ -369,32 +432,113 @@ export function VendedoresPedidos({ onNavigate }: Props) {
       </div>
 
       {/* Tarjetas resumen */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10, marginBottom: 14 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12, marginBottom: 16 }}>
         {[
-          { label: 'TOTAL VENDIDO', value: fmt(totales.total), color: '#7c3aed', bg: '#f5f3ff' },
-          { label: 'CONTADO', value: fmt(totales.contado), color: '#16a34a', bg: '#f0fdf4' },
-          { label: 'CRÉDITO', value: fmt(totales.credito), color: '#dc2626', bg: '#fef2f2' },
-          { label: 'PEDIDOS', value: String(totales.pedidos), color: '#d97706', bg: '#fffbeb' },
-          { label: 'FACTURAS', value: String(totales.facturas), color: '#0891b2', bg: '#ecfeff' },
+          { label: 'TOTAL VENDIDO', value: fmt(totales.total), color: '#7c3aed', bg: '#f5f3ff', Icon: DollarSign },
+          { label: 'CONTADO', value: fmt(totales.contado), color: '#16a34a', bg: '#f0fdf4', Icon: DollarSign },
+          { label: 'CRÉDITO', value: fmt(totales.credito), color: '#dc2626', bg: '#fef2f2', Icon: CreditCard },
+          { label: 'PEDIDOS', value: String(totales.pedidos), color: '#d97706', bg: '#fffbeb', Icon: Package },
+          { label: 'FACTURAS', value: String(totales.facturas), color: '#0891b2', bg: '#ecfeff', Icon: FileText },
         ].map((c, i) => (
-          <div key={i} style={{ background: '#fff', borderRadius: 10, padding: '12px 14px', boxShadow: '0 1px 3px rgba(0,0,0,0.06)', borderLeft: `4px solid ${c.color}` }}>
-            <div style={{ fontSize: 9, color: '#9ca3af', fontWeight: 700, letterSpacing: 0.5 }}>{c.label}</div>
-            <div style={{ fontSize: 16, fontWeight: 800, color: '#111827', marginTop: 4 }}>{c.value}</div>
+          <div key={i} style={{
+            background: '#fff', borderRadius: 12, padding: '14px 16px',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04)',
+            borderLeft: `4px solid ${c.color}`,
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10,
+          }}>
+            <div>
+              <div style={{ fontSize: 10, color: '#9ca3af', fontWeight: 700, letterSpacing: 0.5 }}>{c.label}</div>
+              <div style={{ fontSize: 18, fontWeight: 800, color: '#111827', marginTop: 4 }}>{c.value}</div>
+            </div>
+            <div style={{
+              width: 38, height: 38, borderRadius: 10, background: c.bg,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}>
+              <c.Icon size={18} color={c.color} strokeWidth={2.2} />
+            </div>
           </div>
         ))}
       </div>
 
       {/* Tabla principal */}
-      <div style={{ height: 460, background: '#fff', borderRadius: 12, boxShadow: '0 1px 3px rgba(0,0,0,0.08)', padding: 12, marginBottom: 16 }}>
-        <AgGridReact
-          rowData={pedidosFiltrados}
-          columnDefs={colDefs as any}
-          localeText={AG_GRID_LOCALE_ES}
-          pagination
-          paginationPageSize={20}
-          defaultColDef={{ sortable: true, resizable: true }}
-          rowHeight={36}
-        />
+      <div style={{
+        background: '#fff', borderRadius: 12,
+        boxShadow: '0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04)',
+        marginBottom: 16, overflow: 'hidden',
+      }}>
+        {/* Header de la tabla */}
+        <div style={{
+          padding: '12px 16px', borderBottom: '1px solid #f3f4f6',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          background: 'linear-gradient(180deg, #fafafa 0%, #fff 100%)',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{
+              width: 30, height: 30, borderRadius: 8, background: '#f5f3ff',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}>
+              <Package size={16} color="#7c3aed" />
+            </div>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#111827' }}>
+                {pedidosFiltrados.length} {pedidosFiltrados.length === 1 ? 'registro' : 'registros'}
+              </div>
+              <div style={{ fontSize: 11, color: '#6b7280' }}>
+                {totales.pedidos} pedidos · {totales.facturas} facturas
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {pedidosFiltrados.length === 0 && !loading ? (
+          <div style={{
+            padding: '60px 20px', textAlign: 'center', color: '#9ca3af',
+          }}>
+            <div style={{
+              width: 72, height: 72, borderRadius: 20, background: '#f3f4f6',
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center', marginBottom: 16,
+            }}>
+              <Inbox size={36} color="#9ca3af" strokeWidth={1.5} />
+            </div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: '#374151', marginBottom: 6 }}>
+              Sin pedidos en este rango
+            </div>
+            <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 20 }}>
+              Cuando los vendedores creen pedidos desde la app móvil aparecerán aquí.
+            </div>
+            <button
+              onClick={async () => { const d = await pullAhora(); toast.success(d.message || 'Pull completado'); cargar(); }}
+              style={{
+                height: 36, padding: '0 18px', background: '#7c3aed', color: '#fff',
+                border: 'none', borderRadius: 8, cursor: 'pointer',
+                fontSize: 13, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 6,
+              }}>
+              <RefreshCw size={14} /> Descargar ahora
+            </button>
+          </div>
+        ) : (
+          <div style={{ height: 460, padding: 8 }}>
+            <AgGridReact
+              theme={myTheme}
+              rowData={pedidosFiltrados}
+              columnDefs={colDefs as any}
+              localeText={AG_GRID_LOCALE_ES}
+              pagination
+              paginationPageSize={20}
+              paginationPageSizeSelector={[25, 50, 100]}
+              defaultColDef={{ sortable: true, filter: true, resizable: true }}
+              animateRows
+              rowSelection={'single' as any}
+              enableCellTextSelection
+              suppressCellFocus
+              overlayNoRowsTemplate='<span style="padding:10px;color:#6b7280">Sin registros en este rango</span>'
+              getRowStyle={(p: any) => {
+                if (p.data?.estado === 'anulado') return { background: '#fef2f2', color: '#9ca3af' };
+                return undefined;
+              }}
+            />
+          </div>
+        )}
       </div>
 
       {/* Cuadre por vendedor */}

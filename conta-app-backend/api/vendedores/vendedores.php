@@ -12,6 +12,26 @@ $db = $database->getConnection();
 try {
     if ($_SERVER['REQUEST_METHOD'] === 'GET') {
         $id = intval($_GET['id'] ?? 0);
+        $accion = trim($_GET['action'] ?? '');
+
+        // Lista empleados de tblempleados que aún NO están habilitados como
+        // vendedor móvil. Se usa desde la UI para "Habilitar empleado existente"
+        // en vez de crearlos desde cero.
+        if ($accion === 'empleados_disponibles') {
+            $stmt = $db->query("
+                SELECT e.CodigoEmp,
+                       TRIM(CONCAT(COALESCE(e.Nombres,''), ' ', COALESCE(e.Apellidos,''))) AS nombre_completo,
+                       e.Nombres, e.Apellidos, e.Cedula, e.Telefono, e.Cargo
+                FROM tblempleados e
+                WHERE e.CodigoEmp > 0
+                  AND e.CodigoEmp NOT IN (
+                      SELECT id_remoto FROM tbl_vendedores_movil WHERE id_remoto IS NOT NULL
+                  )
+                ORDER BY e.Nombres, e.Apellidos
+            ");
+            echo json_encode(['success' => true, 'empleados' => $stmt->fetchAll()], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
 
         if ($id > 0) {
             $stmt = $db->prepare("SELECT * FROM tbl_vendedores_movil WHERE id = ?");
@@ -19,7 +39,15 @@ try {
             $vendedor = $stmt->fetch();
             echo json_encode(['success' => true, 'vendedor' => $vendedor], JSON_UNESCAPED_UNICODE);
         } else {
-            $stmt = $db->query("SELECT * FROM tbl_vendedores_movil ORDER BY codigo");
+            // Enriquecer con el nombre del empleado del que vino (id_remoto)
+            $stmt = $db->query("
+                SELECT v.*,
+                       e.Cargo AS cargo_empleado,
+                       TRIM(CONCAT(COALESCE(e.Nombres,''), ' ', COALESCE(e.Apellidos,''))) AS nombre_empleado_original
+                FROM tbl_vendedores_movil v
+                LEFT JOIN tblempleados e ON e.CodigoEmp = v.id_remoto
+                ORDER BY v.codigo
+            ");
             echo json_encode(['success' => true, 'vendedores' => $stmt->fetchAll()], JSON_UNESCAPED_UNICODE);
         }
         exit;
@@ -48,13 +76,18 @@ try {
                 exit;
             }
 
+            // id_remoto = CodigoEmp del empleado en tblempleados. Se envía cuando
+            // el vendedor se crea a partir de un empleado existente, y se usa
+            // como ancla para vincular ventas/movimientos con el empleado real.
+            $codigoEmp = intval($data['codigo_emp'] ?? 0);
             $hash = password_hash($password, PASSWORD_BCRYPT);
             $stmt = $db->prepare("
                 INSERT INTO tbl_vendedores_movil
-                (codigo, nombre, email, password_hash, telefono, cedula, zona, can_edit_clients, activo, sincronizado, fecha_mod)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NOW())
+                (id_remoto, codigo, nombre, email, password_hash, telefono, cedula, zona, can_edit_clients, activo, sincronizado, fecha_mod)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NOW())
             ");
             $stmt->execute([
+                $codigoEmp > 0 ? $codigoEmp : null,
                 $codigo, $nombre, $email, $hash,
                 $data['telefono'] ?? null,
                 $data['cedula'] ?? null,
@@ -159,6 +192,10 @@ try {
             curl_setopt($ch, CURLOPT_POSTFIELDS, $payload);
             curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
             curl_setopt($ch, CURLOPT_TIMEOUT, 30);
+            // XAMPP/Apache Windows a menudo no tiene curl.cainfo — sin esto,
+            // cualquier llamada HTTPS al Lumen falla con HTTP 0.
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
             $resp = curl_exec($ch);
             $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
             curl_close($ch);

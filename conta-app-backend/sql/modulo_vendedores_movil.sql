@@ -83,21 +83,39 @@ SELECT '✓ Migración módulo móvil aplicada (lado desktop)' AS resultado;
 -- ================================================================
 -- LADO LUMEN (hub remoto, BD conta_movil) — NO se ejecuta desde aquí
 -- ================================================================
--- Las siguientes sentencias deben correrse MANUALMENTE en la BD Lumen
--- del hub remoto (no en la BD del cliente). Se incluyen como referencia.
+-- Las siguientes sentencias corren sobre la BD LUMEN del hub remoto
+-- (u408713046_contaft_movil en Hostinger), NO sobre la BD del cliente.
+-- Todos los ALTER son idempotentes (IF NOT EXISTS — MariaDB 10.0.2+).
+--
+-- Copiar este bloque y ejecutarlo cuando se hace un deploy del hub:
+-- ================================================================
 --
 -- ALTER TABLE cliente_ediciones_log
---   ADD COLUMN sincronizado_desktop TINYINT(1) NOT NULL DEFAULT 0 AFTER fuente,
---   ADD COLUMN fecha_sync_desktop DATETIME NULL DEFAULT NULL AFTER sincronizado_desktop,
---   ADD INDEX idx_ediciones_pendientes (sincronizado_desktop, id_empresa, id);
+--     ADD COLUMN IF NOT EXISTS sincronizado_desktop TINYINT(1) NOT NULL DEFAULT 0 AFTER fuente,
+--     ADD COLUMN IF NOT EXISTS fecha_sync_desktop DATETIME NULL DEFAULT NULL AFTER sincronizado_desktop;
+--
+-- -- El índice necesita chequeo aparte (IF NOT EXISTS no aplica a ADD INDEX)
+-- SET @idx := (SELECT COUNT(*) FROM information_schema.STATISTICS
+--     WHERE TABLE_SCHEMA = DATABASE()
+--       AND TABLE_NAME = 'cliente_ediciones_log'
+--       AND INDEX_NAME = 'idx_ediciones_pendientes');
+-- SET @sql := IF(@idx = 0,
+--     'ALTER TABLE cliente_ediciones_log ADD INDEX idx_ediciones_pendientes (sincronizado_desktop, id_empresa, id)',
+--     'SELECT 1');
+-- PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 --
 -- ALTER TABLE empresas
---   ADD COLUMN modo_pedidos TINYINT(1) NOT NULL DEFAULT 1,
---   ADD COLUMN modo_factura_pos TINYINT(1) NOT NULL DEFAULT 0,
---   ADD COLUMN modo_factura_electronica TINYINT(1) NOT NULL DEFAULT 0;
+--     ADD COLUMN IF NOT EXISTS modo_pedidos TINYINT(1) NOT NULL DEFAULT 1,
+--     ADD COLUMN IF NOT EXISTS modo_factura_pos TINYINT(1) NOT NULL DEFAULT 0,
+--     ADD COLUMN IF NOT EXISTS modo_factura_electronica TINYINT(1) NOT NULL DEFAULT 0;
 --
--- Estos modos los configura cada cliente desde su Conta FT desktop y
--- se propagan al hub vía POST /sync/empresa/modos.
+-- Alternativa: `php artisan migrate` en el server Hostinger — ejecuta
+-- automáticamente las migraciones Laravel de AppMobilFacturacion/api/database/migrations/
+-- incluyendo la 006 que crea sincronizado_desktop.
+--
+-- Estos modos (modo_pedidos, modo_factura_pos, modo_factura_electronica)
+-- los configura cada cliente desde su Conta FT desktop y se propagan al
+-- hub vía POST /sync/empresa/modos.
 
 
 -- ================================================================

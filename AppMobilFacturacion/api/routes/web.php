@@ -37,6 +37,9 @@ $router->group(['prefix' => 'sync'], function () use ($router) {
     $router->post('cierres-caja/batch', 'SyncBatchController@cierresCajaBatch');
 
     $router->post('vendedores/batch',                 'SyncVendedorController@vendedoresBatch');
+    $router->get('vendedores/todos',                  'SyncVendedorController@vendedoresTodos');
+    $router->post('vendedor-clientes/asignar',        'SyncVendedorController@asignarClientes');
+    $router->get('vendedor-clientes/asignados',       'SyncVendedorController@clientesAsignados');
     $router->get('ventas/pendientes',                 'SyncVendedorController@ventasPendientes');
     $router->get('clientes/ediciones-pendientes',     'SyncVendedorController@clientesEdicionesPendientes');
     $router->post('clientes/ediciones-confirmadas',   'SyncVendedorController@clientesEdicionesConfirmadas');

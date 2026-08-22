@@ -307,6 +307,38 @@ export function DetalleFacturaModal({ factN, onClose, onUpdate }: Props) {
             </>)}
           </div>
 
+          {/* Banda de trazabilidad si viene de un pedido móvil */}
+          {factura.pedido_numero && (
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 12,
+              margin: '0 0 12px', padding: '10px 14px',
+              background: 'linear-gradient(90deg, #f5f3ff 0%, #ede9fe 100%)',
+              border: '1px solid #ddd6fe', borderRadius: 10,
+            }}>
+              <div style={{
+                width: 32, height: 32, borderRadius: 8,
+                background: '#7c3aed',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}>
+                <span style={{ fontSize: 16 }}>📱</span>
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 10, color: '#6b21a8', fontWeight: 700, letterSpacing: 0.5 }}>
+                  ORIGEN — PEDIDO MÓVIL
+                </div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#111827', marginTop: 2 }}>
+                  {factura.pedido_numero} · Vendedor {factura.vendedor_codigo} — {factura.vendedor_nombre}
+                  {factura.vendedor_zona && <span style={{ color: '#6b7280', fontWeight: 500 }}> · Zona {factura.vendedor_zona}</span>}
+                </div>
+                {factura.empleado_nombres && (
+                  <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>
+                    Empleado vinculado: {factura.empleado_nombres} {factura.empleado_apellidos} (CodigoEmp {factura.CodigoEmp})
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* Tabla de productos + Panel pagos lateral */}
           <div style={{ display: 'flex', gap: 12, marginBottom: 12 }}>
             {/* Tabla productos */}

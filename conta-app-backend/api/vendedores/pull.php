@@ -39,6 +39,8 @@ try {
     $ch = curl_init($url);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($ch, CURLOPT_TIMEOUT, 30);
+    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+    curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
     $resp = curl_exec($ch);
     $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
     curl_close($ch);
@@ -200,6 +202,69 @@ try {
     } // fin if (!empty($ventas))
 
     // ====================================================================
+    // PULL VENDEDORES DE LA NUBE
+    // Trae los vendedores que existen en Lumen y aún NO están en el desktop.
+    // Los crea como registros stub en tbl_vendedores_movil (sin password_hash
+    // real — el vendedor sigue autenticándose con su hash en Lumen). El
+    // desktop los usa para poder ver quién tomó cada pedido.
+    // ====================================================================
+    $vendedoresNuevos = 0;
+    try {
+        $urlV = $apiUrl . '/sync/vendedores/todos?email=' . urlencode($email) . '&token_api=' . urlencode($token);
+        $chV = curl_init($urlV);
+        curl_setopt($chV, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($chV, CURLOPT_TIMEOUT, 30);
+        curl_setopt($chV, CURLOPT_SSL_VERIFYPEER, false);
+        curl_setopt($chV, CURLOPT_SSL_VERIFYHOST, 0);
+        $respV = curl_exec($chV);
+        $codeV = curl_getinfo($chV, CURLINFO_HTTP_CODE);
+        curl_close($chV);
+
+        if ($codeV === 200 && $respV) {
+            $dataV = json_decode($respV, true);
+            $vendedoresRemoto = $dataV['vendedores'] ?? [];
+
+            foreach ($vendedoresRemoto as $vr) {
+                $emailV = trim($vr['email'] ?? '');
+                $codigoV = trim($vr['codigo'] ?? '');
+                if ($emailV === '' || $codigoV === '') continue;
+
+                // ¿Ya existe? Buscar por email o código.
+                $stmtE = $db->prepare("SELECT id FROM tbl_vendedores_movil WHERE email = ? OR codigo = ? LIMIT 1");
+                $stmtE->execute([$emailV, $codigoV]);
+                if ($stmtE->fetch()) continue;
+
+                // Password_hash real vive en Lumen; guardamos placeholder aquí
+                // para satisfacer el NOT NULL. El login se hace contra Lumen,
+                // no contra este hash local.
+                $placeholderHash = password_hash('lumen-placeholder-' . bin2hex(random_bytes(8)), PASSWORD_BCRYPT);
+
+                $stmtIns = $db->prepare("
+                    INSERT INTO tbl_vendedores_movil
+                        (id_remoto, codigo, nombre, email, password_hash, telefono, cedula, zona,
+                         can_edit_clients, activo, sincronizado, fecha_mod)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, NOW())
+                ");
+                $stmtIns->execute([
+                    $vr['id_vendedor_conta'] ?: null,
+                    $codigoV,
+                    (string)($vr['nombre'] ?? ''),
+                    $emailV,
+                    $placeholderHash,
+                    $vr['telefono'] ?? null,
+                    $vr['cedula']   ?? null,
+                    $vr['zona']     ?? null,
+                    intval($vr['can_edit_clients'] ?? 1),
+                    intval($vr['activo'] ?? 1),
+                ]);
+                $vendedoresNuevos++;
+            }
+        }
+    } catch (Exception $eV) {
+        // no interrumpir el pull principal si vendedores falla
+    }
+
+    // ====================================================================
     // PULL CLIENTES NUEVOS CREADOS EN MÓVIL
     // Inserta en tblclientes los clientes que un vendedor creó desde la app
     // (codvb6 NULL en Lumen). Luego avisa a Lumen del nuevo CodigoClien
@@ -207,6 +272,7 @@ try {
     // el mapeo. CodigoEmp = empleado mapeado al vendedor que lo creó.
     // ====================================================================
     $clientesNuevosCreados = 0;
+    $clientesFusionados = 0; // clientes que ya existían por NIT — no se duplican
     $clientesNuevosError = 0;
     $mapeoConfirmar = []; // [{id_cliente, codvb6}, ...]
 
@@ -215,6 +281,8 @@ try {
         $chN = curl_init($urlNue);
         curl_setopt($chN, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($chN, CURLOPT_TIMEOUT, 30);
+        curl_setopt($chN, CURLOPT_SSL_VERIFYPEER, false);
+        curl_setopt($chN, CURLOPT_SSL_VERIFYHOST, 0);
         $respN = curl_exec($chN);
         $codeN = curl_getinfo($chN, CURLINFO_HTTP_CODE);
         curl_close($chN);
@@ -225,9 +293,52 @@ try {
 
             foreach ($nuevos as $cn) {
                 try {
-                    // Resolver CodigoEmp del vendedor que creó el cliente.
-                    // Estrategia: tbl_vendedores_movil.codigo === codigo del payload,
-                    // y de ahí tomar id_remoto que mapea a tblempleados.CodigoEmp.
+                    // ANTI-DUPLICADO: buscar si ya existe un cliente con el mismo
+                    // documento (NIT o cédula). Si existe, NO creamos duplicado —
+                    // reutilizamos el CodigoClien existente y solo confirmamos el
+                    // mapeo a Lumen. Esto cubre el caso típico "vendedor teclea
+                    // un cliente que la contadora ya había creado".
+                    $docRaw = (string)($cn['numero_documento'] ?? '');
+                    $identNum = ctype_digit($docRaw) ? intval($docRaw) : null;
+
+                    if ($docRaw !== '' && $docRaw !== '0') {
+                        $stmtEx = $db->prepare("
+                            SELECT CodigoClien FROM tblclientes
+                            WHERE Nit = ?
+                               OR (Identificacion IS NOT NULL AND Identificacion > 0 AND Identificacion = ?)
+                            LIMIT 1
+                        ");
+                        $stmtEx->execute([$docRaw, $identNum ?: 0]);
+                        $exist = $stmtEx->fetch();
+                        if ($exist) {
+                            // Ya existe → confirmar mapeo con el codvb6 existente.
+                            // No pisamos datos del cliente (razón social, teléfono
+                            // etc) por si la contadora tiene la versión buena.
+                            // Sí actualizamos el CodigoEmp para dejar rastro del
+                            // vendedor si el cliente no tenía uno asignado.
+                            $codigoEmpVend = null;
+                            if (!empty($cn['codigo_vendedor'])) {
+                                $stmtV = $db->prepare("SELECT id_remoto FROM tbl_vendedores_movil WHERE codigo = ? LIMIT 1");
+                                $stmtV->execute([$cn['codigo_vendedor']]);
+                                $vRow = $stmtV->fetch();
+                                if ($vRow && !empty($vRow['id_remoto'])) {
+                                    $codigoEmpVend = intval($vRow['id_remoto']);
+                                }
+                            }
+                            if ($codigoEmpVend) {
+                                $db->prepare("UPDATE tblclientes SET CodigoEmp = ? WHERE CodigoClien = ? AND (CodigoEmp IS NULL OR CodigoEmp = 0)")
+                                   ->execute([$codigoEmpVend, $exist['CodigoClien']]);
+                            }
+                            $mapeoConfirmar[] = [
+                                'id_cliente' => intval($cn['id_cliente']),
+                                'codvb6'     => (string)$exist['CodigoClien'],
+                            ];
+                            $clientesFusionados++;
+                            continue; // saltar al siguiente cliente
+                        }
+                    }
+
+                    // No existe → crear nuevo. Resolver CodigoEmp del vendedor.
                     $codigoEmp = null;
                     if (!empty($cn['codigo_vendedor'])) {
                         $stmtV = $db->prepare("SELECT id_remoto FROM tbl_vendedores_movil WHERE codigo = ? LIMIT 1");
@@ -241,12 +352,6 @@ try {
                     // Asignar CodigoClien siguiente
                     $stmtMax = $db->query("SELECT COALESCE(MAX(CodigoClien), 0) + 1 AS siguiente FROM tblclientes");
                     $nuevoCodigo = intval($stmtMax->fetch()['siguiente']);
-
-                    // Identificacion es int en tblclientes (legacy VB6).
-                    // Si el documento contiene caracteres no numéricos, lo
-                    // guardamos como null (queda en Nit que sí es varchar).
-                    $docRaw = (string)($cn['numero_documento'] ?? '');
-                    $identNum = ctype_digit($docRaw) ? intval($docRaw) : null;
 
                     // gps_capturado_at puede venir en ISO con sufijo Z; lo
                     // normalizamos a 'Y-m-d H:i:s' que MySQL acepta nativo.
@@ -310,6 +415,8 @@ try {
                 $chC = curl_init($apiUrl . '/sync/clientes/confirmar-mapeo');
                 curl_setopt($chC, CURLOPT_RETURNTRANSFER, true);
                 curl_setopt($chC, CURLOPT_TIMEOUT, 30);
+                curl_setopt($chC, CURLOPT_SSL_VERIFYPEER, false);
+                curl_setopt($chC, CURLOPT_SSL_VERIFYHOST, 0);
                 curl_setopt($chC, CURLOPT_POST, true);
                 curl_setopt($chC, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
                 curl_setopt($chC, CURLOPT_POSTFIELDS, $payloadM);
@@ -353,6 +460,8 @@ try {
         $ch = curl_init($urlEd);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLOPT_TIMEOUT, 30);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
         $respEd = curl_exec($ch);
         $codeEd = curl_getinfo($ch, CURLINFO_HTTP_CODE);
         curl_close($ch);
@@ -431,6 +540,8 @@ try {
                 $ch2 = curl_init($apiUrl . '/sync/clientes/ediciones-confirmadas');
                 curl_setopt($ch2, CURLOPT_RETURNTRANSFER, true);
                 curl_setopt($ch2, CURLOPT_TIMEOUT, 30);
+                curl_setopt($ch2, CURLOPT_SSL_VERIFYPEER, false);
+                curl_setopt($ch2, CURLOPT_SSL_VERIFYHOST, 0);
                 curl_setopt($ch2, CURLOPT_POST, true);
                 curl_setopt($ch2, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
                 curl_setopt($ch2, CURLOPT_POSTFIELDS, $payload);
@@ -446,7 +557,9 @@ try {
     $partes = [];
     if ($pedidosNuevos > 0) $partes[] = $pedidosNuevos . ' pedidos';
     if ($feNuevas > 0) $partes[] = $feNuevas . ' FE';
+    if ($vendedoresNuevos > 0) $partes[] = $vendedoresNuevos . ' vendedores nuevos';
     if ($clientesNuevosCreados > 0) $partes[] = $clientesNuevosCreados . ' clientes nuevos';
+    if ($clientesFusionados > 0)   $partes[] = $clientesFusionados . ' clientes ya existentes (fusionados)';
     if ($edicionesAplicadas > 0) $partes[] = $edicionesAplicadas . ' ediciones aplicadas';
     $msg = empty($partes) ? 'Sin cambios nuevos' : ('Pull: ' . implode(', ', $partes));
     if ($edicionesPendientesMapeo > 0) $msg .= ' (' . $edicionesPendientesMapeo . ' ediciones esperan mapeo en próximo pull)';
@@ -456,7 +569,9 @@ try {
         'message' => $msg,
         'pedidos_nuevos' => $pedidosNuevos,
         'fe_nuevas' => $feNuevas,
+        'vendedores_nuevos' => $vendedoresNuevos,
         'clientes_nuevos_creados' => $clientesNuevosCreados,
+        'clientes_fusionados' => $clientesFusionados,
         'clientes_nuevos_error' => $clientesNuevosError,
         'ediciones_clientes_aplicadas' => $edicionesAplicadas,
         'ediciones_clientes_no_encontradas' => $edicionesNoEncontradas,

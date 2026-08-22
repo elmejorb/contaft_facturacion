@@ -20,7 +20,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 
 class Database {
     private $host = "localhost";
-    private $db_name = "conta_test_negocio";
+    private $db_name = "conta_demo";
     private $username = "root";
     private $password = "root";
     public $conn;

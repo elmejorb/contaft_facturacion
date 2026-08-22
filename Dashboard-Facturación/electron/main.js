@@ -43,6 +43,120 @@ if (process.env.NODE_ENV === 'development') {
 // ============================================================
 const SUBS_API_BASE = 'https://crm.innovacion-digital.com/api/public/api/v1';
 const ESTADOS_PERMITIDOS = ['activa', 'prueba', 'por_vencer'];
+
+// Llave pública RS256 del CRM para verificar los JWT de entitlements.
+// Ver: C:\Users\LUIS_FDO\Documents\proyectos\InnovacionDg\CRM InnovacionDG\INTEGRACION_ENTITLEMENTS.md
+const CRM_PUBLIC_KEY = `-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA1corQr4nwAWsCj3++R8I
+joGiOYkAr4Tvf5GwVY11LzIHFk30f+PEfjlXTaXoB3bynXqDxBZ2pAnzquYuUTnH
+QzoRyq/S42q5AUAL62NHvVKlsqFvNNZXaP7bKymM6SfLcgVeZIc4xc7ylhCWOtR4
+lKTfva41ZqV776KtVYD6ZrOJfZFdc6E4wpDOSg/0p0igKE696a1zBrX2LT9AIWkB
+aK9EtO+IVaaTicJsnJOkWQjO7AwkuzxUgl5MJS740w53ATQeTmdoEYAk/+5DFE8A
+Oll6J0ohQDVPJQP2Sg+pb0EPjIbO5zyVQZ2MIIkwbJ/h0Xkl0pKjuHMPCYEfYXcu
+6QIDAQAB
+-----END PUBLIC KEY-----`;
+
+// Verifica un JWT firmado con RS256 usando la llave pública del CRM.
+// Retorna el payload si es válido, o lanza si la firma o exp fallan.
+function verifyEntitlementsJwt(jwt) {
+  if (!jwt || typeof jwt !== 'string') throw new Error('JWT vacío');
+  const parts = jwt.split('.');
+  if (parts.length !== 3) throw new Error('JWT malformado');
+  const [headerB64, payloadB64, sigB64] = parts;
+
+  // base64url → base64 estándar
+  const b64urlDecode = (s) => Buffer.from(s.replace(/-/g, '+').replace(/_/g, '/'), 'base64');
+  const signature = b64urlDecode(sigB64);
+
+  const verifier = crypto.createVerify('RSA-SHA256');
+  verifier.update(`${headerB64}.${payloadB64}`);
+  verifier.end();
+  if (!verifier.verify(CRM_PUBLIC_KEY, signature)) {
+    throw new Error('Firma inválida');
+  }
+
+  const payload = JSON.parse(b64urlDecode(payloadB64).toString('utf8'));
+  const now = Math.floor(Date.now() / 1000);
+  if (payload.exp && now > payload.exp) {
+    throw new Error('JWT expirado');
+  }
+  return payload;
+}
+
+// Consulta el nuevo endpoint del CRM que devuelve el JWT de entitlements
+// (módulos por cliente). Valida la firma localmente y devuelve los módulos.
+// Cachea el token en config.json bajo _entitlements_cache para operar offline
+// hasta que expire (7 días de gracia si no hay red).
+async function consultarEntitlements() {
+  console.log('[entitlements] arrancando consulta al CRM');
+  const tokenResult = await getApiTokenFromBackend();
+  if (!tokenResult.ok) {
+    console.log('[entitlements] fallo getApiTokenFromBackend:', tokenResult.reason);
+    return { ok: false, reason: tokenResult.reason };
+  }
+  const apiToken = String(tokenResult.token || '');
+  if (apiToken.length < 10) {
+    console.log('[entitlements] token demasiado corto:', apiToken.length);
+    return { ok: false, reason: 'token-invalido' };
+  }
+  console.log('[entitlements] api_token OK (len=' + apiToken.length + '), pegando al CRM…');
+
+  const url = `${SUBS_API_BASE}/suscripcion-token/${encodeURIComponent(apiToken)}`;
+  try {
+    const { body } = await httpGetJson(url);
+    console.log('[entitlements] respuesta CRM code=' + body?.code + ' tiene_token=' + !!body?.token);
+    if (body?.code !== 'OK' || !body?.token) {
+      return { ok: false, reason: body?.code || 'sin-token' };
+    }
+    // Verifica la firma cripto antes de confiar en el payload
+    const payload = verifyEntitlementsJwt(body.token);
+    console.log('[entitlements] JWT válido — módulos:', Object.entries(payload.modulos).map(([k,v]) => `${k}=${v.activo?'SI':'no'}`).join(' '));
+    // Guardar el JWT completo (no solo el payload) para revalidar offline
+    writeConfig({
+      _entitlements_cache: {
+        jwt: body.token,
+        checked_at: Date.now(),
+        empresa: payload.empresa,
+        cliente_id: payload.cliente_id,
+        modulos: payload.modulos,
+        vigencia_del_token: payload.vigencia_del_token,
+      },
+    });
+    return { ok: true, source: 'online', payload, modulos: payload.modulos };
+  } catch (e) {
+    // Falla de red o firma inválida — caemos a cache
+    const cfg = readConfig();
+    const cache = cfg._entitlements_cache;
+    if (cache?.jwt) {
+      try {
+        const payload = verifyEntitlementsJwt(cache.jwt);
+        // Período de gracia 7 días desde el último check exitoso
+        const graceEndMs = (cache.checked_at || 0) + 7 * 24 * 60 * 60 * 1000;
+        if (Date.now() < graceEndMs) {
+          return { ok: true, source: 'cache', payload, modulos: payload.modulos };
+        }
+      } catch (_) {}
+    }
+    // Modo emergencia — sin JWT válido ni cache. Solo núcleo activo.
+    return {
+      ok: false,
+      source: 'emergency',
+      reason: e?.message || 'sin-red',
+      modulos: {
+        nucleo:                  { activo: true },
+        facturacion_electronica: { activo: false },
+        dsno:                    { activo: false },
+        plataforma_web:          { activo: false },
+        vendedor_movil:          { activo: false },
+        instalacion:             { activo: false },
+      },
+    };
+  }
+}
+
+ipcMain.handle('entitlements:get', async () => {
+  return consultarEntitlements();
+});
 // Secreto compartido con el CRM para firmar/verificar códigos offline.
 // Si se rota, el CRM debe generarlo igual y los códigos antiguos quedan inválidos.
 const OFFLINE_SECRET = 'CONTA_FT_OFFLINE_2026_INV_DIGITAL';

@@ -14,12 +14,22 @@ try {
     $id = $_GET['id'] ?? null;
 
     if ($id) {
-        // Detalle de factura
+        // Detalle de factura + vendedor móvil + pedido origen (si aplica).
+        // Los LEFT JOIN a tbl_pedidos_vendedor y tbl_vendedores_movil son
+        // seguros — si la venta no vino de móvil, esos campos quedan NULL.
         $stmt = $db->prepare("
-            SELECT v.*, u.Nombre as NombreUsuario, m.nombre_medio as MedioPago
+            SELECT v.*, u.Nombre as NombreUsuario, m.nombre_medio as MedioPago,
+                   e.Nombres AS empleado_nombres, e.Apellidos AS empleado_apellidos,
+                   p.id AS pedido_id, p.numero_pedido AS pedido_numero,
+                   p.fecha AS pedido_fecha, p.observaciones AS pedido_observaciones,
+                   vm.codigo AS vendedor_codigo, vm.nombre AS vendedor_nombre,
+                   vm.zona AS vendedor_zona
             FROM tblventas v
             LEFT JOIN tblusuarios u ON v.Id_Usuario = u.Id_Usuario
             LEFT JOIN tblmedios_pago m ON v.id_mediopago = m.id_mediopago
+            LEFT JOIN tblempleados e ON e.CodigoEmp = v.CodigoEmp AND v.CodigoEmp > 0
+            LEFT JOIN tbl_pedidos_vendedor p ON p.convertido_factura_n = v.Factura_N
+            LEFT JOIN tbl_vendedores_movil vm ON vm.id = p.id_vendedor_remoto
             WHERE v.Factura_N = :id
         ");
         $stmt->execute([':id' => $id]);

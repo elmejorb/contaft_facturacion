@@ -2,6 +2,11 @@
 node_modules/
 package-lock.json
 
+# Credenciales locales de desarrollo (nunca commit)
+CREDENCIALES_DEV.md
+.env
+.env.local
+
 # Logs
 *.log
 npm-debug.log*
@@ -61,3 +66,9 @@ fix_precio_costo_remoto.sql
 
 # Credenciales/datos sensibles
 datos.txt
+
+# Config Electron local (contiene JWT del CRM en cache, apiUrl y datos por máquina)
+Dashboard-Facturación/config.json
+
+# Carpeta temporal local — no versionar
+/temp/

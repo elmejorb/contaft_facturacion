@@ -352,6 +352,13 @@ SET @sql = IF(@idx_exists = 0,
     'SELECT 1');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
+-- enviada_dian + cufe: usadas por el listado de ventas (SalesManagement) y
+-- por el módulo FE para marcar cuáles ventas POS se enviaron a la DIAN.
+-- Un solo ALTER idempotente con IF NOT EXISTS (MariaDB 10.0.2+ / MySQL 8.0.29+).
+ALTER TABLE tblventas
+    ADD COLUMN IF NOT EXISTS enviada_dian TINYINT(1) NOT NULL DEFAULT 0 COMMENT '1 si la venta se envio a DIAN como FE',
+    ADD COLUMN IF NOT EXISTS cufe VARCHAR(255) NULL COMMENT 'CUFE de la factura electronica si aplica';
+
 -- ================================================================
 -- v4.4 — Retenciones (ReteFuente, ReteICA, ReteIVA)
 -- ================================================================
@@ -720,10 +727,27 @@ CREATE TABLE IF NOT EXISTS tbl_pedidos_vendedor (
 
 SET @tbl_exists = (SELECT COUNT(*) FROM information_schema.TABLES
     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'electronic_documents');
-SET @col_exists = IF(@tbl_exists = 0, 1, (SELECT COUNT(*) FROM information_schema.COLUMNS
-    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'electronic_documents' AND COLUMN_NAME = 'origen'));
-SET @sql = IF(@tbl_exists = 1 AND @col_exists = 0,
-    "ALTER TABLE electronic_documents ADD COLUMN origen VARCHAR(20) DEFAULT 'local' AFTER id, ADD COLUMN id_vendedor_remoto INT NULL AFTER origen, ADD COLUMN nombre_vendedor VARCHAR(150) NULL AFTER id_vendedor_remoto",
+
+-- Blindaje: agregar TODAS las columnas del esquema oficial de electronic_documents
+-- que puedan faltar en instalaciones viejas de FE. Un solo ALTER, idempotente
+-- (ADD COLUMN IF NOT EXISTS — MariaDB 10.0.2+, MySQL 8.0.29+).
+SET @sql = IF(@tbl_exists = 1,
+    "ALTER TABLE electronic_documents
+        ADD COLUMN IF NOT EXISTS origen VARCHAR(20) DEFAULT 'local' AFTER id,
+        ADD COLUMN IF NOT EXISTS id_vendedor_remoto INT NULL AFTER origen,
+        ADD COLUMN IF NOT EXISTS nombre_vendedor VARCHAR(150) NULL AFTER id_vendedor_remoto,
+        ADD COLUMN IF NOT EXISTS descuento DECIMAL(19,4) NOT NULL DEFAULT 0,
+        ADD COLUMN IF NOT EXISTS abono DECIMAL(19,4) NOT NULL DEFAULT 0,
+        ADD COLUMN IF NOT EXISTS codigoEmp INT NOT NULL DEFAULT 0,
+        ADD COLUMN IF NOT EXISTS id_mediopago INT NOT NULL DEFAULT 0,
+        ADD COLUMN IF NOT EXISTS efectivo DECIMAL(19,4) NOT NULL DEFAULT 0,
+        ADD COLUMN IF NOT EXISTS valorpagado1 DECIMAL(19,4) NOT NULL DEFAULT 0,
+        ADD COLUMN IF NOT EXISTS pagada VARCHAR(1) NOT NULL DEFAULT 'N',
+        ADD COLUMN IF NOT EXISTS nota TEXT NULL,
+        ADD COLUMN IF NOT EXISTS id_usuario INT NOT NULL DEFAULT 0,
+        ADD COLUMN IF NOT EXISTS invoice_cufe VARCHAR(255) NULL COMMENT 'CUFE de la factura referenciada en NC/ND',
+        ADD COLUMN IF NOT EXISTS sent_at TIMESTAMP NULL DEFAULT NULL,
+        ADD COLUMN IF NOT EXISTS EstadoFact INT NOT NULL DEFAULT 1 COMMENT '1=Valida, 2=Anulada'",
     'SELECT 1');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
@@ -840,6 +864,19 @@ PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 -- 2c. Recrear vw_facturas_elec_cliente_saldos (módulo FE — electronic_documents)
 -- Solo se crea si existe la tabla electronic_documents (FE habilitada).
+
+-- Pre-requisito: columna tblpagos.Nfact_electronica (vincula un pago con un
+-- documento electrónico). Se crea idempotente para que la vista siguiente
+-- no falle en BDs que ya tienen FE habilitada pero no tenían esta columna.
+SET @col_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'tblpagos'
+      AND COLUMN_NAME = 'Nfact_electronica');
+SET @sql = IF(@col_exists = 0,
+    "ALTER TABLE tblpagos ADD COLUMN Nfact_electronica VARCHAR(30) DEFAULT NULL, ADD KEY idx_nfact_electronica (Nfact_electronica)",
+    'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
 SET @t = (SELECT COUNT(*) FROM information_schema.TABLES
           WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'electronic_documents');
 
@@ -881,6 +918,24 @@ LEFT JOIN (
 WHERE v.payment_form_id = 2 AND v.status = 'autorizado' AND v.type_document_id = 1
 ", 'SELECT 1');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- ================================================================
+-- v5.6 — Columnas FE + GPS en tblclientes (para app móvil y FE)
+-- • GPS: capturado por vendedores móviles al crear cliente en ruta.
+-- • FE:  FKs DIAN (documento, municipio, responsabilidad, organización,
+--        régimen). Existen en instalaciones con módulo FE v5.2 activo;
+--        idempotente para BDs viejas sin FE.
+-- ================================================================
+ALTER TABLE tblclientes
+    ADD COLUMN IF NOT EXISTS id_documento INT NULL DEFAULT 2 COMMENT 'FK DIAN tipo documento',
+    ADD COLUMN IF NOT EXISTS id_municipio INT NULL COMMENT 'FK DIAN municipio',
+    ADD COLUMN IF NOT EXISTS id_type_liability INT NULL COMMENT 'FK DIAN responsabilidad tributaria',
+    ADD COLUMN IF NOT EXISTS id_type_organization INT NULL COMMENT 'FK DIAN tipo organizacion',
+    ADD COLUMN IF NOT EXISTS id_type_regime INT NULL COMMENT 'FK DIAN regimen',
+    ADD COLUMN IF NOT EXISTS latitud DECIMAL(10,6) NULL,
+    ADD COLUMN IF NOT EXISTS longitud DECIMAL(10,6) NULL,
+    ADD COLUMN IF NOT EXISTS precision_gps_metros INT NULL,
+    ADD COLUMN IF NOT EXISTS gps_capturado_at DATETIME NULL;
 
 -- ================================================================
 -- v5.5 — Comportamiento + castigo en tblclientes (refactor)

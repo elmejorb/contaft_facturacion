@@ -176,6 +176,12 @@ try {
             "Nit" => $cliente['Nit'],
             "Telefonos" => $cliente['Telefonos'],
             "Email" => $cliente['Email'],
+            "Direccion" => $cliente['Direccion'] ?? null,
+            // GPS del vendedor móvil (para botón "Ver en mapa")
+            "latitud" => $cliente['latitud'] ?? null,
+            "longitud" => $cliente['longitud'] ?? null,
+            "precision_gps_metros" => $cliente['precision_gps_metros'] ?? null,
+            "gps_capturado_at" => $cliente['gps_capturado_at'] ?? null,
         ],
         "anio" => intval($anio),
         "anios_disponibles" => $aniosDisp,

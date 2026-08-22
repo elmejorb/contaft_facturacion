@@ -11,6 +11,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { Badge, Card, EmptyState, Header, Screen, SearchBar } from '../components';
 import { colors, radius, shadows, spacing, typography } from '../theme';
 import { RootStackParamList } from '../navigation/types';
@@ -22,6 +23,7 @@ type Nav = NativeStackNavigationProp<RootStackParamList>;
 
 export const OrdersScreen: React.FC = () => {
   const nav = useNavigation<Nav>();
+  const tabBarHeight = useBottomTabBarHeight();
   const [query, setQuery] = useState('');
 
   const { data, loading, refreshing, error, refresh } = useFetch<VentaDTO[]>(
@@ -117,7 +119,11 @@ export const OrdersScreen: React.FC = () => {
 
       <Pressable
         onPress={() => nav.navigate('CreateOrder')}
-        style={({ pressed }) => [styles.fab, pressed && { opacity: 0.9 }]}
+        style={({ pressed }) => [
+          styles.fab,
+          { bottom: tabBarHeight + spacing.md },
+          pressed && { opacity: 0.9 },
+        ]}
         android_ripple={{ color: 'rgba(255,255,255,0.2)', borderless: true }}
       >
         <Ionicons name="add" size={28} color={colors.textInverse} />
@@ -150,7 +156,6 @@ const styles = StyleSheet.create({
   fab: {
     position: 'absolute',
     right: spacing.lg,
-    bottom: spacing.lg,
     width: 60,
     height: 60,
     borderRadius: 30,
