@@ -50,6 +50,14 @@ $router->group(['prefix' => 'sync'], function () use ($router) {
 
 $router->group(['prefix' => 'api'], function () use ($router) {
 
+    // Activación de empresa (handshake CRM → Lumen).
+    // El middleware `entitlement:vendedor_movil` valida el JWT del CRM,
+    // provisiona la empresa si no existe, y adjunta al request para el ctrl.
+    $router->post('empresas/activar', [
+        'middleware' => 'entitlement:vendedor_movil',
+        'uses'       => 'EmpresaController@activar',
+    ]);
+
     // Auth público
     $router->post('auth/login', 'AuthController@login');
 

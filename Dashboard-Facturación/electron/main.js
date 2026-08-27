@@ -157,9 +157,80 @@ async function consultarEntitlements() {
 ipcMain.handle('entitlements:get', async () => {
   return consultarEntitlements();
 });
+
+// POST JSON con Bearer JWT — para llamar a endpoints de Lumen que exigen
+// autenticación por entitlements del CRM.
+function httpPostJsonBearer(url, jwt, timeoutMs = 15000) {
+  return new Promise((resolve, reject) => {
+    const client = new URL(url).protocol === 'https:' ? https : http;
+    const req = client.request(url, {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + jwt,
+        'Content-Length': 0,
+      },
+    }, (res) => {
+      let data = '';
+      res.on('data', (chunk) => { data += chunk; });
+      res.on('end', () => {
+        try {
+          const clean = stripBom(data);
+          resolve({ status: res.statusCode, body: clean ? JSON.parse(clean) : null });
+        } catch (e) {
+          reject(new Error('JSON inválido: ' + String(data).slice(0, 200)));
+        }
+      });
+    });
+    req.on('error', reject);
+    req.setTimeout(timeoutMs, () => req.destroy(new Error('Timeout')));
+    req.end();
+  });
+}
+
+// Handshake de activación con Lumen: el desktop envía su JWT del CRM,
+// Lumen valida el módulo `vendedor_movil`, provisiona la empresa si no
+// existe y devuelve `id_empresa` + `token_api` que el desktop usará para
+// autenticar los siguientes push/pull.
+ipcMain.handle('empresas:activar', async (_e, { apiUrlLumen }) => {
+  const ent = await consultarEntitlements();
+  if (!ent.ok || !ent.modulos?.vendedor_movil?.activo) {
+    return { ok: false, reason: 'modulo-no-activo-crm' };
+  }
+  const cfg = readConfig();
+  const jwt = cfg._entitlements_cache?.jwt;
+  if (!jwt) return { ok: false, reason: 'jwt-no-en-cache' };
+
+  const url = (apiUrlLumen || '').replace(/\/$/, '') + '/api/empresas/activar';
+  try {
+    const { status, body } = await httpPostJsonBearer(url, jwt);
+    if (status !== 200 || body?.error) {
+      return { ok: false, reason: body?.code || 'error-lumen', status, message: body?.mensaje };
+    }
+    return {
+      ok: true,
+      id_empresa: body.id_empresa,
+      token_api: body.token_api,
+      empresa: body.empresa,
+      nit: body.nit,
+      modulo: body.modulo,
+    };
+  } catch (e) {
+    return { ok: false, reason: 'sin-red', message: e?.message };
+  }
+});
 // Secreto compartido con el CRM para firmar/verificar códigos offline.
 // Si se rota, el CRM debe generarlo igual y los códigos antiguos quedan inválidos.
 const OFFLINE_SECRET = 'CONTA_FT_OFFLINE_2026_INV_DIGITAL';
+
+// Quita el BOM UTF-8 (U+FEFF) que algunos PHPs devuelven cuando un archivo
+// del backend fue guardado con BOM (típico si se editó con Notepad de Windows).
+// Sin este strip, JSON.parse revienta con "Unexpected character" en la posición 0.
+function stripBom(s) {
+  if (typeof s !== 'string') return s;
+  return s.charCodeAt(0) === 0xFEFF ? s.slice(1) : s;
+}
 
 function httpGetJson(url, timeoutMs = 10000) {
   return new Promise((resolve, reject) => {
@@ -169,7 +240,8 @@ function httpGetJson(url, timeoutMs = 10000) {
       res.on('data', (chunk) => { data += chunk; });
       res.on('end', () => {
         try {
-          resolve({ status: res.statusCode, body: data ? JSON.parse(data) : null });
+          const clean = stripBom(data);
+          resolve({ status: res.statusCode, body: clean ? JSON.parse(clean) : null });
         } catch (e) {
           reject(new Error('JSON inválido: ' + String(data).slice(0, 200)));
         }

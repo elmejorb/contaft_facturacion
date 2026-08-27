@@ -48,6 +48,7 @@ export interface ConfigImpresion {
   usarCotizaciones: boolean;
   usarConteoInventario: boolean;
   usarLotes: boolean; // activa el manejo de fechas de vencimiento / lotes para productos perecederos (farmacias, alimentos)
+  ordenesCompra: boolean; // habilita el flujo Orden de Compra → Recepción (crear la OC antes de que llegue la mercancía)
   tipoNegocio: string; // Tienda, Farmacia, Boutique, etc.
   // Seguridad — autorización admin para acciones sensibles
   autorizarDevoluciones: boolean;     // pide clave admin para devolver
@@ -94,6 +95,7 @@ const defaultConfig: ConfigImpresion = {
   usarCotizaciones: true,
   usarConteoInventario: true,
   usarLotes: false,
+  ordenesCompra: false,
   tipoNegocio: '',
   autorizarDevoluciones: false,
   autorizarAnulaciones: false,
@@ -703,6 +705,61 @@ export function ConfiguracionSistema() {
             </label>
           );})}
         </div>
+      </div>
+
+      {/* Adaptaciones (solo root) — módulos que no cobran, sirven para adaptar el sistema */}
+      <div style={{ background: '#fff', borderRadius: 12, padding: 20, boxShadow: '0 1px 3px rgba(0,0,0,0.08)', marginTop: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+          <Settings size={20} color="#7c3aed" />
+          <span style={{ fontSize: 16, fontWeight: 700, color: '#1f2937' }}>Adaptaciones</span>
+          {!isRoot && <Lock size={14} color="#9ca3af" />}
+        </div>
+        <p style={{ fontSize: 12, color: '#6b7280', marginBottom: 16 }}>
+          Ajustes que solo el usuario "root" puede modificar — activan flujos alternos según el negocio.
+        </p>
+
+        {[
+          {
+            key: 'ordenesCompra',
+            label: 'Órdenes de Compra',
+            desc: 'Habilita el flujo Orden de Compra → Recepción. Útil cuando el cliente hace pedidos al proveedor antes de que llegue la mercancía y necesita ver qué está pendiente de recibir.'
+          },
+        ].map(m => {
+          const currentValue = (config as any)[m.key];
+          return (
+            <label
+              key={m.key}
+              onClick={() => {
+                if (!isRoot) { toast.error('Solo el usuario "root" puede activar o desactivar este módulo'); return; }
+                set(m.key as keyof ConfigImpresion, !currentValue);
+              }}
+              style={{
+                display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 14px', borderRadius: 8,
+                cursor: isRoot ? 'pointer' : 'not-allowed',
+                border: `2px solid ${currentValue ? '#7c3aed' : '#e5e7eb'}`,
+                background: currentValue ? '#f5f3ff' : (isRoot ? '#fff' : '#f9fafb'),
+                opacity: isRoot ? 1 : 0.8,
+                transition: 'all 0.15s',
+              }}
+            >
+              <div style={{
+                width: 20, height: 20, borderRadius: 4, flexShrink: 0, marginTop: 2,
+                border: `2px solid ${currentValue ? '#7c3aed' : '#d1d5db'}`,
+                background: currentValue ? '#7c3aed' : '#fff',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}>
+                {currentValue && <span style={{ color: '#fff', fontSize: 14, fontWeight: 700, lineHeight: 1 }}>✓</span>}
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: currentValue ? '#7c3aed' : '#374151', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  {m.label}
+                  {!isRoot && <Lock size={12} color="#9ca3af" />}
+                </div>
+                <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>{m.desc}</div>
+              </div>
+            </label>
+          );
+        })}
       </div>
 
       {/* Vendedores Móviles */}

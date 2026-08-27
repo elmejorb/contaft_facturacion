@@ -1044,6 +1044,47 @@ GROUP BY f.FacturaN, f.CodigoProv, p.RazonSocial, f.Fecha, f.Dias;
 -- se aplican cuando un cliente específico contrata la opción.
 
 -- ================================================================
+-- v5.7 — Órdenes de Compra (OC previa a la recepción)
+-- Flujo: crear OC → mandar a proveedor → recibir mercancía → se
+-- convierte en registro de tblpedidos (compras) y descuenta kardex.
+-- ================================================================
+CREATE TABLE IF NOT EXISTS tbl_ordenes_compra (
+    id_oc               INT AUTO_INCREMENT PRIMARY KEY,
+    numero_oc           VARCHAR(20) UNIQUE,
+    fecha               DATE NOT NULL,
+    fecha_entrega       DATE NULL,
+    CodigoPro           INT NOT NULL,
+    Impuesto            DECIMAL(19,4) DEFAULT 0,
+    Descuento           DECIMAL(19,4) DEFAULT 0,
+    Flete               DECIMAL(19,4) DEFAULT 0,
+    Retencion           DECIMAL(19,4) DEFAULT 0,
+    Total               DECIMAL(19,4) DEFAULT 0,
+    Estado              ENUM('Pendiente','Parcial','Recibida','Anulada') NOT NULL DEFAULT 'Pendiente',
+    pedido_generado_n   INT NULL COMMENT 'FK a tblpedidos.Pedido_N cuando se recibe la mercancía',
+    Comentario          TEXT NULL,
+    Id_Usuario          INT NULL,
+    FechaCreacion       DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FechaMod            DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_estado (Estado),
+    INDEX idx_proveedor (CodigoPro),
+    INDEX idx_fecha (fecha)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS tbl_detalle_orden_compra (
+    id                  INT AUTO_INCREMENT PRIMARY KEY,
+    id_oc               INT NOT NULL,
+    Items               INT NOT NULL COMMENT 'FK tblarticulos.Items',
+    Cantidad            DECIMAL(14,4) NOT NULL,
+    Cantidad_Recibida   DECIMAL(14,4) DEFAULT 0 COMMENT 'Para recepción parcial (V2)',
+    PrecioC             DECIMAL(19,4) NOT NULL COMMENT 'Precio de compra unitario',
+    Iva                 DECIMAL(5,2) DEFAULT 0,
+    Descuento           DECIMAL(19,4) DEFAULT 0,
+    Subtotal            DECIMAL(19,4) DEFAULT 0,
+    INDEX idx_oc (id_oc),
+    INDEX idx_items (Items)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ================================================================
 -- VERIFICACIÓN FINAL
 -- ================================================================
 SELECT '✓ Actualización completa Conta FT aplicada' AS resultado;
