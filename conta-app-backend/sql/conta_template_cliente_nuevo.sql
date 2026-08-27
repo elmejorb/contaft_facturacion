@@ -23,7 +23,7 @@ DROP TABLE IF EXISTS `detalle_cotizacion`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `detalle_cotizacion` (
-  `id_detalle_cotiza` int(11) NOT NULL,
+  `id_detalle_cotiza` int(11) NOT NULL AUTO_INCREMENT,
   `item_pro` int(11) NOT NULL,
   `cant_pro` float NOT NULL,
   `precio_v` double NOT NULL,
@@ -409,7 +409,7 @@ DROP TABLE IF EXISTS `tblcotizaciones`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `tblcotizaciones` (
-  `id_cotizacion` int(11) NOT NULL,
+  `id_cotizacion` int(11) NOT NULL AUTO_INCREMENT,
   `codigo_cli` int(11) NOT NULL,
   `nombre_cliente` varchar(50) NOT NULL,
   `telefono_cli` varchar(25) NOT NULL,

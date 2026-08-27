@@ -36,6 +36,7 @@ try {
     $stmt2->execute([$id]);
     $items = $stmt2->fetchAll();
 
+    $sumBase = 0; $sumIva = 0;
     foreach ($items as &$i) {
         $i['invoiced_quantity'] = floatval($i['invoiced_quantity']);
         $i['line_extension_amount'] = floatval($i['line_extension_amount']);
@@ -44,6 +45,18 @@ try {
         $i['tax_amount'] = floatval($i['tax_amount']);
         $i['taxable_amount'] = floatval($i['taxable_amount']);
         $i['tax_percent'] = floatval($i['tax_percent']);
+        $sumBase += $i['line_extension_amount'];
+        $sumIva  += $i['tax_amount'];
+    }
+    unset($i);
+
+    // Recalculamos doc.total desde las líneas. Antes de 4.3.61 el campo
+    // electronic_documents.total quedaba inflado con IvaIncluido=1, así
+    // que la vista previa mostraba un total distinto al de DIAN.
+    if ($sumBase > 0 || $sumIva > 0) {
+        $doc['total'] = round($sumBase + $sumIva - floatval($doc['descuento'] ?? 0), 2);
+    } else {
+        $doc['total'] = floatval($doc['total']);
     }
 
     // Notas crédito/débito referenciadas a este documento
@@ -51,15 +64,32 @@ try {
     if ($doc['cufe']) {
         $stmt3 = $db->prepare("
             SELECT e.id, e.prefix, e.number, e.type_document_id, td.name as tipo,
-                   e.total, e.status, e.cufe, e.fecha, e.nota, e.invoice_cufe
+                   e.total, e.descuento, e.status, e.cufe, e.fecha, e.nota, e.invoice_cufe,
+                   det.sum_base, det.sum_iva
             FROM electronic_documents e
             LEFT JOIN type_documents td ON e.type_document_id = td.id
+            LEFT JOIN (
+                SELECT factura_n,
+                       SUM(line_extension_amount) AS sum_base,
+                       SUM(tax_amount)            AS sum_iva
+                FROM detalle_document_electronic
+                GROUP BY factura_n
+            ) det ON det.factura_n = e.id
             WHERE e.invoice_cufe = ? AND e.type_document_id IN (2, 3)
             ORDER BY e.id DESC
         ");
         $stmt3->execute([$doc['cufe']]);
         $notas = $stmt3->fetchAll();
-        foreach ($notas as &$n) $n['total'] = floatval($n['total']);
+        foreach ($notas as &$n) {
+            $nBase = floatval($n['sum_base'] ?? 0);
+            $nIva  = floatval($n['sum_iva']  ?? 0);
+            $nDesc = floatval($n['descuento'] ?? 0);
+            $n['total'] = ($nBase > 0 || $nIva > 0)
+                ? round($nBase + $nIva - $nDesc, 2)
+                : floatval($n['total']);
+            unset($n['sum_base'], $n['sum_iva']);
+        }
+        unset($n);
     }
 
     // DIAN response

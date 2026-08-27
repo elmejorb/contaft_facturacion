@@ -23,6 +23,7 @@ try {
             $stmt = $db->prepare("
                 SELECT a.Items, a.Codigo, a.Nombres_Articulo, a.Existencia, a.Precio_Costo,
                        a.Precio_Venta, a.Precio_Venta2, a.Precio_Venta3, a.Iva, a.Precio_Minimo,
+                       COALESCE(a.Servicio, 0) AS Servicio,
                        COALESCE(c.Categoria, 'VARIOS') as Categoria
                 FROM tblarticulos a
                 LEFT JOIN tblcategoria c ON a.Id_Categoria = c.Id_Categoria
@@ -53,6 +54,7 @@ try {
         $stmt = $db->prepare("
             SELECT a.Items, a.Codigo, a.Nombres_Articulo, a.Existencia, a.Precio_Costo,
                    a.Precio_Venta, a.Precio_Venta2, a.Precio_Venta3, a.Iva, a.Precio_Minimo,
+                   COALESCE(a.Servicio, 0) AS Servicio,
                    COALESCE(c.Categoria, 'VARIOS') as Categoria
             FROM tblarticulos a
             LEFT JOIN tblcategoria c ON a.Id_Categoria = c.Id_Categoria
@@ -114,16 +116,24 @@ try {
     $valorPagado = floatval($data->valor_pagado ?? 0);
     $abono = floatval($data->abono ?? 0);
 
-    // Si la empresa NO es Responsable de IVA (Régimen Simplificado/Simple),
-    // no genera IVA en sus ventas. El IVA por línea queda en 0 para no
-    // contaminar el Saldo/Total con un valor que el cliente no debe pagar.
-    $stmtEmp = $db->query("SELECT Regimen FROM tbldatosempresa LIMIT 1");
-    $empresaRegimen = strtolower((string)($stmtEmp->fetchColumn() ?: ''));
+    // Régimen + IvaIncluido. Si NO es Responsable de IVA → IVA=0 siempre.
+    // IvaIncluido=1 (default) → el precio del catálogo YA incluye IVA, hay
+    // que extraerlo para no inflar el Total (bug previo: sumaba IVA encima
+    // del bruto, una factura de $887.000 quedaba como $979.530).
+    $stmtEmp = $db->query("SELECT Regimen, IvaIncluido FROM tbldatosempresa LIMIT 1");
+    $empresaCfg = $stmtEmp->fetch();
+    $empresaRegimen = strtolower((string)($empresaCfg['Regimen'] ?? ''));
     $esResponsableIVA = (strpos($empresaRegimen, 'común') !== false)
         || (strpos($empresaRegimen, 'comun') !== false)
         || (strpos($empresaRegimen, 'responsable') !== false);
+    $ivaIncluidoCfg = intval($empresaCfg['IvaIncluido'] ?? 1) === 1;
 
     // Calculate totals
+    // Mantenemos `subtotal` como suma de los brutos por línea (cant×precio-desc),
+    // que es el SUBTOTAL clásico que muestra el sistema y que los informes
+    // existentes asumen. Para el IVA y el TOTAL final sí respetamos
+    // IvaIncluido: cuando el precio ya tiene IVA dentro, $totalIva se calcula
+    // separando ese IVA del bruto (no se suma encima).
     $subtotal = 0;
     $totalIva = 0;
     $totalDescuento = $descuentoGlobal;
@@ -132,15 +142,37 @@ try {
         $cant = floatval($item->cantidad);
         $precio = floatval($item->precio);
         $desc = floatval($item->descuento ?? 0);
-        $iva = floatval($item->iva ?? 0);
-        $lineaSubtotal = ($cant * $precio) - $desc;
-        $lineaIva = $esResponsableIVA ? $lineaSubtotal * ($iva / 100) : 0;
-        $subtotal += $lineaSubtotal;
+        $iva = $esResponsableIVA ? floatval($item->iva ?? 0) : 0;
+        $lineAmount = ($cant * $precio) - $desc;
+        if ($ivaIncluidoCfg && $iva > 0) {
+            // Precio con IVA dentro: el IVA se extrae del bruto, NO se agrega.
+            $lineaIva = round($lineAmount * ($iva / (100 + $iva)), 2);
+        } else {
+            $lineaIva = $iva > 0 ? round($lineAmount * ($iva / 100), 2) : 0;
+        }
+        $subtotal += $lineAmount;
         $totalIva += $lineaIva;
         $totalDescuento += $desc;
     }
 
-    $total = $subtotal + $totalIva;
+    // Total a pagar: cuando IvaIncluido=1 el IVA ya está dentro del subtotal,
+    // así que el total ES el subtotal. Cuando IvaIncluido=0 el IVA se agrega
+    // al subtotal para llegar al total.
+    $total = $ivaIncluidoCfg ? $subtotal : ($subtotal + $totalIva);
+
+    // Guardarraíl: en crédito el abono debe ser ESTRICTAMENTE menor que el total.
+    // Si es igual, la venta es contado (no crédito con abono). Si es mayor, es
+    // error de digitación. Bug reportado: usuaria digitó $24.500.000 en factura
+    // de $116.700 (le sobraron 3 ceros) → pago fantasma de $24.5M en tblpagos.
+    if ($tipo !== 'Contado' && $abono > 0 && $abono >= $total && $total > 0) {
+        http_response_code(400);
+        echo json_encode([
+            'success' => false,
+            'message' => "El abono ($abono) debe ser MENOR que el total ($total). Si va a pagar completo, cambie el término a Contado.",
+        ]);
+        exit;
+    }
+
     $saldo = $tipo === 'Contado' ? 0 : max($total - $abono, 0);
     $pagada = $tipo === 'Contado' ? '1' : ($saldo <= 0 ? '1' : '');
     $pago = $tipo === 'Contado' ? ($efectivo + $valorPagado) : $abono;
@@ -193,10 +225,12 @@ try {
 
     $factN = $db->lastInsertId();
 
-    // Insert detail + update stock + kardex
+    // Insert detail + update stock + kardex.
+    // Para servicios se incluye DescripcionTemp con el concepto editado en
+    // pantalla; para productos normales esa columna queda NULL.
     $stmtDetalle = $db->prepare("
-        INSERT INTO tbldetalle_venta (Factura_N, Items, Cantidad, PrecioC, PrecioV, Impuesto, Subtotal, IVA, Descuento, Entregado)
-        VALUES (:fact, :items, :cant, :pc, :pv, :imp, :sub, :iva, :desc, 'S')
+        INSERT INTO tbldetalle_venta (Factura_N, Items, Cantidad, PrecioC, PrecioV, Impuesto, Subtotal, IVA, Descuento, Entregado, DescripcionTemp)
+        VALUES (:fact, :items, :cant, :pc, :pv, :imp, :sub, :iva, :desc, 'S', :desc_temp)
     ");
 
     $stmtStock = $db->prepare("UPDATE tblarticulos SET Existencia = Existencia - :cant WHERE Items = :items");
@@ -215,17 +249,45 @@ try {
         $precioC = floatval($item->precio_costo);
         $precioV = floatval($item->precio);
         $desc = floatval($item->descuento ?? 0);
-        $iva = floatval($item->iva ?? 0);
+        $iva = $esResponsableIVA ? floatval($item->iva ?? 0) : 0;
+        // Servicio: el item NO descuenta inventario ni mueve kardex. Permite
+        // editar el concepto por venta (DescripcionTemp).
+        //
+        // DEFENSA CRUZADA (v4.3.66): si el frontend manda es_servicio=1 pero
+        // el catálogo dice tblarticulos.Servicio=0, prevalece el catálogo.
+        // Evita que un flujo raro del cliente (versión vieja, cache stale,
+        // pedido móvil malformado) marque un producto como servicio y deje
+        // el stock desincronizado. Caso real: 5 ventas de Ammi (jul-2026)
+        // corregidas manualmente por este mismo síntoma.
+        $esServicio = !empty($item->es_servicio);
+        if ($esServicio) {
+            $stmtSrv = $db->prepare("SELECT COALESCE(Servicio, 0) FROM tblarticulos WHERE Items = ?");
+            $stmtSrv->execute([$itemId]);
+            $servicioCatalogo = intval($stmtSrv->fetchColumn());
+            if ($servicioCatalogo === 0) {
+                $esServicio = false;  // catálogo manda — es producto, descuenta
+            }
+        }
+        $descTemp = $esServicio ? (string)($item->descripcion_temp ?? '') : null;
         $lineaSubtotal = ($cant * $precioV) - $desc;
-        // Mismo gate que el cálculo de totales arriba: si NO es Responsable IVA,
-        // el Impuesto de la línea queda en 0 aunque el producto tenga IVA en catálogo.
-        $lineaIva = $esResponsableIVA ? $lineaSubtotal * ($iva / 100) : 0;
+        // Misma fórmula que arriba: respeta IvaIncluido para que el monto del
+        // IMPUESTO no se infle cuando el precio ya trae IVA dentro.
+        if ($ivaIncluidoCfg && $iva > 0) {
+            $lineaIva = round($lineaSubtotal * ($iva / (100 + $iva)), 2);
+        } else {
+            $lineaIva = $iva > 0 ? round($lineaSubtotal * ($iva / 100), 2) : 0;
+        }
 
         $stmtDetalle->execute([
             ':fact' => $factN, ':items' => $itemId, ':cant' => $cant,
             ':pc' => $precioC, ':pv' => $precioV, ':imp' => $lineaIva,
-            ':sub' => $lineaSubtotal, ':iva' => $iva, ':desc' => $desc
+            ':sub' => $lineaSubtotal, ':iva' => $iva, ':desc' => $desc,
+            ':desc_temp' => $descTemp,
         ]);
+
+        // Servicios: saltar TODO el bloque de stock/kardex/componentes. Solo
+        // se registra el detalle y se pasa al siguiente item.
+        if ($esServicio) continue;
 
         // ¿El producto tiene componentes? Si sí, descontar componentes en vez del padre.
         $stmtComp = $db->prepare("
@@ -257,7 +319,8 @@ try {
                 // Saldo nuevo
                 $stmtExistC = $db->prepare("SELECT Existencia FROM tblarticulos WHERE Items = :id");
                 $stmtExistC->execute([':id' => intval($cmp['Items_Componente'])]);
-                $existC = floatval($stmtExistC->fetch()['Existencia']);
+                $rowC = $stmtExistC->fetch();
+                $existC = $rowC ? floatval($rowC['Existencia']) : 0;
 
                 $stmtKardex->execute([
                     ':mes' => $mesNombre, ':items' => intval($cmp['Items_Componente']),
@@ -272,8 +335,8 @@ try {
             $stmtExistP = $db->prepare("SELECT Existencia, Precio_Costo FROM tblarticulos WHERE Items = :id");
             $stmtExistP->execute([':id' => $itemId]);
             $artP = $stmtExistP->fetch();
-            $costoP = floatval($artP['Precio_Costo']);
-            $existP = floatval($artP['Existencia']);
+            $costoP = $artP ? floatval($artP['Precio_Costo']) : 0;
+            $existP = $artP ? floatval($artP['Existencia']) : 0;
             $stmtKardex->execute([
                 ':mes' => $mesNombre, ':items' => $itemId,
                 ':det' => "Venta Fra. N° $factN (compuesto - desc. componentes)",
@@ -288,16 +351,51 @@ try {
             $stmtExist = $db->prepare("SELECT Existencia, Precio_Costo FROM tblarticulos WHERE Items = :id");
             $stmtExist->execute([':id' => $itemId]);
             $artActual = $stmtExist->fetch();
-            $costoUnit = floatval($artActual['Precio_Costo']);
-
-            $stmtKardex->execute([
-                ':mes' => $mesNombre, ':items' => $itemId,
-                ':det' => "Venta Fra. N° $factN",
-                ':cant' => $cant, ':cost_sal' => $cant * $costoUnit,
-                ':saldo_cant' => floatval($artActual['Existencia']), ':saldo_cost' => floatval($artActual['Existencia']) * $costoUnit,
-                ':cost_unit' => $costoUnit
-            ]);
+            // Si el fetch devuelve false (Items no existe en tblarticulos) NO
+            // rompemos la venta — se ignora el asiento de kardex. Esto pasa con
+            // ítems legacy o registros huérfanos que no deberían estar ahí.
+            if ($artActual) {
+                $costoUnit = floatval($artActual['Precio_Costo']);
+                $existActual = floatval($artActual['Existencia']);
+                $stmtKardex->execute([
+                    ':mes' => $mesNombre, ':items' => $itemId,
+                    ':det' => "Venta Fra. N° $factN",
+                    ':cant' => $cant, ':cost_sal' => $cant * $costoUnit,
+                    ':saldo_cant' => $existActual, ':saldo_cost' => $existActual * $costoUnit,
+                    ':cost_unit' => $costoUnit
+                ]);
+            }
         }
+    }
+
+    // Si es venta a crédito con abono inicial > 0, registrar también en
+    // tblpagos para que el módulo de Cartera/Pagar y la vista de saldos vea
+    // el abono. Antes solo se guardaba en tblventas.Abono y el saldo cacheado,
+    // pero la vista vw_saldos_por_factura calcula sobre tblpagos → mostraba
+    // saldo completo y permitía cobrar el abono de nuevo.
+    if ($tipo !== 'Contado' && $abono > 0) {
+        $stmtRecCaja = $db->query("SELECT COALESCE(MAX(RecCajaN), 0) + 1 AS next_rec FROM tblpagos");
+        $recCajaN = intval($stmtRecCaja->fetch()['next_rec']);
+
+        $stmtAbonoPago = $db->prepare("
+            INSERT INTO tblpagos (RecCajaN, Codigo, Fact_N, ValorPago, Fecha, DetallePago,
+                ValorFact, SaldoAct, Descuento, Retencion, Estado, Afectada, id_mediopago,
+                NFactAnt, Nfact_electronica, FechaMod, id_usuario)
+            VALUES (:rec, :codigo, :fact_n, :valor, NOW(), :detalle,
+                :valor_fact, :saldo_act, 0, 0, 'Valida', '1110', :medio,
+                '', '', NOW(), :id_user)
+        ");
+        $stmtAbonoPago->execute([
+            ':rec'        => $recCajaN,
+            ':codigo'     => $clienteId,
+            ':fact_n'     => $factN,
+            ':valor'      => $abono,
+            ':detalle'    => "Abono inicial al crear factura N° $factN",
+            ':valor_fact' => $total,
+            ':saldo_act'  => max($total - $abono, 0),
+            ':medio'      => $medioPago,
+            ':id_user'    => $vendedor,
+        ]);
     }
 
     // Guardar retenciones aplicadas a esta factura (snapshot)

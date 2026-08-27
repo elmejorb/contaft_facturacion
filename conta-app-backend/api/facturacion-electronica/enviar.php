@@ -112,7 +112,7 @@ function validateInvoiceForDIAN(array $factura, array $items): array {
     return $errores;
 }
 
-function buildInvoiceJSON($db, $factura, $items, $companyId) {
+function buildInvoiceJSON($db, $factura, $items, $companyId, $customerEmailOverride = '') {
     // Get client fiscal data
     $stmt = $db->prepare("
         SELECT c.*,
@@ -139,6 +139,14 @@ function buildInvoiceJSON($db, $factura, $items, $companyId) {
     $nit = $cliente['Nit'] ?? $factura['Identificacion'] ?? '0';
     $dv = calculateDV($nit);
 
+    // Email del comprador — prioridad: (1) override que viene en el body del
+    // POST (comprador ocasional traído de DIAN, no está en tblclientes),
+    // (2) email del cliente en tblclientes, (3) vacío.
+    // El email es info específica de la FE y NO se guarda en tblventas — el
+    // frontend lo pasa cada vez que llama al endpoint (o queda en
+    // electronic_documents.customer_email para reintentos).
+    $customerEmail = trim($customerEmailOverride) ?: ($cliente['Email'] ?? '');
+
     // Build customer
     $customer = [
         'identification_number' => $nit,
@@ -146,7 +154,7 @@ function buildInvoiceJSON($db, $factura, $items, $companyId) {
         'name' => $factura['A_nombre'],
         'phone' => $factura['Telefono'] ?: '0',
         'address' => $cliente['Direccion'] ?? $factura['Direccion'] ?? '-',
-        'email' => $cliente['Email'] ?? '',
+        'email' => $customerEmail,
         'merchant_registration' => '0000000-00',
         'type_document_identification' => [
             'id' => strval($cliente['doc_id'] ?? 2),
@@ -179,10 +187,23 @@ function buildInvoiceJSON($db, $factura, $items, $companyId) {
     $totalBase = 0;
     $totalIva = 0;
 
+    // Régimen de la empresa: si NO es responsable de IVA (Simplificado / No
+    // Responsable), forzamos IVA=0 en todas las líneas sin importar el campo
+    // Iva del catálogo de productos. DIAN rechaza facturas con IVA cobrado
+    // por una empresa no responsable.
+    $empInfo = $db->query("SELECT Regimen FROM tbldatosempresa LIMIT 1")->fetch();
+    $regimenLower = strtolower(trim($empInfo['Regimen'] ?? 'común'));
+    $noResponsableIva = (
+        strpos($regimenLower, 'simpl')        !== false ||
+        strpos($regimenLower, 'no responsab') !== false ||
+        strpos($regimenLower, 'no resp')      !== false ||
+        $regimenLower === 'no'
+    );
+
     foreach ($items as $item) {
         $cant = floatval($item['Cantidad']);
         $precio = floatval($item['PrecioV']);
-        $iva = floatval($item['IVA'] ?? 0);
+        $iva = $noResponsableIva ? 0 : floatval($item['IVA'] ?? 0);
         $desc = floatval($item['Descuento'] ?? 0);
         $lineAmount = ($cant * $precio) - $desc;
 
@@ -203,11 +224,17 @@ function buildInvoiceJSON($db, $factura, $items, $companyId) {
             'allowance_charges' => $desc > 0 ? [['charge_indicator' => false, 'allowance_charge_reason' => 'Descuento', 'amount' => number_format($desc, 2, '.', ''), 'base_amount' => number_format($cant * $precio, 2, '.', '')]] : [],
             'tax_totals' => [[
                 'tax_id' => 1,
-                'tax_amount' => number_format($ivaAmount / max($cant, 1) * $cant, 2, '.', ''),
+                // $ivaAmount ya incluye la cantidad (se calculó sobre lineAmount = cant*precio),
+                // así que es el tax_amount total de la línea. NO multiplicar por $cant otra vez.
+                // El bug anterior dividía el IVA por 2 cuando cant<1 (max($cant,1)/$cant).
+                'tax_amount' => number_format($ivaAmount, 2, '.', ''),
                 'taxable_amount' => number_format($baseAmount, 2, '.', ''),
                 'percent' => number_format($iva, 2, '.', '')
             ]],
-            'description' => $item['Nombres_Articulo'] ?? $item['DescripcionTemp'] ?? 'Producto',
+            // Priorizar DescripcionTemp (concepto editado en venta para servicios)
+            // sobre Nombres_Articulo (nombre fijo del catálogo).
+            'description' => (!empty($item['DescripcionTemp']) ? $item['DescripcionTemp']
+                              : ($item['Nombres_Articulo'] ?? 'Producto')),
             'code' => $item['Codigo'] ?? strval($item['Items']),
             'type_item_identification_id' => 3,
             'price_amount' => number_format($precio, 2, '.', ''),
@@ -220,10 +247,19 @@ function buildInvoiceJSON($db, $factura, $items, $companyId) {
 
     // Payment form: 1=Contado, 2=Crédito
     $paymentFormId = $factura['Tipo'] === 'Contado' ? 1 : 2;
-    $paymentMethodId = 10; // Efectivo por defecto
-    $medioPago = intval($factura['id_mediopago'] ?? 0);
-    if ($medioPago === 1) $paymentMethodId = 14; // Tarjeta
-    elseif ($medioPago >= 2) $paymentMethodId = 30; // Transferencia
+
+    // payment_method_id: override explícito desde el modal de confirmación FE.
+    // Si viene, se usa tal cual (catálogo DIAN 10/20/30/31/41/42/47/48/49...).
+    // Si no, mapeo automático desde id_mediopago interno.
+    $override = intval($factura['payment_method_id_override'] ?? 0);
+    if ($override > 0) {
+        $paymentMethodId = $override;
+    } else {
+        $paymentMethodId = 10; // Efectivo por defecto
+        $medioPago = intval($factura['id_mediopago'] ?? 0);
+        if ($medioPago === 1) $paymentMethodId = 49; // Tarjeta débito
+        elseif ($medioPago >= 2) $paymentMethodId = 30; // Transferencia crédito
+    }
 
     // Para ventas a CRÉDITO, DIAN exige payment_due_date (regla FAN04) y
     // duration_measure. Sin estos el envío se rechaza con
@@ -237,15 +273,10 @@ function buildInvoiceJSON($db, $factura, $items, $companyId) {
         $paymentDueDate = date('Y-m-d', strtotime($factura['Fecha'] . " +{$diasFact} days"));
     }
 
-    // Abono inicial al momento de emitir la factura — va en pre_paid_amount.
-    // Sólo aplica a Crédito con abono > 0 (en Contado el pago está implícito).
-    // Suma Abono + lo recibido en efectivo/transferencia al emitir.
+    // Anticipos DIAN: NO se envían. Los abonos al momento de emitir son movimientos
+    // internos de cartera/caja, no anticipos previos a la factura. Enviarlos rompe
+    // la regla FAU12 (exige detalle de anticipos individuales que sumen el total).
     $prePaidAmount = 0.0;
-    if ($paymentFormId === 2) {
-        $prePaidAmount = floatval($factura['Abono'] ?? 0)
-                       + floatval($factura['efectivo'] ?? 0)
-                       + floatval($factura['valorpagado1'] ?? 0);
-    }
 
     // === Retenciones aplicadas a esta factura (DIAN WithholdingTaxTotal) ===
     $withholdingTaxes = [];
@@ -305,6 +336,39 @@ function buildInvoiceJSON($db, $factura, $items, $companyId) {
     }
 
     return $result;
+}
+
+// Total correcto a partir de las líneas, respetando el régimen y descuento
+// global. Se usa para guardar `electronic_documents.total` en lugar de leer
+// `tblventas.Total` directamente: en versiones <4.3.61 ese campo quedaba
+// inflado cuando IvaIncluido=1 (se sumaba IVA encima del precio que ya lo
+// tenía dentro) y eso hacía que el PDF mostrara, p.ej., $979.530 cuando el
+// total real DIAN era $887.000.
+function calcularTotalDocFE($db, $factura, $items) {
+    $empInfo = $db->query("SELECT Regimen FROM tbldatosempresa LIMIT 1")->fetch();
+    $regimenLower = strtolower(trim($empInfo['Regimen'] ?? 'común'));
+    $noResponsableIva = (
+        strpos($regimenLower, 'simpl')        !== false ||
+        strpos($regimenLower, 'no responsab') !== false ||
+        strpos($regimenLower, 'no resp')      !== false ||
+        $regimenLower === 'no'
+    );
+
+    $totalBase = 0;
+    $totalIva = 0;
+    foreach ($items as $item) {
+        $cant = floatval($item['Cantidad']);
+        $precio = floatval($item['PrecioV']);
+        $iva = $noResponsableIva ? 0 : floatval($item['IVA'] ?? 0);
+        $desc = floatval($item['Descuento'] ?? 0);
+        $lineAmount = ($cant * $precio) - $desc;
+        $ivaAmount = $iva > 0 ? round($lineAmount * ($iva / (100 + $iva)), 2) : 0;
+        $baseAmount = $lineAmount - $ivaAmount;
+        $totalBase += $baseAmount;
+        $totalIva += $ivaAmount;
+    }
+    $descGlobal = floatval($factura['Descuento'] ?? 0);
+    return round($totalBase + $totalIva - $descGlobal, 2);
 }
 
 // Calculate DV (dígito de verificación)
@@ -421,7 +485,7 @@ try {
         if (!$factura) { echo json_encode(['success' => false, 'message' => 'Factura no encontrada']); exit; }
 
         $stmt = $db->prepare("
-            SELECT d.*, a.Codigo, a.Nombres_Articulo, a.unit_measure_id
+            SELECT d.*, a.Codigo, a.Nombres_Articulo, a.unit_measure_id, d.DescripcionTemp
             FROM tbldetalle_venta d
             LEFT JOIN tblarticulos a ON d.Items = a.Items
             WHERE d.Factura_N = ?
@@ -521,17 +585,45 @@ try {
                 exit;
             }
 
-            // Build JSON
-            $invoiceJSON = buildInvoiceJSON($db, $factura, $items, $companyId);
+            // Email del comprador — 3 fuentes en orden de prioridad:
+            //   1) Body del POST (comprador ocasional recién traído de DIAN)
+            //   2) electronic_documents.customer_email de un intento anterior
+            //      (útil al reintentar desde módulo FE — el email quedó en el
+            //      primer intento y no se debe perder aunque el frontend no lo
+            //      mande otra vez)
+            //   3) tblclientes.Email (cliente recurrente registrado)
+            $customerEmailOverride = trim((string)($data['customer_email'] ?? ''));
+            if ($customerEmailOverride === '') {
+                $stmtPrev = $db->prepare("
+                    SELECT customer_email FROM electronic_documents
+                    WHERE customer_identification = ? AND customer_email IS NOT NULL AND customer_email <> ''
+                    ORDER BY id DESC LIMIT 1
+                ");
+                $stmtPrev->execute([$factura['Identificacion']]);
+                $customerEmailOverride = trim((string)($stmtPrev->fetchColumn() ?: ''));
+            }
+
+            // payment_method_id explícito desde el modal de confirmación FE.
+            // Se inyecta en $factura para que buildInvoiceJSON lo use tal cual.
+            $pmOverride = intval($data['payment_method_id'] ?? 0);
+            if ($pmOverride > 0) {
+                $factura['payment_method_id_override'] = $pmOverride;
+            }
+
+            // Build JSON (recibe el email override para inyectarlo en el customer)
+            $invoiceJSON = buildInvoiceJSON($db, $factura, $items, $companyId, $customerEmailOverride);
 
             // Add email sending if requested
             $sendEmail = $data['send_email'] ?? false;
             if ($sendEmail) {
-                // Get customer email
-                $stmtEmail = $db->prepare("SELECT Email FROM tblclientes WHERE CodigoClien = ?");
-                $stmtEmail->execute([$factura['CodigoCli']]);
-                $clienteData = $stmtEmail->fetch();
-                $customerEmail = $clienteData['Email'] ?? '';
+                // Prioridad: override del body (comprador ocasional), luego tblclientes
+                $customerEmail = $customerEmailOverride;
+                if (!$customerEmail) {
+                    $stmtEmail = $db->prepare("SELECT Email FROM tblclientes WHERE CodigoClien = ?");
+                    $stmtEmail->execute([$factura['CodigoCli']]);
+                    $clienteData = $stmtEmail->fetch();
+                    $customerEmail = $clienteData['Email'] ?? '';
+                }
                 // Sanitizar: quitar espacios/tabs/nbsp y quedarse con el primer email si hay varios separados
                 $customerEmail = preg_replace('/[\s\x{00A0}]+/u', '', $customerEmail);
                 $partesEmail = preg_split('/[;,]/', $customerEmail);
@@ -546,29 +638,55 @@ try {
 
             // PASO 1: Guardar en local con status "pendiente" ANTES de enviar a DIAN.
             // OJO: la tabla tiene UNIQUE (prefix, number) — uq_prefix_number. Si un
-            // envío anterior falló, su fila quedó en (FCON, 0, 'rechazado'); para que
-            // siga visible en el listado FE (y el usuario pueda reintentarla o
-            // editarla) la movemos a un number alto fuera del rango de consecutivos
-            // DIAN (9000000000 + id local). NO la borramos: el usuario quiere ver
-            // sus intentos fallidos en el módulo de FE y poder accionar sobre ellos.
-            // 9_000_000_000 es seguro: DIAN no asigna consecutivos cerca de ese rango.
+            // envío anterior falló, su fila quedó en (FCON, 0, 'rechazado' o
+            // 'pendiente'); si el usuario dejó un borrador guardado también estará
+            // en (FCON, 0, 'borrador'). Para que sigan visibles en el listado FE (y
+            // el usuario pueda reintentar/editar/enviar cada uno) las movemos a un
+            // number alto fuera del rango de consecutivos DIAN (9000000000 + id
+            // local). NO las borramos. 9_000_000_000 es seguro: DIAN no asigna
+            // consecutivos cerca de ese rango.
+            // Bug histórico (fix 4.3.76): el filtro no incluía 'borrador' → un
+            // borrador guardado bloqueaba con UNIQUE VIOLATION cualquier intento
+            // posterior de enviar otra factura a DIAN.
             $db->prepare("
                 UPDATE electronic_documents
                 SET number = 9000000000 + id
-                WHERE prefix = 'FCON' AND number = 0 AND status IN ('pendiente', 'rechazado')
+                WHERE prefix = 'FCON' AND number = 0 AND status IN ('pendiente', 'rechazado', 'borrador')
             ")->execute();
 
             $notaFactura = $factura['Comentario'] ?? '-';
+            // Recalculamos el total desde las líneas (respeta IvaIncluido y
+            // régimen) en lugar de leer tblventas.Total, que puede venir
+            // inflado en BDs migradas desde versiones <4.3.61.
+            $totalDocFE = calcularTotalDocFE($db, $factura, $items);
+            // Metadata de pago que persiste en electronic_documents.
+            // Bug histórico: estos 3 campos quedaban NULL, lo que impedía
+            // saber si una factura era Contado/Crédito, con qué medio de
+            // pago, ni cuántos días de plazo. Sin esto, no funciona la
+            // consulta de eventos DIAN ni el listado tiene sentido.
+            $paymentFormLocal   = ($factura['Tipo'] === 'Contado') ? 1 : 2;
+            $paymentDueDaysLocal = ($paymentFormLocal === 2) ? intval($factura['Dias'] ?? 0) : 0;
+            // payment_method_id mapea id_mediopago local → catálogo DIAN:
+            // 0=Efectivo(10), 1=Tarjeta(14), 2+=Transferencia(30). Misma
+            // regla que usa buildInvoiceJSON al armar el JSON para DIAN.
+            $medioPagoLocal = intval($factura['id_mediopago'] ?? 0);
+            $paymentMethodLocal = ($medioPagoLocal === 1) ? 14
+                                  : (($medioPagoLocal >= 2) ? 30 : 10);
             $stmtDoc = $db->prepare("
                 INSERT INTO electronic_documents
-                (fecha, cod_cliente, customer_identification, type_document_id, prefix, number, status, total, cufe, dian_response, id_usuario, id_mediopago, efectivo, valorpagado1, pagada, EstadoFact, email_sent, nota)
-                VALUES (?, ?, ?, 1, 'FCON', 0, 'pendiente', ?, '', '{}', ?, ?, ?, ?, ?, 1, 0, ?)
+                (fecha, cod_cliente, customer_identification, customer_name, customer_email, type_document_id, prefix, number, status, total, cufe, dian_response, id_usuario, id_mediopago, efectivo, valorpagado1, pagada, EstadoFact, email_sent, nota, payment_form_id, payment_method_id, payment_due_days)
+                VALUES (?, ?, ?, ?, ?, 1, 'FCON', 0, 'pendiente', ?, '', '{}', ?, ?, ?, ?, ?, 1, 0, ?, ?, ?, ?)
             ");
             $stmtDoc->execute([
                 $factura['Fecha'], $factura['CodigoCli'], $factura['Identificacion'],
-                $factura['Total'], $factura['Id_Usuario'],
+                // customer_name/email — guardan los datos del comprador AUNQUE sea
+                // ocasional (CodigoCli=130500). Así la FE tiene registro completo
+                // sin depender de tblclientes.
+                $factura['A_nombre'], $customerEmailOverride ?: null,
+                $totalDocFE, $factura['Id_Usuario'],
                 $factura['id_mediopago'], $factura['efectivo'], $factura['valorpagado1'],
-                $factura['pagada'] ?: 'N', $notaFactura
+                $factura['pagada'] ?: 'N', $notaFactura,
+                $paymentFormLocal, $paymentMethodLocal, $paymentDueDaysLocal
             ]);
             $docElecId = $db->lastInsertId();
 
@@ -591,10 +709,19 @@ try {
                 $stmtCost->execute($itemIds);
                 foreach ($stmtCost->fetchAll() as $r) $costos[$r['Items']] = floatval($r['Precio_Costo']);
             }
+            // Guardar también respetando régimen (idéntico criterio que buildInvoiceJSON)
+            $empInfoDet = $db->query("SELECT Regimen FROM tbldatosempresa LIMIT 1")->fetch();
+            $regimenLowDet = strtolower(trim($empInfoDet['Regimen'] ?? 'común'));
+            $noRespIvaDet = (
+                strpos($regimenLowDet, 'simpl')        !== false ||
+                strpos($regimenLowDet, 'no responsab') !== false ||
+                strpos($regimenLowDet, 'no resp')      !== false ||
+                $regimenLowDet === 'no'
+            );
             foreach ($items as $item) {
                 $cant = floatval($item['Cantidad']);
                 $precioV = floatval($item['PrecioV']);
-                $iva = floatval($item['IVA'] ?? 0);
+                $iva = $noRespIvaDet ? 0 : floatval($item['IVA'] ?? 0);
                 $desc = floatval($item['Descuento'] ?? 0);
                 $lineAmount = ($cant * $precioV) - $desc;
                 $ivaAmount = $iva > 0 ? round($lineAmount * ($iva / (100 + $iva)), 2) : 0;
@@ -609,7 +736,11 @@ try {
                 $stmtDet->execute([
                     $docElecId, $item['Items'], $unitMeasure,
                     number_format($cant, 2, '.', ''), number_format($baseAmount, 2, '.', ''),
-                    $item['Nombres_Articulo'] ?? 'Producto',
+                    // DescripcionTemp tiene prioridad: si el item fue facturado
+                    // como servicio con concepto editado, se persiste ese texto
+                    // en el detalle local de FE.
+                    (!empty($item['DescripcionTemp']) ? $item['DescripcionTemp']
+                        : ($item['Nombres_Articulo'] ?? 'Producto')),
                     number_format($precioV, 2, '.', ''),
                     number_format($precioCosto, 4, '.', ''),
                     number_format($desc, 2, '.', ''),
@@ -669,8 +800,17 @@ try {
 
                 $emailSent = ($emailResult && isset($emailResult['success']) && $emailResult['success']) ? 1 : 0;
 
-                $db->prepare("UPDATE electronic_documents SET status = 'autorizado', number = ?, cufe = ?, dian_response = ?, email_sent = ?, email_sent_at = ? WHERE id = ?")
-                   ->execute([$consecutive, $cufe, json_encode($result), $emailSent, $emailSent ? date('Y-m-d H:i:s') : null, $docElecId]);
+                // Prefix asignado por DIAN (de la resolución registrada en la API).
+                // Antes quedaba siempre 'FCON' (hardcoded en el INSERT inicial) y eso
+                // hacía que el PDF mostrara "FCON1" aunque DIAN haya emitido "IE1".
+                $prefixDian = $result['prefix'] ?? $result['respuesta_dian']['prefix'] ?? null;
+                if ($prefixDian) {
+                    $db->prepare("UPDATE electronic_documents SET status = 'autorizado', prefix = ?, number = ?, cufe = ?, dian_response = ?, email_sent = ?, email_sent_at = ? WHERE id = ?")
+                       ->execute([$prefixDian, $consecutive, $cufe, json_encode($result), $emailSent, $emailSent ? date('Y-m-d H:i:s') : null, $docElecId]);
+                } else {
+                    $db->prepare("UPDATE electronic_documents SET status = 'autorizado', number = ?, cufe = ?, dian_response = ?, email_sent = ?, email_sent_at = ? WHERE id = ?")
+                       ->execute([$consecutive, $cufe, json_encode($result), $emailSent, $emailSent ? date('Y-m-d H:i:s') : null, $docElecId]);
+                }
             } else {
                 // Falló: actualizar status a rechazado con el mensaje de error
                 $db->prepare("UPDATE electronic_documents SET status = 'rechazado', dian_response = ? WHERE id = ?")
@@ -948,8 +1088,9 @@ try {
             }
 
             // Crear/buscar registro en electronic_documents (si ya existe uno pendiente para esta factura, reusarlo)
+            $totalDocFE = calcularTotalDocFE($db, $factura, $items);
             $stmt = $db->prepare("SELECT id FROM electronic_documents WHERE number = 0 AND total = ? AND customer_identification = ? AND status IN ('pendiente','rechazado') ORDER BY id DESC LIMIT 1");
-            $stmt->execute([$factura['Total'], $factura['Identificacion']]);
+            $stmt->execute([$totalDocFE, $factura['Identificacion']]);
             $existing = $stmt->fetch();
             if ($existing) {
                 $docElecId = $existing['id'];
@@ -960,19 +1101,38 @@ try {
                 $db->prepare("
                     UPDATE electronic_documents
                     SET number = 9000000000 + id
-                    WHERE prefix = 'FCON' AND number = 0 AND status IN ('pendiente', 'rechazado')
+                    WHERE prefix = 'FCON' AND number = 0 AND status IN ('pendiente', 'rechazado', 'borrador')
                 ")->execute();
 
                 $notaFactura = $factura['Comentario'] ?? '-';
+                // Mismos 3 campos de pago que el flujo normal — sin esto el
+                // listado no puede distinguir Contado/Crédito de facturas
+                // reenviadas desde contingencia.
+                $paymentFormLocalC   = ($factura['Tipo'] === 'Contado') ? 1 : 2;
+                $paymentDueDaysLocalC = ($paymentFormLocalC === 2) ? intval($factura['Dias'] ?? 0) : 0;
+                $medioPagoLocalC = intval($factura['id_mediopago'] ?? 0);
+                $paymentMethodLocalC = ($medioPagoLocalC === 1) ? 14
+                                       : (($medioPagoLocalC >= 2) ? 30 : 10);
+                // customer_name/email desde $factura['A_nombre'] + email
+                // detectado (body/fallback tblclientes). Solo aplica cuando no
+                // se reusa un registro existente (raro pero posible).
+                $emailReenv = trim((string)($data['customer_email'] ?? ''));
+                if ($emailReenv === '') {
+                    $stmtCli = $db->prepare("SELECT Email FROM tblclientes WHERE CodigoClien = ?");
+                    $stmtCli->execute([$factura['CodigoCli']]);
+                    $emailReenv = trim((string)($stmtCli->fetchColumn() ?: ''));
+                }
                 $db->prepare("
                     INSERT INTO electronic_documents
-                    (fecha, cod_cliente, customer_identification, type_document_id, prefix, number, status, total, cufe, dian_response, id_usuario, id_mediopago, efectivo, valorpagado1, pagada, EstadoFact, email_sent, nota)
-                    VALUES (?, ?, ?, 1, 'FCON', 0, 'pendiente', ?, '', '{}', ?, ?, ?, ?, ?, 1, 0, ?)
+                    (fecha, cod_cliente, customer_identification, customer_name, customer_email, type_document_id, prefix, number, status, total, cufe, dian_response, id_usuario, id_mediopago, efectivo, valorpagado1, pagada, EstadoFact, email_sent, nota, payment_form_id, payment_method_id, payment_due_days)
+                    VALUES (?, ?, ?, ?, ?, 1, 'FCON', 0, 'pendiente', ?, '', '{}', ?, ?, ?, ?, ?, 1, 0, ?, ?, ?, ?)
                 ")->execute([
                     $factura['Fecha'], $factura['CodigoCli'], $factura['Identificacion'],
-                    $factura['Total'], $factura['Id_Usuario'],
+                    $factura['A_nombre'], $emailReenv ?: null,
+                    $totalDocFE, $factura['Id_Usuario'],
                     $factura['id_mediopago'], $factura['efectivo'], $factura['valorpagado1'],
-                    $factura['pagada'] ?: 'N', $notaFactura
+                    $factura['pagada'] ?: 'N', $notaFactura,
+                    $paymentFormLocalC, $paymentMethodLocalC, $paymentDueDaysLocalC
                 ]);
                 $docElecId = $db->lastInsertId();
             }
@@ -1008,6 +1168,283 @@ try {
                 'doc_local_id' => $docElecId,
                 'respuesta_dian' => $result,
             ], JSON_UNESCAPED_UNICODE);
+            break;
+
+        // Guarda un borrador de FE — solo en electronic_documents +
+        // detalle_document_electronic. NO toca tblventas ni descuenta stock:
+        // el borrador es un draft editable, no una venta oficial.
+        // El envío a DIAN ocurre después con `action=enviar_borrador`.
+        //
+        // Body: { cliente:{id, nombre, nit, tel, dir, email}, items:[{items,cantidad,precio,iva,descuento,es_servicio,descripcion_temp}], medio_pago, dias, tipo, total, comentario, id_usuario }
+        case 'guardar_borrador':
+            $cli      = $data['cliente'] ?? [];
+            $items    = $data['items'] ?? [];
+            $tipoV    = $data['tipo'] ?? 'Contado';
+            $dias     = intval($data['dias'] ?? 0);
+            $medio    = intval($data['medio_pago'] ?? 0);
+            $total    = floatval($data['total'] ?? 0);
+            $descto   = floatval($data['descuento_global'] ?? 0);
+            $abono    = floatval($data['abono'] ?? 0);
+            $efectivo = floatval($data['efectivo'] ?? 0);
+            $valorpg  = floatval($data['valor_pagado'] ?? 0);
+            $comentario = $data['comentario'] ?? '-';
+            $idUsuario  = intval($data['id_usuario'] ?? 0);
+            $customerEmail = trim((string)($data['customer_email'] ?? ''));
+            $codigoCli  = intval($cli['id'] ?? 130500);
+            $nombreCli  = trim((string)($cli['nombre'] ?? ''));
+            $identCli   = trim((string)($cli['nit'] ?? '0'));
+
+            if (empty($items)) { echo json_encode(['success' => false, 'message' => 'Sin líneas']); exit; }
+            if ($identCli === '' || $identCli === '0') {
+                echo json_encode(['success' => false, 'message' => 'Identificación del comprador requerida para FE']); exit;
+            }
+            if ($nombreCli === '') {
+                echo json_encode(['success' => false, 'message' => 'Nombre del comprador requerido']); exit;
+            }
+
+            $db->beginTransaction();
+            // Mover FCON huérfanos igual que el flujo normal, por si acaso
+            $db->prepare("
+                UPDATE electronic_documents
+                SET number = 9000000000 + id
+                WHERE prefix = 'FCON' AND number = 0 AND status IN ('pendiente','rechazado','borrador')
+            ")->execute();
+
+            $paymentFormLocal   = ($tipoV === 'Contado') ? 1 : 2;
+            $paymentDueDaysLocal = ($paymentFormLocal === 2) ? $dias : 0;
+            $paymentMethodLocal = ($medio === 1) ? 14 : (($medio >= 2) ? 30 : 10);
+
+            $db->prepare("
+                INSERT INTO electronic_documents
+                (fecha, cod_cliente, customer_identification, customer_name, customer_email,
+                 type_document_id, prefix, number, status, total, cufe, dian_response,
+                 id_usuario, id_mediopago, efectivo, valorpagado1, pagada, EstadoFact,
+                 email_sent, nota, payment_form_id, payment_method_id, payment_due_days,
+                 abono, descuento)
+                VALUES (?, ?, ?, ?, ?, 1, 'FCON', 0, 'borrador', ?, '', '{}',
+                        ?, ?, ?, ?, 'N', 1, 0, ?, ?, ?, ?, ?, ?)
+            ")->execute([
+                date('Y-m-d'), $codigoCli, $identCli, $nombreCli, $customerEmail ?: null,
+                $total, $idUsuario, $medio, $efectivo, $valorpg,
+                $comentario, $paymentFormLocal, $paymentMethodLocal, $paymentDueDaysLocal,
+                $abono, $descto,
+            ]);
+            $docId = intval($db->lastInsertId());
+
+            // Guardar líneas del borrador para poder editarlas o reutilizarlas
+            $stmtDet = $db->prepare("
+                INSERT INTO detalle_document_electronic
+                (factura_n, items, unit_measure_id, invoiced_quantity, line_extension_amount,
+                 free_of_charge_indicator, description, type_item_identification_id,
+                 price_amount, PrecioCosto, discount_amount, base_quantity,
+                 tax_id, tax_amount, taxable_amount, tax_percent)
+                VALUES (?, ?, ?, ?, ?, 0, ?, 3, ?, ?, ?, ?, 1, ?, ?, ?)
+            ");
+            foreach ($items as $it) {
+                $itemId   = intval($it['items'] ?? 0);
+                $cant     = floatval($it['cantidad'] ?? 0);
+                $precio   = floatval($it['precio'] ?? 0);
+                $ivaPct   = floatval($it['iva'] ?? 0);
+                $desc     = floatval($it['descuento'] ?? 0);
+                $costo    = floatval($it['precio_costo'] ?? 0);
+                $descTemp = trim((string)($it['descripcion_temp'] ?? ''));
+                // Nombre — si es servicio con descripción temporal, usarla; sino leer el catálogo
+                $nombre = $descTemp;
+                if ($nombre === '') {
+                    $stmtN = $db->prepare("SELECT Nombres_Articulo FROM tblarticulos WHERE Items = ?");
+                    $stmtN->execute([$itemId]);
+                    $nombre = (string)$stmtN->fetchColumn();
+                }
+                $subtotal = ($cant * $precio) - $desc;
+                $ivaMonto = $ivaPct > 0 ? round($subtotal * $ivaPct / 100, 2) : 0;
+                $stmtDet->execute([
+                    $docId, $itemId, 70, $cant, $subtotal, $nombre,
+                    $precio, $costo, $desc, $cant, $ivaMonto, $subtotal, $ivaPct
+                ]);
+            }
+
+            $db->commit();
+            echo json_encode([
+                'success' => true,
+                'id' => $docId,
+                'status' => 'borrador',
+                'message' => 'Borrador guardado (' . count($items) . ' líneas)',
+            ], JSON_UNESCAPED_UNICODE);
+            break;
+
+        // Cargar borrador — devuelve cabecera + items + datos del cliente
+        // para pre-llenar Nueva Venta y permitir edición.
+        // GET/POST { id }
+        case 'cargar_borrador':
+            $id = intval($data['id'] ?? 0);
+            if (!$id) { echo json_encode(['success' => false, 'message' => 'ID requerido']); exit; }
+
+            $stmt = $db->prepare("SELECT * FROM electronic_documents WHERE id = ? AND status = 'borrador'");
+            $stmt->execute([$id]);
+            $doc = $stmt->fetch();
+            if (!$doc) { echo json_encode(['success' => false, 'message' => 'Borrador no encontrado o ya enviado']); exit; }
+
+            // Items del borrador — se leen de detalle_document_electronic
+            $stmt = $db->prepare("
+                SELECT d.*, a.Codigo, a.Nombres_Articulo, a.Existencia, a.Servicio, a.Iva as ArtIva, a.Precio_Costo as ArtCosto
+                FROM detalle_document_electronic d
+                LEFT JOIN tblarticulos a ON a.Items = d.items
+                WHERE d.factura_n = ?
+            ");
+            $stmt->execute([$id]);
+            $items = $stmt->fetchAll();
+
+            // Datos del cliente — si es genérico, usar customer_name/email del propio doc
+            $stmt = $db->prepare("SELECT * FROM tblclientes WHERE CodigoClien = ?");
+            $stmt->execute([$doc['cod_cliente']]);
+            $cliente = $stmt->fetch();
+
+            echo json_encode([
+                'success' => true,
+                'borrador' => [
+                    'id' => intval($doc['id']),
+                    'fecha' => $doc['fecha'],
+                    'cod_cliente' => intval($doc['cod_cliente']),
+                    'customer_identification' => $doc['customer_identification'],
+                    'customer_name' => $doc['customer_name'] ?: ($cliente['Razon_Social'] ?? ''),
+                    'customer_email' => $doc['customer_email'] ?: ($cliente['Email'] ?? ''),
+                    'cliente_telefono' => $cliente['Telefonos'] ?? '0',
+                    'cliente_direccion' => $cliente['Direccion'] ?? '-',
+                    'total' => floatval($doc['total']),
+                    'descuento' => floatval($doc['descuento']),
+                    'abono' => floatval($doc['abono']),
+                    'efectivo' => floatval($doc['efectivo']),
+                    'valorpagado1' => floatval($doc['valorpagado1']),
+                    'id_mediopago' => intval($doc['id_mediopago']),
+                    'payment_form_id' => intval($doc['payment_form_id']),
+                    'payment_due_days' => intval($doc['payment_due_days']),
+                    'nota' => $doc['nota'],
+                    'tipo' => intval($doc['payment_form_id']) === 2 ? 'Credito' : 'Contado',
+                ],
+                'items' => array_map(function($it) {
+                    return [
+                        'Items' => intval($it['items']),
+                        'Codigo' => $it['Codigo'] ?? '',
+                        'Nombres_Articulo' => $it['description'] ?: ($it['Nombres_Articulo'] ?? ''),
+                        'DescripcionTemp' => $it['description'],
+                        'Existencia' => floatval($it['Existencia'] ?? 0),
+                        'Servicio' => intval($it['Servicio'] ?? 0),
+                        'Cantidad' => floatval($it['invoiced_quantity']),
+                        'PrecioVenta' => floatval($it['price_amount']),
+                        'PrecioCosto' => floatval($it['PrecioCosto']),
+                        'Iva' => floatval($it['tax_percent']),
+                        'Descuento' => floatval($it['discount_amount']),
+                    ];
+                }, $items),
+            ], JSON_UNESCAPED_UNICODE);
+            break;
+
+        // Actualizar borrador — reemplaza los items y actualiza la cabecera.
+        // Solo funciona si el registro aún está en status='borrador'.
+        case 'actualizar_borrador':
+            $id = intval($data['id'] ?? 0);
+            if (!$id) { echo json_encode(['success' => false, 'message' => 'ID requerido']); exit; }
+
+            $stmt = $db->prepare("SELECT status FROM electronic_documents WHERE id = ?");
+            $stmt->execute([$id]);
+            $st = $stmt->fetchColumn();
+            if (!$st) { echo json_encode(['success' => false, 'message' => 'Borrador no encontrado']); exit; }
+            if ($st !== 'borrador') {
+                echo json_encode(['success' => false, 'message' => 'Solo se pueden editar borradores. Este documento está en estado: ' . $st]); exit;
+            }
+
+            $cli      = $data['cliente'] ?? [];
+            $itemsUp  = $data['items'] ?? [];
+            $tipoV    = $data['tipo'] ?? 'Contado';
+            $dias     = intval($data['dias'] ?? 0);
+            $medio    = intval($data['medio_pago'] ?? 0);
+            $total    = floatval($data['total'] ?? 0);
+            $descto   = floatval($data['descuento_global'] ?? 0);
+            $abono    = floatval($data['abono'] ?? 0);
+            $efectivo = floatval($data['efectivo'] ?? 0);
+            $valorpg  = floatval($data['valor_pagado'] ?? 0);
+            $comentario = $data['comentario'] ?? '-';
+            $customerEmail = trim((string)($data['customer_email'] ?? ''));
+            $codigoCli  = intval($cli['id'] ?? 130500);
+            $nombreCli  = trim((string)($cli['nombre'] ?? ''));
+            $identCli   = trim((string)($cli['nit'] ?? '0'));
+
+            if (empty($itemsUp)) { echo json_encode(['success' => false, 'message' => 'Sin líneas']); exit; }
+
+            $db->beginTransaction();
+            $paymentFormLocal   = ($tipoV === 'Contado') ? 1 : 2;
+            $paymentDueDaysLocal = ($paymentFormLocal === 2) ? $dias : 0;
+            $paymentMethodLocal = ($medio === 1) ? 14 : (($medio >= 2) ? 30 : 10);
+
+            $db->prepare("
+                UPDATE electronic_documents SET
+                    cod_cliente=?, customer_identification=?, customer_name=?, customer_email=?,
+                    total=?, id_mediopago=?, efectivo=?, valorpagado1=?,
+                    nota=?, payment_form_id=?, payment_method_id=?, payment_due_days=?,
+                    abono=?, descuento=?, updated_at=NOW()
+                WHERE id=?
+            ")->execute([
+                $codigoCli, $identCli, $nombreCli, $customerEmail ?: null,
+                $total, $medio, $efectivo, $valorpg,
+                $comentario, $paymentFormLocal, $paymentMethodLocal, $paymentDueDaysLocal,
+                $abono, $descto,
+                $id,
+            ]);
+
+            // Reemplazar items — borrar viejos y volver a insertar
+            $db->prepare("DELETE FROM detalle_document_electronic WHERE factura_n = ?")->execute([$id]);
+            $stmtDet = $db->prepare("
+                INSERT INTO detalle_document_electronic
+                (factura_n, items, unit_measure_id, invoiced_quantity, line_extension_amount,
+                 free_of_charge_indicator, description, type_item_identification_id,
+                 price_amount, PrecioCosto, discount_amount, base_quantity,
+                 tax_id, tax_amount, taxable_amount, tax_percent)
+                VALUES (?, ?, ?, ?, ?, 0, ?, 3, ?, ?, ?, ?, 1, ?, ?, ?)
+            ");
+            foreach ($itemsUp as $it) {
+                $itemId   = intval($it['items'] ?? 0);
+                $cant     = floatval($it['cantidad'] ?? 0);
+                $precio   = floatval($it['precio'] ?? 0);
+                $ivaPct   = floatval($it['iva'] ?? 0);
+                $desc     = floatval($it['descuento'] ?? 0);
+                $costo    = floatval($it['precio_costo'] ?? 0);
+                $descTemp = trim((string)($it['descripcion_temp'] ?? ''));
+                $nombre = $descTemp;
+                if ($nombre === '') {
+                    $stmtN = $db->prepare("SELECT Nombres_Articulo FROM tblarticulos WHERE Items = ?");
+                    $stmtN->execute([$itemId]);
+                    $nombre = (string)$stmtN->fetchColumn();
+                }
+                $subtotal = ($cant * $precio) - $desc;
+                $ivaMonto = $ivaPct > 0 ? round($subtotal * $ivaPct / 100, 2) : 0;
+                $stmtDet->execute([
+                    $id, $itemId, 70, $cant, $subtotal, $nombre,
+                    $precio, $costo, $desc, $cant, $ivaMonto, $subtotal, $ivaPct
+                ]);
+            }
+
+            $db->commit();
+            echo json_encode(['success' => true, 'id' => $id, 'message' => 'Borrador actualizado']);
+            break;
+
+        // Eliminar borrador — solo si aún no se envió a DIAN.
+        case 'eliminar_borrador':
+            $id = intval($data['id'] ?? 0);
+            if (!$id) { echo json_encode(['success' => false, 'message' => 'ID requerido']); exit; }
+
+            $stmt = $db->prepare("SELECT status, cufe FROM electronic_documents WHERE id = ?");
+            $stmt->execute([$id]);
+            $row = $stmt->fetch();
+            if (!$row) { echo json_encode(['success' => false, 'message' => 'No encontrado']); exit; }
+            if ($row['status'] !== 'borrador' || !empty($row['cufe'])) {
+                echo json_encode(['success' => false, 'message' => 'Solo se pueden eliminar borradores']); exit;
+            }
+
+            $db->beginTransaction();
+            $db->prepare("DELETE FROM detalle_document_electronic WHERE factura_n = ?")->execute([$id]);
+            $db->prepare("DELETE FROM electronic_documents WHERE id = ?")->execute([$id]);
+            $db->commit();
+            echo json_encode(['success' => true, 'message' => 'Borrador eliminado']);
             break;
 
         case 'consultar':

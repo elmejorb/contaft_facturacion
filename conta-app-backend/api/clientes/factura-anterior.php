@@ -14,14 +14,38 @@ try {
 
     if ($action === 'crear') {
         $clienteId = intval($data['cliente_id'] ?? 0);
-        $facturaN = $data['factura_n'] ?? '';
+        // Prefijo automático "AT-" (Anterior). El usuario digita solo el número.
+        $numeroCrudo = trim($data['factura_n'] ?? '');
+        $numeroCrudo = preg_replace('/^AT-/i', '', $numeroCrudo);
+        $facturaN = $numeroCrudo === '' ? '' : 'AT-' . $numeroCrudo;
+
         $fecha = $data['fecha'] ?? date('Y-m-d');
         $valor = floatval($data['valor'] ?? 0);
         $saldo = floatval($data['saldo'] ?? $valor);
         $dias = intval($data['dias'] ?? 30);
 
-        if (!$clienteId || !$facturaN || $valor <= 0) {
+        if (!$clienteId || $facturaN === 'AT-' || $facturaN === '' || $valor <= 0) {
             echo json_encode(['success' => false, 'message' => 'Cliente, número de factura y valor son requeridos']);
+            exit;
+        }
+        if ($saldo > $valor) {
+            echo json_encode(['success' => false, 'message' => 'El saldo pendiente no puede ser mayor al valor total']);
+            exit;
+        }
+
+        // No permitir duplicar Nº factura para el mismo cliente (sí se permite
+        // el mismo número entre distintos clientes). Así al aplicar un pago con
+        // NFactAnt no hay ambigüedad de a cuál factura pertenece.
+        $stmtDup = $db->prepare("
+            SELECT ID_FactAnteriores FROM tblfacturasanteriores
+            WHERE CodigoCli = ? AND FacturaN = ? LIMIT 1
+        ");
+        $stmtDup->execute([$clienteId, $facturaN]);
+        if ($stmtDup->fetch()) {
+            echo json_encode([
+                'success' => false,
+                'message' => "El cliente ya tiene una factura anterior con número $facturaN. Verifica el número o elimina la existente antes de crear una nueva."
+            ]);
             exit;
         }
 

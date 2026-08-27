@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
+import { useAuth } from '../contexts/AuthContext';
 import { AgGridReact } from 'ag-grid-react';
 import { AllCommunityModule, ModuleRegistry, ColDef } from 'ag-grid-community';
-import { Search, Plus, Save, X, Trash2, ClipboardEdit, RefreshCw } from 'lucide-react';
+import { Search, Plus, Save, X, Trash2, ClipboardEdit, RefreshCw, Ban } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { triggerNotifRefresh } from '../hooks/useNotificaciones';
 import { confirmar } from './ConfirmDialog';
@@ -16,9 +17,16 @@ const CONCEPTOS = ['Daño', 'Cambio', 'Vencimiento', 'Otro'];
 const TIPOS = ['Entrada', 'Salida'];
 
 export function NotasArticulo() {
+  const { user } = useAuth();
+  const esAdmin = user?.tipoUsuario === 1 || user?.tipoUsuario === '1';
+  const permisos: string[] = (user as any)?.permisos || [];
+  const puedeAnular = esAdmin || permisos.includes('inventario_editar');
+
   const [notas, setNotas] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [showCrear, setShowCrear] = useState(false);
+  const [mostrarAnuladas, setMostrarAnuladas] = useState(false);
+  const [anularModal, setAnularModal] = useState<{ nota: any; motivo: string; guardando: boolean } | null>(null);
 
   const cargar = async () => {
     setLoading(true);
@@ -32,38 +40,60 @@ export function NotasArticulo() {
 
   useEffect(() => { cargar(); }, []);
 
-  const eliminar = async (id: number) => {
-    if (!await confirmar({ title: 'Eliminar nota', message: '¿Eliminar esta nota? El kardex será compensado.', type: 'danger', confirmText: 'Eliminar' })) return;
+  const abrirAnularModal = (nota: any) => setAnularModal({ nota, motivo: '', guardando: false });
+  const cerrarAnularModal = () => { if (!anularModal?.guardando) setAnularModal(null); };
+  const confirmarAnular = async () => {
+    if (!anularModal) return;
+    setAnularModal({ ...anularModal, guardando: true });
     try {
       const r = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'eliminar', id_nota: id }) });
+        body: JSON.stringify({ action: 'anular', id_nota: anularModal.nota.Id_Nota, id_usuario: user?.id || null, motivo: anularModal.motivo.trim() }) });
       const d = await r.json();
-      if (d.success) { toast.success(d.message); triggerNotifRefresh(); cargar(); }
-      else toast.error(d.message);
-    } catch (e) { toast.error('Error'); }
+      if (d.success) { toast.success(d.message); triggerNotifRefresh(); setAnularModal(null); cargar(); }
+      else { toast.error(d.message); setAnularModal({ ...anularModal, guardando: false }); }
+    } catch (e) { toast.error('Error'); setAnularModal({ ...anularModal, guardando: false }); }
   };
 
+  const notasFiltradas = mostrarAnuladas ? notas : notas.filter(n => (n.Estado ?? 'Valida') !== 'Anulada');
+
+  const cellStyleSm: React.CSSProperties = { fontSize: 12, display: 'flex', alignItems: 'center' };
+  const estiloAnulada = (p: any): React.CSSProperties =>
+    (p.data?.Estado === 'Anulada') ? { textDecoration: 'line-through', color: '#9ca3af', opacity: 0.75 } : {};
+  const cellSm = (p: any) => ({ ...cellStyleSm, ...estiloAnulada(p) });
+  const cellSmR = (p: any) => ({ ...cellStyleSm, justifyContent: 'flex-end', ...estiloAnulada(p) });
   const cols: ColDef[] = [
-    { headerName: '#', field: 'Id_Nota', width: 60, cellRenderer: (p: any) => <span style={{ fontWeight: 700, color: '#7c3aed' }}>{p.value}</span> },
-    { headerName: 'Fecha', field: 'Fecha', width: 130, cellRenderer: (p: any) => p.value ? new Date(p.value).toLocaleString('es-CO') : '-' },
-    { headerName: 'Producto', flex: 1, minWidth: 240,
-      valueGetter: (p: any) => `${p.data.Codigo} — ${p.data.Nombres_Articulo}` },
-    { headerName: 'Tipo', field: 'Tipo', width: 90,
-      cellRenderer: (p: any) => <span style={{ padding: '2px 8px', borderRadius: 4, fontSize: 11, fontWeight: 600,
+    { headerName: '#', field: 'Id_Nota', width: 55, cellStyle: cellSm,
+      cellRenderer: (p: any) => <span style={{ fontWeight: 700, color: p.data.Estado === 'Anulada' ? '#9ca3af' : '#7c3aed' }}>{p.value}</span> },
+    { headerName: 'Fecha', field: 'Fecha', width: 100, cellStyle: cellSm,
+      cellRenderer: (p: any) => p.value ? new Date(p.value).toLocaleDateString('es-CO') : '-' },
+    { headerName: 'Producto', flex: 1, minWidth: 240, cellStyle: cellSm,
+      cellRenderer: (p: any) => (
+        <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          {p.data.Estado === 'Anulada' && <span style={{ background: '#fee2e2', color: '#991b1b', padding: '1px 6px', borderRadius: 3, fontSize: 9, fontWeight: 700, textDecoration: 'none' }}>ANULADA</span>}
+          <span>{`${p.data.Codigo} — ${p.data.Nombres_Articulo}`}</span>
+        </span>
+      ) },
+    { headerName: 'Tipo', field: 'Tipo', width: 80, cellStyle: cellSm,
+      cellRenderer: (p: any) => <span style={{ padding: '2px 8px', borderRadius: 4, fontSize: 10, fontWeight: 600,
         background: p.value === 'Entrada' ? '#dcfce7' : '#fee2e2', color: p.value === 'Entrada' ? '#16a34a' : '#dc2626' }}>{p.value}</span> },
-    { headerName: 'Concepto', field: 'Concepto', width: 110 },
-    { headerName: 'Cantidad', field: 'Cantidad', width: 90, cellRenderer: (p: any) => <span style={{ fontFamily: 'monospace', fontWeight: 600 }}>{Number(p.value).toFixed(2)}</span> },
-    { headerName: 'Valor Unit.', field: 'Valor_Unitario', width: 110, cellRenderer: (p: any) => <span style={{ fontFamily: 'monospace' }}>{fmt(parseFloat(p.value))}</span> },
-    { headerName: 'Descripción', field: 'Descripcion', flex: 1, minWidth: 200, cellRenderer: (p: any) => <span style={{ fontSize: 11, color: '#666' }}>{p.value || '-'}</span> },
-    { headerName: 'Lote', field: 'Numero_Lote', width: 100 },
-    { headerName: 'Usuario', field: 'usuario', width: 110, cellRenderer: (p: any) => <span style={{ fontSize: 11 }}>{p.value}</span> },
-    { headerName: '', width: 50, sortable: false,
+    { headerName: 'Concepto', field: 'Concepto', width: 100, cellStyle: cellSm },
+    { headerName: 'Cantidad', field: 'Cantidad', width: 80, cellStyle: cellSmR,
+      cellRenderer: (p: any) => <span style={{ fontFamily: 'monospace', fontWeight: 600 }}>{Number(p.value).toFixed(2)}</span> },
+    { headerName: 'Valor Unit.', field: 'Valor_Unitario', width: 100, cellStyle: cellSmR,
+      cellRenderer: (p: any) => <span style={{ fontFamily: 'monospace' }}>{fmt(parseFloat(p.value))}</span> },
+    { headerName: 'Descripción', field: 'Descripcion', flex: 1, minWidth: 200, cellStyle: cellSm,
+      cellRenderer: (p: any) => <span style={{ color: '#666' }} title={p.data.Estado === 'Anulada' && p.data.Motivo_Anulacion ? `Anulada: ${p.data.Motivo_Anulacion}` : ''}>{p.value || '-'}</span> },
+    // La columna Lote solo aparece si al menos una nota tiene lote asignado.
+    // Los clientes que no usan lotes (Nutrigranos, motos, etc.) no la ven vacía.
+    { headerName: 'Lote', field: 'Numero_Lote', width: 90, cellStyle: cellSm,
+      hide: !notas.some(n => n.Numero_Lote) },
+    { headerName: 'Usuario', field: 'usuario', width: 130, cellStyle: cellSm },
+    { headerName: '', width: 44, sortable: false, cellStyle: cellStyleSm,
       cellRenderer: (p: any) => {
-        const esHoy = p.data.Fecha && new Date(p.data.Fecha).toDateString() === new Date().toDateString();
-        if (!esHoy) return null;
-        return <button title="Eliminar (solo notas de hoy)" onClick={() => eliminar(p.data.Id_Nota)}
+        if (p.data.Estado === 'Anulada' || !puedeAnular) return null;
+        return <button title="Anular nota" onClick={() => abrirAnularModal(p.data)}
           style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}>
-          <Trash2 size={14} color="#dc2626" />
+          <Ban size={14} color="#dc2626" />
         </button>;
       } },
   ];
@@ -79,7 +109,11 @@ export function NotasArticulo() {
             Entradas y salidas de inventario por concepto (Daño, Cambio, Vencimiento, Otro). No afecta gastos — solo inventario y kardex.
           </p>
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, cursor: 'pointer', color: '#6b7280' }}>
+            <input type="checkbox" checked={mostrarAnuladas} onChange={e => setMostrarAnuladas(e.target.checked)} />
+            Mostrar anuladas
+          </label>
           <button onClick={cargar} style={{ height: 32, padding: '0 12px', background: '#f3f4f6', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
             <RefreshCw size={14} /> Refrescar
           </button>
@@ -91,17 +125,60 @@ export function NotasArticulo() {
 
       <div style={{ background: '#fff', borderRadius: 10, padding: 12, boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
         <div className="ag-theme-quartz" style={{ height: 560 }}>
-          <AgGridReact rowData={notas} columnDefs={cols} loading={loading} animateRows rowHeight={34} headerHeight={36} />
+          <AgGridReact rowData={notasFiltradas} columnDefs={cols} loading={loading} animateRows rowHeight={28} headerHeight={30} />
         </div>
       </div>
 
       {showCrear && <CrearNotaModal onClose={() => setShowCrear(false)} onSaved={() => { setShowCrear(false); cargar(); }} />}
+
+      {anularModal && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+             onClick={cerrarAnularModal}>
+          <div style={{ background: '#fff', borderRadius: 12, width: 460, boxShadow: '0 20px 50px rgba(0,0,0,0.25)' }} onClick={e => e.stopPropagation()}>
+            <div style={{ padding: '14px 20px', background: 'linear-gradient(135deg,#dc2626,#991b1b)', color: '#fff', borderTopLeftRadius: 12, borderTopRightRadius: 12, display: 'flex', alignItems: 'center', gap: 10 }}>
+              <Ban size={20} />
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 700 }}>Anular Nota #{anularModal.nota.Id_Nota}</div>
+                <div style={{ fontSize: 11, opacity: 0.85 }}>Se revertirá el inventario y se compensará el kardex</div>
+              </div>
+            </div>
+            <div style={{ padding: 18 }}>
+              <div style={{ background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 8, padding: 10, marginBottom: 14, fontSize: 12 }}>
+                <div style={{ color: '#7f1d1d', fontWeight: 600 }}>{anularModal.nota.Codigo} — {anularModal.nota.Nombres_Articulo}</div>
+                <div style={{ color: '#991b1b', marginTop: 3 }}>
+                  <b>{anularModal.nota.Tipo}</b> · {anularModal.nota.Concepto} · Cantidad: <b>{anularModal.nota.Cantidad}</b>
+                </div>
+                <div style={{ color: '#991b1b', fontSize: 11, marginTop: 4 }}>
+                  Al anular: {anularModal.nota.Tipo === 'Entrada' ? 'saldrán' : 'entrarán'} <b>{anularModal.nota.Cantidad}</b> unidades del inventario.
+                </div>
+              </div>
+              <label style={{ fontSize: 11, color: '#6b7280', fontWeight: 700, textTransform: 'uppercase' }}>Motivo (opcional)</label>
+              <textarea value={anularModal.motivo}
+                onChange={e => setAnularModal({ ...anularModal, motivo: e.target.value })}
+                placeholder="Ej: se cargó doble por error, se registró con precio equivocado…"
+                autoFocus rows={3}
+                style={{ width: '100%', border: '1px solid #d1d5db', borderRadius: 6, padding: 8, fontSize: 13, resize: 'vertical', fontFamily: 'inherit', marginTop: 4, boxSizing: 'border-box' }} />
+            </div>
+            <div style={{ padding: '12px 20px 18px', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button onClick={cerrarAnularModal} disabled={anularModal.guardando}
+                style={{ height: 34, padding: '0 16px', background: '#f3f4f6', border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 13, cursor: anularModal.guardando ? 'not-allowed' : 'pointer' }}>
+                Cancelar
+              </button>
+              <button onClick={confirmarAnular} disabled={anularModal.guardando}
+                style={{ height: 34, padding: '0 18px', background: anularModal.guardando ? '#9ca3af' : '#dc2626', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 700, cursor: anularModal.guardando ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+                <Ban size={14} /> {anularModal.guardando ? 'Anulando…' : 'Sí, anular'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
 // ==================== Modal Crear Nota ====================
 function CrearNotaModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
+  const { user } = useAuth();
   const [busqueda, setBusqueda] = useState('');
   const [results, setResults] = useState<any[]>([]);
   const [seleccionado, setSeleccionado] = useState<any>(null);
@@ -148,6 +225,7 @@ function CrearNotaModal({ onClose, onSaved }: { onClose: () => void; onSaved: ()
         body: JSON.stringify({
           action: 'crear', items: seleccionado.Items, tipo, concepto,
           descripcion, cantidad: cant, valor_unitario: parseFloat(valorUnit) || 0,
+          id_usuario: user?.id || null,
         })
       });
       const d = await r.json();

@@ -1,7 +1,12 @@
 import { getConfigImpresion, getEmpresaCache } from './ConfiguracionSistema';
+import pkg from '../../package.json';
 
 const fmtMon = (v: number) => '$ ' + Math.round(v).toLocaleString('es-CO');
 const fmtMonDec = (v: number) => '$ ' + v.toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+// Marca del sistema al pie del ticket. Aparece muy pequeña — solo para
+// identificar qué software generó la factura si el cliente reclama.
+const MARCA_SISTEMA = `Facturado con Conta FT v${pkg.version}`;
 
 export interface DatosFactura {
   numero: number | string;
@@ -21,7 +26,7 @@ export interface DatosFactura {
   saldo: number;
   medioPago: string;
   vendedor: string;
-  empresa: { nombre: string; nit: string; telefono: string; direccion: string; regimen: string; propietario: string; resolucion: string; };
+  empresa: { nombre: string; nit: string; telefono: string; direccion: string; regimen: string; propietario: string; resolucion: string; detalle?: string; };
   caja?: number;
   esCotizacion?: boolean;
   enContingencia?: boolean; // factura electrónica emitida en modo contingencia (sin internet/DIAN caída)
@@ -191,6 +196,8 @@ function tirilla(d: DatosFactura): string {
   html += `<div style="text-align:center;">Aceptación del Cliente</div>`;
   html += `<br><br>`;
   html += `<div style="text-align:center;font-weight:bold;letter-spacing:2px;">"GRACIAS POR SU COMPRA"</div>`;
+  // Marca del sistema — pequeña pero legible, centrada al final
+  html += `<div style="text-align:center;font-size:10px;color:#6b7280;margin-top:6px;">${MARCA_SISTEMA}</div>`;
   html += `</div>`;
   return html;
 }
@@ -199,45 +206,93 @@ function tirilla(d: DatosFactura): string {
 // MEDIA CARTA (izquierda o derecha)
 // Usa flex con min-height para que el footer quede al fondo
 // ============================================================
-function mediaCarta(d: DatosFactura, lado: 'izquierda' | 'derecha' = 'izquierda'): string {
+function mediaCarta(
+  d: DatosFactura,
+  lado: 'izquierda' | 'derecha' = 'izquierda',
+  paginacion?: { pagina: number; totalPaginas: number; esUltima: boolean; totalItemsGlobal: number }
+): string {
   const config = getConfigImpresion();
   const titulo = d.esCotizacion ? 'Cotización Nº' : 'Factura de Venta Nº';
   const w = '50%';
   const ml = lado === 'derecha' ? '50%' : '0';
 
-  let html = `<div style="width:${w};margin-left:${ml};font-family:Arial,sans-serif;font-size:12px;padding:8mm 10mm;box-sizing:border-box;min-height:100vh;display:flex;flex-direction:column;">`;
+  // Layout con paginación estilo VB6:
+  // - Padding: 6mm arriba/abajo + 5mm laterales — evita corte y da respiro
+  // - min-height 200mm — media carta usa landscape (letter landscape = 279×216mm),
+  //   cada mitad tiene ~139mm ancho × 216mm alto. min-height:200mm hace que el
+  //   footer llegue casi al borde inferior de la hoja (antes 135mm dejaba el
+  //   footer flotando en el medio con mucho espacio vacío abajo).
+  // - Cuando hay más de N productos (maxProductosMediaCarta) se dividen en chunks
+  //   y cada chunk = un ticket completo en su propia hoja
+  // padding top | right | bottom | left — el izquierdo un poco más grande
+  // porque las impresoras suelen recortar ~2-3mm del borde izquierdo.
+  let html = `<div style="width:${w};margin-left:${ml};font-family:Arial,sans-serif;font-size:12px;padding:6mm 5mm 6mm 9mm;box-sizing:border-box;min-height:200mm;display:flex;flex-direction:column;">`;
 
   if (d.enContingencia) html += BANNER_CONTINGENCIA_HTML;
 
-  // ===== HEADER: Empresa + Cliente =====
-  // Nombre empresa centrado arriba
-  html += `<div style="text-align:center;font-size:14px;font-weight:bold;margin-bottom:6px;word-wrap:break-word;">${d.empresa.nombre}</div>`;
+  // ===== HEADER — layout con posicionamiento:
+  //   [LOGO]      NUTRIGRANOS           [FACTURA Nº]
+  //           Julián Martínez Paternina    01254
+  //           NIT. XXX  Simplificado
+  //           CALLE XX Con carrera 5
+  //           Tel. 320 533 0508
+  //         (Detalle multi-línea centrado)
+  //
+  // El logo va absoluto arriba-izquierda, el recuadro Factura Nº arriba-derecha,
+  // y los datos de empresa quedan CENTRADOS entre ambos.
+  html += `<div style="position:relative;text-align:center;margin-bottom:6px;min-height:22mm;">`;
 
-  // Logo + datos + Nº factura
-  html += `<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px;">`;
-  html += `<div style="display:flex;align-items:flex-start;gap:6px;">`;
-  if (d.logo) html += `<img src="${d.logo}" style="max-width:22mm;max-height:16mm;" />`;
-  html += `<div>`;
-  if (config.mostrarPropietario && d.empresa.propietario !== '-') html += `<div style="font-size:11px;">${d.empresa.propietario}</div>`;
-  html += `<div style="font-size:10px;">Nit. ${d.empresa.nit} &nbsp; ${d.empresa.regimen}</div>`;
-  if (config.mostrarTelefono) html += `<div style="font-size:10px;">Tel. ${d.empresa.telefono}</div>`;
-  if (config.mostrarDireccion) html += `<div style="font-size:10px;">${d.empresa.direccion}</div>`;
-  html += `</div></div>`;
-  html += `<div style="border:2px solid #000;padding:4px 10px;text-align:center;flex-shrink:0;">`;
-  html += `<div style="font-size:10px;font-weight:bold;">${titulo}</div>`;
-  html += `<div style="font-size:20px;font-weight:bold;">${String(d.numero).padStart(7, '0')}</div>`;
-  html += `</div></div>`;
+  // Logo absoluto arriba-izquierda (opcional)
+  if (d.logo) {
+    html += `<img src="${d.logo}" style="position:absolute;top:0;left:0;max-width:20mm;max-height:20mm;object-fit:contain;" />`;
+  }
 
-  // Fecha y termino
-  html += `<div style="border:1px solid #000;padding:3px 8px;margin-bottom:5px;font-size:11px;">`;
-  html += `<span>Fecha: ${d.fecha}</span> &nbsp;&nbsp; <span>Termino: ${d.tipo} ${d.dias > 0 ? d.dias + ' días' : ''}</span>`;
+  // Recuadro Factura Nº absoluto arriba-derecha
+  html += `<div style="position:absolute;top:0;right:0;border:2px solid #000;padding:3px 8px;text-align:center;">`;
+  html += `<div style="font-size:9px;font-weight:bold;">${titulo}</div>`;
+  html += `<div style="font-size:18px;font-weight:bold;line-height:1;">${String(d.numero).padStart(5, '0')}</div>`;
+  if (paginacion && paginacion.totalPaginas > 1) {
+    const etiqueta = paginacion.esUltima
+      ? `Pág. ${paginacion.pagina} de ${paginacion.totalPaginas} — FINAL`
+      : `Pág. ${paginacion.pagina} de ${paginacion.totalPaginas}`;
+    html += `<div style="font-size:8px;margin-top:2px;font-weight:${paginacion.esUltima ? 'bold' : 'normal'};">${etiqueta}</div>`;
+  }
+  html += `</div>`;
+
+  // Bloque centrado: nombre + propietario + NIT + dirección + tel
+  // padding lateral para dar espacio al logo y al recuadro
+  html += `<div style="padding:0 26mm 0 22mm;">`;
+  html += `<div style="font-size:16px;font-weight:bold;line-height:1.1;word-wrap:break-word;">${d.empresa.nombre}</div>`;
+  if (config.mostrarPropietario && d.empresa.propietario && d.empresa.propietario !== '-' && d.empresa.propietario.trim() !== '') {
+    html += `<div style="font-size:11px;font-weight:600;margin-top:1px;">${d.empresa.propietario}</div>`;
+  }
+  html += `<div style="font-size:10px;margin-top:1px;">NIT. ${d.empresa.nit}${d.empresa.regimen ? ' &nbsp; ' + d.empresa.regimen : ''}</div>`;
+  if (config.mostrarDireccion && d.empresa.direccion && d.empresa.direccion !== '-') {
+    html += `<div style="font-size:10px;">${d.empresa.direccion}</div>`;
+  }
+  if (config.mostrarTelefono && d.empresa.telefono && d.empresa.telefono !== '0') {
+    html += `<div style="font-size:10px;">Tel. ${d.empresa.telefono}</div>`;
+  }
+  html += `</div>`;
+  html += `</div>`;
+
+  // Detalle / Actividad Económica — multi-línea, centrado, ancho completo, después del bloque header
+  if (d.empresa.detalle && d.empresa.detalle.trim() !== '' && d.empresa.detalle !== '-') {
+    // white-space:pre-wrap respeta saltos de línea reales del texto guardado en la BD
+    const detalleEsc = d.empresa.detalle.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    html += `<div style="text-align:center;font-size:10px;font-style:italic;margin-bottom:4px;padding:0 2mm;white-space:pre-wrap;line-height:1.2;">${detalleEsc}</div>`;
+  }
+
+  // Fecha y termino en línea
+  html += `<div style="border:1px solid #000;padding:2px 6px;margin-bottom:4px;font-size:10px;">`;
+  html += `<b>Fecha:</b> ${d.fecha} &nbsp;&nbsp; <b>Término:</b> ${d.tipo}${d.dias > 0 ? ' - ' + d.dias + ' días' : ''}`;
   html += `</div>`;
 
   // Datos cliente
-  html += `<fieldset style="border:1px solid #000;padding:3px 8px;margin:0 0 5px;font-size:11px;">`;
-  html += `<legend style="font-size:10px;font-weight:bold;">Datos del Cliente</legend>`;
-  html += `<div>Nombres: ${d.cliente.nombre} &nbsp;&nbsp; Nit: ${d.cliente.nit}</div>`;
-  html += `<div>Dirección: ${d.cliente.direccion} &nbsp;&nbsp; Tel.: ${d.cliente.telefono}</div>`;
+  html += `<fieldset style="border:1px solid #000;padding:2px 6px;margin:0 0 4px;font-size:10px;">`;
+  html += `<legend style="font-size:9px;font-weight:bold;padding:0 4px;">Datos del Cliente</legend>`;
+  html += `<div><b>Nombres:</b> ${d.cliente.nombre} &nbsp; <b>Nit:</b> ${d.cliente.nit}</div>`;
+  html += `<div><b>Dirección:</b> ${d.cliente.direccion} &nbsp; <b>Tel.:</b> ${d.cliente.telefono}</div>`;
   html += `</fieldset>`;
 
   // ===== BODY: Tabla de productos (flex:1 para que empuje el footer abajo) =====
@@ -260,42 +315,69 @@ function mediaCarta(d: DatosFactura, lado: 'izquierda' | 'derecha' = 'izquierda'
   html += `</tbody></table>`;
   html += `</div>`;
 
-  // ===== FOOTER: Totales + Firma + Legal (siempre al fondo) =====
-  html += `<div style="border-top:2px solid #000;padding-top:4px;margin-top:auto;">`;
-  html += `<div style="display:flex;gap:10px;font-size:11px;">`;
-  // Izquierda: artículos + firma
-  html += `<div style="flex:1;">`;
-  html += `<div style="margin-bottom:4px;"><b>Nº Artículos:</b> ${d.items.length}</div>`;
-  html += `<div style="text-align:center;margin-top:20px;">________________________</div>`;
-  html += `<div style="text-align:center;font-size:10px;">Recibí Conforme<br>Sello y NIT o Cédula</div>`;
+  // ===== FOOTER: si NO es la última página, mostrar N° items + "Continúa..."
+  // Los totales y la firma van solo en la última página. =====
+  if (paginacion && !paginacion.esUltima) {
+    html += `<div style="border-top:1px solid #000;padding-top:4px;margin-top:auto;font-size:10px;">`;
+    html += `<div><b>Nº Artículos en esta página:</b> ${d.items.length} &nbsp;&nbsp; <b>Total del pedido:</b> ${paginacion.totalItemsGlobal}</div>`;
+    html += `<div style="text-align:center;font-size:11px;font-weight:bold;font-style:italic;margin-top:4px;">`;
+    html += `↓ Continúa en la siguiente página (Pág. ${paginacion.pagina + 1} de ${paginacion.totalPaginas}) ↓`;
+    html += `</div>`;
+    html += `</div>`;
+    html += `</div>`; // cierra contenedor principal
+    return html;
+  }
+
+  // ===== FOOTER: Totales + Firma + Legal (layout VB6) =====
+  // margin-top:auto — pega el footer al fondo cuando el detalle es corto
+  // (usando flex + min-height del contenedor padre).
+  html += `<div style="border-top:1px solid #000;padding-top:3px;margin-top:auto;">`;
+  html += `<div style="display:flex;gap:8px;font-size:10px;align-items:stretch;">`;
+  // Izquierda: N° Artículos + Firma
+  html += `<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between;">`;
+  // Si hay paginación, muestra el total global del pedido (no solo el chunk actual)
+  const totalItems = paginacion ? paginacion.totalItemsGlobal : d.items.length;
+  html += `<div><b>Nº Artículos:</b> ${totalItems}</div>`;
+  html += `<div style="text-align:center;margin-top:14px;">`;
+  html += `<div style="border-top:1px solid #000;padding-top:2px;font-size:9px;"><b>Recibí Conforme</b><br>Sello y NIT o Cédula</div>`;
   html += `</div>`;
-  // Derecha: totales
-  html += `<div style="border:1px solid #000;padding:4px 8px;min-width:160px;">`;
-  html += `<div style="display:flex;justify-content:space-between;gap:14px;margin-bottom:3px;"><b>SUBTOTAL:</b><span>${fmtMonDec(d.subtotal)}</span></div>`;
+  html += `</div>`;
+  // Derecha: totales estilo VB6 (SUBTOTAL/IVA solo si aplica, sino DESC/TOTAL/ABONO)
+  html += `<div style="border:1px solid #000;padding:3px 6px;min-width:60mm;">`;
+  const mostrarSubtotal = d.iva > 0 || (d.retenciones && d.retenciones.length > 0);
+  if (mostrarSubtotal) {
+    html += `<div style="display:flex;justify-content:space-between;gap:10px;margin-bottom:2px;"><b>SUBTOTAL:</b><span>${fmtMonDec(d.subtotal)}</span></div>`;
+    if (d.iva > 0) html += `<div style="display:flex;justify-content:space-between;gap:10px;margin-bottom:2px;"><b>IVA:</b><span>${fmtMonDec(d.iva)}</span></div>`;
+  }
+  if (d.descuento > 0) html += `<div style="display:flex;justify-content:space-between;gap:10px;margin-bottom:2px;"><b>DESCUENTO:</b><span>${fmtMonDec(d.descuento)}</span></div>`;
   if (d.retenciones && d.retenciones.length > 0) {
     d.retenciones.forEach(r => {
-      html += `<div style="display:flex;justify-content:space-between;gap:14px;margin-bottom:2px;color:#b91c1c;"><span>${r.nombre} (${r.porcentaje.toFixed(2)}%):</span><span>-${fmtMonDec(r.valor)}</span></div>`;
+      html += `<div style="display:flex;justify-content:space-between;gap:10px;margin-bottom:1px;color:#b91c1c;font-size:9px;"><span>${r.nombre} (${r.porcentaje.toFixed(2)}%):</span><span>-${fmtMonDec(r.valor)}</span></div>`;
     });
   }
-  if (d.descuento > 0) html += `<div style="display:flex;justify-content:space-between;gap:14px;margin-bottom:3px;"><b>DESCUENTO:</b><span>${fmtMonDec(d.descuento)}</span></div>`;
-  html += `<div style="display:flex;justify-content:space-between;gap:14px;margin-bottom:3px;"><b>IVA:</b><span>${fmtMonDec(d.iva)}</span></div>`;
-  html += `<div style="display:flex;justify-content:space-between;gap:14px;font-weight:bold;font-size:13px;border-top:2px solid #000;padding-top:3px;"><span>TOTAL A PAGAR:</span><span>${fmtMonDec(d.total)}</span></div>`;
+  html += `<div style="display:flex;justify-content:space-between;gap:10px;font-weight:bold;font-size:13px;border-top:1px solid #000;padding-top:2px;margin-top:2px;"><span>TOTAL:</span><span>${fmtMonDec(d.total)}</span></div>`;
   if (d.retenciones && d.retenciones.length > 0) {
     const totalRet = d.retenciones.reduce((s, r) => s + r.valor, 0);
-    d.retenciones.forEach(r => {
-      html += `<div style="display:flex;justify-content:space-between;gap:14px;font-size:10px;"><span>${r.nombre} (${r.porcentaje.toFixed(2)}%):</span><span>-${fmtMonDec(r.valor)}</span></div>`;
-    });
-    html += `<div style="display:flex;justify-content:space-between;gap:14px;font-weight:bold;font-size:12px;"><span>Valor neto a recibir:</span><span>${fmtMonDec(d.total - totalRet)}</span></div>`;
+    html += `<div style="display:flex;justify-content:space-between;gap:10px;font-weight:bold;font-size:11px;"><span>Valor neto a recibir:</span><span>${fmtMonDec(d.total - totalRet)}</span></div>`;
   }
-  if (d.abono > 0) html += `<div style="display:flex;justify-content:space-between;gap:14px;margin-top:3px;"><b>ABONO:</b><span>${fmtMonDec(d.abono)}</span></div>`;
-  if (d.saldo > 0) html += `<div style="display:flex;justify-content:space-between;gap:14px;"><b>SALDO:</b><span>${fmtMonDec(d.saldo)}</span></div>`;
+  html += `<div style="display:flex;justify-content:space-between;gap:10px;"><b>ABONO:</b><span>${fmtMonDec(d.abono || 0)}</span></div>`;
+  if (d.saldo > 0) html += `<div style="display:flex;justify-content:space-between;gap:10px;"><b>SALDO:</b><span>${fmtMonDec(d.saldo)}</span></div>`;
   html += `</div></div>`;
 
+  // Frase promocional configurable (equivalente al "Feliz Navidad" del VB6)
+  const frase = (config as any).fraseFinalTicket;
+  if (frase && String(frase).trim() !== '') {
+    html += `<div style="text-align:center;font-size:10px;font-weight:bold;margin-top:4px;letter-spacing:0.5px;">** ${frase} **</div>`;
+  }
+
   // Legal
-  html += `<div style="font-size:7px;margin-top:5px;border-top:1px solid #000;padding-top:3px;">`;
+  html += `<div style="font-size:7px;margin-top:4px;border-top:1px solid #000;padding-top:2px;line-height:1.2;">`;
   html += `Esta Factura de Venta se asimila para todos los efectos legales, a una letra de cambio según el Artículo 772 - 774 del Código de Comercio y causará intereses moratorios a las tasas vigentes a la fecha del vencimiento sobre los saldos no pagados oportunamente. No se aceptan devoluciones sin previa autorización escrita.`;
   html += `</div>`;
   html += `</div>`;
+
+  // Marca del sistema — pequeña pero legible, discreta al final de todo
+  html += `<div style="font-size:9px;color:#6b7280;text-align:right;margin-top:3px;">${MARCA_SISTEMA}</div>`;
 
   html += `</div>`;
   return html;
@@ -318,7 +400,13 @@ function carta(d: DatosFactura): string {
   if (d.logo) html += `<img src="${d.logo}" style="max-width:35mm;max-height:22mm;" />`;
   html += `<div>`;
   html += `<div style="font-size:16px;font-weight:bold;">${d.empresa.nombre}</div>`;
+  if (config.mostrarPropietario && d.empresa.propietario && d.empresa.propietario !== '-') {
+    html += `<div style="font-size:12px;font-weight:600;">${d.empresa.propietario}</div>`;
+  }
   html += `<div style="font-size:11px;">Nit. ${d.empresa.nit} &nbsp;&nbsp; ${d.empresa.regimen}</div>`;
+  if (d.empresa.detalle && d.empresa.detalle.trim() !== '' && d.empresa.detalle !== '-') {
+    html += `<div style="font-size:10px;font-style:italic;">${d.empresa.detalle}</div>`;
+  }
   if (config.mostrarDireccion) html += `<div style="font-size:11px;">${d.empresa.direccion}</div>`;
   if (config.mostrarTelefono) html += `<div style="font-size:11px;">Tel. ${d.empresa.telefono}</div>`;
   html += `</div></div>`;
@@ -393,6 +481,9 @@ function carta(d: DatosFactura): string {
   html += `Esta Factura de Venta se asimila para todos los efectos legales, a una letra de cambio según el Artículo 772 - 774 del Comercio y causará intereses moratorios a las tasas vigentes a la fecha del vencimiento sobre los saldos no pagados oportunamente. No se aceptan devoluciones sin previa autorización escrita.`;
   html += `</div>`;
 
+  // Marca del sistema — pequeña pero legible, discreta al final
+  html += `<div style="font-size:10px;color:#6b7280;text-align:right;margin-top:4px;">${MARCA_SISTEMA}</div>`;
+
   html += `</div>`;
   return html;
 }
@@ -423,14 +514,39 @@ export function imprimirFactura(datos: DatosFactura, formatoOverride?: 'tirilla'
       contenido = tirilla(datos);
       pageSize = '72mm auto';
       break;
-    case 'media-carta':
-      if (config.mediaCartaDerecha) {
-        contenido = mediaCarta(datos, 'derecha');
+    case 'media-carta': {
+      const lado = config.mediaCartaDerecha ? 'derecha' : 'izquierda';
+      const maxPorHoja = config.maxProductosMediaCarta || 20;
+      // Paginación estilo VB6: si el detalle supera maxProductosMediaCarta,
+      // se divide en varias hojas. Cada hoja tiene el header/cliente/tabla
+      // parcial. La ÚLTIMA hoja tiene los totales y firma. Las intermedias
+      // dicen "Continúa en la siguiente página".
+      if (datos.items.length > maxPorHoja) {
+        const chunks: typeof datos.items[] = [];
+        for (let i = 0; i < datos.items.length; i += maxPorHoja) {
+          chunks.push(datos.items.slice(i, i + maxPorHoja));
+        }
+        contenido = chunks.map((chunk, idx) => {
+          const paginaData = { ...datos, items: chunk };
+          const paginacion = {
+            pagina: idx + 1,
+            totalPaginas: chunks.length,
+            esUltima: idx === chunks.length - 1,
+            totalItemsGlobal: datos.items.length,
+          };
+          const pagHtml = mediaCarta(paginaData, lado, paginacion);
+          // page-break-after: always entre páginas (menos la última)
+          const sep = idx < chunks.length - 1
+            ? '<div style="page-break-after:always;"></div>'
+            : '';
+          return pagHtml + sep;
+        }).join('');
       } else {
-        contenido = mediaCarta(datos, 'izquierda');
+        contenido = mediaCarta(datos, lado);
       }
       pageSize = 'letter landscape';
       break;
+    }
     case 'carta':
       contenido = carta(datos);
       pageSize = 'letter portrait';
@@ -531,7 +647,14 @@ export function buildDatosFactura(
                            regimenLower.includes('responsable');
 
   const items = lineas.map(l => ({
-    codigo: l.Codigo, nombre: l.Nombre, cantidad: l.Cantidad,
+    codigo: l.Codigo,
+    // Si la línea es servicio con concepto editado, ese texto reemplaza al
+    // nombre del catálogo en la tirilla impresa. Cuando se imprime desde la
+    // reimpresión (DetalleFacturaModal) el backend ya manda Nombres_Articulo
+    // con el COALESCE; este branch cubre la impresión inmediata tras guardar
+    // la venta donde l viene directo del state de NuevaVenta.
+    nombre: l.DescripcionTemp || l.Nombre,
+    cantidad: l.Cantidad,
     precio: l.PrecioVenta,
     iva: esResponsableIVA ? l.Iva : 0,
     descuento: l.Descuento,
@@ -557,14 +680,17 @@ export function buildDatosFactura(
       telefono: emp.telefono,
       direccion: emp.direccion,
       regimen: emp.regimen || '',
-      propietario: '-',
+      propietario: emp.propietario || '',
       resolucion: emp.resolucion || '',
+      detalle: emp.detalle || '',
     },
     caja: 1,
     esCotizacion,
     enContingencia,
     retenciones,
     retencionModo,
-    logo: getConfigImpresion().logo || undefined
+    // Prioridad: logo del backend (tbldatosempresa.Logo) → localStorage local
+    // → nada. Evita que el logo de un cliente anterior aparezca al cambiar de BD.
+    logo: getEmpresaCache().logo_url || getConfigImpresion().logo || undefined
   };
 }

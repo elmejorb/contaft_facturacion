@@ -10,3 +10,7 @@
   Run `npm run dev` to start the development server.
   
   npm run electron:dev
+  API Mobil
+  php -S 0.0.0.0:8000 -t public
+  APP mobil
+  npx expo start

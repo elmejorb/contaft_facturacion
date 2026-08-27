@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 
 export interface Notificaciones {
   vencidos: number;       // Lotes ya vencidos con stock
@@ -29,8 +29,16 @@ export function useNotificaciones(): Notificaciones {
   const [cumpleanosHoy, setCumpleanosHoy] = useState(0);
   const [cumpleanosProx, setCumpleanosProx] = useState(0);
   const [loading, setLoading] = useState(true);
+  // Throttle: si se llama muchas veces seguidas (varios POST en <2s), evita
+  // dispararlas todas. Bug antes: guardar venta + guardar pago disparaba 6 fetches.
+  const ultimaCarga = useRef(0);
+  const enCurso = useRef(false);
+  const THROTTLE_MS = 2000;
 
   const cargar = useCallback(async () => {
+    if (enCurso.current) return;
+    if (Date.now() - ultimaCarga.current < THROTTLE_MS) return;
+    enCurso.current = true;
     try {
       const [lotesRes, stockRes, cumpleRes] = await Promise.allSettled([
         fetch(`${API_LOTES}?por_vencer=1`).then(r => r.json()),
@@ -53,6 +61,8 @@ export function useNotificaciones(): Notificaciones {
       }
     } catch (e) {} finally {
       setLoading(false);
+      ultimaCarga.current = Date.now();
+      enCurso.current = false;
     }
   }, []);
 

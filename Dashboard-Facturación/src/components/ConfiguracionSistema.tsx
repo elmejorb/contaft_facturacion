@@ -49,6 +49,9 @@ export interface ConfigImpresion {
   usarConteoInventario: boolean;
   usarLotes: boolean; // activa el manejo de fechas de vencimiento / lotes para productos perecederos (farmacias, alimentos)
   ordenesCompra: boolean; // habilita el flujo Orden de Compra → Recepción (crear la OC antes de que llegue la mercancía)
+  usarFinanciaciones: boolean; // activa el módulo de financiaciones (crédito con cuotas) — típico venta de motos
+  tasaMoraMensual: number; // % mensual sobre valor de cuota vencida. 0 = no cobra mora
+  usarAnticipos: boolean; // activa el módulo de anticipos (saldo a favor del cliente para futuras compras)
   tipoNegocio: string; // Tienda, Farmacia, Boutique, etc.
   // Seguridad — autorización admin para acciones sensibles
   autorizarDevoluciones: boolean;     // pide clave admin para devolver
@@ -59,6 +62,13 @@ export interface ConfigImpresion {
   validarPrecioMinimo: boolean;       // si true, bloquea PrecioVenta < Precio_Minimo y < Precio_Costo
   permitirRepetirProducto: boolean;   // si true, el mismo Item puede aparecer en varias líneas (útil para precios distintos por unidad, promociones)
   permitirFechaVenta: boolean;        // si true, muestra un campo Fecha en Nueva Venta para registrar la venta con fecha distinta a hoy (clientes que no facturan el mismo día)
+  // Rendimiento — ajustes para PCs lentos (Celeron, HDD, poca RAM).
+  // En equipos rápidos deben quedar así por default (mostrar saldo y 500 filas).
+  // En Celeron/lentos, apagar saldo (evita JOIN con vw_facturas_cliente_saldos)
+  // y reducir a 200 filas ayuda a que el listado de ventas cargue rápido.
+  mostrarSaldoEnListado: boolean;     // false = query más liviana; el saldo se consulta en el módulo Cartera
+  limiteListadoVentas: number;        // 100, 200, 500, 1000. Aplica al LIMIT del backend.
+  fraseFinalTicket: string;           // frase promocional que aparece al final de la impresión (ej: "Feliz Navidad", "Gracias por su compra"). Vacío = no imprime.
 }
 
 const CONFIG_KEY = 'config_sistema';
@@ -81,7 +91,7 @@ const defaultConfig: ConfigImpresion = {
   mostrarDireccion: true,
   mostrarPrecioCosto: false,
   mediaCartaDerecha: false,
-  maxProductosMediaCarta: 12,
+  maxProductosMediaCarta: 20,
   logo: '',
   formatoFecha: 'dd/mm/yyyy',
   campoPredeterminado: 'codigo',
@@ -96,6 +106,9 @@ const defaultConfig: ConfigImpresion = {
   usarConteoInventario: true,
   usarLotes: false,
   ordenesCompra: false,
+  usarFinanciaciones: false,
+  tasaMoraMensual: 0,
+  usarAnticipos: false,
   tipoNegocio: '',
   autorizarDevoluciones: false,
   autorizarAnulaciones: false,
@@ -104,6 +117,9 @@ const defaultConfig: ConfigImpresion = {
   validarPrecioMinimo: true,
   permitirRepetirProducto: false,
   permitirFechaVenta: false,
+  mostrarSaldoEnListado: true,
+  limiteListadoVentas: 500,
+  fraseFinalTicket: 'GRACIAS POR SU COMPRA',
 };
 
 export function getConfigImpresion(): ConfigImpresion {
@@ -127,6 +143,9 @@ export interface EmpresaCache {
   email?: string;
   regimen?: string;
   resolucion?: string;
+  logo_url?: string;   // URL del logo servido por el backend (tbldatosempresa.Logo)
+  detalle?: string;    // slogan/descripción de la empresa (tbldatosempresa.Detalle) — sale bajo el nombre en la impresión
+  propietario?: string; // (tbldatosempresa.Propietario) — sale bajo el nombre de la empresa
 }
 
 const EMPRESA_KEY = 'empresa_cache';
@@ -142,14 +161,47 @@ export function getEmpresaCache(): EmpresaCache {
 
 export function saveEmpresaCache(emp: any) {
   if (!emp) return;
+  const nuevoNit = emp.Nit || emp.nit || '';
+  const anterior = getEmpresaCache();
+
+  // Si el NIT cambió, estamos en OTRA empresa/BD — invalidar el logo local
+  // guardado en config_sistema (era del cliente anterior). Sin esto, al
+  // cambiar de BD durante desarrollo/soporte, se mostraba el logo de la
+  // empresa anterior en las impresiones — caso Icoplastic mostrando el
+  // logo de Ammi es el ejemplo.
+  if (anterior.nit && anterior.nit !== nuevoNit) {
+    try {
+      const raw = localStorage.getItem(CONFIG_KEY);
+      if (raw) {
+        const cfg = JSON.parse(raw);
+        if (cfg && cfg.logo) {
+          cfg.logo = '';
+          localStorage.setItem(CONFIG_KEY, JSON.stringify(cfg));
+        }
+      }
+    } catch (e) {}
+  }
+
   const cache: EmpresaCache = {
     nombre: emp.Empresa || emp.nombre || 'Empresa',
-    nit: emp.Nit || emp.nit || '',
+    nit: nuevoNit,
     direccion: emp.Direccion || emp.direccion || '',
     telefono: emp.Telefono || emp.telefono || '',
     email: emp.email || '',
     regimen: emp.Regimen || '',
     resolucion: emp.Resolucion || '',
+    // Logo_url viene del backend (empresa/datos.php construye la URL pública
+    // desde tbldatosempresa.Logo). Es la fuente de verdad — no depende de
+    // localStorage viejo de otra empresa.
+    logo_url: emp.Logo_url || '',
+    // Slogan/detalle de la empresa (tbldatosempresa.Detalle). Se muestra bajo
+    // el nombre en la impresión, como el "Te ofrecemos todo lo relacionado con..."
+    // del VB6 original.
+    detalle: emp.Detalle || emp.detalle || '',
+    // Propietario (tbldatosempresa.Propietario) — nombre del dueño del negocio.
+    // Aparece bajo el nombre de la empresa en la impresión si está configurado
+    // mostrarPropietario=true (default) y el valor no está vacío.
+    propietario: emp.Propietario || emp.propietario || '',
   };
   localStorage.setItem(EMPRESA_KEY, JSON.stringify(cache));
 }
@@ -556,16 +608,54 @@ export function ConfiguracionSistema() {
       {/* Datos en Factura */}
       {seccion('Datos en la Factura Impresa', <FileText size={18} color="#2563eb" />, (
         <div>
-          {toggle('Mostrar propietario', 'mostrarPropietario')}
-          {toggle('Mostrar teléfono empresa', 'mostrarTelefono')}
-          {toggle('Mostrar dirección empresa', 'mostrarDireccion')}
+          {toggle('Mostrar propietario', 'mostrarPropietario', 'Imprime el nombre del propietario (Datos Empresa → Propietario) bajo el nombre del negocio')}
+          {toggle('Mostrar teléfono empresa', 'mostrarTelefono', 'Imprime el teléfono del negocio en el encabezado')}
+          {toggle('Mostrar dirección empresa', 'mostrarDireccion', 'Imprime la dirección del negocio en el encabezado')}
           {toggle('Mostrar precio costo', 'mostrarPrecioCosto', 'Muestra el costo al lado del precio de venta (solo para uso interno)')}
           {toggle('Media carta lado derecho', 'mediaCartaDerecha', 'Imprime en la mitad derecha de la hoja')}
-          {selectField('Máx. productos en media carta', 'maxProductosMediaCarta', [
-            { value: 8, label: '8 productos' }, { value: 10, label: '10 productos' },
-            { value: 12, label: '12 productos' }, { value: 15, label: '15 productos' },
-            { value: 20, label: '20 productos (carta completa)' }
-          ])}
+          {/* Editable libremente: si la factura tiene más de N productos se
+              divide en varias hojas. Recomendado 20; según tipo de impresora
+              y tamaño de letra pueden caber hasta 30. */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #f9fafb' }}>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 500, color: '#374151' }}>Máx. productos en media carta</div>
+              <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 2 }}>Recomendado: 20 · Rango típico: 8 a 30</div>
+            </div>
+            <input
+              type="number"
+              min={1}
+              max={60}
+              value={config.maxProductosMediaCarta}
+              onChange={e => {
+                const n = parseInt(e.target.value, 10);
+                if (!isNaN(n) && n > 0) set('maxProductosMediaCarta', n);
+              }}
+              onBlur={e => {
+                // Clamp al perder foco: mínimo 1, máximo 60 para no romper el layout
+                const n = parseInt(e.target.value, 10);
+                if (isNaN(n) || n < 1) set('maxProductosMediaCarta', 20);
+                else if (n > 60) set('maxProductosMediaCarta', 60);
+              }}
+              style={{ width: 80, height: 28, border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, padding: '0 8px', textAlign: 'center' }}
+            />
+          </div>
+          {/* Frase promocional al final del ticket. Al estilo VB6 que mostraba
+              "** FELIZ NAVIDAD Y PROSPERO AÑO NUEVO **". Se puede cambiar por
+              cualquier frase (agradecimiento, temporada, promoción). Vacío = no imprime. */}
+          <div style={{ padding: '10px 14px', border: '1px solid #e5e7eb', borderRadius: 8, background: '#f9fafb', margin: '4px 0' }}>
+            <label style={{ fontSize: 12, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>
+              Frase al final del ticket
+            </label>
+            <input type="text"
+              value={config.fraseFinalTicket || ''}
+              onChange={e => set('fraseFinalTicket', e.target.value.toUpperCase())}
+              placeholder="Ej: GRACIAS POR SU COMPRA, FELIZ NAVIDAD..."
+              maxLength={80}
+              style={{ width: '100%', height: 32, padding: '0 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none', textTransform: 'uppercase' }} />
+            <div style={{ fontSize: 10, color: '#6b7280', marginTop: 4 }}>
+              Aparece centrada en negrita al final de la factura, antes del texto legal. Dejar vacío para no imprimir.
+            </div>
+          </div>
           {selectField('Formato de fecha', 'formatoFecha', [
             { value: 'dd/mm/yyyy', label: 'DD/MM/AAAA' },
             { value: 'yyyy-mm-dd', label: 'AAAA-MM-DD' },
@@ -644,16 +734,16 @@ export function ConfiguracionSistema() {
             { key: 'usarCotizaciones', label: 'Cotizaciones', desc: 'Crear y guardar cotizaciones para clientes antes de facturar.' },
             { key: 'usarConteoInventario', label: 'Conteo de inventario', desc: 'Realizar conteos físicos de inventario con compensación automática de ventas durante el conteo.' },
             { key: 'usarLotes', label: 'Fechas de vencimiento / Lotes', desc: 'Activa el manejo de lotes y fechas de vencimiento en compras y productos. Para farmacias, droguerías, alimentos, lácteos. Si está apagado, las compras NO piden fecha de vencimiento ni muestran productos perecederos aunque estén marcados así en el catálogo.' },
+            { key: 'usarFinanciaciones', label: 'Financiaciones (créditos con cuotas)', desc: 'Activa el módulo de Financiaciones para negocios que venden a plazos (motos, electrodomésticos, muebles). Permite registrar contratos con cronograma de cuotas de fechas y valores libres, y llevar el cobro por cliente.' },
+            { key: 'usarAnticipos', label: 'Anticipos de clientes (saldo a favor)', desc: 'Activa el módulo de Anticipos: el cliente entrega dinero hoy para usar en compras futuras. Aparece un saldo a favor que se aplica automáticamente al facturar. Útil en boutiques, ferreterías, motos, muebles.' },
+            { key: 'mostrarSaldoEnListado', label: 'Mostrar columna Saldo en Listado de Ventas', desc: 'DESACTIVAR EN PCs LENTOS (Celeron, HDD): calcular el saldo pendiente en cada venta agrega ~30ms por consulta. Con esta opción apagada el listado carga mucho más rápido; el saldo se consulta en el módulo Cartera o al abrir el detalle de la factura.' },
           ].map(m => {
             const currentValue = (config as any)[m.key];
             // Gate por entitlements: solo aplica a FE. Si CRM la cortó y el
             // usuario no la tenía activa localmente → toggle bloqueado.
-            // Grandfathering: si ya la tenía prendida, se puede seguir usando.
-            const esFE = m.key === 'usarFacturacionElectronica';
             // El CRM manda 100% para FE: displayValue refleja exactamente
-            // el estado de la suscripción. El valor local se preserva
-            // internamente por si el CRM se reactiva, pero visualmente el
-            // toggle solo refleja lo que el CRM dice.
+            // el estado de la suscripción.
+            const esFE = m.key === 'usarFacturacionElectronica';
             const displayValue = esFE ? feActivaCRM : currentValue;
             const bloqueadaPorCRM = esFE;
             return (
@@ -760,6 +850,48 @@ export function ConfiguracionSistema() {
             </label>
           );
         })}
+
+          {/* Rendimiento — cuántas facturas trae el Listado de Ventas.
+              PCs rápidos: 500-1000. Celeron/HDD: 100-200. */}
+          <div style={{ marginTop: 4, padding: '12px 14px', border: '1px dashed #93c5fd', borderRadius: 8, background: '#eff6ff' }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: '#1e40af', marginBottom: 6 }}>Rendimiento del listado de ventas</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <label style={{ fontSize: 12, color: '#374151' }}>Traer máximo:</label>
+              <select
+                value={config.limiteListadoVentas || 500}
+                onChange={e => set('limiteListadoVentas', parseInt(e.target.value))}
+                style={{ height: 30, width: 130, border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, padding: '0 8px', fontWeight: 700, color: '#1e40af' }}>
+                <option value={100}>100 facturas</option>
+                <option value={200}>200 facturas</option>
+                <option value={500}>500 facturas</option>
+                <option value={1000}>1000 facturas</option>
+                <option value={2000}>2000 facturas</option>
+              </select>
+              <span style={{ fontSize: 11, color: '#6b7280' }}>por consulta</span>
+            </div>
+            <div style={{ fontSize: 11, color: '#6b7280', marginTop: 6 }}>
+              Ideal <b>100-200</b> en PCs lentos (Celeron, HDD). <b>500</b> es el default. <b>1000+</b> solo en PCs modernos con SSD. Menos filas = tabla más rápida de renderizar.
+            </div>
+          </div>
+
+          {/* Sub-config de Financiaciones — solo aparece si el módulo está activo.
+              Deja la tasa en 0 para que el sistema NO cobre mora (opcional). */}
+          {config.usarFinanciaciones && (
+            <div style={{ marginTop: 4, padding: '12px 14px', border: '1px dashed #c4b5fd', borderRadius: 8, background: '#faf5ff' }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: '#6b21a8', marginBottom: 6 }}>Interés de mora</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <input type="number" min={0} max={20} step="0.1"
+                  value={config.tasaMoraMensual}
+                  onChange={e => set('tasaMoraMensual', parseFloat(e.target.value) || 0)}
+                  style={{ width: 90, height: 30, padding: '0 8px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, textAlign: 'right', fontWeight: 700, color: '#7c3aed' }} />
+                <span style={{ fontSize: 12, color: '#374151' }}>% mensual sobre valor de cuota vencida</span>
+              </div>
+              <div style={{ fontSize: 11, color: '#6b7280', marginTop: 6 }}>
+                Deje en <b>0</b> si su negocio no cobra mora. Ejemplo: 2% mensual sobre una cuota de $400.000 a 45 días vencida = ~$12.000 de interés.
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Vendedores Móviles */}

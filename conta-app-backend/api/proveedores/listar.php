@@ -29,22 +29,23 @@ try {
                     exit;
                 }
 
-                // Facturas pendientes: suma saldos iniciales + pedidos a crédito con saldo
+                // Facturas pendientes — usa las vistas que calculan el saldo REAL
+                // contra tblegresos, no el cache `tblpedidos.Saldo` (que suele estar
+                // desincronizado en BDs legacy e infla el saldo pendiente).
+                // Mismo cálculo que el software VB6 original.
                 $stmt = $db->prepare("
                     SELECT ID_FactAnterioresP, FacturaN, Fecha, Dias, Valor, Saldo, Origen,
-                           DATEDIFF(CURDATE(), Fecha) as Dias_Mora
+                           DATEDIFF(CURDATE(), Fecha) AS Dias_Mora
                     FROM (
-                        SELECT ID_FactAnterioresP, FacturaN, Fecha, Dias, Valor, Saldo,
-                               'anterior' AS Origen, CodigoProv
-                        FROM tblfacturasanterioresproveedor
-                        WHERE Saldo > 0
+                        SELECT NULL AS ID_FactAnterioresP, FacturaN, Fecha, Dias, Total AS Valor,
+                               Saldo, 'anterior' AS Origen, CodigoPro
+                        FROM vw_prov_facturas_anteriores_saldos WHERE Saldo > 0
                         UNION ALL
-                        SELECT Pedido_N AS ID_FactAnterioresP, FacturaCompra_N AS FacturaN,
-                               Fecha, Dias, Total AS Valor, Saldo, 'pedido' AS Origen, CodigoPro AS CodigoProv
-                        FROM tblpedidos
-                        WHERE TipoPedido = 'Crédito' AND Saldo > 0
+                        SELECT Pedido_N AS ID_FactAnterioresP, FacturaN, Fecha, Dias, Total AS Valor,
+                               Saldo, 'pedido' AS Origen, CodigoPro
+                        FROM vw_prov_pedidos_credito_saldos WHERE Saldo > 0
                     ) x
-                    WHERE CodigoProv = :id
+                    WHERE CodigoPro = :id
                     ORDER BY Fecha
                 ");
                 $stmt->execute([':id' => $id]);
@@ -130,17 +131,15 @@ try {
                            COALESCE(tot.Monto_Compras, 0)       as Monto_Compras
                     FROM tblproveedores p
                     LEFT JOIN (
-                        -- Saldos pendientes: une facturas anteriores + pedidos a crédito con saldo
-                        SELECT CodigoProv,
-                               COUNT(*) as Facturas_Pendientes,
-                               SUM(Saldo) as Saldo_Total,
-                               DATEDIFF(CURDATE(), MIN(Fecha)) as Dias_Mayor
-                        FROM (
-                            SELECT CodigoProv, Saldo, Fecha FROM tblfacturasanterioresproveedor WHERE Saldo > 0
-                            UNION ALL
-                            SELECT CodigoPro AS CodigoProv, Saldo, Fecha FROM tblpedidos WHERE TipoPedido = 'Crédito' AND Saldo > 0
-                        ) x
-                        GROUP BY CodigoProv
+                        -- Saldos pendientes calculados desde vw_prov_cxp_aging.
+                        -- Antes usaba tblpedidos.Saldo cacheado — desincronizado
+                        -- en BDs legacy → inflaba el Saldo_Total del listado.
+                        SELECT CodigoPro AS CodigoProv,
+                               COUNT(*) AS Facturas_Pendientes,
+                               SUM(Saldo) AS Saldo_Total,
+                               DATEDIFF(CURDATE(), MIN(Fecha)) AS Dias_Mayor
+                        FROM vw_prov_cxp_aging
+                        GROUP BY CodigoPro
                     ) sld ON p.CodigoPro = sld.CodigoProv
                     LEFT JOIN (
                         -- Totales de compras: incluye saldos iniciales + pedidos (cualquier tipo)

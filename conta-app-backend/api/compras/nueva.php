@@ -14,10 +14,13 @@ $db = $database->getConnection();
 try {
     if ($_SERVER['REQUEST_METHOD'] === 'GET') {
         // Buscar artículos.
-        // Devuelve `last_iva_compra`: el IvaPct de la última compra de cada producto.
-        // El frontend lo usa como default al agregar el producto a la grilla, para
-        // que clientes en Régimen Simple (catálogo Iva=0) no tengan que recordar
-        // qué IVA tenía en la factura anterior.
+        // Devuelve además metadatos de la ÚLTIMA COMPRA del producto para que
+        // el usuario vea de una el precio/proveedor/fecha antes de agregarlo:
+        //   - last_iva_compra: IvaPct de la última línea (para default en Régimen Simple)
+        //   - ultimo_costo: costo unitario final (con IVA + flete) de la última compra
+        //   - ultima_fecha_compra: fecha de esa compra
+        //   - ultimo_proveedor: nombre del proveedor de esa compra
+        // Se filtran compras Anuladas para no confundir al usuario.
         if (isset($_GET['buscar'])) {
             $q = $_GET['buscar'];
             $stmt = $db->prepare("
@@ -28,7 +31,26 @@ try {
                        (SELECT d.IvaPct
                         FROM tbldetalle_pedido d
                         WHERE d.Items = a.Items
-                        ORDER BY d.Id_DetallePedido DESC LIMIT 1) AS last_iva_compra
+                        ORDER BY d.Id_DetallePedido DESC LIMIT 1) AS last_iva_compra,
+                       (SELECT CASE WHEN d.CostoFinal > 0 THEN d.CostoFinal ELSE d.PrecioC END
+                        FROM tbldetalle_pedido d
+                        INNER JOIN tblpedidos p2 ON p2.Pedido_N = d.Pedido_N
+                        WHERE d.Items = a.Items
+                          AND (p2.EstadoPedido IS NULL OR p2.EstadoPedido != 'Anulada')
+                        ORDER BY p2.Fecha DESC, d.Id_DetallePedido DESC LIMIT 1) AS ultimo_costo,
+                       (SELECT p2.Fecha
+                        FROM tbldetalle_pedido d
+                        INNER JOIN tblpedidos p2 ON p2.Pedido_N = d.Pedido_N
+                        WHERE d.Items = a.Items
+                          AND (p2.EstadoPedido IS NULL OR p2.EstadoPedido != 'Anulada')
+                        ORDER BY p2.Fecha DESC, d.Id_DetallePedido DESC LIMIT 1) AS ultima_fecha_compra,
+                       (SELECT pr.RazonSocial
+                        FROM tbldetalle_pedido d
+                        INNER JOIN tblpedidos p2 ON p2.Pedido_N = d.Pedido_N
+                        LEFT JOIN tblproveedores pr ON pr.CodigoPro = p2.CodigoPro
+                        WHERE d.Items = a.Items
+                          AND (p2.EstadoPedido IS NULL OR p2.EstadoPedido != 'Anulada')
+                        ORDER BY p2.Fecha DESC, d.Id_DetallePedido DESC LIMIT 1) AS ultimo_proveedor
                 FROM tblarticulos a
                 LEFT JOIN tblcategoria c ON a.Id_Categoria = c.Id_Categoria
                 WHERE a.Estado = 1 AND (a.Codigo LIKE :cod OR a.Nombres_Articulo LIKE :nom)
@@ -56,8 +78,55 @@ try {
                 $a['Iva'] = floatval($a['Iva']);
                 $a['Flete'] = floatval($a['Flete']);
                 $a['last_iva_compra'] = $a['last_iva_compra'] !== null ? floatval($a['last_iva_compra']) : null;
+                $a['ultimo_costo'] = $a['ultimo_costo'] !== null ? floatval($a['ultimo_costo']) : null;
+                // ultima_fecha_compra queda como string YYYY-MM-DD HH:MM:SS (o null)
+                // ultimo_proveedor queda como string (o null)
             }
             echo json_encode(['success' => true, 'articulos' => $arts], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        // Lookup: dado un FacturaCompra_N (número del proveedor, varchar) y opcional
+        // Items, devolver el Pedido_N (int auto_increment interno). Se usa desde
+        // el Kardex — el detalle muestra "Compras según Fact Nº X" pero para
+        // abrir el modal necesitamos el Pedido_N.
+        //
+        // Si hay varios pedidos con la misma FacturaCompra_N (proveedores distintos
+        // pueden coincidir), items desambigua: elegimos el más reciente que
+        // contenga ese Items.
+        //
+        // GET ?lookup_pedido=1&factura=40382&items=63
+        if (isset($_GET['lookup_pedido'])) {
+            $factura = trim($_GET['factura'] ?? '');
+            $items = intval($_GET['items'] ?? 0);
+            if ($factura === '') {
+                echo json_encode(['success' => false, 'message' => 'Factura requerida']);
+                exit;
+            }
+            if ($items > 0) {
+                $stmt = $db->prepare("
+                    SELECT p.Pedido_N
+                    FROM tblpedidos p
+                    INNER JOIN tbldetalle_pedido d ON d.Pedido_N = p.Pedido_N
+                    WHERE p.FacturaCompra_N = :factura AND d.Items = :items
+                    ORDER BY p.Fecha DESC, p.Pedido_N DESC
+                    LIMIT 1
+                ");
+                $stmt->execute([':factura' => $factura, ':items' => $items]);
+            } else {
+                $stmt = $db->prepare("
+                    SELECT Pedido_N FROM tblpedidos
+                    WHERE FacturaCompra_N = :factura
+                    ORDER BY Fecha DESC, Pedido_N DESC LIMIT 1
+                ");
+                $stmt->execute([':factura' => $factura]);
+            }
+            $pedidoN = $stmt->fetchColumn();
+            if (!$pedidoN) {
+                echo json_encode(['success' => false, 'message' => "No se encontró compra con factura {$factura}"]);
+                exit;
+            }
+            echo json_encode(['success' => true, 'pedido_n' => intval($pedidoN)]);
             exit;
         }
 
@@ -72,6 +141,7 @@ try {
         if (isset($_GET['listar'])) {
             $anio = intval($_GET['anio'] ?? date('Y'));
             $mes = intval($_GET['mes'] ?? 0);
+            $limit = intval($_GET['limit'] ?? 500);   // Igual que ventas: tope
             $where = "WHERE p.anio = $anio";
             if ($mes > 0) $where .= " AND p.N_Mes = $mes";
 
@@ -82,6 +152,7 @@ try {
                 LEFT JOIN tblproveedores pr ON p.CodigoPro = pr.CodigoPro
                 $where
                 ORDER BY p.Pedido_N DESC
+                LIMIT $limit
             ");
             $compras = $stmt->fetchAll();
             foreach ($compras as &$c) {
@@ -126,12 +197,22 @@ try {
                 $d['Impuesto'] = floatval($d['Impuesto']);
                 $d['Subtotal'] = floatval($d['Subtotal']);
                 $d['IvaPct'] = floatval($d['IvaPct'] ?? 0);
-                $d['CostoSinIva'] = floatval($d['CostoSinIva'] ?? $d['PrecioC']);
-                $d['CostoConIva'] = floatval($d['CostoConIva'] ?? $d['PrecioC']);
+                // OJO con `??`: en PHP solo cae al fallback si es NULL, no si es 0.
+                // Compras hechas ANTES de que existieran los campos CostoSinIva/
+                // CostoConIva/CostoFinal quedaron con 0 en esas columnas pero SÍ
+                // tienen PrecioC (costo del sistema viejo). Por eso el detalle
+                // mostraba $0 aunque el precio real estaba en PrecioC.
+                $precioC = floatval($d['PrecioC']);
+                $costoSinIva = floatval($d['CostoSinIva'] ?? 0);
+                $costoConIva = floatval($d['CostoConIva'] ?? 0);
+                $costoFinal  = floatval($d['CostoFinal']  ?? 0);
+                $costoPromedio = floatval($d['CostoPromedio'] ?? 0);
+                $d['CostoSinIva']   = $costoSinIva   > 0 ? $costoSinIva   : $precioC;
+                $d['CostoConIva']   = $costoConIva   > 0 ? $costoConIva   : $precioC;
+                $d['CostoFinal']    = $costoFinal    > 0 ? $costoFinal    : $precioC;
+                $d['CostoPromedio'] = $costoPromedio > 0 ? $costoPromedio : $precioC;
                 $d['FleteUnit'] = floatval($d['FleteUnit'] ?? 0);
-                $d['CostoFinal'] = floatval($d['CostoFinal'] ?? $d['PrecioC']);
                 $d['CostoAnterior'] = floatval($d['CostoAnterior'] ?? 0);
-                $d['CostoPromedio'] = floatval($d['CostoPromedio'] ?? $d['PrecioC']);
                 $d['Existencia'] = floatval($d['Existencia']);
             }
 
@@ -172,6 +253,37 @@ try {
     $facturaCompra = trim($data['factura_compra'] ?? '');
     $idUsuario = intval($data['id_usuario'] ?? 0) ?: null;
     $cajaIdCompra = intval($data['caja_id'] ?? 0); // de qué caja sale el dinero (compra contado)
+
+    // Defensa server-side: solo admins o usuarios con permiso `compras_editar`
+    // pueden crear/editar compras. Frontend ya oculta el botón, pero un
+    // POST manual (Postman, script) también debe rechazarse.
+    if ($idUsuario) {
+        $stmtPerm = $db->prepare("
+            SELECT u.Id_TiposUsuario, t.permisos
+            FROM tblusuarios u
+            LEFT JOIN tbltiposusuario t ON t.Id_TiposUsuario = u.Id_TiposUsuario
+            WHERE u.Id_Usuario = ?
+        ");
+        $stmtPerm->execute([$idUsuario]);
+        $rowUser = $stmtPerm->fetch();
+        $tipoUser = intval($rowUser['Id_TiposUsuario'] ?? 0);
+        if ($tipoUser !== 1) {  // 1 = admin siempre puede
+            $permisosArr = $rowUser['permisos'] ? json_decode($rowUser['permisos'], true) : [];
+            if (!is_array($permisosArr) || !in_array('compras_editar', $permisosArr, true)) {
+                http_response_code(403);
+                echo json_encode([
+                    'success' => false,
+                    'message' => 'Este usuario no tiene permisos para crear o modificar compras. Solicita al administrador el permiso "Crear/Editar compras".'
+                ]);
+                exit;
+            }
+        }
+    }
+    // Medio de pago (compra contado). Códigos: 0=Efectivo · 1=Tarjeta · 2=Bancolombia · 3=Nequi.
+    // Coinciden con tblmedios_pago y con id_mediopago de ventas.
+    // Solo el efectivo (0) descuenta de tblcajas; el resto son transferencias
+    // que quedan solo como egreso registrado con el medio.
+    $medioPago = intval($data['medio_pago'] ?? 0);
     if ($facturaCompra === '') {
         echo json_encode(['success' => false, 'message' => 'El N° de factura del proveedor es obligatorio']);
         exit;
@@ -292,9 +404,10 @@ try {
                     $ivaPct, $costoSinIva, $costoConIva, $fleteUnit, $costoFinalConIva, $costoActual, $costoPromedioConIva
                 ]);
 
-                // Update stock — Precio_Costo y Precio_CostoComp ambos con IVA
+                // Update stock — Precio_Costo con flete REAL (no promedio ponderado).
+                // Ver comentario en el flujo de nueva compra.
                 $db->prepare("UPDATE tblarticulos SET Existencia = ?, Precio_Costo = ?, Precio_CostoComp = ? WHERE Items = ?")
-                   ->execute([$nuevaExist, $costoPromedioConIva, $costoConIva, $itemId]);
+                   ->execute([$nuevaExist, $costoFinalConIva, $costoFinalConIva, $itemId]);
 
                 // Kardex: entrada (SIN IVA — contable)
                 $db->prepare("
@@ -326,7 +439,7 @@ try {
                             : $costoFinal;
 
                         $db->prepare("UPDATE tblarticulos SET Existencia = ?, Precio_Costo = ?, Precio_CostoComp = ? WHERE Items = ?")
-                           ->execute([$nuevaExist, $costoPromedioConIva, $costoConIva, $itemId]);
+                           ->execute([$nuevaExist, $costoFinalConIva, $costoFinalConIva, $itemId]);
 
                         if ($diferencia > 0) {
                             // Entrada adicional (kardex sin IVA)
@@ -348,9 +461,9 @@ try {
                             ]);
                         }
                     } else {
-                        // Solo actualizar precios si cambiaron — Precio_Costo CON IVA
+                        // Solo actualizar precios si cambiaron — Precio_Costo CON IVA + flete
                         $db->prepare("UPDATE tblarticulos SET Precio_Costo = ?, Precio_CostoComp = ?, Precio_Venta = ? WHERE Items = ?")
-                           ->execute([$costoFinalConIva, $costoConIva, $precioVenta > 0 ? $precioVenta : $artActual['Precio_Venta'], $itemId]);
+                           ->execute([$costoFinalConIva, $costoFinalConIva, $precioVenta > 0 ? $precioVenta : $artActual['Precio_Venta'], $itemId]);
                     }
 
                     // Update detail record — PrecioC/CostoFinal/CostoPromedio CON IVA
@@ -499,9 +612,13 @@ try {
                 $ivaPct, $costoSinIva, $costoConIva, $fleteUnit, $costoFinalConIva, $costoAnt, $costoPromedioConIva
             ]);
 
-            // Update stock and cost — Precio_Costo con IVA
+            // Update stock and cost. El cliente pidió que Precio_Costo del
+            // inventario refleje el costo REAL de la última compra CON flete
+            // (no un promedio ponderado que diluía el flete al mezclar con el
+            // stock previo). Usamos $costoFinalConIva que es el valor mostrado
+            // en pantalla al usuario al momento de digitar (CostoConIva + FleteUnit).
             $updateFields = "Existencia = ?, Precio_Costo = ?, Precio_CostoComp = ?, CodigoPro = ?, Flete = ?";
-            $updateParams = [$nuevaExist, $costoPromedioConIva, $costoConIva, $codigoPro, $fleteUnit];
+            $updateParams = [$nuevaExist, $costoFinalConIva, $costoFinalConIva, $codigoPro, $fleteUnit];
             // Update sale price only if provided and > 0
             if ($precioVenta > 0) {
                 $updateFields .= ", Precio_Venta = ?";
@@ -556,18 +673,21 @@ try {
             $db->prepare("
                 INSERT INTO tblegresos
                   (N_Comprobante, Fecha, Cedula, Orden, Suma, Concepto, Valor, Descuento, Estado,
-                   Cuentas, FactN, CodigoPro, NFacturaAnt, ValorFact, Saldoact, TipoPago, id_usuario)
-                VALUES (?, ?, ?, ?, '-', ?, ?, 0, 'Valida', ?, ?, ?, ?, ?, 0, 0, ?)
+                   Cuentas, FactN, CodigoPro, NFacturaAnt, ValorFact, Saldoact, TipoPago, id_usuario, id_mediopago)
+                VALUES (?, ?, ?, ?, '-', ?, ?, 0, 'Valida', ?, ?, ?, ?, ?, 0, 0, ?, ?)
             ")->execute([
                 $nCompEgreso, $fecha, $provNit, $provNombre,
                 $concepto, $totalCompra,
                 $cuentas, strval($facturaCompra), $codigoPro,
                 strval($facturaCompra), $totalCompra,
-                $idUsuario
+                $idUsuario, $medioPago
             ]);
 
-            // Movimiento de caja para descontar el efectivo
-            if ($cajaSeleccionada) {
+            // Movimiento de caja SOLO cuando el pago es efectivo (medio_pago=0).
+            // Los otros medios (Tarjeta/Bancolombia/Nequi) no tocan la caja física;
+            // quedan como egreso registrado con el id_mediopago para que los
+            // informes financieros los clasifiquen aparte.
+            if ($medioPago === 0 && $cajaSeleccionada) {
                 $db->prepare("
                     INSERT INTO tblmov_caja (Id_Sesion, Id_Caja_Origen, Id_Usuario, Valor, Tipo, Descripcion)
                     VALUES (?, ?, ?, ?, 'compra', ?)

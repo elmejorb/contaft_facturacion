@@ -53,11 +53,13 @@ try {
     $stmt = $db->prepare("
         SELECT d.Items, d.Cantidad AS cantidad_pedido,
                COALESCE(a.Codigo, '') AS Codigo,
-               COALESCE(a.Nombres_Articulo, '') AS Nombres_Articulo,
+               COALESCE(NULLIF(d.DescripcionTemp, ''), a.Nombres_Articulo, '') AS Nombres_Articulo,
                COALESCE(a.Existencia, 0) AS Existencia,
                COALESCE(a.Precio_Costo, 0) AS Precio_Costo,
                COALESCE(a.Precio_Venta, d.PrecioV) AS Precio_Venta,
-               COALESCE(a.Iva, 0) AS Iva
+               COALESCE(a.Iva, 0) AS Iva,
+               COALESCE(a.Servicio, 0) AS Servicio,
+               d.DescripcionTemp
         FROM tbldetalle_venta d
         LEFT JOIN tblarticulos a ON d.Items = a.Items
         WHERE d.Factura_N = ?

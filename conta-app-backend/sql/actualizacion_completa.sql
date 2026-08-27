@@ -15,8 +15,18 @@
 --        Permisos por tipo de usuario
 -- ================================================================
 
--- 1. Corregir tblkardex: AUTO_INCREMENT y tamaño del Detalle
+-- 1. Corregir tblkardex: PRIMARY KEY, AUTO_INCREMENT y tamaño del Detalle
+-- En BDs legacy (VB6) Id_kardex viene sin PK ni auto_increment; MySQL exige
+-- que la columna AUTO_INCREMENT sea KEY, por eso se aplica en 2 pasos:
+--   a) Asegurar PRIMARY KEY sobre Id_kardex si no existe
+--   b) Convertir Id_kardex a AUTO_INCREMENT
 DELETE FROM tblkardex WHERE Id_kardex = 0;
+
+SET @has_pk = (SELECT COUNT(*) FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tblkardex' AND INDEX_NAME = 'PRIMARY');
+SET @sql = IF(@has_pk = 0, "ALTER TABLE tblkardex ADD PRIMARY KEY (Id_kardex)", 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
 ALTER TABLE tblkardex MODIFY Id_kardex INT(11) NOT NULL AUTO_INCREMENT;
 ALTER TABLE tblkardex MODIFY Detalle VARCHAR(260) NULL DEFAULT NULL;
 
@@ -24,6 +34,13 @@ ALTER TABLE tblkardex MODIFY Detalle VARCHAR(260) NULL DEFAULT NULL;
 SET @next_pedido = IFNULL((SELECT MAX(Pedido_N) FROM tblpedidos WHERE Pedido_N > 0), 0) + 1;
 UPDATE tbldetalle_pedido SET Pedido_N = @next_pedido WHERE Pedido_N = 0;
 UPDATE tblpedidos        SET Pedido_N = @next_pedido WHERE Pedido_N = 0;
+
+-- BDs legacy: tblpedidos puede venir sin PK. Igual que tblkardex, MySQL
+-- exige que la columna AUTO_INCREMENT sea KEY.
+SET @has_pk = (SELECT COUNT(*) FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tblpedidos' AND INDEX_NAME = 'PRIMARY');
+SET @sql = IF(@has_pk = 0, "ALTER TABLE tblpedidos ADD PRIMARY KEY (Pedido_N)", 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 SET @is_autoinc = (SELECT COUNT(*) FROM information_schema.COLUMNS
     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tblpedidos'
@@ -184,6 +201,8 @@ SET @sql = IF(@col_exists = 0, "ALTER TABLE tbldetalle_pedido ADD COLUMN IvaPct 
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 -- 7. Vistas: Diagnóstico e Inventario
+-- Fix legacy: en dumps VB6 el nombre puede haber quedado como TABLE (no VIEW) por sintaxis antigua rechazada por MariaDB. Eliminar ambos por seguridad.
+DROP TABLE IF EXISTS vw_item_ventas_30d;
 DROP VIEW IF EXISTS vw_item_ventas_30d;
 CREATE VIEW vw_item_ventas_30d AS
 SELECT
@@ -195,6 +214,8 @@ INNER JOIN tblventas v ON d.Factura_N = v.Factura_N
 WHERE v.Fecha >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
 GROUP BY d.Items;
 
+-- Fix legacy: en dumps VB6 el nombre puede haber quedado como TABLE (no VIEW) por sintaxis antigua rechazada por MariaDB. Eliminar ambos por seguridad.
+DROP TABLE IF EXISTS vw_diagnostico_inventario_30d;
 DROP VIEW IF EXISTS vw_diagnostico_inventario_30d;
 CREATE VIEW vw_diagnostico_inventario_30d AS
 SELECT
@@ -220,6 +241,8 @@ FROM tblarticulos a
 LEFT JOIN vw_item_ventas_30d v ON a.Items = v.Items
 WHERE a.Estado = 1;
 
+-- Fix legacy: en dumps VB6 el nombre puede haber quedado como TABLE (no VIEW) por sintaxis antigua rechazada por MariaDB. Eliminar ambos por seguridad.
+DROP TABLE IF EXISTS vw_item_ventas_90d;
 DROP VIEW IF EXISTS vw_item_ventas_90d;
 CREATE VIEW vw_item_ventas_90d AS
 SELECT
@@ -233,6 +256,8 @@ INNER JOIN tblventas v ON d.Factura_N = v.Factura_N
 WHERE v.Fecha >= DATE_SUB(CURDATE(), INTERVAL 90 DAY)
 GROUP BY d.Items;
 
+-- Fix legacy: en dumps VB6 el nombre puede haber quedado como TABLE (no VIEW) por sintaxis antigua rechazada por MariaDB. Eliminar ambos por seguridad.
+DROP TABLE IF EXISTS vw_auditoria_inventario_90d;
 DROP VIEW IF EXISTS vw_auditoria_inventario_90d;
 CREATE VIEW vw_auditoria_inventario_90d AS
 SELECT
@@ -320,6 +345,8 @@ CREATE TABLE IF NOT EXISTS tblmovimientos_distribucion (
     KEY idx_destino (Items_Destino)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- Fix legacy: en dumps VB6 el nombre puede haber quedado como TABLE (no VIEW) por sintaxis antigua rechazada por MariaDB. Eliminar ambos por seguridad.
+DROP TABLE IF EXISTS vw_productos_stock_bajo;
 DROP VIEW IF EXISTS vw_productos_stock_bajo;
 CREATE VIEW vw_productos_stock_bajo AS
 SELECT
@@ -351,13 +378,6 @@ SET @sql = IF(@idx_exists = 0,
     "ALTER TABLE tblventas ADD INDEX idx_contingencia_pendientes (en_contingencia, contingencia_reenviada)",
     'SELECT 1');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
-
--- enviada_dian + cufe: usadas por el listado de ventas (SalesManagement) y
--- por el módulo FE para marcar cuáles ventas POS se enviaron a la DIAN.
--- Un solo ALTER idempotente con IF NOT EXISTS (MariaDB 10.0.2+ / MySQL 8.0.29+).
-ALTER TABLE tblventas
-    ADD COLUMN IF NOT EXISTS enviada_dian TINYINT(1) NOT NULL DEFAULT 0 COMMENT '1 si la venta se envio a DIAN como FE',
-    ADD COLUMN IF NOT EXISTS cufe VARCHAR(255) NULL COMMENT 'CUFE de la factura electronica si aplica';
 
 -- ================================================================
 -- v4.4 — Retenciones (ReteFuente, ReteICA, ReteIVA)
@@ -463,6 +483,8 @@ SET @sql = IF(@col_exists = 0,
     'SELECT 1');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
+-- Fix legacy: en dumps VB6 el nombre puede haber quedado como TABLE (no VIEW) por sintaxis antigua rechazada por MariaDB. Eliminar ambos por seguridad.
+DROP TABLE IF EXISTS vw_lotes_por_vencer;
 DROP VIEW IF EXISTS vw_lotes_por_vencer;
 CREATE VIEW vw_lotes_por_vencer AS
 SELECT
@@ -498,6 +520,8 @@ SET @sql = IF(@col_exists = 0,
     'SELECT 1');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
+-- Fix legacy: en dumps VB6 el nombre puede haber quedado como TABLE (no VIEW) por sintaxis antigua rechazada por MariaDB. Eliminar ambos por seguridad.
+DROP TABLE IF EXISTS vw_componentes_detalle;
 DROP VIEW IF EXISTS vw_componentes_detalle;
 CREATE VIEW vw_componentes_detalle AS
 SELECT
@@ -511,6 +535,8 @@ FROM tblproducto_componentes c
 INNER JOIN tblarticulos p ON c.Items_Padre = p.Items
 INNER JOIN tblarticulos h ON c.Items_Componente = h.Items;
 
+-- Fix legacy: en dumps VB6 el nombre puede haber quedado como TABLE (no VIEW) por sintaxis antigua rechazada por MariaDB. Eliminar ambos por seguridad.
+DROP TABLE IF EXISTS vw_capacidad_compuestos;
 DROP VIEW IF EXISTS vw_capacidad_compuestos;
 CREATE VIEW vw_capacidad_compuestos AS
 SELECT
@@ -616,6 +642,84 @@ SET @sql = IF(@col_exists = 0,
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 -- ================================================================
+-- v4.3.72 — Tablas de Facturación Electrónica (esqueleto)
+-- Se crean vacías incluso en clientes que NO usan FE. Motivo: varios
+-- endpoints (caja/sesion.php, informes) hacen SELECT/SUM sobre
+-- electronic_documents y detalle_document_electronic para consolidar
+-- totales del día. Sin las tablas, los queries fallan y rompen la UI
+-- (ej. caja aparecía "Cerrada" aunque hubiera sesión abierta).
+-- Idempotentes — no destruyen datos existentes.
+-- ================================================================
+CREATE TABLE IF NOT EXISTS electronic_documents (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  origen VARCHAR(20) DEFAULT 'local',
+  id_vendedor_remoto INT NULL,
+  nombre_vendedor VARCHAR(150) NULL,
+  fecha DATE NOT NULL,
+  cod_cliente INT NOT NULL DEFAULT 0,
+  customer_identification VARCHAR(255) NULL,
+  type_document_id BIGINT UNSIGNED NOT NULL DEFAULT 1,
+  resolution_id BIGINT UNSIGNED NULL,
+  prefix VARCHAR(255) NULL,
+  number BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  status VARCHAR(255) NOT NULL DEFAULT 'enviado',
+  payment_due_days INT NULL,
+  descuento DECIMAL(19,4) NOT NULL DEFAULT 0.0000,
+  total DECIMAL(15,2) NULL,
+  payment_form_id BIGINT UNSIGNED NULL,
+  payment_method_id BIGINT UNSIGNED NULL,
+  dian_response LONGTEXT NULL,
+  cufe VARCHAR(255) NULL,
+  invoice_cufe VARCHAR(255) NULL,
+  sent_at TIMESTAMP NULL,
+  id_usuario INT NOT NULL DEFAULT 0,
+  abono DECIMAL(19,4) NOT NULL DEFAULT 0.0000,
+  codigoEmp INT NOT NULL DEFAULT 0,
+  id_mediopago INT NOT NULL DEFAULT 0,
+  efectivo DECIMAL(19,4) NOT NULL DEFAULT 0.0000,
+  valorpagado1 DECIMAL(19,4) NOT NULL DEFAULT 0.0000,
+  pagada VARCHAR(1) NOT NULL DEFAULT 'N',
+  nota TEXT NULL,
+  EstadoFact INT(1) NOT NULL DEFAULT 1,
+  created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  email_sent TINYINT(1) DEFAULT 0,
+  email_sent_at DATETIME NULL,
+  email_recipient VARCHAR(500) NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_prefix_number (prefix, number),
+  KEY idx_type_document_id (type_document_id),
+  KEY idx_resolution_id (resolution_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS detalle_document_electronic (
+  id_detalle_document INT NOT NULL AUTO_INCREMENT,
+  factura_n INT NULL,
+  items INT NULL COMMENT 'Relación con tblarticulos.Items',
+  unit_measure_id BIGINT UNSIGNED NULL,
+  invoiced_quantity DECIMAL(19,2) NULL,
+  line_extension_amount DECIMAL(19,2) NULL,
+  free_of_charge_indicator TINYINT(1) DEFAULT 0,
+  description VARCHAR(255) NULL,
+  type_item_identification_id INT NULL,
+  price_amount DECIMAL(19,2) NULL,
+  PrecioCosto DECIMAL(19,4) NULL,
+  discount_amount DECIMAL(19,2) DEFAULT 0.00,
+  base_quantity DECIMAL(19,2) NULL,
+  tax_id INT NULL,
+  tax_amount DECIMAL(19,2) NULL,
+  taxable_amount DECIMAL(19,2) NULL,
+  tax_percent DECIMAL(5,2) NULL,
+  created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id_detalle_document),
+  KEY idx_factura_n (factura_n),
+  KEY idx_items (items),
+  KEY idx_unit_measure_id (unit_measure_id),
+  KEY idx_type_item_identification_id (type_item_identification_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ================================================================
 -- v4.11 — PrecioCosto en detalle_document_electronic
 -- (para que cierre_mes / estado_resultados calcule bien la utilidad
 -- cuando hay FE puras que no duplican tblventas)
@@ -659,6 +763,12 @@ ALTER TABLE tblmov_caja MODIFY COLUMN Tipo
 -- v4.14 — AUTO_INCREMENT en tblbancos.idBancos
 -- (permite crear cuentas bancarias sin especificar ID manual)
 -- ================================================================
+-- tblbancos.idBancos: PK + AUTO_INCREMENT (BDs legacy sin PK).
+SET @has_pk = (SELECT COUNT(*) FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tblbancos' AND INDEX_NAME = 'PRIMARY');
+SET @sql = IF(@has_pk = 0, "ALTER TABLE tblbancos ADD PRIMARY KEY (idBancos)", 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
 SET @is_autoinc_bancos = (SELECT COUNT(*) FROM information_schema.COLUMNS
     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tblbancos'
       AND COLUMN_NAME = 'idBancos' AND EXTRA LIKE '%auto_increment%');
@@ -727,27 +837,10 @@ CREATE TABLE IF NOT EXISTS tbl_pedidos_vendedor (
 
 SET @tbl_exists = (SELECT COUNT(*) FROM information_schema.TABLES
     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'electronic_documents');
-
--- Blindaje: agregar TODAS las columnas del esquema oficial de electronic_documents
--- que puedan faltar en instalaciones viejas de FE. Un solo ALTER, idempotente
--- (ADD COLUMN IF NOT EXISTS — MariaDB 10.0.2+, MySQL 8.0.29+).
-SET @sql = IF(@tbl_exists = 1,
-    "ALTER TABLE electronic_documents
-        ADD COLUMN IF NOT EXISTS origen VARCHAR(20) DEFAULT 'local' AFTER id,
-        ADD COLUMN IF NOT EXISTS id_vendedor_remoto INT NULL AFTER origen,
-        ADD COLUMN IF NOT EXISTS nombre_vendedor VARCHAR(150) NULL AFTER id_vendedor_remoto,
-        ADD COLUMN IF NOT EXISTS descuento DECIMAL(19,4) NOT NULL DEFAULT 0,
-        ADD COLUMN IF NOT EXISTS abono DECIMAL(19,4) NOT NULL DEFAULT 0,
-        ADD COLUMN IF NOT EXISTS codigoEmp INT NOT NULL DEFAULT 0,
-        ADD COLUMN IF NOT EXISTS id_mediopago INT NOT NULL DEFAULT 0,
-        ADD COLUMN IF NOT EXISTS efectivo DECIMAL(19,4) NOT NULL DEFAULT 0,
-        ADD COLUMN IF NOT EXISTS valorpagado1 DECIMAL(19,4) NOT NULL DEFAULT 0,
-        ADD COLUMN IF NOT EXISTS pagada VARCHAR(1) NOT NULL DEFAULT 'N',
-        ADD COLUMN IF NOT EXISTS nota TEXT NULL,
-        ADD COLUMN IF NOT EXISTS id_usuario INT NOT NULL DEFAULT 0,
-        ADD COLUMN IF NOT EXISTS invoice_cufe VARCHAR(255) NULL COMMENT 'CUFE de la factura referenciada en NC/ND',
-        ADD COLUMN IF NOT EXISTS sent_at TIMESTAMP NULL DEFAULT NULL,
-        ADD COLUMN IF NOT EXISTS EstadoFact INT NOT NULL DEFAULT 1 COMMENT '1=Valida, 2=Anulada'",
+SET @col_exists = IF(@tbl_exists = 0, 1, (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'electronic_documents' AND COLUMN_NAME = 'origen'));
+SET @sql = IF(@tbl_exists = 1 AND @col_exists = 0,
+    "ALTER TABLE electronic_documents ADD COLUMN origen VARCHAR(20) DEFAULT 'local' AFTER id, ADD COLUMN id_vendedor_remoto INT NULL AFTER origen, ADD COLUMN nombre_vendedor VARCHAR(150) NULL AFTER id_vendedor_remoto",
     'SELECT 1');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
@@ -801,6 +894,16 @@ WHERE COALESCE(Fact_N, 0) = 0
 -- 2a. Recrear vw_facturas_cliente_saldos (módulo nuevo, tblventas)
 -- IMPORTANTE: en BDs legacy la columna Tipo tiene encoding latin1 ("Cr_dito"
 -- con bytes raros). Usamos Tipo != 'Contado' para ser robustos al encoding.
+--
+-- v4.3.63 — Descuentos en pagos: `tblpagos.Descuento` es la rebaja que el
+-- vendedor otorga junto con el abono (ej. "Te descuento $15.000"). Antes la
+-- vista sumaba solo `ValorPago`, dejando el descuento sin restarse del saldo
+-- y mostrando saldo fantasma. Ahora se suman ambos: la factura queda en $0
+-- cuando (abonos + descuentos) igualan el Total. Caso AMMI Fact 932: Yonis
+-- Guerra con Total 160.000, pagos 145.000 + desc 15.000 aparecía con saldo
+-- 15.000 en cartera aunque el cache de tblventas ya estaba en 0.
+-- Fix legacy: en dumps VB6 el nombre puede haber quedado como TABLE (no VIEW) por sintaxis antigua rechazada por MariaDB. Eliminar ambos por seguridad.
+DROP TABLE IF EXISTS vw_facturas_cliente_saldos;
 DROP VIEW IF EXISTS vw_facturas_cliente_saldos;
 CREATE VIEW vw_facturas_cliente_saldos AS
 SELECT
@@ -820,10 +923,11 @@ LEFT JOIN (
     SELECT
         COALESCE(NULLIF(tp.Fact_N, 0),
                  CASE WHEN tp.NFactAnt REGEXP '^[0-9]+$' THEN CAST(tp.NFactAnt AS UNSIGNED) END) AS Fact_N,
-        SUM(tp.ValorPago) AS TotalPagos
+        SUM(tp.ValorPago + COALESCE(tp.Descuento, 0)) AS TotalPagos
     FROM tblpagos tp
     WHERE COALESCE(tp.Estado, 'Valida') = 'Valida'
-      AND tp.ValorPago > 0  -- defensivo: ignora reversos mal hechos (ValorPago<0) que envenenan el SUM y devuelven Saldo > Total
+      AND tp.ValorPago >= 0
+      AND COALESCE(tp.Descuento, 0) >= 0  -- defensivo: ignora reversos mal hechos (negativos) que envenenan el SUM
     GROUP BY COALESCE(NULLIF(tp.Fact_N, 0),
              CASE WHEN tp.NFactAnt REGEXP '^[0-9]+$' THEN CAST(tp.NFactAnt AS UNSIGNED) END)
 ) p ON p.Fact_N = v.Factura_N
@@ -852,10 +956,11 @@ FROM tblfacturasanteriores fa
 LEFT JOIN (
     SELECT tp.Codigo AS CodigoCli,
            COALESCE(NULLIF(tp.NFactAnt, ''), CAST(tp.Fact_N AS CHAR)) AS FacturaN,
-           SUM(tp.ValorPago) AS TotalPagos
+           SUM(tp.ValorPago + COALESCE(tp.Descuento, 0)) AS TotalPagos
     FROM tblpagos tp
     WHERE COALESCE(tp.Estado, 'Valida') = 'Valida'
-      AND tp.ValorPago > 0  -- defensivo: ignora reversos mal hechos (ValorPago<0)
+      AND tp.ValorPago >= 0
+      AND COALESCE(tp.Descuento, 0) >= 0  -- defensivo: ignora reversos mal hechos (negativos)
       AND ((tp.NFactAnt IS NOT NULL AND tp.NFactAnt <> '') OR tp.Fact_N IS NOT NULL)
     GROUP BY tp.Codigo, COALESCE(NULLIF(tp.NFactAnt, ''), CAST(tp.Fact_N AS CHAR))
 ) p ON p.CodigoCli = fa.CodigoCli AND p.FacturaN = fa.FacturaN
@@ -864,19 +969,6 @@ PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 -- 2c. Recrear vw_facturas_elec_cliente_saldos (módulo FE — electronic_documents)
 -- Solo se crea si existe la tabla electronic_documents (FE habilitada).
-
--- Pre-requisito: columna tblpagos.Nfact_electronica (vincula un pago con un
--- documento electrónico). Se crea idempotente para que la vista siguiente
--- no falle en BDs que ya tienen FE habilitada pero no tenían esta columna.
-SET @col_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS
-    WHERE TABLE_SCHEMA = DATABASE()
-      AND TABLE_NAME = 'tblpagos'
-      AND COLUMN_NAME = 'Nfact_electronica');
-SET @sql = IF(@col_exists = 0,
-    "ALTER TABLE tblpagos ADD COLUMN Nfact_electronica VARCHAR(30) DEFAULT NULL, ADD KEY idx_nfact_electronica (Nfact_electronica)",
-    'SELECT 1');
-PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
-
 SET @t = (SELECT COUNT(*) FROM information_schema.TABLES
           WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'electronic_documents');
 
@@ -908,34 +1000,17 @@ JOIN tblclientes c ON c.CodigoClien = v.cod_cliente
 LEFT JOIN (
     SELECT tp.Codigo AS CodigoCli,
            CAST(NULLIF(tp.Nfact_electronica, '') AS UNSIGNED) AS DocID,
-           SUM(tp.ValorPago) AS TotalPagos
+           SUM(tp.ValorPago + COALESCE(tp.Descuento, 0)) AS TotalPagos
     FROM tblpagos tp
     WHERE tp.Estado = 'Valida'
-      AND tp.ValorPago > 0  -- defensivo: ignora reversos mal hechos
+      AND tp.ValorPago >= 0
+      AND COALESCE(tp.Descuento, 0) >= 0  -- defensivo: ignora reversos mal hechos (negativos)
       AND tp.Nfact_electronica IS NOT NULL
     GROUP BY tp.Codigo, CAST(NULLIF(tp.Nfact_electronica, '') AS UNSIGNED)
 ) p ON p.CodigoCli = v.cod_cliente AND p.DocID = v.id
 WHERE v.payment_form_id = 2 AND v.status = 'autorizado' AND v.type_document_id = 1
 ", 'SELECT 1');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
-
--- ================================================================
--- v5.6 — Columnas FE + GPS en tblclientes (para app móvil y FE)
--- • GPS: capturado por vendedores móviles al crear cliente en ruta.
--- • FE:  FKs DIAN (documento, municipio, responsabilidad, organización,
---        régimen). Existen en instalaciones con módulo FE v5.2 activo;
---        idempotente para BDs viejas sin FE.
--- ================================================================
-ALTER TABLE tblclientes
-    ADD COLUMN IF NOT EXISTS id_documento INT NULL DEFAULT 2 COMMENT 'FK DIAN tipo documento',
-    ADD COLUMN IF NOT EXISTS id_municipio INT NULL COMMENT 'FK DIAN municipio',
-    ADD COLUMN IF NOT EXISTS id_type_liability INT NULL COMMENT 'FK DIAN responsabilidad tributaria',
-    ADD COLUMN IF NOT EXISTS id_type_organization INT NULL COMMENT 'FK DIAN tipo organizacion',
-    ADD COLUMN IF NOT EXISTS id_type_regime INT NULL COMMENT 'FK DIAN regimen',
-    ADD COLUMN IF NOT EXISTS latitud DECIMAL(10,6) NULL,
-    ADD COLUMN IF NOT EXISTS longitud DECIMAL(10,6) NULL,
-    ADD COLUMN IF NOT EXISTS precision_gps_metros INT NULL,
-    ADD COLUMN IF NOT EXISTS gps_capturado_at DATETIME NULL;
 
 -- ================================================================
 -- v5.5 — Comportamiento + castigo en tblclientes (refactor)
@@ -996,6 +1071,13 @@ SET @idx = (SELECT COUNT(*) FROM information_schema.STATISTICS WHERE TABLE_SCHEM
 SET @sql = IF(@idx=0, "ALTER TABLE tblclientes ADD INDEX idx_cartera_castigada (cartera_castigada)", 'SELECT 1');
 PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
 
+-- Marca "Facturar al último precio del cliente" (mismo patrón que Preciocosto).
+-- Cuando =1, al agregar un producto a una nueva venta se busca el último precio
+-- al que se le vendió a este cliente y se usa en vez de la lista de precios.
+SET @col = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='tblclientes' AND COLUMN_NAME='UltimoPrecio');
+SET @sql = IF(@col=0, "ALTER TABLE tblclientes ADD COLUMN UltimoPrecio TINYINT(1) DEFAULT 0", 'SELECT 1');
+PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
+
 -- ================================================================
 -- v5.6 — Vistas de proveedores (saldos, aging, facturas anteriores,
 --        pedidos crédito). Antes solo se creaban en algunas BDs;
@@ -1010,10 +1092,59 @@ PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
 
 -- email_recipient: lista de correos a los que se envió la FE (separados por coma).
 -- Necesario para que el envío múltiple guarde el detalle completo.
-SET @col = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='electronic_documents' AND COLUMN_NAME='email_recipient');
-SET @sql = IF(@col=0, "ALTER TABLE electronic_documents ADD COLUMN email_recipient VARCHAR(500) NULL", 'SELECT 1');
+-- Solo aplica si la tabla existe — clientes sin facturación electrónica no la tienen.
+SET @tb = (SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='electronic_documents');
+SET @col = IF(@tb=1,
+    (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='electronic_documents' AND COLUMN_NAME='email_recipient'),
+    1);
+SET @sql = IF(@tb=1 AND @col=0, "ALTER TABLE electronic_documents ADD COLUMN email_recipient VARCHAR(500) NULL", 'SELECT 1');
 PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
 
+-- Defaults para columnas NOT NULL de electronic_documents.
+-- Sin estos defaults, INSERTs desde enviar.php fallan con
+-- "Field 'X' doesn't have a default value" en BDs creadas con esquema
+-- viejo de Conta FT (caso INVERSIONES EBENEZER, 4.3.56).
+SET @tb = (SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='electronic_documents');
+SET @sql = IF(@tb=1, "
+  ALTER TABLE electronic_documents
+    MODIFY descuento DECIMAL(19,4) NOT NULL DEFAULT 0.0000,
+    MODIFY abono DECIMAL(19,4) NOT NULL DEFAULT 0.0000,
+    MODIFY efectivo DECIMAL(19,4) NOT NULL DEFAULT 0.0000,
+    MODIFY valorpagado1 DECIMAL(19,4) NOT NULL DEFAULT 0.0000,
+    MODIFY codigoEmp INT(11) NOT NULL DEFAULT 0,
+    MODIFY id_mediopago INT(11) NOT NULL DEFAULT 0
+", 'SELECT 1');
+PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
+
+-- detalle_document_electronic.id_detalle_document debe ser AUTO_INCREMENT.
+-- BDs viejas la tienen como PK normal sin auto-incremento → INSERT desde
+-- enviar.php (que no envía id) falla. Solo aplica si la tabla existe.
+SET @tb = (SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='detalle_document_electronic');
+SET @is_ai = IFNULL((SELECT IF(EXTRA LIKE '%auto_increment%', 1, 0) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='detalle_document_electronic' AND COLUMN_NAME='id_detalle_document'), 0);
+-- Bumpear filas con id=0 antes del ALTER (si existen) para no romper la PK
+SET @sql = IF(@tb=1 AND @is_ai=0, "
+  UPDATE detalle_document_electronic
+  SET id_detalle_document = (SELECT next_id FROM (SELECT IFNULL(MAX(id_detalle_document),0)+1 AS next_id FROM detalle_document_electronic WHERE id_detalle_document > 0) t)
+  WHERE id_detalle_document = 0
+", 'SELECT 1');
+PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
+-- Asegurar PRIMARY KEY antes de auto_increment (BDs legacy la tienen sin PK)
+SET @has_pk = IF(@tb=1,
+    (SELECT COUNT(*) FROM information_schema.STATISTICS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'detalle_document_electronic' AND INDEX_NAME = 'PRIMARY'),
+    1);
+SET @sql = IF(@tb=1 AND @is_ai=0 AND @has_pk=0,
+    "ALTER TABLE detalle_document_electronic ADD PRIMARY KEY (id_detalle_document)",
+    'SELECT 1');
+PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
+SET @sql = IF(@tb=1 AND @is_ai=0,
+  "ALTER TABLE detalle_document_electronic MODIFY id_detalle_document INT(11) NOT NULL AUTO_INCREMENT",
+  'SELECT 1');
+PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
+
+-- Fix legacy: en dumps VB6 el nombre puede haber quedado como TABLE (no VIEW) por sintaxis antigua rechazada por MariaDB. Eliminar ambos por seguridad.
+DROP TABLE IF EXISTS vw_prov_facturas_anteriores_saldos;
 DROP VIEW IF EXISTS vw_prov_facturas_anteriores_saldos;
 CREATE VIEW vw_prov_facturas_anteriores_saldos AS
 SELECT
@@ -1037,11 +1168,600 @@ LEFT JOIN (
        AND pag.NFacturaAnt = f.FacturaN
 GROUP BY f.FacturaN, f.CodigoProv, p.RazonSocial, f.Fecha, f.Dias;
 
+-- Vista de pedidos crédito con saldo REAL calculado desde tblegresos.
+-- Reemplaza la lectura del cache `tblpedidos.Saldo` que suele estar
+-- desincronizado en BDs legacy (misma lógica que usa el software VB6).
+-- Fix legacy: en dumps VB6 el nombre puede haber quedado como TABLE (no VIEW) por sintaxis antigua rechazada por MariaDB. Eliminar ambos por seguridad.
+DROP TABLE IF EXISTS vw_prov_pedidos_credito_saldos;
+DROP VIEW IF EXISTS vw_prov_pedidos_credito_saldos;
+-- La vista lee del cache `tblpedidos.Saldo` que el sistema mantiene
+-- actualizado al aplicar pagos (proveedores/listar.php action=pagar).
+-- Antes esta vista recalculaba desde tblegresos con JOIN + GROUP BY, tardando
+-- 1-3 segundos en BDs con miles de pedidos (bug ICOPLASTIC agosto 2026).
+-- Ahora tarda ~15ms.
+--
+-- IMPORTANTE: para clientes existentes puede que el cache esté desincronizado
+-- por bugs históricos. Correr `fix_vista_saldos_proveedores.sql` que hace un
+-- UPDATE one-shot que recalcula el cache desde ambos formatos de pago
+-- (FactN + NFacturaAnt) y luego crea esta vista.
+CREATE VIEW vw_prov_pedidos_credito_saldos AS
+SELECT
+  b.FacturaCompra_N                 AS FacturaN,
+  b.CodigoPro                       AS CodigoPro,
+  p.RazonSocial                     AS RazonSocial,
+  b.Fecha                           AS Fecha,
+  b.Dias                            AS Dias,
+  b.Fecha + INTERVAL b.Dias DAY     AS Fechav,
+  b.Total                           AS Total,
+  b.Total - b.Saldo                 AS TotalPagos,
+  b.Saldo                           AS Saldo,
+  b.TipoPedido,
+  b.EstadoPedido,
+  b.Pedido_N
+FROM tblpedidos b
+INNER JOIN tblproveedores p ON p.CodigoPro = b.CodigoPro
+WHERE b.TipoPedido <> 'Contado' AND b.EstadoPedido = 'Recibido';
+
+-- Aging unificado: facturas anteriores + pedidos crédito, solo con Saldo>0
+-- Fix legacy: en dumps VB6 el nombre puede haber quedado como TABLE (no VIEW) por sintaxis antigua rechazada por MariaDB. Eliminar ambos por seguridad.
+DROP TABLE IF EXISTS vw_prov_cxp_aging;
+DROP VIEW IF EXISTS vw_prov_cxp_aging;
+CREATE VIEW vw_prov_cxp_aging AS
+SELECT
+  x.CodigoPro, x.RazonSocial, x.FacturaN, x.Fecha, x.Dias, x.Fechav,
+  x.Total, x.TotalPagos, x.Saldo,
+  CASE WHEN CURDATE() >= x.Fechav THEN DATEDIFF(CURDATE(), x.Fechav) ELSE 0 END AS DiasVenc,
+  (CURDATE() > x.Fechav) AS Vencida,
+  x.Origen
+FROM (
+  SELECT FacturaN, CodigoPro, RazonSocial, Fecha, Dias, Fechav, Total, TotalPagos, Saldo,
+         'FacturasAnteriores' AS Origen
+  FROM vw_prov_facturas_anteriores_saldos WHERE Saldo > 0
+  UNION ALL
+  SELECT FacturaN, CodigoPro, RazonSocial, Fecha, Dias, Fechav, Total, TotalPagos, Saldo,
+         'PedidosCredito' AS Origen
+  FROM vw_prov_pedidos_credito_saldos WHERE Saldo > 0
+) x;
+
+-- Saldo actual por proveedor (agregado)
+-- Fix legacy: en dumps VB6 el nombre puede haber quedado como TABLE (no VIEW) por sintaxis antigua rechazada por MariaDB. Eliminar ambos por seguridad.
+DROP TABLE IF EXISTS vw_proveedores_saldo_actual;
+DROP VIEW IF EXISTS vw_proveedores_saldo_actual;
+CREATE VIEW vw_proveedores_saldo_actual AS
+SELECT
+  CodigoPro, RazonSocial,
+  SUM(CASE WHEN Origen = 'FacturasAnteriores' THEN Saldo ELSE 0 END) AS SaldoAnterior,
+  SUM(CASE WHEN Origen = 'PedidosCredito'     THEN Saldo ELSE 0 END) AS SaldoPedidos,
+  SUM(Saldo) AS SaldoActual
+FROM vw_prov_cxp_aging
+GROUP BY CodigoPro, RazonSocial;
+
+-- ================================================================
+-- v4.3.63 — Backfill electronic_documents: payment_form_id,
+-- payment_method_id, payment_due_days
+--
+-- Estos 3 campos quedaban en NULL en versiones anteriores porque el
+-- INSERT del enviar.php no los persistía, aunque se calculaban para el
+-- JSON hacia DIAN. Sin esto:
+--   - El listado no puede mostrar Contado/Crédito.
+--   - La consulta de eventos DIAN (aplica solo a créditos) no se activa.
+--   - No hay forma de saber el plazo de pago desde la factura local.
+--
+-- Backfill idempotente: solo actualiza filas donde el campo está NULL,
+-- vinculando por CUFE con tblventas (que sí tiene Tipo, Dias, id_mediopago).
+-- ================================================================
+-- Solo aplica en BDs con FE habilitada. Clientes sin FE no tienen
+-- `electronic_documents` — se salta con IF sobre @tb.
+SET @tb = (SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='electronic_documents');
+
+SET @sql = IF(@tb=1,
+  "UPDATE electronic_documents e JOIN tblventas v ON v.cufe = e.cufe
+   SET e.payment_form_id = CASE WHEN v.Tipo = 'Contado' THEN 1 ELSE 2 END
+   WHERE e.payment_form_id IS NULL AND e.type_document_id = 1 AND e.cufe <> ''",
+  'SELECT 1');
+PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
+
+SET @sql = IF(@tb=1,
+  "UPDATE electronic_documents e JOIN tblventas v ON v.cufe = e.cufe
+   SET e.payment_due_days = COALESCE(v.Dias, 0)
+   WHERE e.payment_due_days IS NULL AND e.type_document_id = 1 AND e.cufe <> ''
+     AND e.payment_form_id = 2",
+  'SELECT 1');
+PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
+
+SET @sql = IF(@tb=1,
+  "UPDATE electronic_documents e JOIN tblventas v ON v.cufe = e.cufe
+   SET e.payment_method_id = CASE
+       WHEN v.id_mediopago = 1  THEN 14
+       WHEN v.id_mediopago >= 2 THEN 30
+       ELSE                          10
+   END
+   WHERE e.payment_method_id IS NULL AND e.type_document_id = 1 AND e.cufe <> ''",
+  'SELECT 1');
+PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
+
+-- ================================================================
+-- v4.3.63 — Cotizaciones: AUTO_INCREMENT en PK (fix bug 1364)
+-- En BDs viejas tblcotizaciones.id_cotizacion y detalle_cotizacion.
+-- id_detalle_cotiza están como NOT NULL sin AUTO_INCREMENT, lo que
+-- impide hacer INSERT desde el módulo de cotizaciones.
+-- Aplicamos AUTO_INCREMENT idempotentemente — solo si no lo tienen ya.
+-- ================================================================
+-- tblcotizaciones: asegurar PK antes de AUTO_INCREMENT (BDs legacy sin PK)
+SET @has_pk = (SELECT COUNT(*) FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tblcotizaciones' AND INDEX_NAME = 'PRIMARY');
+SET @sql = IF(@has_pk = 0, "ALTER TABLE tblcotizaciones ADD PRIMARY KEY (id_cotizacion)", 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @is_autoinc = (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tblcotizaciones'
+      AND COLUMN_NAME = 'id_cotizacion' AND EXTRA LIKE '%auto_increment%');
+SET @sql = IF(@is_autoinc = 0,
+    'ALTER TABLE tblcotizaciones MODIFY id_cotizacion INT(11) NOT NULL AUTO_INCREMENT',
+    'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- detalle_cotizacion: mismo patrón
+SET @has_pk = (SELECT COUNT(*) FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'detalle_cotizacion' AND INDEX_NAME = 'PRIMARY');
+SET @sql = IF(@has_pk = 0, "ALTER TABLE detalle_cotizacion ADD PRIMARY KEY (id_detalle_cotiza)", 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @is_autoinc = (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'detalle_cotizacion'
+      AND COLUMN_NAME = 'id_detalle_cotiza' AND EXTRA LIKE '%auto_increment%');
+SET @sql = IF(@is_autoinc = 0,
+    'ALTER TABLE detalle_cotizacion MODIFY id_detalle_cotiza INT(11) NOT NULL AUTO_INCREMENT',
+    'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
 -- NOTA — El módulo Vendedores Móviles aún está EN PRUEBAS y su SQL NO se
 -- distribuye en este archivo a clientes en producción. Las migraciones
 -- necesarias para activar ese módulo (columnas GPS en tblclientes y
 -- migration Lumen) están en `modulo_vendedores_movil.sql` aparte, y solo
 -- se aplican cuando un cliente específico contrata la opción.
+
+-- ================================================================
+-- v4.3.63 — Facturas Recibidas + Eventos DIAN de acuse
+--
+-- El cliente RECIBE facturas electrónicas de sus proveedores (por
+-- correo, en ZIP). Debe emitir eventos DIAN sobre ellas dentro de
+-- 3 días hábiles (030 acuse) para cumplir norma. Este módulo maneja:
+--   - Persistir la FE recibida (cabecera + líneas)
+--   - Historial de eventos aplicados (030/031/032/033/034)
+--   - Vincular con tblcompras cuando se registra la compra contable
+--
+-- Reglas DIAN implementadas:
+--   - Idempotencia por CUFE — UNIQUE key en facturas_recibidas
+--   - No reenviar el mismo evento aprobado — UNIQUE compuesto
+-- ================================================================
+CREATE TABLE IF NOT EXISTS facturas_recibidas (
+    id                       INT AUTO_INCREMENT PRIMARY KEY,
+    cufe                     VARCHAR(200) NOT NULL,
+    tipo_documento           VARCHAR(20)  NOT NULL DEFAULT 'invoice',    -- invoice / credit-note / debit-note
+    document_type_code       VARCHAR(4)   DEFAULT '01',                  -- 01=FE, 91=NC, 92=ND
+    numero                   VARCHAR(50)  NULL,
+    prefijo                  VARCHAR(10)  NULL,
+    fecha_emision            DATE         NULL,
+    fecha_recepcion          DATETIME     DEFAULT CURRENT_TIMESTAMP,
+    emisor_nit               VARCHAR(30)  NULL,
+    emisor_dv                VARCHAR(2)   NULL,
+    emisor_nombre            VARCHAR(200) NULL,
+    emisor_organization_type VARCHAR(2)   DEFAULT '1',                    -- 1=Jurídica, 2=Natural
+    receptor_nit             VARCHAR(30)  NULL,
+    receptor_nombre          VARCHAR(200) NULL,
+    subtotal                 DECIMAL(15,2) DEFAULT 0,
+    total_iva                DECIMAL(15,2) DEFAULT 0,
+    total                    DECIMAL(15,2) DEFAULT 0,
+    moneda                   VARCHAR(3)   DEFAULT 'COP',
+    archivo_original_nombre  VARCHAR(255) NULL,
+    xml_filename             VARCHAR(255) NULL,
+    xml_path                 VARCHAR(500) NULL,
+    compra_id                INT          NULL,                            -- FK a tblcompras (opcional)
+    created_at               TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uq_cufe (cufe),
+    KEY idx_fecha_emision (fecha_emision),
+    KEY idx_compra (compra_id),
+    KEY idx_emisor (emisor_nit)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE IF NOT EXISTS detalle_factura_recibida (
+    id                   INT AUTO_INCREMENT PRIMARY KEY,
+    factura_recibida_id  INT NOT NULL,
+    linea_num            INT DEFAULT 1,
+    codigo               VARCHAR(60)  NULL,
+    descripcion          VARCHAR(500) NULL,
+    unidad_medida        VARCHAR(20)  NULL,
+    cantidad             DECIMAL(15,3) DEFAULT 1,
+    precio_unitario      DECIMAL(15,2) DEFAULT 0,
+    descuento            DECIMAL(15,2) DEFAULT 0,
+    iva_pct              DECIMAL(5,2)  DEFAULT 0,
+    iva_monto            DECIMAL(15,2) DEFAULT 0,
+    subtotal             DECIMAL(15,2) DEFAULT 0,
+    total_linea          DECIMAL(15,2) DEFAULT 0,
+    KEY idx_factura (factura_recibida_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE IF NOT EXISTS eventos_factura_recibida (
+    id                    INT AUTO_INCREMENT PRIMARY KEY,
+    factura_recibida_id   INT NOT NULL,
+    event_code            VARCHAR(4) NOT NULL,        -- 030 / 031 / 032 / 033 / 034
+    event_label           VARCHAR(120) NULL,
+    cude_evento           VARCHAR(200) NULL,          -- CUDE devuelto por la API
+    event_id_remoto       INT NULL,                   -- ID en electronic_document_events (API Lumen)
+    dian_status           VARCHAR(10) NULL,           -- '00' = aceptado
+    dian_message          TEXT NULL,
+    rejection_code        VARCHAR(10)  NULL,          -- solo 031
+    rejection_description VARCHAR(500) NULL,          -- solo 031
+    note                  TEXT NULL,                  -- solo 034 (declaración jurada)
+    api_response          LONGTEXT NULL,              -- JSON completo de la API (debug)
+    estado                ENUM('pendiente','aprobado','rechazado') DEFAULT 'pendiente',
+    enviado_at            DATETIME NULL,
+    usuario_id            INT NULL,
+    created_at            TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    -- Marker generado: solo tiene valor cuando el evento fue APROBADO. En
+    -- combinación con el UNIQUE de abajo, esto permite:
+    --   * UN solo evento aprobado por (factura, code)  → previene duplicar
+    --     aprobados que ya son título valor en DIAN.
+    --   * VARIOS pendientes/rechazados por (factura, code)  → permite
+    --     reintentar sin chocar con intentos anteriores fallidos.
+    -- MySQL trata múltiples NULL como distintos en un UNIQUE.
+    aprobado_marker       VARCHAR(4) GENERATED ALWAYS AS
+        (CASE WHEN estado = 'aprobado' THEN event_code ELSE NULL END) STORED,
+    KEY idx_factura (factura_recibida_id),
+    KEY idx_estado (estado),
+    UNIQUE KEY uq_solo_aprobado (factura_recibida_id, aprobado_marker)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- Fix retroactivo: BDs que ya tienen la tabla con el UNIQUE viejo
+-- `uq_evento_aprobado (factura_recibida_id, event_code, estado)` deben
+-- migrar al nuevo UNIQUE parcial. Idempotente.
+SET @has_bad_uq = (SELECT COUNT(*) FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME  = 'eventos_factura_recibida'
+      AND INDEX_NAME  = 'uq_evento_aprobado');
+SET @sql = IF(@has_bad_uq > 0,
+    'ALTER TABLE eventos_factura_recibida DROP INDEX uq_evento_aprobado',
+    'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @has_marker = (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME  = 'eventos_factura_recibida'
+      AND COLUMN_NAME = 'aprobado_marker');
+SET @sql = IF(@has_marker = 0,
+    "ALTER TABLE eventos_factura_recibida ADD COLUMN aprobado_marker VARCHAR(4) GENERATED ALWAYS AS (CASE WHEN estado = 'aprobado' THEN event_code ELSE NULL END) STORED",
+    'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @has_new_uq = (SELECT COUNT(*) FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME  = 'eventos_factura_recibida'
+      AND INDEX_NAME  = 'uq_solo_aprobado');
+SET @sql = IF(@has_new_uq = 0,
+    'ALTER TABLE eventos_factura_recibida ADD UNIQUE KEY uq_solo_aprobado (factura_recibida_id, aprobado_marker)',
+    'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- FK opcional a tblcompras si aún no existe la relación (idempotente).
+-- No la creamos como constraint dura porque compra_id puede ser NULL hasta
+-- que el usuario decide convertir la FE recibida en compra contable.
+
+-- ================================================================
+-- v4.3.64 — DescripcionTemp de tbldetalle_venta a VARCHAR(500)
+-- Conceptos largos (servicios profesionales de FE) rompían con el
+-- VARCHAR(100) original: "SQLSTATE[22001] Data too long".
+-- Idempotente: MODIFY es seguro correrlo N veces.
+-- ================================================================
+ALTER TABLE tbldetalle_venta MODIFY COLUMN DescripcionTemp VARCHAR(500) NULL;
+
+-- ================================================================
+-- v4.3.64 — id_mediopago en tblegresos
+-- Los pagos de compras al contado ahora registran el medio de pago
+-- (Efectivo/Tarjeta/Bancolombia/Nequi) igual que ventas. Los códigos
+-- coinciden con tblmedios_pago (0=Efectivo, 1=Tarjeta, 2=Bancolombia, 3=Nequi).
+-- Solo el medio_pago = 0 (efectivo) descuenta de tblcajas.
+-- ================================================================
+SET @col_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tblegresos' AND COLUMN_NAME = 'id_mediopago');
+SET @sql = IF(@col_exists = 0,
+    "ALTER TABLE tblegresos ADD COLUMN id_mediopago INT NOT NULL DEFAULT 0, ADD KEY idx_egr_medio (id_mediopago)",
+    'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- ================================================================
+-- v4.3.70 — Módulo de Financiaciones (opcional, activado por empresa)
+--
+-- Sistema simple de crédito con cuotas para negocios como venta de motos:
+-- - Registrar financiación de una venta con cronograma de cuotas
+-- - Cuotas de valor variable, fechas editables
+-- - Registrar pagos parciales o totales; el pago va a tblpagos también
+--
+-- El módulo NO se muestra por default. Se activa por empresa vía
+-- tbldatosempresa.modulo_financiaciones = 1. Todo el resto del sistema
+-- ignora las tablas nuevas si el módulo no está activo.
+-- ================================================================
+
+-- Flag en tbldatosempresa
+SET @col_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tbldatosempresa'
+      AND COLUMN_NAME = 'modulo_financiaciones');
+SET @sql = IF(@col_exists = 0,
+    "ALTER TABLE tbldatosempresa ADD COLUMN modulo_financiaciones TINYINT(1) NOT NULL DEFAULT 0",
+    'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- Contrato de financiación (1 fila por venta financiada)
+CREATE TABLE IF NOT EXISTS tblfinanciaciones (
+    Id_Financiacion INT AUTO_INCREMENT PRIMARY KEY,
+    Consecutivo     VARCHAR(20) NULL COMMENT 'Ej. F-001 o consecutivo por resolución',
+    Fecha           DATE NOT NULL,
+    Codigo          INT NOT NULL COMMENT 'CodigoClien del cliente',
+    Descripcion     VARCHAR(300) NULL COMMENT 'Ej. Moto Hero NKD 125 Placa XXX',
+    MontoTotal      DECIMAL(15,2) NOT NULL DEFAULT 0,
+    CuotaInicial    DECIMAL(15,2) NOT NULL DEFAULT 0,
+    MontoFinanciado DECIMAL(15,2) NOT NULL DEFAULT 0,
+    NumCuotas       INT NOT NULL DEFAULT 1,
+    FrecuenciaDias  INT NOT NULL DEFAULT 30,
+    FechaPrimeraCuota DATE NULL,
+    Factura_N       INT NULL COMMENT 'Vínculo opcional con tblventas.Factura_N',
+    Id_Usuario      INT NULL COMMENT 'Vendedor',
+    Estado          VARCHAR(15) NOT NULL DEFAULT 'Activa' COMMENT 'Activa | Pagada | Anulada',
+    Comentario      TEXT NULL,
+    FechaCreacion   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FechaMod        TIMESTAMP NULL ON UPDATE CURRENT_TIMESTAMP,
+    KEY idx_cliente (Codigo),
+    KEY idx_estado (Estado),
+    KEY idx_fecha (Fecha)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Cuotas del cronograma (N filas por contrato)
+CREATE TABLE IF NOT EXISTS tblfinanciacion_cuotas (
+    Id_Cuota        INT AUTO_INCREMENT PRIMARY KEY,
+    Id_Financiacion INT NOT NULL,
+    NumCuota        INT NOT NULL,
+    FechaVencimiento DATE NOT NULL,
+    ValorCuota      DECIMAL(15,2) NOT NULL DEFAULT 0,
+    ValorPagado     DECIMAL(15,2) NOT NULL DEFAULT 0,
+    Saldo           DECIMAL(15,2) NOT NULL DEFAULT 0 COMMENT 'ValorCuota - ValorPagado',
+    Estado          VARCHAR(15) NOT NULL DEFAULT 'Pendiente' COMMENT 'Pendiente | Parcial | Pagada',
+    FechaUltimoPago DATE NULL,
+    KEY idx_financ (Id_Financiacion),
+    KEY idx_vencimiento (FechaVencimiento),
+    KEY idx_estado (Estado)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Vínculo pago ↔ cuota (permite pagos parciales y múltiples pagos por cuota)
+CREATE TABLE IF NOT EXISTS tblfinanciacion_pagos (
+    Id_FinancPago   INT AUTO_INCREMENT PRIMARY KEY,
+    Id_Cuota        INT NOT NULL,
+    Id_Financiacion INT NOT NULL,
+    Id_Pagos        INT NULL COMMENT 'FK opcional a tblpagos para trazabilidad contable',
+    Fecha           DATE NOT NULL,
+    Valor           DECIMAL(15,2) NOT NULL,
+    id_mediopago    INT NOT NULL DEFAULT 0 COMMENT '0=Efectivo 1=Tarjeta 2=Bancolombia 3=Nequi',
+    Id_Usuario      INT NULL,
+    Estado          VARCHAR(10) NOT NULL DEFAULT 'Valida' COMMENT 'Valida | Anulada',
+    FechaCreacion   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_cuota (Id_Cuota),
+    KEY idx_financ (Id_Financiacion),
+    KEY idx_fecha (Fecha)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Tasa de interés de mora (% mensual sobre valor de cuota vencida).
+-- Se calcula on-the-fly: interes = valor_cuota × (tasa/100) × (dias_mora/30)
+-- El valor 0 significa "no cobrar mora" y es el default para no impactar
+-- clientes que no manejan intereses.
+SET @col_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tbldatosempresa'
+      AND COLUMN_NAME = 'tasa_mora_mensual');
+SET @sql = IF(@col_exists = 0,
+    "ALTER TABLE tbldatosempresa ADD COLUMN tasa_mora_mensual DECIMAL(5,2) NOT NULL DEFAULT 0 COMMENT '% mensual sobre cuota vencida'",
+    'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- Marca el pago de una cuota como "interés de mora" (concepto separado)
+-- para que no reduzca el saldo del capital.
+SET @col_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tblfinanciacion_pagos'
+      AND COLUMN_NAME = 'EsInteresMora');
+SET @sql = IF(@col_exists = 0,
+    "ALTER TABLE tblfinanciacion_pagos ADD COLUMN EsInteresMora TINYINT(1) NOT NULL DEFAULT 0 COMMENT '1=pago de interes de mora, 0=abono a capital'",
+    'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- v4.3.75 — Borradores de FE (reemplaza el concepto interno "contingencia").
+-- La contingencia real requiere resolución específica de la DIAN — este
+-- estado NO es contingencia oficial, es un borrador local editable antes
+-- de enviar a DIAN. Los registros históricos con prefix='FCON' y status
+-- pendiente/rechazado se renombran a status='borrador' para consistencia.
+-- Solo aplica en BDs con FE (electronic_documents existe).
+SET @tb = (SELECT COUNT(*) FROM information_schema.TABLES
+    WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='electronic_documents');
+SET @sql = IF(@tb=1,
+    "UPDATE electronic_documents
+        SET status='borrador'
+        WHERE prefix='FCON' AND number=0 AND status IN ('pendiente','rechazado')",
+    'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- v4.3.74 — Datos del comprador ocasional en electronic_documents.
+-- Las FE van directo a electronic_documents (no a tblventas). Cuando el
+-- comprador se registra via consulta DIAN (Res. 202/2025) sin crear cliente,
+-- sus datos (nombre + email) tienen que guardarse en la propia FE para no
+-- perderlos. Antes se leían de tblclientes usando cod_cliente=130500
+-- (genérico VENTAS AL CONTADO) y eran incorrectos.
+SET @col_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'electronic_documents'
+      AND COLUMN_NAME = 'customer_name');
+SET @sql = IF(@col_exists = 0,
+    "ALTER TABLE electronic_documents
+        ADD COLUMN customer_name VARCHAR(200) NULL COMMENT 'Nombre del comprador ocasional (cuando no está en tblclientes)',
+        ADD COLUMN customer_email VARCHAR(150) NULL COMMENT 'Email del comprador ocasional'",
+    'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- v4.3.74 — Módulo Anticipos de Clientes (opcional, activado por empresa)
+--
+-- Un anticipo es dinero que el cliente entrega hoy para usar en compras
+-- futuras. Se registra como INGRESO en caja/banco pero contablemente es
+-- un pasivo (deuda con el cliente). Al aplicarlo en una venta futura,
+-- reduce el saldo del anticipo (nunca por debajo de 0) y se marca en
+-- tblpagos como origen 'anticipo' para trazabilidad.
+--
+-- Activable con toggle `usarAnticipos` en Configuración del Sistema.
+-- Sin el flag, el módulo queda oculto y la tabla ni se crea implica.
+
+SET @col_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tbldatosempresa'
+      AND COLUMN_NAME = 'modulo_anticipos');
+SET @sql = IF(@col_exists = 0,
+    "ALTER TABLE tbldatosempresa ADD COLUMN modulo_anticipos TINYINT(1) NOT NULL DEFAULT 0",
+    'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- Anticipos (avances) de clientes — cabecera
+CREATE TABLE IF NOT EXISTS tblanticipos_cliente (
+    Id_Anticipo    INT AUTO_INCREMENT PRIMARY KEY,
+    Consecutivo    VARCHAR(20) NULL COMMENT 'ANT-XXXX autogenerado',
+    Fecha          DATE NOT NULL,
+    CodigoCli      INT NOT NULL COMMENT 'CodigoClien del cliente',
+    Valor          DECIMAL(15,2) NOT NULL COMMENT 'Monto original entregado',
+    Saldo          DECIMAL(15,2) NOT NULL COMMENT 'Cuánto queda disponible',
+    id_mediopago   INT NOT NULL DEFAULT 0 COMMENT '0=Efectivo 1=Tarjeta 2=Bancolombia 3=Nequi',
+    Concepto       VARCHAR(200) NULL,
+    Id_Usuario     INT NULL,
+    Estado         VARCHAR(15) NOT NULL DEFAULT 'Vigente' COMMENT 'Vigente | Aplicado | Devuelto | Anulado',
+    FechaCreacion  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FechaMod       TIMESTAMP NULL,
+    KEY idx_cliente (CodigoCli),
+    KEY idx_estado (Estado),
+    KEY idx_fecha (Fecha)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Movimientos del anticipo — cada aplicación en venta o devolución
+-- deja rastro aquí. NO se borra: si se anula una aplicación, se registra
+-- un movimiento inverso. Mismo criterio que kardex inmutable.
+CREATE TABLE IF NOT EXISTS tblanticipo_movs (
+    Id_Mov          INT AUTO_INCREMENT PRIMARY KEY,
+    Id_Anticipo     INT NOT NULL,
+    Fecha           DATE NOT NULL,
+    Tipo            VARCHAR(15) NOT NULL COMMENT 'Aplicacion | Devolucion | Reverso',
+    Valor           DECIMAL(15,2) NOT NULL COMMENT 'Valor consumido (Aplicacion) o devuelto (Devolucion)',
+    Factura_N       INT NULL COMMENT 'Factura de venta donde se aplicó (si Tipo=Aplicacion)',
+    Concepto        VARCHAR(200) NULL,
+    id_mediopago    INT NULL COMMENT 'Solo para Devolucion — cómo se le devolvió al cliente',
+    Id_Usuario      INT NULL,
+    Estado          VARCHAR(10) NOT NULL DEFAULT 'Valida' COMMENT 'Valida | Anulada',
+    FechaCreacion   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_anticipo (Id_Anticipo),
+    KEY idx_factura (Factura_N),
+    KEY idx_fecha (Fecha)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Marca en tblpagos para identificar pagos que provienen de un anticipo.
+-- Cuando en Nueva Venta el cliente usa parte de su saldo a favor, la fila
+-- de tblpagos tiene Id_Anticipo apuntando al anticipo consumido. Esto
+-- permite mostrar en cartera "de estos pagos, X vinieron de anticipo".
+SET @col_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tblpagos'
+      AND COLUMN_NAME = 'Id_Anticipo');
+SET @sql = IF(@col_exists = 0,
+    "ALTER TABLE tblpagos ADD COLUMN Id_Anticipo INT NULL COMMENT 'FK a tblanticipos_cliente cuando el pago viene de saldo a favor'",
+    'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- v4.3.71 — Credenciales de correo FE en tbldatosempresa (para clientes sin FE)
+-- api/empresa/datos.php hace UPDATE incluyendo estas columnas sin verificar.
+-- En clientes sin módulo FE no existen y rompen "Guardar datos de la empresa".
+SET @col = (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tbldatosempresa' AND COLUMN_NAME = 'email_factelect');
+SET @sql = IF(@col = 0,
+    "ALTER TABLE tbldatosempresa ADD COLUMN email_factelect VARCHAR(150) NULL",
+    'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @col = (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tbldatosempresa' AND COLUMN_NAME = 'password_factelect');
+SET @sql = IF(@col = 0,
+    "ALTER TABLE tbldatosempresa ADD COLUMN password_factelect VARCHAR(255) NULL",
+    'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- v4.3.71 — Flags de FE en tblventas para compatibilidad con clientes sin FE
+-- El SELECT del listado de ventas lee siempre `enviada_dian` y `cufe`; en BDs
+-- viejas (o clientes sin módulo FE) no existen y rompen la consulta.
+-- Se crean con default 0/NULL para no cambiar el comportamiento.
+SET @col = (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tblventas' AND COLUMN_NAME = 'enviada_dian');
+SET @sql = IF(@col = 0,
+    "ALTER TABLE tblventas ADD COLUMN enviada_dian TINYINT(1) NOT NULL DEFAULT 0",
+    'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @col = (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tblventas' AND COLUMN_NAME = 'cufe');
+SET @sql = IF(@col = 0,
+    "ALTER TABLE tblventas ADD COLUMN cufe VARCHAR(255) DEFAULT NULL",
+    'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- v4.3.71 — Anulación de Notas de Artículo (soft-delete, respeta kardex inmutable)
+-- Ya no se hace DELETE al eliminar: se marca Estado='Anulada' y se compensa
+-- el kardex con un asiento REVERSO. Así queda la huella de la nota original.
+SET @col_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tblnotas_articulo'
+      AND COLUMN_NAME = 'Estado');
+SET @sql = IF(@col_exists = 0,
+    "ALTER TABLE tblnotas_articulo
+        ADD COLUMN Estado VARCHAR(10) NOT NULL DEFAULT 'Valida' COMMENT 'Valida | Anulada',
+        ADD COLUMN Anulada_Por INT NULL COMMENT 'Id_Usuario que anuló',
+        ADD COLUMN Fecha_Anulacion DATETIME NULL,
+        ADD COLUMN Motivo_Anulacion VARCHAR(200) NULL",
+    'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- ================================================================
+-- v4.3.75 — Backfill tipo de documento (bug migración VB6→React)
+-- ================================================================
+-- El modal de cliente en React no exponía el select "Tipo Doc." (sí estaba
+-- en VB6), por lo que todos los clientes creados desde la app quedaron con
+-- id_documento=2 (Cédula) por default. Al facturar electrónicamente, el
+-- JOIN con tipos_documentos devolvía code=13 y la FE salía como Cédula
+-- aunque el cliente fuera una empresa con NIT.
+--
+-- Fix estructural: la v4.3.75 agrega el select al modal. Este backfill
+-- corrige los datos ya creados. Reglas conservadoras: solo cambia si el
+-- cliente está marcado como Persona Jurídica O si el NIT tiene 9-10 dígitos
+-- (patrón típico colombiano) y sigue con el default de Cédula.
+
+-- Regla 1: Persona Jurídica (id_type_organization=1) con doc default → NIT
+UPDATE tblclientes
+SET id_documento = 1
+WHERE id_type_organization = 1
+  AND (id_documento IS NULL OR id_documento = 2);
+
+-- Regla 2: red de seguridad — NIT numérico de 9-10 dígitos con doc default
+-- (cubre clientes sin id_type_organization asignado pero claramente NIT).
+UPDATE tblclientes
+SET id_documento = 1
+WHERE (id_documento IS NULL OR id_documento = 2)
+  AND Nit IS NOT NULL
+  AND Nit REGEXP '^[0-9]+$'
+  AND LENGTH(Nit) BETWEEN 9 AND 10;
+
+-- Regla 3: corregir id_documento inválidos. El bug histórico en NuevaVenta
+-- (opción "Guardar como cliente" tras consulta DIAN) guardaba id_documento=6
+-- para NIT, pero la tabla tipos_documentos solo tiene ids 1-5. El JOIN en
+-- enviar.php caía al default (Cédula code=13) y la FE salía mal aunque el
+-- cliente fuera SAS. Todo id fuera del rango válido se corrige por defecto
+-- a NIT si el número parece NIT, o a Cédula si parece cédula.
+UPDATE tblclientes
+SET id_documento = CASE
+    WHEN Nit REGEXP '^[0-9]+$' AND LENGTH(Nit) BETWEEN 9 AND 10 THEN 1
+    ELSE 2
+END
+WHERE id_documento NOT IN (1, 2, 3, 4, 5) OR id_documento IS NULL;
 
 -- ================================================================
 -- v5.7 — Órdenes de Compra (OC previa a la recepción)

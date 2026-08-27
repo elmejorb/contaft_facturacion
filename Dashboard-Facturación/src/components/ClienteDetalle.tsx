@@ -65,7 +65,14 @@ export function ClienteDetalle({ clienteId, onClose, tabInicial = 'ventas' }: Pr
     try {
       const r = await fetch(`${API_PAGOS}?cliente=${clienteId}`);
       const d = await r.json();
-      if (d.success) { setPagosData(d); setAbonos(new Map()); setPagoGlobal(''); setDescuentoGlobal(''); }
+      if (d.success) {
+        setPagosData(d);
+        setAbonos(new Map());
+        setPagoGlobal('');
+        setDescuentoGlobal('');
+        // Re-mount inputs uncontrolled — evita mostrar montos del cliente anterior
+        setFormVersion(v => v + 1);
+      }
     } catch (e) { console.error(e); }
   };
 
@@ -80,6 +87,10 @@ export function ClienteDetalle({ clienteId, onClose, tabInicial = 'ventas' }: Pr
       restante -= pago;
     }
     setAbonos(newAbonos);
+    // Los inputs de abono son uncontrolled (defaultValue). Sin incrementar
+    // formVersion no se re-mount y se ven vacíos hasta que se hace focus/blur
+    // en cada celda — bug reportado tras usar "Distribuir" o "Todo".
+    setFormVersion(v => v + 1);
   };
 
   const descGlobal = parseInt(descuentoGlobal.replace(/[^0-9]/g, '') || '0');
@@ -97,6 +108,23 @@ export function ClienteDetalle({ clienteId, onClose, tabInicial = 'ventas' }: Pr
       .filter(([_, v]) => v > 0)
       .map(([factN, valor]) => ({ factura_n: factN, valor, descuento: calcDescuentoPorFactura(factN) }));
     if (pagosArr.length === 0) { setPagoError('Ingrese al menos un valor'); return; }
+
+    // Confirmación con resumen del pago para evitar guardados accidentales.
+    // Muestra cuántas facturas se afectan, total recibido y descuento.
+    const totalAbono = pagosArr.reduce((s, p) => s + p.valor, 0);
+    const totalDesc = pagosArr.reduce((s, p) => s + p.descuento, 0);
+    const detalle = totalDesc > 0
+      ? `Recibirás ${fmtMon(totalAbono)} en efectivo/banco y aplicarás ${fmtMon(totalDesc)} de descuento a ${pagosArr.length} factura(s).`
+      : `Recibirás ${fmtMon(totalAbono)} aplicado a ${pagosArr.length} factura(s).`;
+    const ok = await confirmar({
+      title: '¿Guardar el pago?',
+      message: detalle,
+      type: 'question',
+      confirmText: 'Sí, guardar',
+      cancelText: 'Cancelar',
+    });
+    if (!ok) return;
+
     setGuardandoPago(true); setPagoError('');
     try {
       const r = await fetch(API_PAGOS, {
@@ -487,6 +515,7 @@ export function ClienteDetalle({ clienteId, onClose, tabInicial = 'ventas' }: Pr
               {pagoError && <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 6, padding: '6px 12px', color: '#dc2626', fontSize: 12 }}>{pagoError}</div>}
               {pagoSuccess && <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 6, padding: '6px 12px', color: '#16a34a', fontSize: 12 }}>{pagoSuccess}</div>}
 
+
               {/* Toolbar pagos */}
               <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, flexShrink: 0, whiteSpace: 'nowrap' }}>
                 <div>
@@ -502,12 +531,16 @@ export function ClienteDetalle({ clienteId, onClose, tabInicial = 'ventas' }: Pr
                   </select>
                 </div>
                 <div>
-                  <label style={{ fontSize: 9, color: '#6b7280', display: 'block', marginBottom: 2 }}>PAGO GLOBAL</label>
+                  <label title="Dinero que el cliente te entrega ahora. Si lo distribuyes con el botón, se reparte entre las facturas pendientes empezando por la más antigua."
+                    style={{ fontSize: 9, color: '#6b7280', display: 'block', marginBottom: 2 }}>
+                    PAGA EN TOTAL
+                  </label>
                   <input
-                    type="text" placeholder="Valor"
+                    type="text" placeholder="$ recibido"
                     value={pagoGlobal}
                     onChange={e => setPagoGlobal(e.target.value.replace(/[^0-9]/g, ''))}
                     onKeyDown={e => { if (e.key === 'Enter' && pagoGlobal) distribuirPagoGlobal(parseInt(pagoGlobal)); }}
+                    title="Dinero que el cliente te entrega ahora (sin contar descuento)"
                     style={{ height: 28, width: 110, padding: '0 8px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 12 }}
                   />
                 </div>
@@ -520,18 +553,20 @@ export function ClienteDetalle({ clienteId, onClose, tabInicial = 'ventas' }: Pr
                   Todo
                 </button>
                 <div>
-                  <label style={{ fontSize: 9, color: '#6b7280', display: 'block', marginBottom: 2 }}>DESC.</label>
+                  <label title="Descuento que se aplica al saldo sin recibir ese dinero. Si solo hay una factura va completo a ella; si hay varias se distribuye proporcional al abono."
+                    style={{ fontSize: 9, color: '#6b7280', display: 'block', marginBottom: 2 }}>
+                    DESCUENTO
+                  </label>
                   <input type="text" placeholder="$ 0" value={descuentoGlobal}
                     onChange={e => setDescuentoGlobal(e.target.value.replace(/[^0-9]/g, ''))}
-                    style={{ height: 28, width: 80, padding: '0 6px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 12, textAlign: 'right' }}
+                    style={{ height: 28, width: 80, padding: '0 6px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 12, textAlign: 'right', background: descGlobal > 0 ? '#fefce8' : '#fff' }}
                   />
                 </div>
                 <div style={{ flex: 1, minWidth: 4 }} />
                 {totalAbonos > 0 && (
                   <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                    <div style={{ fontSize: 9, color: '#6b7280' }}>TOTAL</div>
+                    <div style={{ fontSize: 9, color: '#6b7280' }}>TOTAL A PAGAR</div>
                     <div style={{ fontSize: 16, fontWeight: 700, color: '#7c3aed', lineHeight: 1 }}>{fmtMon(totalAbonos)}</div>
-                    {descGlobal > 0 && <div style={{ fontSize: 9, color: '#d97706' }}>+Desc: {fmtMon(descGlobal)}</div>}
                   </div>
                 )}
                 <button
@@ -566,9 +601,9 @@ export function ClienteDetalle({ clienteId, onClose, tabInicial = 'ventas' }: Pr
                         <th style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 600 }}>Total</th>
                         <th style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 600 }}>Saldo</th>
                         <th style={{ padding: '6px 8px', textAlign: 'center', fontWeight: 600 }}>Días</th>
-                        <th style={{ padding: '6px 8px', textAlign: 'center', fontWeight: 600, width: 130 }}>Abono</th>
-                        <th style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 600 }}>Desc.</th>
-                        <th style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 600 }}>Nvo. Saldo</th>
+                        <th title="Dinero que recibes del cliente para esta factura" style={{ padding: '6px 8px', textAlign: 'center', fontWeight: 600, width: 130 }}>Abono</th>
+                        <th title="Descuento aplicado al saldo" style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 600 }}>Descuento</th>
+                        <th title="Saldo después de aplicar abono + descuento" style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 600 }}>Saldo Nuevo</th>
                       </tr>
                     </thead>
                     <tbody>

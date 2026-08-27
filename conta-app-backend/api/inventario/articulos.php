@@ -61,6 +61,8 @@ try {
                 a.CodigoPro as CodigoPro,
                 a.Estante,
                 a.Existencia_minima,
+                COALESCE(a.requiere_lote, 0) AS requiere_lote,
+                COALESCE(a.Servicio, 0) AS Servicio,
                 a.Id_Etiqueta,
                 COALESCE(e.Nombre, '') as Etiqueta,
                 COALESCE(e.Color, '') as Etiqueta_Color
@@ -72,6 +74,8 @@ try {
     // Filtrar por estado si es necesario
     if ($estado === 'Activos') {
         $query .= " WHERE a.Estado = 1";
+    } elseif ($estado === 'Inactivos') {
+        $query .= " WHERE a.Estado = 0";
     }
 
     // Agregar ordenamiento

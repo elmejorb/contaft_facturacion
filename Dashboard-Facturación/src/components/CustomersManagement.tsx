@@ -1,12 +1,34 @@
 import { useState, useEffect, useRef } from 'react';
 import { AgGridReact } from 'ag-grid-react';
-import { AllCommunityModule, ModuleRegistry, ColDef } from 'ag-grid-community';
+import { AllCommunityModule, ModuleRegistry, ColDef, themeQuartz } from 'ag-grid-community';
+import { AG_GRID_LOCALE_ES } from '../utils/agGridLocaleEs';
+
+// Mismo tema visual que Lista de Artículos (InventarioManagement) — headers
+// púrpura suave, filas compactas, hover púrpura claro. Consistencia entre
+// listados grandes de la app.
+const myTheme = themeQuartz.withParams({
+  headerBackgroundColor: '#f3e8ff',
+  headerTextColor: '#6b21a8',
+  headerFontSize: 12,
+  headerFontWeight: 600,
+  fontSize: 12,
+  rowBorder: { color: '#f3f4f6', width: 1 },
+  borderColor: '#e5e7eb',
+  borderRadius: 8,
+  rowHoverColor: '#faf5ff',
+  selectedRowBackgroundColor: '#f3e8ff',
+  spacing: 6,
+});
 import {
   Search, RefreshCw, Plus, Users, ShoppingCart, DollarSign,
-  UserX, Pencil, Trash2, Eye, X, Save, BarChart3
+  UserX, Pencil, Trash2, Eye, X, Save, BarChart3, Loader2
 } from 'lucide-react';
+import toast from 'react-hot-toast';
 import { ClienteDetalle } from './ClienteDetalle';
 import { confirmar } from './ConfirmDialog';
+import { getConfigImpresion } from './ConfiguracionSistema';
+
+const API_DIAN = 'http://localhost:80/conta-app-backend/api/dian/consultar-adquiriente.php';
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
@@ -36,6 +58,7 @@ interface Cliente {
   Termino: number;
   FacVenc: number;
   Preciocosto: number;
+  UltimoPrecio: number;
   id_documento: number;
   id_municipio: number | null;
   id_type_liability: number | null;
@@ -59,7 +82,8 @@ export function CustomersManagement() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [form, setForm] = useState<any>({});
-  const [opciones, setOpciones] = useState<any>({ liabilities: [], organizations: [], regimes: [], municipalities: [] });
+  const [consultandoDIAN, setConsultandoDIAN] = useState(false);
+  const [opciones, setOpciones] = useState<any>({ liabilities: [], organizations: [], regimes: [], municipalities: [], document_types: [] });
   const [detalleId, setDetalleId] = useState<number | null>(null);
   const [retenciones, setRetenciones] = useState<any[]>([]);
   const [retencionesCli, setRetencionesCli] = useState<number[]>([]);
@@ -118,7 +142,7 @@ export function CustomersManagement() {
       Razon_Social: '', Nit: '', Identificacion: '', Telefonos: '', Direccion: '',
       Email: '', Whatsapp: '', CupoAutorizado: 0, FechaCumple: '',
       Nombres: '', Apellidos: '', Nombre_C: '', Apellidos_C: '',
-      Telefonos_C: '', Direccion_C: '', Cargo_C: '', Termino: 0, FacVenc: 0, Preciocosto: 0,
+      Telefonos_C: '', Direccion_C: '', Cargo_C: '', Termino: 0, FacVenc: 0, Preciocosto: 0, UltimoPrecio: 0,
       id_documento: 2, id_municipio: null, id_type_liability: 4, id_type_organization: 2, id_type_regime: 3
     });
     setModal('crear');
@@ -126,6 +150,20 @@ export function CustomersManagement() {
 
   const guardar = async () => {
     if (!form.Razon_Social?.trim()) { setError('Razón social es requerida'); return; }
+    // Validar Email: opcional, pero si se llena debe ser válido. Soporta varios
+    // correos separados por coma o punto y coma — todos deben pasar el regex.
+    // Si entra un correo malformado tipo "rafaelgonzalez517@" la FE saldría
+    // con send_email pero el correo no se envía a la DIAN.
+    const emailRaw = (form.Email || '').trim();
+    if (emailRaw) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      const tokens = emailRaw.split(/[;,]+/).map((s: string) => s.trim()).filter((s: string) => s.length > 0);
+      const invalidos = tokens.filter((t: string) => !emailRegex.test(t));
+      if (invalidos.length > 0) {
+        setError(`Correo inválido: ${invalidos.join(', ')}. Use formato usuario@dominio.com`);
+        return;
+      }
+    }
     setError('');
     try {
       const isEdit = modal === 'editar';
@@ -177,7 +215,21 @@ export function CustomersManagement() {
     }
   });
 
-  const set = (field: string, value: any) => setForm((f: any) => ({ ...f, [field]: value }));
+  const set = (field: string, value: any) => setForm((f: any) => {
+    const next = { ...f, [field]: value };
+    // Auto-sincronizar tipo de documento con tipo de adquiriente:
+    //   Persona Jurídica (org=1) → NIT (id_documento=1)
+    //   Persona Natural  (org=2) → CC  (id_documento=2)
+    // Solo si el usuario NO ha elegido un tipo raro (Pasaporte/CE/DIEX = ids 3-5).
+    // Así respetamos casos legítimos como extranjero con pasaporte.
+    if (field === 'id_type_organization') {
+      const orgId = Number(value) || 0;
+      const currentDoc = Number(f.id_documento) || 0;
+      if (orgId === 1 && (currentDoc === 0 || currentDoc === 2)) next.id_documento = 1;      // Jurídica → NIT
+      else if (orgId === 2 && (currentDoc === 0 || currentDoc === 1)) next.id_documento = 2; // Natural → CC
+    }
+    return next;
+  });
 
   // Cálculo DV (DIAN Colombia)
   const calcularDV = (nit: string): string => {
@@ -201,8 +253,78 @@ export function CustomersManagement() {
     return parseInt(nums).toLocaleString('es-CO');
   };
 
+  // Mapea el id_documento local del cliente al código DIAN esperado por el
+  // endpoint GetAcquirer. Antes había un mapa hardcoded, pero estaba
+  // desincronizado con la BD (asumía id=1 Registro civil cuando la BD real
+  // tiene id=1=NIT). Ahora lee el `code` DIAN directamente del catálogo
+  // `opciones.document_types` que trae opciones.php desde tipos_documentos.
+  // Fallback por longitud del NIT solo si aún no cargaron las opciones o si
+  // el usuario no seleccionó tipo.
+  const detectarTipoDIAN = (): string => {
+    const idDoc = Number(form.id_documento) || 0;
+    const docTypes: any[] = opciones.document_types || [];
+    const hit = docTypes.find((t: any) => Number(t.id) === idDoc);
+    if (hit?.code) return String(hit.code);
+    // Fallback: NITs suelen tener 9+ dígitos; documentos personales <10
+    const raw = (form.Nit || '').replace(/\D/g, '');
+    if (raw.length >= 9) return '31';
+    return '13';
+  };
+
+  // Mapea el código DIAN (ej: '31') al id_documento local. Inverso de
+  // detectarTipoDIAN. Al recibir la respuesta de la DIAN podemos corregir
+  // el tipo de documento si el usuario había supuesto uno distinto.
+  // Lee del catálogo `opciones.document_types` para no duplicar la fuente
+  // de verdad — la tabla tipos_documentos manda.
+  const codigoDIANaIdLocal = (code: string): number | null => {
+    const docTypes: any[] = opciones.document_types || [];
+    const hit = docTypes.find((t: any) => String(t.code) === String(code));
+    return hit ? Number(hit.id) : null;
+  };
+
+  const consultarDIAN = async () => {
+    const numero = (form.Nit || '').replace(/\D/g, '');
+    if (!numero) { toast.error('Ingrese primero el NIT o cédula'); return; }
+    setConsultandoDIAN(true);
+    try {
+      const r = await fetch(API_DIAN, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ identification_type: detectarTipoDIAN(), identification_number: numero }),
+      });
+      const d = await r.json();
+      if (d.success && d.name) {
+        // La DIAN devuelve el tipo REAL del documento — lo usamos como fuente
+        // de verdad. Si el usuario había puesto Cédula pero era NIT, corregimos.
+        const idDocResp = d.identification_type ? codigoDIANaIdLocal(String(d.identification_type)) : null;
+        setForm((prev: any) => {
+          const patch: any = {
+            ...prev,
+            Razon_Social: d.name,
+            Email: d.email || prev.Email || '',
+          };
+          if (idDocResp) {
+            patch.id_documento = idDocResp;
+            // Inferir tipo de adquiriente: NIT → Jurídica, resto → Natural.
+            patch.id_type_organization = idDocResp === 1 ? 1 : 2;
+          }
+          return patch;
+        });
+        toast.success(`DIAN: ${d.name}`);
+      } else {
+        toast.error(d.message || 'Documento no encontrado en RUT/RADIAN');
+      }
+    } catch (e) {
+      toast.error('Error consultando la DIAN');
+    }
+    setConsultandoDIAN(false);
+  };
+
   const nitInput = () => {
     const dv = calcularDV(form.Nit || '');
+    // Botón "Consultar DIAN" solo si el cliente tiene FE activa.
+    // Corresponde a la Resolución 202/2025 que permite autocompletar
+    // nombre/email con solo tipo+número de documento (sin pedir RUT).
+    const feActiva = !!getConfigImpresion().usarFacturacionElectronica;
     return (
       <div>
         <label style={{ fontSize: 10, color: '#6b7280', display: 'block', marginBottom: 2, textTransform: 'uppercase' }}>NIT / CC</label>
@@ -229,6 +351,21 @@ export function CustomersManagement() {
               borderRadius: 6, fontSize: 13, outline: 'none',
             }}
           />
+          {feActiva && (
+            <button type="button"
+              onClick={consultarDIAN}
+              disabled={consultandoDIAN}
+              title="Consultar datos en la DIAN (según cédula/NIT autocompleta nombre y correo)"
+              style={{
+                height: 28, padding: '0 8px', background: consultandoDIAN ? '#9ca3af' : '#0891b2',
+                color: '#fff', border: 'none', borderRadius: 6, fontSize: 11, fontWeight: 700,
+                cursor: consultandoDIAN ? 'wait' : 'pointer',
+                display: 'flex', alignItems: 'center', gap: 4,
+              }}>
+              {consultandoDIAN ? <Loader2 size={12} className="animate-spin" /> : <Search size={12} />}
+              DIAN
+            </button>
+          )}
           <div style={{
             width: 32, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center',
             background: '#f3e8ff', border: '1px solid #d8b4fe', borderRadius: 6,
@@ -408,11 +545,12 @@ export function CustomersManagement() {
                   <legend style={{ fontSize: 11, fontWeight: 700, color: '#7c3aed', padding: '0 6px' }}>Datos del Cliente</legend>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
                     {inp('Razón Social *', 'Razon_Social', { containerStyle: { gridColumn: 'span 3' } })}
+                    {sel('Tipo Doc. *', 'id_documento', opciones.document_types, 'id', 'name')}
                     {nitInput()}
                     {inp('Teléfono', 'Telefonos')}
                     {inp('WhatsApp', 'Whatsapp')}
                     {inp('Dirección', 'Direccion')}
-                    {inp('Email', 'Email', { containerStyle: { gridColumn: 'span 2' } })}
+                    {inp('Email', 'Email')}
                     {inp('Cupo Autorizado', 'CupoAutorizado')}
                     {inp('Término (días)', 'Termino')}
                     {inp('Cumpleaños', 'FechaCumple', { type: 'date' })}
@@ -442,6 +580,7 @@ export function CustomersManagement() {
                   <div style={{ display: 'flex', gap: 24, padding: '4px 0' }}>
                     {chk('Facturar con vencimientos', 'FacVenc')}
                     {chk('Facturar a precio costo', 'Preciocosto')}
+                    {chk('Facturar al último precio del cliente', 'UltimoPrecio')}
                   </div>
                 </fieldset>
 
@@ -615,14 +754,18 @@ export function CustomersManagement() {
         <div style={{ height: 'calc(100vh - 370px)', width: '100%' }}>
           <AgGridReact
             ref={gridRef}
+            theme={myTheme}
+            localeText={AG_GRID_LOCALE_ES}
             rowData={filtrados}
             columnDefs={columnDefs}
             loading={loading}
             animateRows
             getRowId={p => String(p.data.CodigoClien)}
-            rowHeight={36}
-            headerHeight={36}
-            defaultColDef={{ resizable: true }}
+            rowHeight={32}
+            headerHeight={34}
+            defaultColDef={{ resizable: true, sortable: true, filter: true }}
+            enableCellTextSelection
+            ensureDomOrder
           />
         </div>
       </div>

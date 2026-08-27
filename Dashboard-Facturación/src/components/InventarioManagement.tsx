@@ -37,6 +37,7 @@ interface Articulo {
   Categoria: string;
   Proveedor: string;
   Estado: string;
+  Servicio?: number;
   Id_Etiqueta?: number | null;
   Etiqueta?: string;
   Etiqueta_Color?: string;
@@ -61,6 +62,10 @@ export function InventarioManagement() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busqueda, setBusqueda] = useState('');
+  // Filtro de tipo: 'todos' (default) | 'producto' | 'servicio'.
+  // Útil para el negocio que vende servicios mezclados con productos: si
+  // quiere ver solo sus servicios cargados en catálogo, los filtra arriba.
+  const [filtroTipo, setFiltroTipo] = useState<'todos' | 'producto' | 'servicio'>('todos');
   const [estado, setEstado] = useState('Activos');
   const [kardexModal, setKardexModal] = useState<{ isOpen: boolean; producto: Articulo | null }>({
     isOpen: false,
@@ -143,6 +148,19 @@ export function InventarioManagement() {
     cargarArticulos();
   }, [estado]);
 
+  // Aplicar filtros pendientes provenientes del Panel de Sugerencias o
+  // NotificacionEmergente. Ej.: sugerencia "Top producto" envía el código
+  // aquí para que se muestre solo ese producto al abrir el módulo.
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('filtros_pendientes:inventario');
+      if (!raw) return;
+      const f = JSON.parse(raw);
+      localStorage.removeItem('filtros_pendientes:inventario');
+      if (f.codigo) setBusqueda(String(f.codigo));
+    } catch { /* silencio */ }
+  }, []);
+
   const cargarArticulos = async () => {
     try {
       setLoading(true);
@@ -159,11 +177,16 @@ export function InventarioManagement() {
     }
   };
 
+  // Muestra decimales solo si el número los tiene (ej. costo promedio con
+  // flete prorrateado). Los enteros salen limpios. Mismo patrón que fmtMon
+  // en NuevaCompra/NuevaVenta para consistencia visual entre pantallas.
   const formatearMoneda = (valor: number) => {
-    return '$ ' + new Intl.NumberFormat('es-CO', {
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
-    }).format(valor || 0);
+    const v = valor || 0;
+    const tieneDecimales = v % 1 !== 0;
+    return '$ ' + v.toLocaleString('es-CO', {
+      minimumFractionDigits: tieneDecimales ? 2 : 0,
+      maximumFractionDigits: tieneDecimales ? 2 : 0,
+    });
   };
 
   const calcularUtilidad = (precio: number, costo: number) => {
@@ -192,7 +215,7 @@ export function InventarioManagement() {
       field: 'Descripcion' as keyof Articulo,
       flex: 2,
       minWidth: 200,
-      cellStyle: { fontWeight: 500, userSelect: 'text' },
+      cellStyle: { fontWeight: 500, userSelect: 'text', textTransform: 'uppercase' },
     },
     {
       headerName: 'Exist.',
@@ -201,11 +224,14 @@ export function InventarioManagement() {
       type: 'numericColumn' as const,
       cellRenderer: (params: { value: number }) => {
         const val = params.value || 0;
+        // Formato colombiano con separador de miles (28175 → "28.175")
+        // y hasta 3 decimales para productos por kilogramo/litro.
+        const display = val.toLocaleString('es-CO', { maximumFractionDigits: 3 });
         return <span style={{
           background: val > 0 ? '#dbeafe' : '#fee2e2',
           color: val > 0 ? '#1d4ed8' : '#dc2626',
           padding: '2px 8px', borderRadius: 4, fontSize: 11, fontWeight: 500
-        }}>{val}</span>;
+        }}>{display}</span>;
       },
     },
     {
@@ -253,6 +279,7 @@ export function InventarioManagement() {
       headerName: 'Etiqueta',
       field: 'Etiqueta' as keyof Articulo,
       width: 130,
+      hide: true,
       cellRenderer: (params: { value: string; data: Articulo }) => {
         if (!params.value) return <span style={{ color: '#d1d5db', fontSize: 11 }}>—</span>;
         const color = params.data.Etiqueta_Color || '#7c3aed';
@@ -278,6 +305,7 @@ export function InventarioManagement() {
       headerName: 'Estado',
       field: 'Estado' as keyof Articulo,
       width: 90,
+      hide: true,
       cellRenderer: (params: { value: string }) => {
         const activo = params.value === 'Activo';
         return <span style={{
@@ -292,44 +320,45 @@ export function InventarioManagement() {
       sortable: false,
       filter: false,
       cellRenderer: (params: { data: Articulo }) => {
-        const btn = (color: string, hoverBg: string): React.CSSProperties => ({
-          background: 'transparent', color, width: 30, height: 30,
-          borderRadius: 6, border: `1.5px solid ${color}`, cursor: 'pointer',
+        const btn = (color: string): React.CSSProperties => ({
+          background: 'transparent', color, width: 26, height: 26,
+          borderRadius: 5, border: 'none', cursor: 'pointer',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
-          transition: 'all 0.15s',
+          transition: 'background 0.15s',
         });
-        return <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}
+        return <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}
           onMouseOver={(e) => {
             e.currentTarget.querySelectorAll('button').forEach(b => {
-              b.addEventListener('mouseenter', () => { b.style.background = b.dataset.hc || ''; b.style.color = '#fff'; });
-              b.addEventListener('mouseleave', () => { b.style.background = 'transparent'; b.style.color = b.dataset.c || ''; });
+              const c = b.dataset.c || '#000';
+              b.addEventListener('mouseenter', () => { b.style.background = c + '18'; });
+              b.addEventListener('mouseleave', () => { b.style.background = 'transparent'; });
             });
           }}
         >
           <button title="Detalle del producto" data-c="#7c3aed" data-hc="#7c3aed"
             onClick={() => setDetalleProducto(params.data.Items)}
-            style={btn('#7c3aed', '#7c3aed')}>
+            style={btn('#7c3aed')}>
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>
             </svg>
           </button>
           <button title="Ver Kardex" data-c="#3b82f6" data-hc="#3b82f6"
             onClick={() => setKardexModal({ isOpen: true, producto: params.data })}
-            style={btn('#3b82f6', '#3b82f6')}>
+            style={btn('#3b82f6')}>
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/>
             </svg>
           </button>
           <button title="Editar producto" data-c="#f59e0b" data-hc="#f59e0b"
             onClick={() => setEditarModal({ isOpen: true, producto: params.data })}
-            style={btn('#f59e0b', '#f59e0b')}>
+            style={btn('#f59e0b')}>
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/>
             </svg>
           </button>
           <button title="Eliminar producto" data-c="#ef4444" data-hc="#ef4444"
             onClick={() => eliminarProducto(params.data)}
-            style={btn('#ef4444', '#ef4444')}>
+            style={btn('#ef4444')}>
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/>
               <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/>
@@ -354,9 +383,16 @@ export function InventarioManagement() {
   // Orden inteligente: cuando hay búsqueda, los productos cuyo Código o
   // Descripción EMPIEZA con el término aparecen primero, luego los que solo
   // lo contienen. Sin búsqueda, conserva el orden recibido del backend.
+  // El filtro de tipo (producto/servicio) se aplica ANTES del orden.
   const articulosOrdenados = useMemo(() => {
+    // 1) Filtrar por tipo
+    const tipoFiltrado = filtroTipo === 'todos'
+      ? articulos
+      : articulos.filter(a => filtroTipo === 'servicio' ? !!a.Servicio : !a.Servicio);
+
+    // 2) Ordenar inteligente por búsqueda
     const term = (busqueda || '').toLowerCase().trim();
-    if (!term) return articulos;
+    if (!term) return tipoFiltrado;
     const rank = (a: Articulo) => {
       const cod = (a.Codigo || '').toLowerCase();
       const desc = (a.Descripcion || '').toLowerCase();
@@ -364,12 +400,16 @@ export function InventarioManagement() {
       if (cod.includes(term) || desc.includes(term)) return 1;
       return 2;
     };
-    return [...articulos].sort((a, b) => {
+    return [...tipoFiltrado].sort((a, b) => {
       const ra = rank(a), rb = rank(b);
       if (ra !== rb) return ra - rb;
       return (a.Descripcion || '').localeCompare(b.Descripcion || '');
     });
-  }, [articulos, busqueda]);
+  }, [articulos, busqueda, filtroTipo]);
+
+  // Conteos para mostrar en los botones del filtro
+  const totalProductos = useMemo(() => articulos.filter(a => !a.Servicio).length, [articulos]);
+  const totalServicios = useMemo(() => articulos.filter(a => !!a.Servicio).length, [articulos]);
 
   // Exporta el inventario filtrado a un archivo .xlsx real (no CSV).
   // Las columnas numéricas quedan como números (no strings) — Excel les aplica
@@ -494,6 +534,41 @@ export function InventarioManagement() {
 
       {/* Filtros */}
       <div className="bg-white rounded-xl shadow-sm p-4">
+        {/* Filtro por tipo: Todos / Productos / Servicios. Solo aparece si el
+            negocio tiene al menos un servicio en catálogo (si no hay servicios,
+            ocultarlo evita ruido visual para negocios que solo venden productos). */}
+        {totalServicios > 0 && (
+          <div style={{ display: 'flex', gap: 4, marginBottom: 10, flexWrap: 'wrap' }}>
+            {[
+              { val: 'todos', label: 'Todos', count: totalProductos + totalServicios },
+              { val: 'producto', label: 'Productos', count: totalProductos },
+              { val: 'servicio', label: 'Servicios', count: totalServicios },
+            ].map(opt => {
+              const active = filtroTipo === opt.val;
+              return (
+                <button
+                  key={opt.val}
+                  type="button"
+                  onClick={() => setFiltroTipo(opt.val as any)}
+                  style={{
+                    height: 32, padding: '0 14px', borderRadius: 8,
+                    border: `1px solid ${active ? '#7c3aed' : '#e5e7eb'}`,
+                    background: active ? '#7c3aed' : '#fff',
+                    color: active ? '#fff' : '#374151',
+                    fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                    display: 'flex', alignItems: 'center', gap: 6,
+                  }}>
+                  <span>{opt.label}</span>
+                  <span style={{
+                    fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 10,
+                    background: active ? 'rgba(255,255,255,0.25)' : '#f3f4f6',
+                    color: active ? '#fff' : '#6b7280',
+                  }}>{opt.count}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
         <div className="flex flex-wrap items-center gap-2">
           <div style={{ position: 'relative', flex: 1, minWidth: 200 }}>
             <Search style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', width: 16, height: 16, color: '#9ca3af', pointerEvents: 'none' }} />
@@ -511,6 +586,7 @@ export function InventarioManagement() {
             className="h-9 px-3 bg-gray-50 border border-gray-200 rounded-lg text-sm"
           >
             <option value="Activos">Activos</option>
+            <option value="Inactivos">Inactivos</option>
             <option value="Todos">Todos</option>
           </select>
           <Button

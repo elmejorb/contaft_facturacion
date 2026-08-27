@@ -6,6 +6,7 @@ import {
 import appIcon from '../assets/icon.png';
 import { useNotificaciones } from '../hooks/useNotificaciones';
 import { useVendedoresConfig } from '../hooks/useVendedoresConfig';
+import { PanelSugerencias } from './PanelSugerencias';
 
 interface Props {
   user?: { username?: string; nombre?: string; tipoUsuario?: any } | null;
@@ -213,6 +214,10 @@ export function PantallaInicio({ user, onNavigate, esAdmin = true }: Props) {
             )}
           </div>
         )}
+
+        {/* Panel Sugerencias — datos inteligentes de la empresa.
+            Oculto en producción mientras se termina de depurar; visible en dev con `npm run dev`. */}
+        {import.meta.env.DEV && esAdmin && <PanelSugerencias onNavigate={onNavigate} />}
 
         {/* Accesos rápidos */}
         <div className="cards-fade" style={{

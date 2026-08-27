@@ -1,19 +1,42 @@
 import { useState, useEffect, useRef } from 'react';
 import { AgGridReact } from 'ag-grid-react';
-import { Search, RefreshCw, Edit2, Eye, Printer, Package } from 'lucide-react';
+import { Search, RefreshCw, Edit2, Eye } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { NuevaCompra } from './NuevaCompra';
+import { DetalleCompraModal } from './DetalleCompraModal';
+
+// Clave temporal usada como puente entre PurchasesManagement y ComprasTabs
+// para abrir una compra existente en un tab nuevo sin perder tabs abiertos.
+const LS_PENDING_EDIT = 'compras_pending_edit_id';
+import { useAuth } from '../contexts/AuthContext';
 
 const API = 'http://localhost:80/conta-app-backend/api/compras/nueva.php';
 const fmtMon = (v: number) => '$ ' + Math.round(v).toLocaleString('es-CO');
 
-export function PurchasesManagement() {
+interface PurchasesManagementProps {
+  onNavigate?: (view: string) => void;
+}
+
+export function PurchasesManagement({ onNavigate }: PurchasesManagementProps = {}) {
+  const { user } = useAuth();
+  const esAdmin = user?.tipoUsuario === 1 || user?.tipoUsuario === '1';
+  // Permiso granular: admin siempre puede; para otros roles depende de que
+  // el permiso `compras_editar` esté marcado desde Config → Permisos.
+  // Sin este permiso el usuario ve el listado (icono ojo) pero no puede
+  // crear ni editar compras.
+  const permisos: string[] = (user as any)?.permisos || [];
+  const puedeEditar = esAdmin || permisos.includes('compras_editar');
+
   const [compras, setCompras] = useState<any[]>([]);
   const [anio, setAnio] = useState(new Date().getFullYear());
-  const [mes, setMes] = useState(0);
+  // Arranca con el mes actual (no "Todos") para no traer el año completo
+  // en clientes con muchas compras. El usuario puede cambiar a "Todos" a mano.
+  const [mes, setMes] = useState(new Date().getMonth() + 1);
   const [buscar, setBuscar] = useState('');
   const [cargando, setCargando] = useState(false);
   const [editarPedido, setEditarPedido] = useState<number | null>(null);
+  const [verPedido, setVerPedido] = useState<number | null>(null);
+  const [nuevaCompra, setNuevaCompra] = useState(false);
   const gridRef = useRef<any>(null);
 
   const meses = ['Todos','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
@@ -39,8 +62,27 @@ export function PurchasesManagement() {
 
   const totalCompras = filtradas.reduce((s, c) => s + c.Total, 0);
 
-  if (editarPedido !== null) {
+  // Abrir compra existente en un tab nuevo de ComprasTabs. Usamos localStorage
+  // como puente porque ComprasTabs se monta en otro view (nueva-compra) y
+  // necesita saber qué compra editar al aparecer. ComprasTabs lee y borra la
+  // clave al montar.
+  const abrirEditarEnTab = (pedidoN: number) => {
+    if (!puedeEditar) return;
+    try { localStorage.setItem(LS_PENDING_EDIT, String(pedidoN)); } catch (e) {}
+    if (onNavigate) {
+      onNavigate('nueva-compra');
+    } else {
+      // Fallback si el prop no llegó (retro-compatibilidad): flujo in-place viejo
+      setEditarPedido(pedidoN);
+    }
+  };
+
+  // Solo se usa como fallback si no hay onNavigate (versión antigua).
+  if (editarPedido !== null && puedeEditar) {
     return <NuevaCompra pedidoEditar={editarPedido} onClose={() => { setEditarPedido(null); cargar(); }} />;
+  }
+  if (nuevaCompra && puedeEditar) {
+    return <NuevaCompra onClose={() => { setNuevaCompra(false); cargar(); }} />;
   }
 
   // Anchos calibrados para que ningún header/valor se trunque:
@@ -53,6 +95,8 @@ export function PurchasesManagement() {
     { field: 'Proveedor', headerName: 'Proveedor', flex: 1, minWidth: 200 },
     { field: 'TipoPedido', headerName: 'Tipo', width: 105,
       cellRenderer: (p: any) => {
+        const anul = p.data.EstadoPedido === 'Anulada';
+        if (anul) return <span style={{ padding: '2px 8px', borderRadius: 10, fontSize: 11, fontWeight: 700, background: '#fee2e2', color: '#dc2626' }}>ANULADA</span>;
         const t = p.value;
         const bg = t === 'Contado' ? '#dcfce7' : '#fef3c7';
         const color = t === 'Contado' ? '#16a34a' : '#d97706';
@@ -67,13 +111,21 @@ export function PurchasesManagement() {
     { field: 'Flete', headerName: 'Flete', width: 100, cellStyle: { textAlign: 'right' },
       valueFormatter: (p: any) => p.value > 0 ? fmtMon(p.value) : '-' },
     {
-      headerName: '', width: 50, sortable: false, filter: false,
+      headerName: '', width: puedeEditar ? 85 : 50, sortable: false, filter: false,
       cellRenderer: (p: any) => (
-        <div style={{ display: 'flex', gap: 4, alignItems: 'center', justifyContent: 'center', height: '100%' }}>
-          <button onClick={() => setEditarPedido(p.data.Pedido_N)} title="Editar compra"
-            style={{ background: 'none', border: 'none', cursor: 'pointer' }}>
-            <Edit2 size={14} color="#7c3aed" />
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center', justifyContent: 'center', height: '100%' }}>
+          <button onClick={() => setVerPedido(p.data.Pedido_N)} title="Ver detalle"
+            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2 }}>
+            <Eye size={15} color="#2563eb" />
           </button>
+          {puedeEditar && p.data.EstadoPedido !== 'Anulada' && (
+            <button
+              onClick={() => abrirEditarEnTab(p.data.Pedido_N)}
+              title="Editar compra en pestaña nueva"
+              style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2 }}>
+              <Edit2 size={14} color="#7c3aed" />
+            </button>
+          )}
         </div>
       )
     }
@@ -132,6 +184,11 @@ export function PurchasesManagement() {
           overlayNoRowsTemplate="<span style='font-size:13px;color:#6b7280'>No hay compras para mostrar</span>"
         />
       </div>
+
+      {/* Modal de visualización (solo lectura) */}
+      {verPedido !== null && (
+        <DetalleCompraModal pedidoN={verPedido} onClose={() => setVerPedido(null)} onAnulado={cargar} />
+      )}
     </div>
   );
 }

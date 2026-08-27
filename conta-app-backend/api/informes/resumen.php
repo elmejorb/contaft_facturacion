@@ -219,7 +219,7 @@ try {
         $r = $db->prepare("
             SELECT COALESCE(cg.Nombre, 'Sin categoría') AS Categoria, SUM(e.Valor) AS total
             FROM tblegresos e
-            LEFT JOIN tblcategorias_gasto cg ON e.categoria_gasto = cg.Id_Categoria
+            LEFT JOIN tblcategorias_gasto cg ON e.categoria_gasto = cg.Nombre
             WHERE Fecha BETWEEN ? AND CONCAT(?, ' 23:59:59') AND Estado='Valida' AND CodigoPro=0
             GROUP BY cg.Nombre
             ORDER BY total DESC
@@ -592,7 +592,7 @@ try {
             SELECT e.Id_Egresos, e.N_Comprobante, e.Fecha, e.Concepto, e.Valor, e.TipoPago,
                    COALESCE(cg.Nombre, 'Sin categoría') AS categoria
             FROM tblegresos e
-            LEFT JOIN tblcategorias_gasto cg ON cg.Id_Categoria = e.categoria_gasto
+            LEFT JOIN tblcategorias_gasto cg ON cg.Nombre = e.categoria_gasto
             WHERE DATE(e.Fecha) BETWEEN ? AND ?
               AND e.Estado = 'Valida' AND e.CodigoPro = 0
             ORDER BY e.Fecha, e.N_Comprobante
@@ -776,7 +776,7 @@ try {
         $r = $db->prepare("
             SELECT COALESCE(cg.Nombre, 'Sin categoría') AS categoria, SUM(e.Valor) AS total
             FROM tblegresos e
-            LEFT JOIN tblcategorias_gasto cg ON cg.Id_Categoria = e.categoria_gasto
+            LEFT JOIN tblcategorias_gasto cg ON cg.Nombre = e.categoria_gasto
             WHERE YEAR(e.Fecha) = ? AND e.Estado='Valida' AND e.CodigoPro=0
             GROUP BY cg.Nombre
             ORDER BY total DESC
@@ -802,6 +802,85 @@ try {
             'top_productos' => $topProductos,
             'gastos_categoria' => $gastosCat,
             'tendencia_30d' => $tendencia30,
+        ], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    // Comparativo Anual — ventas mensuales de varios años lado a lado.
+    // Devuelve por año un array de 12 meses con {total, cant} para poder
+    // pintar líneas superpuestas (Ene-Dic) o tabla comparativa.
+    if ($tipo === 'comparativo_anual') {
+        // Años a comparar: por defecto los últimos 3 con data. El frontend
+        // puede pasar ?anios=2024,2025,2026 para elegir.
+        $aniosParam = trim($_GET['anios'] ?? '');
+        if ($aniosParam !== '') {
+            $anios = array_slice(array_filter(array_map('intval', explode(',', $aniosParam))), 0, 6);
+        } else {
+            $stmtA = $db->query("SELECT DISTINCT YEAR(Fecha) AS a FROM tblventas
+                                 WHERE EstadoFact='Valida' AND Fecha IS NOT NULL
+                                 ORDER BY a DESC LIMIT 3");
+            $anios = array_map('intval', $stmtA->fetchAll(PDO::FETCH_COLUMN));
+            $anios = array_reverse($anios); // orden ascendente para el gráfico
+        }
+        if (empty($anios)) $anios = [intval(date('Y'))];
+
+        $meses = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+
+        // Query por rango de fechas (usa índice idx_fecha, evita YEAR() function)
+        $porAnio = [];
+        $stmt = $db->prepare("
+            SELECT MONTH(Fecha) AS mes, SUM(Total) AS total, COUNT(*) AS cant
+            FROM tblventas
+            WHERE Fecha >= ? AND Fecha < ? AND EstadoFact='Valida'
+            GROUP BY MONTH(Fecha)
+            ORDER BY MONTH(Fecha)
+        ");
+        foreach ($anios as $anio) {
+            $ini = sprintf('%04d-01-01', $anio);
+            $fin = sprintf('%04d-01-01', $anio + 1);
+            $stmt->execute([$ini, $fin]);
+            $rows = $stmt->fetchAll();
+
+            $mesesData = [];
+            for ($m = 1; $m <= 12; $m++) {
+                $row = current(array_filter($rows, fn($x) => intval($x['mes']) === $m));
+                $mesesData[] = [
+                    'mes'   => $meses[$m - 1],
+                    'total' => $row ? floatval($row['total']) : 0,
+                    'cant'  => $row ? intval($row['cant'])   : 0,
+                ];
+            }
+            $totales = array_column($mesesData, 'total');
+            $totalAnio = array_sum($totales);
+            // Mejor mes: mayor total. Si todos son 0 → null.
+            $mejorIdx = -1; $mejorVal = 0;
+            foreach ($totales as $i => $v) { if ($v > $mejorVal) { $mejorVal = $v; $mejorIdx = $i; } }
+
+            // Meses con actividad (para promediar solo sobre esos, más honesto)
+            $mesesActivos = count(array_filter($totales, fn($v) => $v > 0));
+            $promedio = $mesesActivos > 0 ? $totalAnio / $mesesActivos : 0;
+
+            $porAnio[] = [
+                'anio'          => $anio,
+                'meses'         => $mesesData,
+                'total'         => $totalAnio,
+                'promedio_mes'  => $promedio,
+                'meses_activos' => $mesesActivos,
+                'mejor_mes'     => $mejorIdx >= 0 ? ['nombre' => $meses[$mejorIdx], 'total' => $mejorVal] : null,
+            ];
+        }
+
+        // Todos los años disponibles (para que el frontend arme el selector)
+        $stmtDisp = $db->query("SELECT DISTINCT YEAR(Fecha) AS a FROM tblventas
+                                WHERE EstadoFact='Valida' AND Fecha IS NOT NULL
+                                ORDER BY a DESC");
+        $aniosDisp = array_map('intval', $stmtDisp->fetchAll(PDO::FETCH_COLUMN));
+
+        echo json_encode([
+            'success'          => true,
+            'anios_analizados' => $anios,
+            'anios_disponibles'=> $aniosDisp,
+            'por_anio'         => $porAnio,
         ], JSON_UNESCAPED_UNICODE);
         exit;
     }

@@ -3,12 +3,15 @@ import { AgGridReact } from 'ag-grid-react';
 import { AllCommunityModule, ModuleRegistry, ColDef } from 'ag-grid-community';
 import {
   Search, RefreshCw, TrendingUp, DollarSign, CreditCard, Wallet,
-  Eye, X, Printer, Copy
+  Eye, X, Printer, Copy, Ban
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { getConfigImpresion, getEmpresaCache } from './ConfiguracionSistema';
 import { imprimirFactura, type DatosFactura } from './ImpresionFactura';
 import { DetalleFacturaModal } from './DetalleFacturaModal';
+import { AutorizacionAdminModal, type AdminAutorizado } from './AutorizacionAdminModal';
+import { confirmar } from './ConfirmDialog';
+import { useAuth } from '../contexts/AuthContext';
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
@@ -33,6 +36,9 @@ interface Props {
 }
 
 export function SalesManagement({ onNavigate }: Props = {}) {
+  const { user } = useAuth();
+  const esAdmin = user?.tipoUsuario === 1 || user?.tipoUsuario === '1';
+
   // Copiar una venta a Nueva Venta. Guarda el ID en localStorage y navega —
   // NuevaVenta detecta el flag al montar y carga los datos vía
   // ventas/copiar.php (mismo flujo que copiar FE o convertir pedido vendedor).
@@ -47,6 +53,12 @@ export function SalesManagement({ onNavigate }: Props = {}) {
     }
   };
   const [ventas, setVentas] = useState<any[]>([]);
+  // Estado del flujo de anulación desde el listado (reusa AutorizacionAdminModal).
+  // El backend valida reglas: caja abierta, autorización, etc; si falta algo
+  // devuelve { requiere_autorizacion } o { requiere_caja_abierta } — respetamos
+  // esa señal para mostrar el modal correspondiente.
+  const [autorizacionAnul, setAutorizacionAnul] = useState<{ factN: number; motivo: string } | null>(null);
+  const [anulando, setAnulando] = useState(false);
   const [resumen, setResumen] = useState<any>({});
   const [loading, setLoading] = useState(true);
   const [busqueda, setBusqueda] = useState('');
@@ -62,7 +74,13 @@ export function SalesManagement({ onNavigate }: Props = {}) {
   const cargar = async (buscar?: string) => {
     setLoading(true);
     try {
-      let url = `${API}?anio=${anio}&estado=${filtroEstado}`;
+      // Modo rendimiento: en PCs lentos, apagar el JOIN con la vista de
+      // saldos (30 ms extra en cada query) y reducir el LIMIT. El saldo
+      // se consulta en el módulo Cartera si el usuario lo necesita.
+      const cfg = getConfigImpresion();
+      const conSaldo = cfg.mostrarSaldoEnListado !== false ? 1 : 0;
+      const limite = cfg.limiteListadoVentas || 500;
+      let url = `${API}?anio=${anio}&estado=${filtroEstado}&con_saldo=${conSaldo}&limit=${limite}`;
       if (mes > 0) url += `&mes=${mes}`;
       if (dia > 0) url += `&dia=${dia}`;
       if (buscar) url += `&buscar=${encodeURIComponent(buscar)}`;
@@ -86,10 +104,15 @@ export function SalesManagement({ onNavigate }: Props = {}) {
 
   // Imprimir factura desde listado
   const imprimirDesdeListado = async (factN: number) => {
+    // Feedback inmediato para que el usuario sepa que el clic sí registró.
+    // Antes: sin vista previa, dar clic parecía no hacer nada — no había
+    // ningún indicador visual mientras se cargaba la factura y se lanzaba
+    // la impresión silenciosa.
+    const tid = toast.loading(`Preparando factura #${factN}…`);
     try {
       const r = await fetch(`${API}?id=${factN}`);
       const d = await r.json();
-      if (!d.success) return;
+      if (!d.success) { toast.error(d.message || 'No se pudo cargar la factura', { id: tid }); return; }
       const fac = d.factura;
       const items = d.items || [];
       const datosImp: DatosFactura = {
@@ -100,7 +123,7 @@ export function SalesManagement({ onNavigate }: Props = {}) {
         cliente: { nombre: fac.A_nombre || '-', nit: fac.Identificacion || '0', telefono: fac.Telefono || '0', direccion: fac.Direccion || '-' },
         items: items.map((i: any) => ({
           codigo: i.Codigo || String(i.Items),
-          nombre: i.Nombres_Articulo || i.DescripcionTemp || '-',
+          nombre: i.DescripcionTemp || i.Nombres_Articulo || '-',
           cantidad: parseFloat(i.Cantidad) || 1,
           precio: parseFloat(i.PrecioV) || 0,
           iva: parseFloat(i.IVA) || 0,
@@ -132,15 +155,80 @@ export function SalesManagement({ onNavigate }: Props = {}) {
             telefono: emp.telefono,
             direccion: emp.direccion,
             regimen: emp.regimen || '',
-            propietario: '-',
+            propietario: emp.propietario || '',
             resolucion: emp.resolucion || '',
+            detalle: emp.detalle || '',
           };
         })(),
         caja: 1,
         logo: getConfigImpresion().logo || undefined
       };
       imprimirFactura(datosImp);
-    } catch (e) { console.error(e); }
+      toast.success(`Factura #${factN} enviada a impresión`, { id: tid });
+    } catch (e) {
+      console.error(e);
+      toast.error('Error al imprimir la factura', { id: tid });
+    }
+  };
+
+  /* ============================================================
+   * Anular factura desde el listado (mismo flujo que
+   * DetalleFacturaModal.anularFactura). El endpoint valida:
+   *   - caja abierta requerida si es contado con efectivo (>0)
+   *   - autorización admin si es venta de otro cajero / caja cerrada
+   *   - config `autorizarAnulaciones` si es admin
+   * Si backend responde requiere_autorizacion → abre modal admin.
+   * Si backend responde requiere_caja_abierta → toast + no permite.
+   * ========================================================== */
+  const anularDesdeListado = async (factN: number, esAnulada: boolean, adminAuth?: AdminAutorizado) => {
+    if (esAnulada) { toast.error('La factura ya está anulada'); return; }
+    const cfg = getConfigImpresion();
+    // Admin con config exige autorización: abrir modal antes de cualquier POST
+    const necesitaAuth = cfg.autorizarAnulaciones && esAdmin && !adminAuth;
+    if (necesitaAuth) {
+      setAutorizacionAnul({ factN, motivo: `Anular Factura FV-${factN}` });
+      return;
+    }
+    if (!adminAuth) {
+      const ok = await confirmar({
+        title: `¿Anular factura FV-${factN}?`,
+        message: 'Se devolverá todo el inventario al stock. Si fue de contado, se registrará egreso por reembolso en la caja abierta. Acción irreversible.',
+        type: 'danger',
+        confirmText: 'Sí, Anular Factura',
+        cancelText: 'Cancelar',
+      });
+      if (!ok) return;
+    }
+    setAnulando(true);
+    try {
+      const r = await fetch('http://localhost:80/conta-app-backend/api/ventas/detalle-factura.php', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'anular', factura_n: factN,
+          usuario_id: user?.id || 0,
+          autorizado_por: adminAuth?.id || null,
+          autorizado_por_nombre: adminAuth?.nombre || null,
+        }),
+      });
+      const d = await r.json();
+      // Vendedor con venta ajena o fuera de sesión → abre modal admin
+      if (!d.success && d.requiere_autorizacion) {
+        setAutorizacionAnul({ factN, motivo: `Anular Factura FV-${factN} — ${d.message || 'requiere autorización'}` });
+        return;
+      }
+      // Sin caja abierta para el reembolso
+      if (!d.success && d.requiere_caja_abierta) {
+        toast.error(d.message, { duration: 8000 });
+        return;
+      }
+      if (d.success) {
+        const msg = adminAuth ? `${d.message} (autorizado por ${adminAuth.nombre})` : d.message;
+        toast.success(msg, { duration: 6000 });
+        setAutorizacionAnul(null);
+        cargar();
+      } else toast.error(d.message);
+    } catch (e) { toast.error('Error al anular'); }
+    finally { setAnulando(false); }
   };
 
   const filtrados = ventas.filter(v => {
@@ -192,6 +280,8 @@ export function SalesManagement({ onNavigate }: Props = {}) {
     { headerName: 'Total', field: 'Total', width: 135, sortable: true, cellStyle: { textAlign: 'right' },
       cellRenderer: (p: any) => <span style={{ fontWeight: 700 }}>{fmtMon(p.value || 0)}</span> },
     { headerName: 'Saldo', field: 'Saldo', width: 130, sortable: true, cellStyle: { textAlign: 'right' },
+      // Se oculta si el usuario apagó la columna en Configuración (modo rendimiento).
+      hide: getConfigImpresion().mostrarSaldoEnListado === false,
       cellRenderer: (p: any) => {
         const v = p.value || 0;
         return v > 0 ? <span style={{ fontWeight: 600, color: '#dc2626' }}>{fmtMon(v)}</span> : <span style={{ color: '#16a34a' }}>$ 0</span>;
@@ -199,24 +289,37 @@ export function SalesManagement({ onNavigate }: Props = {}) {
     },
     { headerName: 'Medio', field: 'MedioPago', width: 110,
       cellRenderer: (p: any) => <span style={{ fontSize: 11, padding: '1px 6px', borderRadius: 4, background: '#f3f4f6' }}>{p.value}</span> },
-    { headerName: '', width: 100, sortable: false,
+    { headerName: '', width: 128, sortable: false,
       cellStyle: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 },
-      cellRenderer: (p: any) => (
-        <div style={{ display: 'flex', gap: 4 }}>
-          <button title="Ver detalle" onClick={() => verDetalle(p.data.Factura_N)}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 3 }}>
-            <Eye size={15} color="#7c3aed" />
-          </button>
-          <button title="Imprimir factura" onClick={() => imprimirDesdeListado(p.data.Factura_N)}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 3 }}>
-            <Printer size={15} color="#2563eb" />
-          </button>
-          <button title="Copiar a Nueva Venta" onClick={() => copiarVenta(p.data.Factura_N)}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 3 }}>
-            <Copy size={15} color="#16a34a" />
-          </button>
-        </div>
-      )
+      cellRenderer: (p: any) => {
+        const anulada = p.data?.EstadoFact === 'Anulada';
+        return (
+          <div style={{ display: 'flex', gap: 4 }}>
+            <button title="Ver detalle" onClick={() => verDetalle(p.data.Factura_N)}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 3 }}>
+              <Eye size={15} color="#7c3aed" />
+            </button>
+            <button title="Imprimir factura" onClick={() => imprimirDesdeListado(p.data.Factura_N)}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 3 }}>
+              <Printer size={15} color="#2563eb" />
+            </button>
+            <button title="Copiar a Nueva Venta" onClick={() => copiarVenta(p.data.Factura_N)}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 3 }}>
+              <Copy size={15} color="#16a34a" />
+            </button>
+            {!anulada && (
+              <button
+                title="Anular factura"
+                onClick={() => anularDesdeListado(p.data.Factura_N, anulada)}
+                disabled={anulando}
+                style={{ background: 'none', border: 'none', cursor: anulando ? 'wait' : 'pointer', padding: 3, opacity: anulando ? 0.5 : 1 }}
+              >
+                <Ban size={15} color="#dc2626" />
+              </button>
+            )}
+          </div>
+        );
+      }
     },
   ];
 
@@ -330,6 +433,20 @@ export function SalesManagement({ onNavigate }: Props = {}) {
       {/* Modal detalle factura */}
       {facturaDetalleN && (
         <DetalleFacturaModal factN={facturaDetalleN} onClose={() => setFacturaDetalleN(null)} onUpdate={cargar} />
+      )}
+
+      {/* Modal de autorización admin — abre si el backend exige autorización
+          para anular (venta de otro cajero, caja cerrada, o config global). */}
+      {autorizacionAnul && (
+        <AutorizacionAdminModal
+          motivo={autorizacionAnul.motivo}
+          onCancelar={() => setAutorizacionAnul(null)}
+          onAutorizado={(admin) => {
+            const factN = autorizacionAnul.factN;
+            setAutorizacionAnul(null);
+            anularDesdeListado(factN, false, admin);
+          }}
+        />
       )}
 
       {/* OLD MODAL - DISABLED */}

@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Search, Trash2, Plus, Save, X, ShoppingCart, Lock, Unlock, PackagePlus } from 'lucide-react';
+import { Search, Trash2, Plus, Save, X, ShoppingCart, Lock, Unlock, PackagePlus, Loader2, Send, DollarSign, BookOpen } from 'lucide-react';
+import { HistorialPreciosVentaModal } from './HistorialPreciosVentaModal';
+import { KardexArticuloModal } from './KardexArticuloModal';
 import { EditarArticuloModal } from './EditarArticuloModal';
 import toast from 'react-hot-toast';
 import { getConfigImpresion, getEmpresaCache, saveEmpresaCache } from './ConfiguracionSistema';
@@ -17,7 +19,13 @@ const API_RETENCIONES = 'http://localhost:80/conta-app-backend/api/retenciones/l
 function BuscarClienteModal({ onSelect, onClose }: { onSelect: (c: any) => void; onClose: () => void }) {
   const [busqueda, setBusqueda] = useState('');
   const [results, setResults] = useState<any[]>([]);
+  const [consultandoDIAN, setConsultandoDIAN] = useState(false);
   const timerRef = useRef<any>(null);
+
+  const feActiva = !!getConfigImpresion().usarFacturacionElectronica;
+  // Si busca solo dígitos y hay 5+ caracteres, asumimos que es cédula/NIT y
+  // permitimos la consulta a la DIAN cuando no aparece en la BD local.
+  const buscaEsDocumento = /^\d{5,}$/.test(busqueda.trim());
 
   const buscar = (q: string) => {
     setBusqueda(q);
@@ -30,6 +38,104 @@ function BuscarClienteModal({ onSelect, onClose }: { onSelect: (c: any) => void;
         if (d.success) setResults(d.clientes || d.data || []);
       } catch (e) {}
     }, 250);
+  };
+
+  // Cache del resultado DIAN — se muestra un mini panel con 2 opciones:
+  // "Usar solo aquí" (no crea cliente, solo pinta los datos en la venta) o
+  // "Guardar como cliente" (crea registro en tblclientes para uso recurrente).
+  const [dianResult, setDianResult] = useState<{ name: string; email: string; documento: string; tipo: string } | null>(null);
+
+  const consultarDIAN = async () => {
+    const numero = busqueda.trim();
+    // Detecta si es NIT (9+ dígitos) o CC (menos). Puede refinarse con un
+    // selector si es necesario, pero cubre el 95% de los casos.
+    const tipo = numero.length >= 9 ? '31' : '13';
+    setConsultandoDIAN(true);
+    setDianResult(null);
+    try {
+      const r = await fetch('http://localhost:80/conta-app-backend/api/dian/consultar-adquiriente.php', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ identification_type: tipo, identification_number: numero }),
+      });
+      const d = await r.json();
+      if (d.success && d.name) {
+        setDianResult({ name: d.name, email: d.email || '', documento: numero, tipo });
+      } else {
+        toast.error(d.message || 'Documento no encontrado en RUT/RADIAN');
+      }
+    } catch { toast.error('Error consultando DIAN'); }
+    setConsultandoDIAN(false);
+  };
+
+  // Opción 1: usar los datos DIAN SOLO en esta factura sin crear cliente.
+  // Se envía `esCliente:false` — el componente padre trata este cliente como
+  // "genérico con datos personalizados" (mismo patrón de VENTAS AL CONTADO
+  // con nombre y email sobrescritos). Los datos van a tblventas.A_nombre /
+  // Identificacion / email y de ahí al JSON de la FE. Ideal para compradores
+  // ocasionales que solo quieren su factura y no volverán.
+  //
+  // NOTA: NO propagamos el email que devuelve DIAN. La API responde con el
+  // email del último EMISOR que le facturó al NIT, no del cliente consultado
+  // (ej: consultar cédula → devuelve "facturasnoprocesadas@olimpica.com.co").
+  // Si el usuario quiere email, lo escribe manual en el input del cliente.
+  const usarSoloEnEstaVenta = () => {
+    if (!dianResult) return;
+    onSelect({
+      CodigoClien: 130500,          // Cliente genérico "VENTAS AL CONTADO"
+      Nombre_Cliente: dianResult.name,
+      Razon_Social: dianResult.name,
+      Identificacion: dianResult.documento,
+      Nit: dianResult.documento,
+      Email: '',                    // NO usar el email de DIAN — es basura
+      Telefono: '0',
+      Direccion: '-',
+      _ocasional: true,             // hint para el padre — no es cliente real
+    });
+  };
+
+  // Opción 2: guardar como cliente en tblclientes para uso recurrente.
+  const guardarComoCliente = async () => {
+    if (!dianResult) return;
+    // Mapeo tipo DIAN → id_documento local. Debe COINCIDIR con la tabla
+    // tipos_documentos: id=1 NIT, id=2 CC, id=3 CE, id=4 Pasaporte, id=5 DIEX.
+    // El bug histórico ponía id=6 para NIT — id=6 no existe en la BD, el JOIN
+    // en enviar.php caía al default 'Cédula' y la FE salía mal clasificada.
+    const codigoDIANaId: Record<string, number> = { '31': 1, '13': 2, '22': 3, '41': 4, '42': 5 };
+    const idDocLocal = codigoDIANaId[dianResult.tipo] ?? 2;
+    setConsultandoDIAN(true);
+    try {
+      const c = await fetch('http://localhost:80/conta-app-backend/api/clientes/listar.php', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          Razon_Social: dianResult.name,
+          Nit: dianResult.documento,
+          Identificacion: dianResult.documento,
+          // El email que devuelve DIAN es del último EMISOR, no del cliente
+          // (ver comentario en usarSoloEnEstaVenta). Se guarda vacío para no
+          // ensuciar la ficha; el usuario lo edita después si lo necesita.
+          Email: '',
+          Telefonos: '0', Direccion: '-',
+          id_documento: idDocLocal,
+        }),
+      });
+      const cj = await c.json();
+      if (cj.success) {
+        toast.success(`Cliente guardado: ${dianResult.name}`);
+        onSelect({
+          CodigoClien: cj.CodigoClien || cj.codigo,
+          Nombre_Cliente: dianResult.name,
+          Razon_Social: dianResult.name,
+          Identificacion: dianResult.documento,
+          Nit: dianResult.documento,
+          Email: '',
+          Telefono: '0',
+          Direccion: '-',
+        });
+      } else {
+        toast.error(cj.message || 'No se pudo crear el cliente');
+      }
+    } catch { toast.error('Error creando cliente'); }
+    setConsultandoDIAN(false);
   };
 
   return (
@@ -53,6 +159,57 @@ function BuscarClienteModal({ onSelect, onClose }: { onSelect: (c: any) => void;
           {results.length === 0 ? (
             <div style={{ padding: 20, textAlign: 'center', color: '#9ca3af', fontSize: 13 }}>
               {busqueda.length < 2 ? 'Escriba al menos 2 caracteres' : 'Sin resultados'}
+              {/* Cuando la búsqueda parece cédula/NIT y no aparece local,
+                  ofrecer consulta a la DIAN (Resolución 202/2025). Solo si FE
+                  está activa — el endpoint necesita el certificado del cliente. */}
+              {feActiva && buscaEsDocumento && busqueda.length >= 2 && !dianResult && (
+                <div style={{ marginTop: 14 }}>
+                  <button onClick={consultarDIAN} disabled={consultandoDIAN}
+                    style={{
+                      height: 36, padding: '0 16px', background: consultandoDIAN ? '#9ca3af' : '#0891b2',
+                      color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700,
+                      cursor: consultandoDIAN ? 'wait' : 'pointer',
+                      display: 'inline-flex', alignItems: 'center', gap: 6,
+                    }}>
+                    {consultandoDIAN ? <Loader2 size={14} className="animate-spin" /> : <Search size={14} />}
+                    {consultandoDIAN ? 'Consultando DIAN…' : 'Consultar DIAN'}
+                  </button>
+                  <div style={{ fontSize: 10, color: '#6b7280', marginTop: 6 }}>
+                    Trae nombre y correo de la DIAN a partir del documento {busqueda}
+                  </div>
+                </div>
+              )}
+              {/* Panel de opciones tras consultar DIAN */}
+              {dianResult && (
+                <div style={{ marginTop: 14, textAlign: 'left', background: '#f0f9ff', border: '1px solid #7dd3fc', borderRadius: 8, padding: 12 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: '#0369a1', marginBottom: 6, textTransform: 'uppercase' }}>Datos DIAN</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#0f172a' }}>{dianResult.name}</div>
+                  <div style={{ fontSize: 11, color: '#475569', marginTop: 2 }}>
+                    Doc: <b>{dianResult.documento}</b>
+                  </div>
+                  {dianResult.email && (
+                    <div style={{ marginTop: 6, padding: '6px 8px', background: '#fef3c7', border: '1px solid #fbbf24', borderRadius: 6, fontSize: 10, color: '#92400e', lineHeight: 1.4 }}>
+                      <b>Aviso:</b> la DIAN devolvió el email <b>{dianResult.email}</b>, pero suele ser el del último emisor que le facturó a este NIT, no del cliente. Se ignora — si necesita enviar por correo, escríbalo manualmente en el campo Cliente.
+                    </div>
+                  )}
+                  <div style={{ display: 'flex', gap: 6, marginTop: 12 }}>
+                    <button onClick={usarSoloEnEstaVenta} disabled={consultandoDIAN}
+                      style={{ flex: 1, height: 34, background: '#7c3aed', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: 'pointer' }}
+                      title="Los datos se guardan en esta factura pero NO se crea cliente. Para compradores ocasionales.">
+                      Usar solo aquí
+                    </button>
+                    <button onClick={guardarComoCliente} disabled={consultandoDIAN}
+                      style={{ flex: 1, height: 34, background: '#16a34a', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: consultandoDIAN ? 'wait' : 'pointer' }}
+                      title="Crea registro en Clientes para uso recurrente (cartera, cumpleaños, etc.)">
+                      Guardar como cliente
+                    </button>
+                  </div>
+                  <div style={{ fontSize: 10, color: '#64748b', marginTop: 8, lineHeight: 1.4 }}>
+                    <b>Usar solo aquí</b>: compra al contado, no vuelve — solo va en esta FE.<br />
+                    <b>Guardar como cliente</b>: cliente recurrente, con cartera y seguimiento.
+                  </div>
+                </div>
+              )}
             </div>
           ) : results.map((c: any) => (
             <div key={c.CodigoClien}
@@ -89,6 +246,12 @@ interface LineaVenta {
   Iva: number;
   Descuento: number;
   Subtotal: number;
+  // Si el producto es servicio (tblarticulos.Servicio=1): se permite editar
+  // el concepto (descripción) por venta, no se descuenta inventario y NO se
+  // valida existencia. La descripción editada se guarda en
+  // tbldetalle_venta.DescripcionTemp y se muestra en el PDF en vez del nombre.
+  EsServicio?: boolean;
+  DescripcionTemp?: string;
 }
 
 export interface TabState {
@@ -96,8 +259,12 @@ export interface TabState {
   dias: number;
   listaPrecio: number;
   descuentoGlobal: number;
-  cliente: { id: number; nombre: string; nit: string; tel: string; dir: string; cupo: number; esCliente: boolean };
+  cliente: { id: number; nombre: string; nit: string; tel: string; dir: string; cupo: number; esCliente: boolean; preciocosto?: number; ultimoprecio?: number };
   lineas: LineaVenta[];
+  // Tipo de documento de la pestaña: pos | electronica | soporte | cotizacion.
+  // Se persiste en el state para que VentasTabs pueda cambiarlo desde fuera
+  // (botón "Nueva Cotización") y NuevaVenta lo refleje.
+  tipoDocumento?: string;
 }
 
 let lineaId = Date.now();
@@ -106,19 +273,44 @@ interface NuevaVentaProps {
   onFacturaCreada?: (factN: number) => void;
   initialState?: TabState;
   onStateChange?: (state: TabState) => void;
+  // Llamado cuando el usuario está en modo cotización y pulsa "Guardar
+  // Cotización" (sustituye al flujo de venta normal). VentasTabs lo conecta
+  // a `guardarCotizacion()` que persiste en BD e imprime.
+  onCotizar?: () => Promise<void> | void;
 }
 
 const API_CAJA = 'http://localhost:80/conta-app-backend/api/caja/sesion.php';
 
-export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: NuevaVentaProps) {
+export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCotizar }: NuevaVentaProps) {
   const { user } = useAuth();
   const init = initialState || { tipo: 'Contado', dias: 0, listaPrecio: 1, descuentoGlobal: 0, cliente: { id: 130500, nombre: 'VENTAS AL CONTADO', nit: '0', tel: '0', dir: '-', cupo: 0, esCliente: false, email: '' }, lineas: [] };
-  const [tipoDocumento, setTipoDocumento] = useState('pos'); // pos, electronica, soporte
+  // Modos disponibles: pos (factura POS), electronica (FE DIAN), soporte
+  // (documento soporte) y cotizacion (no genera venta — solo guarda en
+  // tblcotizaciones e imprime). Cotización omite todas las validaciones de
+  // stock/crédito/caja porque no es una operación real.
+  // El modo inicial puede venir desde initialState — VentasTabs lo usa para
+  // arrancar una pestaña directamente como Cotización al pulsar el botón
+  // "Nueva Cotización" de la barra superior.
+  const [tipoDocumento, setTipoDocumento] = useState<string>((init as any).tipoDocumento || 'pos');
+
+  // Sincroniza el modo cuando el padre cambia initialState.tipoDocumento
+  // (caso: el usuario presiona "Nueva Cotización" estando ya en una pestaña
+  // que tenía modo "pos" o "electronica"). Solo se ejecuta cuando el valor
+  // externo cambia y difiere del interno → no entra en loop.
+  useEffect(() => {
+    const ext = (initialState as any)?.tipoDocumento;
+    if (ext && ext !== tipoDocumento) setTipoDocumento(ext);
+  }, [(initialState as any)?.tipoDocumento]);
   // Fecha de la venta. Default = hoy. Solo se muestra/edita si Configuración →
   // Reglas de Venta → "Permitir cambiar la fecha de la venta" está activo.
   const hoyISO = () => new Date().toISOString().slice(0, 10);
   const [fechaVenta, setFechaVenta] = useState<string>(hoyISO());
-  const [enviarEmailFE, setEnviarEmailFE] = useState(false);
+  const [enviarEmailFE, setEnviarEmailFE] = useState<boolean>(() => {
+    // Si el cliente inicial tiene un correo válido, prender el envío por defecto.
+    const emailIni = (init.cliente?.email || '').split(/[;,]+/).map(s => s.trim()).filter(Boolean);
+    const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return emailIni.some(t => re.test(t));
+  });
   const [nota, setNota] = useState('');
   const [pedidoOrigenId, setPedidoOrigenId] = useState(0);
   const [showCrearProducto, setShowCrearProducto] = useState(false);
@@ -131,6 +323,16 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
   const [infoCredito, setInfoCredito] = useState<any>(null);
   const [showAuthCupo, setShowAuthCupo] = useState<{ motivo: string } | null>(null);
   const [authCupoAdmin, setAuthCupoAdmin] = useState<AdminAutorizado | null>(null);
+  // Medio de pago DIAN — se muestra en la barra superior cuando el documento es
+  // Factura Electrónica o Doc. Soporte. Va como payment_method_id al backend.
+  const [medioDian, setMedioDian] = useState<number>(10);
+  // Modal simple de confirmación previo al envío DIAN (sin abono, sin pago).
+  const [showConfirmFE, setShowConfirmFE] = useState(false);
+  // Consulta rápida por línea del carrito: precios anteriores y kardex.
+  const [historialItems, setHistorialItems] = useState<number | null>(null);
+  const [kardexItems, setKardexItems] = useState<{ items: number; codigo: string; nombre: string } | null>(null);
+  // Mismo criterio que DetalleFacturaModal — tipoUsuario===1 identifica admin.
+  const esAdmin = (user as any)?.tipoUsuario === 1 || (user as any)?.tipoUsuario === '1';
   const [tipo, setTipo] = useState(init.tipo);
   const [dias, setDias] = useState(init.dias);
 
@@ -200,13 +402,30 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
 
   const seleccionarCliente = (c: any) => {
     const email = c.Email || '';
+    const pc = parseInt(c.Preciocosto ?? 0) === 1 ? 1 : 0;
+    const up = parseInt(c.UltimoPrecio ?? 0) === 1 ? 1 : 0;
     setCliente({
       id: c.CodigoClien, nombre: c.Nombre_Cliente, nit: c.Identificacion || '0',
       tel: c.Telefono || '0', dir: c.Direccion || '-',
-      cupo: parseFloat(c.Cupo) || 0, esCliente: true, email
+      cupo: parseFloat(c.Cupo) || 0, esCliente: true, email,
+      preciocosto: pc,
+      ultimoprecio: up,
     });
-    // Si no tiene email válido, desactivar envío
-    if (!email || !email.includes('@')) setEnviarEmailFE(false);
+    // Preciocosto tiene prioridad sobre UltimoPrecio si ambos están activos
+    // (facturar a costo es más restrictivo — es una decisión de negocio explícita).
+    if (pc === 1) {
+      toast('Cliente marcado como "Facturar a precio costo" — los productos usarán el costo, no el precio de venta.', { icon: 'ℹ️', duration: 6000 });
+    } else if (up === 1) {
+      toast('Cliente marcado como "Facturar al último precio" — al agregar productos se buscará el precio de la última venta a este cliente.', { icon: 'ℹ️', duration: 6000 });
+    }
+    // Si no tiene email válido completo (algo@dominio.tld), desactivar envío.
+    // Antes solo verificaba "include('@')" → permitía pasar "abc@" (sin dominio)
+    // y la factura salía sin correo a la DIAN sin avisar al usuario.
+    const emailRegexValido = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const tokensCheck = email.split(/[;,]+/).map((s: string) => s.trim()).filter((s: string) => s.length > 0);
+    const hayValido = tokensCheck.some((t: string) => emailRegexValido.test(t));
+    // Si hay correo válido, prender por defecto; si no, apagar.
+    setEnviarEmailFE(hayValido);
     setClienteBusqueda('');
     setShowClienteDropdown(false);
     productoInputRef.current?.focus();
@@ -240,19 +459,24 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
     }, 200);
   };
 
-  const agregarProducto = (art: any) => {
+  const agregarProducto = async (art: any) => {
     const cfg = getConfigImpresion();
-    const existente = lineas.find(l => l.Items === art.Items);
+    // Defensivo: si Servicio viene como string ("0"/"1") el operador `!!`
+    // trata "0" como truthy. Usamos Number() === 1 para validar solo el 1.
+    const esServicio = Number(art.Servicio) === 1;
 
-    // Cantidad ya comprometida de este producto en toda la grilla (suma de todas las líneas)
-    const cantTotalEnGrid = lineas
+    // Servicios: cada selección crea una línea nueva (no se acumula cantidad)
+    // para que el usuario pueda dar un concepto distinto a cada instancia.
+    const existente = esServicio ? undefined : lineas.find(l => l.Items === art.Items);
+
+    // Cantidad ya comprometida de este producto en toda la grilla (suma de todas las líneas).
+    // Para servicios no aplica — no hay control de stock.
+    const cantTotalEnGrid = esServicio ? 0 : lineas
       .filter(l => l.Items === art.Items)
       .reduce((s, l) => s + (l.Cantidad || 0), 0);
 
     if (existente && !cfg.permitirRepetirProducto) {
       // Comportamiento clásico: incrementar la cantidad de la línea existente.
-      // El paso es 1, salvo que solo quede un fraccionario < 1 disponible: en ese
-      // caso incrementa por lo que reste (ej. completar a 1.5 desde 1 con 0.5 libre).
       const dispRestante = existente.Existencia - existente.Cantidad;
       const paso = (!cfg.permitirFacturarNegativo && dispRestante > 0 && dispRestante < 1)
         ? dispRestante : 1;
@@ -263,24 +487,55 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
       }
       setLineas(prev => prev.map(l => l.id === existente.id ? { ...l, Cantidad: nuevaCant, Subtotal: nuevaCant * l.PrecioVenta - l.Descuento } : l));
     } else {
-      // Línea nueva (producto fresco, o producto repetido si el toggle está activo).
-      // Cantidad inicial = 1, salvo que el stock restante sea fraccionario < 1 (ej.
-      // medio bulto 0.5): en ese caso arranca con lo disponible para no bloquear la
-      // venta del fraccionario. El usuario puede ajustar luego.
-      const dispRestante = (art.Existencia || 0) - cantTotalEnGrid;
-      const cantInicial = (!cfg.permitirFacturarNegativo && dispRestante > 0 && dispRestante < 1)
-        ? dispRestante : 1;
-      // Tolerancia epsilon por aritmética de punto flotante (0.1+0.2 etc.)
-      if (!cfg.permitirFacturarNegativo && (cantTotalEnGrid + cantInicial) > (art.Existencia || 0) + 1e-9) {
-        toast.error(`No hay existencia suficiente de ${art.Codigo} ${art.Nombres_Articulo} (disponible: ${art.Existencia}, ya en factura: ${cantTotalEnGrid})`, { duration: 5000 });
-        return;
+      // Línea nueva. Para servicios saltamos toda la validación de stock
+      // (Existencia=0, sin controles). Para productos normales aplican las reglas.
+      let cantInicial = 1;
+      if (!esServicio) {
+        const dispRestante = (art.Existencia || 0) - cantTotalEnGrid;
+        cantInicial = (!cfg.permitirFacturarNegativo && dispRestante > 0 && dispRestante < 1)
+          ? dispRestante : 1;
+        if (!cfg.permitirFacturarNegativo && (cantTotalEnGrid + cantInicial) > (art.Existencia || 0) + 1e-9) {
+          toast.error(`No hay existencia suficiente de ${art.Codigo} ${art.Nombres_Articulo} (disponible: ${art.Existencia}, ya en factura: ${cantTotalEnGrid})`, { duration: 5000 });
+          return;
+        }
       }
-      const precio = listaPrecio === 2 ? (art.Precio_Venta2 || art.Precio_Venta) : listaPrecio === 3 ? (art.Precio_Venta3 || art.Precio_Venta) : art.Precio_Venta;
+      // Precio a aplicar — orden de prioridad:
+      //   1. Preciocosto=1: siempre usa Precio_Costo (más restrictivo, decisión de negocio)
+      //   2. UltimoPrecio=1: busca el último precio al que se le vendió a ESTE cliente
+      //      Si el producto nunca se le ha vendido, cae al precio de lista normal.
+      //   3. Lista de precios (1/2/3) — comportamiento por defecto.
+      let precio: number;
+      if (cliente.preciocosto === 1) {
+        precio = art.Precio_Costo || 0;
+      } else if (cliente.ultimoprecio === 1 && cliente.id && cliente.id !== 130500 && !esServicio) {
+        try {
+          const r = await fetch(`http://localhost:80/conta-app-backend/api/ventas/ultimo-precio.php?items=${art.Items}&cliente=${cliente.id}`);
+          const d = await r.json();
+          if (d.success && d.precio && d.precio > 0) {
+            precio = d.precio;
+            toast(`Último precio a este cliente: ${fmtMon(d.precio)} (Fra. #${d.factura_n})`, { icon: '💰', duration: 4000 });
+          } else {
+            precio = listaPrecio === 2 ? (art.Precio_Venta2 || art.Precio_Venta)
+                  : listaPrecio === 3 ? (art.Precio_Venta3 || art.Precio_Venta)
+                  : art.Precio_Venta;
+          }
+        } catch {
+          precio = listaPrecio === 2 ? (art.Precio_Venta2 || art.Precio_Venta)
+                : listaPrecio === 3 ? (art.Precio_Venta3 || art.Precio_Venta)
+                : art.Precio_Venta;
+        }
+      } else {
+        precio = listaPrecio === 2 ? (art.Precio_Venta2 || art.Precio_Venta)
+              : listaPrecio === 3 ? (art.Precio_Venta3 || art.Precio_Venta)
+              : art.Precio_Venta;
+      }
       const nueva: LineaVenta = {
         id: ++lineaId, Items: art.Items, Codigo: art.Codigo, Nombre: art.Nombres_Articulo,
-        Existencia: art.Existencia, Cantidad: cantInicial, PrecioCosto: art.Precio_Costo,
+        Existencia: esServicio ? 0 : art.Existencia, Cantidad: cantInicial, PrecioCosto: art.Precio_Costo,
         PrecioMinimo: art.Precio_Minimo || 0,
         PrecioVenta: precio, Iva: art.Iva || 0, Descuento: 0, Subtotal: cantInicial * precio,
+        EsServicio: esServicio,
+        DescripcionTemp: esServicio ? art.Nombres_Articulo : undefined,
       };
       setLineas(prev => [...prev, nueva]);
     }
@@ -300,8 +555,9 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
       if (!lineaActual) return prev;
       const cfg = getConfigImpresion();
 
-      // Validar stock al cambiar cantidad (suma todas las líneas del mismo Items)
-      if (field === 'Cantidad' && !cfg.permitirFacturarNegativo) {
+      // Validar stock al cambiar cantidad (suma todas las líneas del mismo Items).
+      // Servicios saltan toda validación de stock — su existencia no aplica.
+      if (field === 'Cantidad' && !cfg.permitirFacturarNegativo && !lineaActual.EsServicio) {
         const cantSumandoEsta = prev
           .filter(l => l.Items === lineaActual.Items && l.id !== id)
           .reduce((s, l) => s + (l.Cantidad || 0), 0) + value;
@@ -374,6 +630,76 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
         }
       }
     }).catch(() => {});
+  }, []);
+
+  // Edición de borrador FE — id del borrador que se está editando (o null).
+  // Cuando != null, el botón "Guardar Borrador" llama a `actualizar_borrador`
+  // en vez de `guardar_borrador`, y al terminar limpia el estado.
+  const [editandoBorradorId, setEditandoBorradorId] = useState<number | null>(null);
+
+  // Cargar borrador FE para edición. Se dispara al abrir Nueva Venta si
+  // hay `borrador_para_editar` en localStorage (viene del módulo FE).
+  useEffect(() => {
+    const raw = localStorage.getItem('borrador_para_editar');
+    if (!raw) return;
+    const id = parseInt(raw, 10);
+    if (!id || isNaN(id)) return;
+    localStorage.removeItem('borrador_para_editar');
+
+    toast.loading('Cargando borrador...', { id: 'cargar-borrador' });
+    fetch(API_FE, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'cargar_borrador', id }),
+    })
+      .then(r => r.json())
+      .then(d => {
+        toast.dismiss('cargar-borrador');
+        if (!d.success) { toast.error(d.message || 'No se pudo cargar el borrador'); return; }
+
+        const b = d.borrador;
+        setEditandoBorradorId(id);
+        setTipoDocumento('electronica');
+        setTipo(b.tipo || 'Contado');
+        setDias(b.payment_due_days || 0);
+        setNota(b.nota || '');
+        setDescuentoGlobal(b.descuento || 0);
+        setPagoEfectivo(String(b.efectivo || ''));
+        setPagoTransferencia(String(b.valorpagado1 || ''));
+        setPagoAbono(String(b.abono || ''));
+
+        setCliente({
+          id: b.cod_cliente,
+          nombre: b.customer_name || '',
+          nit: b.customer_identification || '0',
+          tel: b.cliente_telefono || '0',
+          dir: b.cliente_direccion || '-',
+          cupo: 0,
+          esCliente: b.cod_cliente !== 130500,
+          email: b.customer_email || '',
+        });
+
+        // Líneas
+        const nuevasLineas: LineaVenta[] = (d.items || []).map((it: any, i: number) => ({
+          id: Date.now() + i,
+          Items: it.Items,
+          Codigo: it.Codigo || '',
+          Nombre: it.Nombres_Articulo || '',
+          Existencia: it.Existencia || 0,
+          Cantidad: it.Cantidad || 1,
+          PrecioCosto: it.PrecioCosto || 0,
+          PrecioVenta: it.PrecioVenta || 0,
+          Iva: it.Iva || 0,
+          Descuento: it.Descuento || 0,
+          Subtotal: (it.Cantidad || 1) * (it.PrecioVenta || 0) - (it.Descuento || 0),
+          EsServicio: Number(it.Servicio) === 1,
+          DescripcionTemp: Number(it.Servicio) === 1 ? (it.DescripcionTemp || it.Nombres_Articulo) : undefined,
+        }));
+        setLineas(nuevasLineas);
+
+        toast.success(`Borrador #${id} cargado — modifique y guarde`);
+      })
+      .catch(() => { toast.dismiss('cargar-borrador'); toast.error('Error de conexión'); });
+    // eslint-disable-next-line
   }, []);
 
   // Cargar pedido de vendedor (desde "Convertir" en Pedidos de Campo)
@@ -468,18 +794,26 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
           for (const it of d.items) {
             currentId++;
             const precio = it.precio_unitario_pedido > 0 ? it.precio_unitario_pedido : it.Precio_Venta;
+            // Respetar la marca de servicio del catálogo. Los servicios no
+            // descuentan stock, permiten concepto editable (DescripcionTemp)
+            // y no exigen existencia > 0. Sin este check, al copiar/editar
+            // una factura los servicios se comportaban como productos y la
+            // app pedía existencia inexistente.
+            const esServ = Number(it.Servicio) === 1;
             nuevasLineas.push({
               id: currentId,
               Items: it.Items,
               Codigo: it.Codigo,
               Nombre: it.Nombres_Articulo,
-              Existencia: it.Existencia,
+              Existencia: esServ ? 0 : it.Existencia,
               Cantidad: it.cantidad_pedido,
               PrecioCosto: it.Precio_Costo,
               PrecioVenta: precio,
               Iva: it.Iva || 0,
               Descuento: 0,
               Subtotal: it.cantidad_pedido * precio,
+              EsServicio: esServ,
+              DescripcionTemp: esServ ? (it.DescripcionTemp || it.Nombres_Articulo) : undefined,
             });
           }
           lineaId = currentId;
@@ -551,10 +885,24 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
   const esResponsableIVA = empresaRegimen.includes('común') || empresaRegimen.includes('comun')
     || empresaRegimen.includes('responsable');
 
+  // ¿El catálogo guarda Precio_Venta con IVA incluido? Lo lee de la config
+  // de la empresa. Si sí (caso típico de retail), el Subtotal de la línea
+  // YA contiene el IVA dentro y NO se le suma encima.
+  const precioIvaIncluido = !!getConfigImpresion().precioIvaIncluido;
+
   // Totales "base" (si no hubiera retención)
   const subtotalBase = lineas.reduce((s, l) => s + l.Subtotal, 0);
+  // IVA total. Si el precio YA incluye IVA, lo SEPARAMOS del subtotal con
+  // la fórmula iva/(100+iva). Si el precio NO incluye IVA, lo SUMAMOS con
+  // la fórmula iva/100. Antes siempre se sumaba — eso inflaba el total
+  // para clientes con IvaIncluido=1.
   const totalIvaBase = esResponsableIVA
-    ? lineas.reduce((s, l) => s + (l.Subtotal * (l.Iva / 100)), 0)
+    ? lineas.reduce((s, l) => {
+        if (l.Iva <= 0) return s;
+        return precioIvaIncluido
+          ? s + l.Subtotal * (l.Iva / (100 + l.Iva))   // separa IVA del subtotal
+          : s + l.Subtotal * (l.Iva / 100);            // suma IVA al subtotal
+      }, 0)
     : 0;
   const ivaFrac = subtotalBase > 0 ? totalIvaBase / subtotalBase : 0;
 
@@ -570,7 +918,10 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
 
   const subtotal = subtotalBase * factorGrossUp;
   const totalIva = totalIvaBase * factorGrossUp;
-  const totalFactura = subtotal + totalIva - descuentoGlobal;
+  // Si el precio YA incluye IVA, el subtotal mostrado ya contiene el IVA dentro
+  // → total = subtotal − descuento. Si NO lo incluye, el IVA va por encima
+  // → total = subtotal + iva − descuento.
+  const totalFactura = (precioIvaIncluido ? subtotal : subtotal + totalIva) - descuentoGlobal;
   const retencionesCalc = retencionesCliente.map((r: any) => {
     const pct = parseFloat(r.Porcentaje) || 0;
     const base = subtotal;
@@ -585,11 +936,81 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
   const netoEsperado = total - totalRetenciones;
   const cambio = tipo === 'Contado' && efectivo ? Math.max(parseInt(efectivo) - total, 0) : 0;
 
-  // Abrir modal de pago
-  const finalizar = () => {
+  // Guardar la FE como borrador — NO toca tblventas ni descuenta stock.
+  // El borrador vive solo en electronic_documents con status='borrador' y
+  // se puede enviar a DIAN después desde el módulo FE.
+  const guardarBorrador = async () => {
+    if (lineas.length === 0) { toast.error('Agregue al menos un producto'); return; }
+    if (!cliente.nit || cliente.nit === '0') { toast.error('El comprador debe tener NIT/cédula para FE'); return; }
+    if (!cliente.nombre) { toast.error('El comprador debe tener nombre'); return; }
+    setGuardando(true);
+    try {
+      // Si estamos editando un borrador existente, actualizar; sino crear nuevo
+      const accion = editandoBorradorId ? 'actualizar_borrador' : 'guardar_borrador';
+      const r = await fetch(API_FE, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: accion,
+          id: editandoBorradorId || undefined,
+          cliente: {
+            id: cliente.id, nombre: cliente.nombre, nit: cliente.nit,
+            tel: cliente.tel, dir: cliente.dir, email: cliente.email || '',
+          },
+          items: lineas.map(l => ({
+            items: l.Items, cantidad: l.Cantidad, precio: l.PrecioVenta,
+            precio_costo: l.PrecioCosto, iva: l.Iva, descuento: l.Descuento,
+            es_servicio: l.EsServicio ? 1 : 0,
+            descripcion_temp: l.EsServicio ? (l.DescripcionTemp || l.Nombre) : null,
+          })),
+          tipo, dias: tipo === 'Contado' ? 0 : dias,
+          // Medio de pago: si hay transferencia se usa el medio elegido, sino efectivo
+          medio_pago: parseInt(pagoTransferencia || '0') > 0 ? pagoMedioTransf : 0,
+          total, comentario: nota || '-',
+          descuento_global: descuentoGlobal,
+          efectivo: parseInt(pagoEfectivo || '0'),
+          valor_pagado: parseInt(pagoTransferencia || '0'),
+          abono: tipo !== 'Contado' ? parseInt(pagoAbono || '0') : 0,
+          id_usuario: user?.id || 0,
+          customer_email: cliente.email || '',
+        }),
+      });
+      const d = await r.json();
+      if (d.success) {
+        toast.success(d.message || 'Borrador guardado');
+        // Reset como una venta nueva
+        setLineas([]); setPagoEfectivo(''); setPagoTransferencia(''); setPagoAbono('');
+        setDescuentoGlobal(0); setNota('');
+        setEditandoBorradorId(null);   // sale del modo edición
+      } else {
+        toast.error(d.message || 'Error guardando borrador');
+      }
+    } catch (e) {
+      toast.error('Error de conexión');
+    }
+    setGuardando(false);
+  };
+
+  // Abrir modal de pago (o guardar cotización si está en ese modo)
+  const finalizar = async () => {
     if (lineas.length === 0) { setError('Agregue al menos un producto'); return; }
+    // Cotización: ruta corta — no abre modal de pago, no exige cliente real,
+    // no toca stock/kardex. Solo persiste e imprime vía onCotizar.
+    if (tipoDocumento === 'cotizacion') {
+      setError('');
+      await onCotizar?.();
+      return;
+    }
     if (tipo === 'Crédito' && cliente.id === 130500) {
       setError('El cliente genérico "VENTAS AL CONTADO" no puede usarse en ventas a crédito. Seleccione un cliente real para que la deuda aparezca en Cuentas por Cobrar.');
+      return;
+    }
+    // FE / Doc. Soporte: sin modal de pago con abono (FAU12). Solo confirmación.
+    // El medio DIAN ya se eligió arriba en la barra; contado o crédito se define
+    // por el select de TÉRMINO. Los pagos son movimiento interno posterior.
+    if (tipoDocumento === 'electronica' || tipoDocumento === 'soporte') {
+      setError('');
+      setPagoEfectivo(''); setPagoTransferencia(''); setPagoAbono('');
+      setShowConfirmFE(true);
       return;
     }
     setPagoEfectivo('');
@@ -639,7 +1060,17 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
 
   // Confirmar venta
   const confirmarVenta = async () => {
-    if (tipo === 'Contado' && totalPagado < total) { setError('El pago no cubre el total'); return; }
+    // La validación de "pago cubre el total" solo aplica al modal POS con abono.
+    // Para FE/Soporte no abrimos ese modal — el medio DIAN cubre implícitamente.
+    const esFE = tipoDocumento === 'electronica' || tipoDocumento === 'soporte';
+    if (!esFE && tipo === 'Contado' && totalPagado < total) { setError('El pago no cubre el total'); return; }
+    // Guardarraíl: en crédito, abono debe ser ESTRICTAMENTE menor que el total.
+    // Si es igual, la venta es contado (no crédito con abono). Si es mayor, es
+    // error de digitación (bug reportado: $24.5M en factura de $116k).
+    if (tipo === 'Crédito' && pagoAbonoNum >= total && total > 0) {
+      setError(`El abono ($${pagoAbonoNum.toLocaleString('es-CO')}) debe ser MENOR que el total ($${Math.round(total).toLocaleString('es-CO')}). Si va a pagar completo, cambie el término a Contado.`);
+      return;
+    }
 
     // Pre-check de distribución
     const check = await verificarDistribucion();
@@ -725,7 +1156,11 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
     try {
       const rDian = await fetch(API_FE, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'factura', factura_n: factN, send_email: enviarEmailFE })
+        body: JSON.stringify({
+          action: 'factura', factura_n: factN, send_email: enviarEmailFE,
+          customer_email: cliente.email || '',
+          payment_method_id: medioDian,
+        })
       });
       const dDian = await rDian.json();
       if (dDian.success) {
@@ -743,6 +1178,23 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
   };
 
   const ejecutarVenta = async () => {
+    // Si la factura es electrónica y el usuario marcó "Enviar a correo",
+    // exigimos que al menos un correo del cliente sea válido. Bloquea el
+    // caso donde el cliente tenía un email del tipo "abc@" guardado: la
+    // FE iba a DIAN bien pero el correo se silenciaba sin avisar.
+    if (tipoDocumento === 'electronica' && enviarEmailFE) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      const tokensEmail = (cliente.email || '')
+        .split(/[;,]+/)
+        .map((s: string) => s.trim())
+        .filter((s: string) => s.length > 0);
+      const hayValido = tokensEmail.some((t: string) => emailRegex.test(t));
+      if (!hayValido) {
+        toast.error('El cliente no tiene un correo válido. Edite el cliente o destilde "Enviar a correo".', { duration: 6000 });
+        return;
+      }
+    }
+
     // Validación de cupo: SIEMPRE requiere autorización admin si supera el cupo
     if (tipo === 'Crédito' && cliente.id && cliente.id !== 130500 && infoCredito?.credito?.tiene_cupo && !authCupoAdmin) {
       const cred = infoCredito.credito;
@@ -758,7 +1210,29 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
     }
 
     setGuardando(true); setError('');
-    const medioFinal = pagoTransfNum > 0 && pagoEfectivoNum === 0 ? pagoMedioTransf : pagoTransfNum > 0 ? pagoMedioTransf : 0;
+    // Para POS: id_mediopago se deriva del reparto efectivo/transferencia del modal.
+    // Para FE/Soporte Contado: no hubo modal, así que el reparto se deduce del
+    // medio DIAN elegido en la barra. Efectivo/transferencia se poblarán abajo
+    // para que la caja cuadre por SUM(efectivo)/SUM(valorpagado1) en tblventas.
+    const esFEContado = (tipoDocumento === 'electronica' || tipoDocumento === 'soporte') && tipo === 'Contado';
+    let medioFinal: number;
+    let efectivoFinal: number;
+    let valorPagadoFinal: number;
+    if (esFEContado) {
+      if (medioDian === 10) {                    // Efectivo puro
+        medioFinal = 0;
+        efectivoFinal = total;
+        valorPagadoFinal = 0;
+      } else {                                   // Cae en cuenta interna
+        medioFinal = pagoMedioTransf;
+        efectivoFinal = 0;
+        valorPagadoFinal = total;
+      }
+    } else {
+      medioFinal = pagoTransfNum > 0 && pagoEfectivoNum === 0 ? pagoMedioTransf : pagoTransfNum > 0 ? pagoMedioTransf : 0;
+      efectivoFinal = pagoEfectivoNum;
+      valorPagadoFinal = pagoTransfNum;
+    }
     try {
       // Si hay gross-up, las líneas se re-escalan individualmente multiplicando cada precio por factorGrossUp
       const lineasFinal = factorGrossUp !== 1
@@ -779,11 +1253,16 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
         medio_pago: medioFinal, vendedor: user?.id || 0, descuento_global: descuentoGlobal, comentario: nota || '-',
         autorizado_por: authCupoAdmin?.id || null,
         autorizado_por_nombre: authCupoAdmin?.nombre || null,
-        efectivo: pagoEfectivoNum, valor_pagado: pagoTransfNum,
+        efectivo: efectivoFinal, valor_pagado: valorPagadoFinal,
         abono: tipo !== 'Contado' ? pagoAbonoNum : 0,
         items: lineasFinal.map(l => ({
           items: l.Items, cantidad: l.Cantidad, precio: l.PrecioVenta,
           precio_costo: l.PrecioCosto, iva: l.Iva, descuento: l.Descuento,
+          // Si es servicio, mandar la descripción editada (lo que el usuario
+          // tipeó en la celda Nombre). El backend la guarda en
+          // tbldetalle_venta.DescripcionTemp y NO descuenta inventario.
+          es_servicio: l.EsServicio ? 1 : 0,
+          descripcion_temp: l.EsServicio ? (l.DescripcionTemp || l.Nombre) : null,
         })),
         retenciones: retencionesCalc,
       };
@@ -824,7 +1303,15 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
           try {
             const rDian = await fetch(API_FE, {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ action: 'factura', factura_n: factN, send_email: enviarEmailFE })
+              body: JSON.stringify({
+                action: 'factura', factura_n: factN, send_email: enviarEmailFE,
+                // Email del comprador ocasional (traído de DIAN sin crear cliente).
+                // Va a electronic_documents.customer_email y al JSON DIAN, sin
+                // ensuciar tblventas ni tblclientes.
+                customer_email: cliente.email || '',
+                // Medio de pago DIAN confirmado en el modal (10/20/30/31/41/42/47/48/49...).
+                payment_method_id: medioDian,
+              })
             });
             const dDian = await rDian.json();
             dianDocId = dDian.doc_local_id || null;
@@ -970,12 +1457,19 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
             style={{
               height: 28, border: '1px solid #d1d5db', borderRadius: 6, fontSize: 12, padding: '0 4px', width: 150,
               fontWeight: 600,
-              color: tipoDocumento === 'electronica' ? '#2563eb' : tipoDocumento === 'soporte' ? '#d97706' : '#374151',
-              background: tipoDocumento === 'electronica' ? '#eff6ff' : tipoDocumento === 'soporte' ? '#fffbeb' : '#fff'
+              color: tipoDocumento === 'electronica' ? '#2563eb'
+                   : tipoDocumento === 'soporte' ? '#d97706'
+                   : tipoDocumento === 'cotizacion' ? '#1d4ed8'
+                   : '#374151',
+              background: tipoDocumento === 'electronica' ? '#eff6ff'
+                       : tipoDocumento === 'soporte' ? '#fffbeb'
+                       : tipoDocumento === 'cotizacion' ? '#dbeafe'
+                       : '#fff'
             }}>
             <option value="pos">Factura POS</option>
             {getConfigImpresion().usarFacturacionElectronica && <option value="electronica">Factura Electrónica</option>}
             <option value="soporte">Doc. Soporte</option>
+            <option value="cotizacion">Cotización</option>
           </select>
         </div>
         <div>
@@ -1021,6 +1515,40 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
             ))}
           </div>
         </div>
+        {(tipoDocumento === 'electronica' || tipoDocumento === 'soporte') && (
+          <div>
+            <label style={{ fontSize: 9, color: '#6b7280', display: 'block', marginBottom: 2 }}>MEDIO DE PAGO (DIAN)</label>
+            <select value={medioDian} onChange={e => {
+              const v = parseInt(e.target.value);
+              setMedioDian(v);
+              // Sincronizar cuenta destino sugerida: tarjeta → 1; resto no-efectivo → Bancolombia
+              if (v === 48 || v === 49) setPagoMedioTransf(1);
+              else if (v !== 10 && pagoMedioTransf === 1) setPagoMedioTransf(2);
+            }}
+              style={{ height: 28, border: '1px solid #d1d5db', borderRadius: 6, fontSize: 12, padding: '0 4px', width: 220 }}>
+              <option value={10}>10 — Efectivo</option>
+              <option value={20}>20 — Cheque</option>
+              <option value={30}>30 — Transferencia crédito</option>
+              <option value={31}>31 — Débito domiciliado</option>
+              <option value={41}>41 — Concentración efectivo / cheque</option>
+              <option value={42}>42 — Consignación bancaria</option>
+              <option value={47}>47 — Transferencia PSE / botón de pagos</option>
+              <option value={48}>48 — Tarjeta crédito</option>
+              <option value={49}>49 — Tarjeta débito</option>
+            </select>
+          </div>
+        )}
+        {(tipoDocumento === 'electronica' || tipoDocumento === 'soporte') && tipo === 'Contado' && medioDian !== 10 && (
+          <div title="Cuenta interna donde cae el dinero (para cuadre de caja / bancos)">
+            <label style={{ fontSize: 9, color: '#6b7280', display: 'block', marginBottom: 2 }}>CUENTA</label>
+            <select value={pagoMedioTransf} onChange={e => setPagoMedioTransf(parseInt(e.target.value))}
+              style={{ height: 28, border: '1px solid #d1d5db', borderRadius: 6, fontSize: 12, padding: '0 4px', width: 110 }}>
+              <option value={1}>Tarjeta</option>
+              <option value={2}>Bancolombia</option>
+              <option value={3}>Nequi</option>
+            </select>
+          </div>
+        )}
         {tipoDocumento === 'electronica' && (() => {
           // Parsear y validar cada email del cliente. Soporta varios separados
           // por coma o punto y coma. Cada uno se muestra como un badge.
@@ -1108,11 +1636,30 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
           </div>
         </div>
         <div style={{ flex: 1 }}>
-          <label style={{ fontSize: 9, color: '#6b7280', display: 'block', marginBottom: 2 }}>CLIENTE</label>
+          <label style={{ fontSize: 9, color: '#6b7280', display: 'block', marginBottom: 2 }}>
+            CLIENTE
+            {cliente.preciocosto === 1 && (
+              <span title="Facturar a precio costo (definido en la ficha del cliente)"
+                style={{ marginLeft: 6, padding: '1px 6px', background: '#fef3c7', color: '#d97706', borderRadius: 4, fontSize: 9, fontWeight: 700 }}>
+                A COSTO
+              </span>
+            )}
+            {cliente.preciocosto !== 1 && cliente.ultimoprecio === 1 && (
+              <span title="Facturar al último precio de venta a este cliente"
+                style={{ marginLeft: 6, padding: '1px 6px', background: '#dbeafe', color: '#1d4ed8', borderRadius: 4, fontSize: 9, fontWeight: 700 }}>
+                ÚLTIMO PRECIO
+              </span>
+            )}
+          </label>
           <input type="text" value={cliente.nombre}
             onChange={e => setClienteField('nombre', e.target.value)}
             readOnly={cliente.esCliente}
-            style={{ width: '100%', height: 28, padding: '0 8px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, fontWeight: 600, outline: 'none', background: cliente.esCliente ? '#f9fafb' : '#fff' }} />
+            style={{
+              width: '100%', height: 28, padding: '0 8px',
+              border: `1px solid ${cliente.preciocosto === 1 ? '#f59e0b' : cliente.ultimoprecio === 1 ? '#60a5fa' : '#d1d5db'}`,
+              borderRadius: 6, fontSize: 13, fontWeight: 600, outline: 'none',
+              background: cliente.preciocosto === 1 ? '#fffbeb' : cliente.ultimoprecio === 1 ? '#eff6ff' : cliente.esCliente ? '#f9fafb' : '#fff'
+            }} />
         </div>
         <div>
           <label style={{ fontSize: 9, color: '#6b7280', display: 'block', marginBottom: 2 }}>NIT / CC</label>
@@ -1228,15 +1775,39 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
             <tbody>
               {lineas.map(l => (
                 <tr key={l.id} style={{ borderBottom: '1px solid #f3f4f6' }}>
-                  <td style={{ padding: '4px 8px', width: 100, color: '#6b7280', fontSize: 11 }}>{l.Codigo}</td>
-                  <td style={{ padding: '4px 8px', fontWeight: 500 }}>{l.Nombre}</td>
-                  <td style={{ padding: '4px 8px', textAlign: 'center', width: 55, color: l.Existencia < l.Cantidad ? '#dc2626' : '#16a34a', fontWeight: 600, fontSize: 11 }}>{l.Existencia}</td>
+                  <td style={{ padding: '4px 8px', width: 100, color: '#6b7280', fontSize: 11 }}>
+                    {l.Codigo}
+                    {l.EsServicio && <span style={{ display: 'block', fontSize: 9, fontWeight: 700, color: '#7c3aed', marginTop: 2 }}>SERVICIO</span>}
+                  </td>
+                  <td style={{ padding: '4px 8px', fontWeight: 500 }}>
+                    {l.EsServicio ? (
+                      <input type="text" defaultValue={l.DescripcionTemp || l.Nombre}
+                        onBlur={e => {
+                          const txt = e.target.value.trim() || l.Nombre;
+                          setLineas(prev => prev.map(x => x.id === l.id ? { ...x, DescripcionTemp: txt } : x));
+                        }}
+                        title="Editable: este servicio permite cambiar el concepto en cada factura"
+                        style={{ width: '100%', height: 26, border: '1px dashed #c4b5fd', borderRadius: 4, fontSize: 12, padding: '0 6px', background: '#faf5ff', outline: 'none', fontWeight: 500 }} />
+                    ) : l.Nombre}
+                  </td>
+                  <td style={{ padding: '4px 8px', textAlign: 'center', width: 55, color: l.EsServicio ? '#9ca3af' : (l.Existencia < l.Cantidad ? '#dc2626' : '#16a34a'), fontWeight: 600, fontSize: 11 }}>{l.EsServicio ? '—' : l.Existencia}</td>
                   <td style={{ padding: '3px 4px', textAlign: 'center', width: 65 }}>
                     <input type="text" defaultValue={String(l.Cantidad)} data-venta-cant={l.id}
                       onBlur={e => { const v = parseFloat(e.target.value) || 1; actualizarLinea(l.id, 'Cantidad', v); }}
                       onKeyDown={e => {
                         soloNum(e);
-                        if (e.key === 'Enter') { (e.target as HTMLInputElement).blur(); setTimeout(() => { const ci = document.querySelector('input[data-venta-codigo-input]') as HTMLInputElement; ci?.focus(); }, 50); }
+                        if (e.key === 'Enter') {
+                          (e.target as HTMLInputElement).blur();
+                          // Va al campo configurado como predeterminado
+                          setTimeout(() => {
+                            const cfg = getConfigImpresion();
+                            const sel = cfg.campoPredeterminado === 'nombre'
+                              ? 'input[data-venta-nombre-input]'
+                              : 'input[data-venta-codigo-input]';
+                            const next = document.querySelector(sel) as HTMLInputElement | null;
+                            next?.focus(); next?.select();
+                          }, 50);
+                        }
                       }}
                       onFocus={e => e.target.select()}
                       style={{ width: 48, height: 24, textAlign: 'center', border: '1px solid #d1d5db', borderRadius: 4, fontSize: 12, fontWeight: 600, outline: 'none' }} />
@@ -1257,16 +1828,35 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
                       }
                       return (
                         <input type="text" key={`precio-${l.id}-${l.PrecioVenta}`}
-                          defaultValue={l.PrecioVenta > 0 ? l.PrecioVenta.toLocaleString('es-CO') : ''}
+                          // Al mostrar: "$ 24.000". Al enfocar: número plano "24000"
+                          // para editar cómodo. `PrecioVenta` puede venir como string
+                          // desde el backend legacy, por eso el Number() explícito.
+                          defaultValue={fmtMon(Number(l.PrecioVenta) || 0)}
                           title={tip}
-                          onFocus={e => { e.target.value = l.PrecioVenta > 0 ? String(l.PrecioVenta) : ''; e.target.select(); }}
+                          onFocus={e => { e.target.value = String(Number(l.PrecioVenta) || 0); e.target.select(); }}
                           onBlur={e => {
-                            const v = parseFloat(String(e.target.value).replace(/[^\d.-]/g, '')) || 0;
+                            // Limpia el signo $, espacios y puntos de miles antes de parsear.
+                            const v = parseFloat(e.target.value.replace(/[$\s.]/g, '').replace(/,/g, '.')) || 0;
                             actualizarLinea(l.id, 'PrecioVenta', v);
-                            e.target.value = v > 0 ? v.toLocaleString('es-CO') : '';
+                            e.target.value = fmtMon(v);
                           }}
-                          onKeyDown={e => { soloNum(e); if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
-                          style={{ width: 80, height: 24, textAlign: 'right', border: '1px solid #d1d5db', borderRadius: 4, fontSize: 12, outline: 'none' }} />
+                          onKeyDown={e => {
+                            soloNum(e);
+                            if (e.key === 'Enter') {
+                              (e.target as HTMLInputElement).blur();
+                              // Pasa a la fila de entrada — al campo configurado
+                              // como "predeterminado" (codigo o nombre).
+                              setTimeout(() => {
+                                const cfg = getConfigImpresion();
+                                const sel = cfg.campoPredeterminado === 'nombre'
+                                  ? 'input[data-venta-nombre-input]'
+                                  : 'input[data-venta-codigo-input]';
+                                const next = document.querySelector(sel) as HTMLInputElement | null;
+                                next?.focus(); next?.select();
+                              }, 50);
+                            }
+                          }}
+                          style={{ width: 95, height: 24, textAlign: 'right', border: '1px solid #d1d5db', borderRadius: 4, fontSize: 12, fontWeight: 700, color: '#1f2937', outline: 'none' }} />
                       );
                     })()}
                   </td>
@@ -1285,8 +1875,20 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
                   </td>
                   <td style={{ padding: '4px 4px', textAlign: 'center', width: 40, color: '#6b7280', fontSize: 10 }}>{l.Iva}%</td>
                   <td style={{ padding: '4px 8px', textAlign: 'right', width: 100, fontWeight: 700 }}>{fmtMon(l.Subtotal)}</td>
-                  <td style={{ padding: '4px 4px', width: 30 }}>
-                    <button onClick={() => eliminarLinea(l.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2 }}>
+                  <td style={{ padding: '4px 4px', width: esAdmin ? 82 : 60, whiteSpace: 'nowrap' }}>
+                    <button onClick={() => setHistorialItems(l.Items)} title="Historial de precios de venta"
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2 }}>
+                      <DollarSign size={13} color="#7c3aed" />
+                    </button>
+                    {esAdmin && (
+                      <button onClick={() => setKardexItems({ items: l.Items, codigo: l.Codigo || '', nombre: l.Nombre || '' })}
+                        title="Kardex del artículo (admin)"
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2 }}>
+                        <BookOpen size={13} color="#0891b2" />
+                      </button>
+                    )}
+                    <button onClick={() => eliminarLinea(l.id)} title="Eliminar línea"
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2 }}>
                       <Trash2 size={13} color="#dc2626" />
                     </button>
                   </td>
@@ -1301,6 +1903,14 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
                       if (e.key === 'Enter') {
                         const code = (e.target as HTMLInputElement).value.trim();
                         if (!code) return;
+                        // Atajo del sistema viejo: "0" + Enter en el código
+                        // abre el modal de pago (equivale a clic en Registrar
+                        // Pago). Acelera el flujo del cajero: no necesita mouse.
+                        if (code === '0' && lineas.length > 0) {
+                          (e.target as HTMLInputElement).value = '';
+                          finalizar();
+                          return;
+                        }
                         try {
                           // Búsqueda EXACTA por código (sin LIKE) para no agregar un producto incorrecto
                           const r = await fetch(`${API_VENTA}?codigo=${encodeURIComponent(code)}`);
@@ -1322,7 +1932,7 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
                       }
                     }}
                     style={{ width: 85, height: 26, padding: '0 6px', border: '1px solid #7c3aed', borderRadius: 4, fontSize: 12, outline: 'none', fontWeight: 600 }}
-                    autoFocus />
+                    autoFocus={getConfigImpresion().campoPredeterminado !== 'nombre'} />
                 </td>
                 <td style={{ padding: '4px 8px', position: 'relative' }}>
                   <input type="text" placeholder="Buscar artículo por nombre..." data-venta-nombre-input="true"
@@ -1354,7 +1964,16 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
                       }
                       if (e.key === 'Escape') { setShowProductoDropdown(false); setBuscarProducto(''); (window as any).__prodIdx = 0; }
                     }}
-                    onFocus={() => { if (productoResults.length > 0) setShowProductoDropdown(true); (window as any).__prodIdx = 0; }}
+                    onFocus={() => {
+                      // Solo abrir el desplegable si el usuario ya escribió
+                      // algo. Al enfocar en blanco no debe listar todo el
+                      // catálogo — regla del negocio.
+                      if (buscarProducto.trim().length >= 1 && productoResults.length > 0) {
+                        setShowProductoDropdown(true);
+                      }
+                      (window as any).__prodIdx = 0;
+                    }}
+                    autoFocus={getConfigImpresion().campoPredeterminado === 'nombre'}
                     style={{ width: '100%', height: 26, padding: '0 6px', border: '1px solid #d1d5db', borderRadius: 4, fontSize: 12, outline: 'none' }} />
                   {showProductoDropdown && (
                     <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#fff', border: '1px solid #d1d5db', borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,0.15)', maxHeight: 250, overflow: 'auto', zIndex: 100 }}>
@@ -1414,16 +2033,38 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
         </div>
         <div style={{ display: 'flex', gap: 16, alignItems: 'center', fontSize: 12 }}>
           {descuentoGlobal > 0 && <div><span style={{ color: '#6b7280' }}>Desc:</span> <span style={{ color: '#d97706', fontWeight: 600 }}>-{fmtMon(descuentoGlobal)}</span></div>}
-          {totalIva > 0 && <div><span style={{ color: '#6b7280' }}>IVA:</span> <span style={{ fontWeight: 600 }}>{fmtMon(totalIva)}</span></div>}
+          {totalIva > 0 && <div><span style={{ color: '#6b7280' }}>{precioIvaIncluido ? 'IVA incluido:' : 'IVA:'}</span> <span style={{ fontWeight: 600 }}>{fmtMon(totalIva)}</span></div>}
           <div style={{ fontSize: 22, fontWeight: 800, color: '#16a34a' }}>{fmtMon(total)}</div>
         </div>
         <div style={{ display: 'flex', gap: 6 }}>
           <button onClick={nueva} style={{ height: 32, padding: '0 12px', background: '#f3f4f6', color: '#374151', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
             <Plus size={14} /> Nueva
           </button>
+          {/* Guardar Borrador — solo para FE. Guarda en electronic_documents
+              con status='borrador' SIN tocar tblventas ni stock. Se puede
+              revisar y enviar a DIAN después desde el módulo FE. */}
+          {tipoDocumento === 'electronica' && (
+            <button onClick={guardarBorrador} disabled={guardando || lineas.length === 0}
+              title={editandoBorradorId
+                ? `Actualiza el borrador #${editandoBorradorId} con los cambios`
+                : "Guarda la FE como borrador (no la envía a DIAN aún). Podrás revisarla y enviarla luego desde el módulo Facturación Electrónica."}
+              style={{ height: 32, padding: '0 14px',
+                background: lineas.length === 0 ? '#d1d5db' : (editandoBorradorId ? '#4338ca' : '#0891b2'),
+                color: '#fff', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 600,
+                cursor: lineas.length > 0 ? 'pointer' : 'default',
+                display: 'flex', alignItems: 'center', gap: 6, opacity: guardando ? 0.6 : 1 }}>
+              <Save size={13} /> {editandoBorradorId ? `Actualizar Borrador #${editandoBorradorId}` : 'Guardar Borrador'}
+            </button>
+          )}
           <button onClick={finalizar} disabled={guardando || lineas.length === 0}
-            style={{ height: 32, padding: '0 16px', background: lineas.length > 0 ? '#16a34a' : '#d1d5db', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: lineas.length > 0 ? 'pointer' : 'default', display: 'flex', alignItems: 'center', gap: 6, opacity: guardando ? 0.6 : 1 }}>
-            <Save size={14} /> Finalizar (F9)
+            style={{ height: 32, padding: '0 16px',
+              background: lineas.length === 0 ? '#d1d5db'
+                        : tipoDocumento === 'cotizacion' ? '#2563eb'
+                        : '#16a34a',
+              color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600,
+              cursor: lineas.length > 0 ? 'pointer' : 'default',
+              display: 'flex', alignItems: 'center', gap: 6, opacity: guardando ? 0.6 : 1 }}>
+            <Save size={14} /> {tipoDocumento === 'cotizacion' ? 'Guardar Cotización (F9)' : 'Finalizar (F9)'}
           </button>
         </div>
       </div>
@@ -1667,9 +2308,29 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
                       <div style={{ fontSize: 10, color: '#6b7280' }}>Deje en 0 si no hay abono</div>
                     </div>
                     <input type="text" placeholder="$ 0" value={pagoAbono}
-                      onChange={e => setPagoAbono(e.target.value.replace(/[^0-9]/g, ''))}
+                      onChange={e => {
+                        // Bloqueo estricto: el abono a crédito debe ser SIEMPRE menor
+                        // que el total. Si es igual o mayor, no es crédito con abono
+                        // sino contado (o error de digitación como sucedió con la
+                        // factura 103497 — le sobraron 3 ceros al abono).
+                        const raw = e.target.value.replace(/[^0-9]/g, '');
+                        const n = parseInt(raw || '0');
+                        if (n >= total && total > 0) {
+                          const cap = Math.max(0, Math.round(total) - 1);
+                          setPagoAbono(String(cap));
+                          toast.error(`El abono debe ser MENOR que el total ($${Math.round(total).toLocaleString('es-CO')}). Si va a pagar completo, cambie a Contado.`, { duration: 5000 });
+                        } else {
+                          setPagoAbono(raw);
+                        }
+                      }}
                       autoFocus
-                      style={{ width: 130, height: 32, textAlign: 'right', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 14, fontWeight: 700, padding: '0 10px', outline: 'none' }} />
+                      style={{
+                        width: 130, height: 32, textAlign: 'right',
+                        border: `1px solid ${pagoAbonoNum >= total && total > 0 ? '#dc2626' : '#d1d5db'}`,
+                        borderRadius: 8, fontSize: 14, fontWeight: 700, padding: '0 10px', outline: 'none',
+                        background: pagoAbonoNum >= total && total > 0 ? '#fef2f2' : '#fff',
+                        color: pagoAbonoNum >= total && total > 0 ? '#dc2626' : '#111827',
+                      }} />
                   </div>
                   <div style={{ borderTop: '1px solid #e5e7eb', paddingTop: 12 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 4 }}>
@@ -1716,6 +2377,81 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange }: Nue
             setShowAuthCupo(null);
             setTimeout(() => ejecutarVenta(), 100);
           }}
+        />
+      )}
+
+      {/* Modal simple de confirmación FE — el medio DIAN ya está en la barra */}
+      {showConfirmFE && (() => {
+        const medioLabel = ({
+          10:'10 — Efectivo',20:'20 — Cheque',30:'30 — Transferencia crédito',
+          31:'31 — Débito domiciliado',41:'41 — Concentración efectivo / cheque',
+          42:'42 — Consignación bancaria',47:'47 — Transferencia PSE / botón de pagos',
+          48:'48 — Tarjeta crédito',49:'49 — Tarjeta débito'
+        } as Record<number,string>)[medioDian] || `${medioDian}`;
+        const tipoDocLabel = tipoDocumento === 'electronica' ? 'Factura Electrónica' : 'Doc. Soporte';
+        return (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+          <div style={{ background: '#fff', borderRadius: 10, width: 440, boxShadow: '0 10px 30px rgba(0,0,0,0.3)', overflow: 'hidden' }}>
+            <div style={{ padding: '14px 20px', background: '#1e40af', color: '#fff', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Send size={18} />
+              <div style={{ fontSize: 15, fontWeight: 700 }}>Confirmar envío a DIAN</div>
+            </div>
+            <div style={{ padding: 20 }}>
+              <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: 12, marginBottom: 12 }}>
+                <div style={{ fontSize: 10, color: '#065f46', fontWeight: 700, letterSpacing: 0.5 }}>TOTAL A PAGAR</div>
+                <div style={{ fontSize: 26, fontWeight: 800, color: '#16a34a', marginTop: 2 }}>{fmtMon(total)}</div>
+                <div style={{ fontSize: 11, color: '#374151', marginTop: 4 }}>
+                  {tipoDocLabel} · {tipo}{tipo === 'Crédito' ? ` · ${dias} días` : ''} — {cliente.nombre || 'Sin cliente'}
+                </div>
+              </div>
+              <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>Medio de pago DIAN:</div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: '#111827' }}>{medioLabel}</div>
+              {tipo === 'Contado' && medioDian !== 10 && (
+                <>
+                  <div style={{ fontSize: 12, color: '#6b7280', marginTop: 10, marginBottom: 4 }}>Cuenta destino (cuadre):</div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: '#111827' }}>
+                    {(['','Tarjeta','Bancolombia','Nequi'][pagoMedioTransf] || 'Efectivo')}
+                  </div>
+                </>
+              )}
+              <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 10 }}>
+                Para cambiar, cancele y ajústelo en la barra superior.
+              </div>
+            </div>
+            <div style={{ padding: '12px 20px', borderTop: '1px solid #e5e7eb', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button
+                onClick={() => setShowConfirmFE(false)}
+                style={{ height: 34, padding: '0 16px', background: '#f3f4f6', color: '#374151', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 13, cursor: 'pointer' }}>
+                Cancelar
+              </button>
+              <button
+                autoFocus
+                disabled={guardando}
+                onClick={() => {
+                  setShowConfirmFE(false);
+                  setTimeout(() => confirmarVenta(), 50);
+                }}
+                style={{ height: 34, padding: '0 20px', background: '#16a34a', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, opacity: guardando ? 0.6 : 1 }}>
+                <Send size={14} /> Enviar a DIAN
+              </button>
+            </div>
+          </div>
+        </div>
+        );
+      })()}
+
+      {/* Historial de precios de venta por producto */}
+      {historialItems !== null && (
+        <HistorialPreciosVentaModal items={historialItems} onClose={() => setHistorialItems(null)} />
+      )}
+
+      {/* Kardex del producto — reservado a admin */}
+      {kardexItems !== null && (
+        <KardexArticuloModal
+          items={kardexItems.items}
+          codigo={kardexItems.codigo}
+          nombre={kardexItems.nombre}
+          onClose={() => setKardexItems(null)}
         />
       )}
     </div>

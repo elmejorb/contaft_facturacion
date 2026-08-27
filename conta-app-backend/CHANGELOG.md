@@ -5,6 +5,911 @@ Visible solo para administradores desde **Configuración → Acerca de → Ver h
 
 ---
 
+## 4.3.87 — 2026-08-12
+
+### Hotfix — "Corregir base" tumbaba la app
+
+- El fix de la 4.3.86 arregló 2 de las 3 referencias a `data.res.base`; quedaba una tercera dentro del modal (línea del título "Base actual") que lanzaba `Cannot read properties of undefined (reading 'base')` y la pantalla quedaba en blanco al clickear el botón.
+- Ahora las tres referencias apuntan al campo real `data.resumen.base`.
+
+### UX
+
+- El input **"Base correcta"** del modal Corregir base selecciona todo el valor automáticamente al hacer click o recibir foco. Se puede escribir el número nuevo directo sin borrar.
+
+---
+
+## 4.3.86 — 2026-08-12
+
+### Fix crítico — abono a crédito no puede superar el total
+
+- Bug reportado en cliente: usuaria digitó $200.000 como abono en factura de $20.100 (le sobró un cero) y $24.500.000 en otra de $116.700. El sistema aceptaba y registraba un pago fantasma en `tblpagos` que además impactaba el cuadre de caja del día — la sesión terminaba con un faltante ficticio de decenas de millones.
+- **Validación en 3 niveles**:
+  1. **Input del abono**: al tipear un número ≥ total, se recorta automáticamente a `total - 1`, se muestra en rojo y aparece un toast explicativo.
+  2. **Al confirmar la venta**: el frontend bloquea el guardado si `abono >= total` con mensaje claro (si el cliente va a pagar completo, se debe cambiar el término a Contado).
+  3. **Backend** (`api/ventas/nueva.php`): defensa en profundidad — rechaza con HTTP 400 si el JSON llega con abono ≥ total, por si viene manipulado.
+- Regla clave: en venta a Crédito, el abono debe ser ESTRICTAMENTE menor que el total. Si es igual, la venta es Contado.
+
+### Fix — botón "Corregir base" no hacía nada
+
+- En Caja Registradora, al presionar "Corregir base" el modal no aparecía. Causa: el código leía `data.res` pero el backend devuelve el campo como `data.resumen` — la condición era siempre falsa y el modal nunca se renderizaba.
+- Corregido en las dos referencias (`solicitarCorregirBase` y el render condicional del modal).
+- Ahora el botón abre el modal con la base actual pre-cargada; se puede corregir la base cuando el usuario se equivoca al abrir la caja. Requiere autorización admin si no es admin quien lo hace.
+
+---
+
+## 4.3.85 — 2026-08-11
+
+### Performance (arranque -87% de bundle, -55% de memoria)
+
+- **Code splitting con React.lazy** en 45 componentes pesados del Dashboard (AG Grid, Recharts, xlsx). Bundle inicial: **3.37 MB → 432 KB (gzip: 890 KB → 133 KB)**. Los módulos se descargan bajo demanda al navegar.
+- **Memoria post-arranque**: 43 MB → 19 MB (-55%). Sin leaks en stress de 5 rondas de navegación.
+- **Cache TTL 60s en `sugerencias.php`** vía nueva utilidad `utils/cachedFetch.ts` (sessionStorage). Evita re-fetch al volver a la Pantalla de Inicio.
+- **Throttle 2s en `useNotificaciones`** — antes cada POST disparaba 3 fetches (lotes, stock-bajo, cumpleaños); ahora se ignoran las llamadas repetidas dentro de 2s.
+
+### Consultas rápidas en Ventas (patrón portado de Compras)
+
+- **Botón "Buscar Venta"** en la barra de VentasTabs — abre modal con filtros por mes/año y búsqueda por factura/cliente/NIT. Si el tab activo tiene cliente real, arranca prefiltrado por ese cliente.
+- **Icono $ Historial de Precios de Venta** junto a cada línea del carrito — muestra las últimas 20 ventas del producto con precio unitario, cliente, deltas vs venta anterior y vs promedio.
+- **Icono 📖 Kardex del artículo** junto a cada línea (solo admin) — modal compacto con entradas, salidas, saldo y costo unitario por fecha, con filtros por mes/año.
+- Backend: nuevo endpoint `api/ventas/historial-precios.php`.
+
+### Facturar al último precio del cliente
+
+- Nueva opción en la ficha del cliente: **"Facturar al último precio del cliente"** (junto a "Facturar a precio costo"). Al activarla, cuando se agrega un producto en una nueva venta a ese cliente, el sistema busca automáticamente el último precio al que se le vendió y lo aplica en vez del precio de lista.
+- Toast confirma el precio aplicado con número de factura de referencia. Si el producto nunca se le vendió a ese cliente, cae al precio de lista P1/P2/P3 normal.
+- Badge azul **ÚLTIMO PRECIO** en la barra de venta cuando el cliente tiene la marca.
+- Backend: endpoint `api/ventas/ultimo-precio.php`.
+- ⚠️ Requiere ejecutar `actualizacion_completa.sql` para agregar la columna `UltimoPrecio` a `tblclientes`. Puede hacerse desde **Configuración → Mantenimiento BD → Aplicar Actualización Completa**.
+
+### Facturar a costo (activación en ficha del cliente)
+
+- Ahora el checkbox **"Facturar a precio costo"** que ya existía en la ficha del cliente REALMENTE se aplica al facturar (antes se guardaba pero no se usaba).
+- Al seleccionar un cliente marcado, toast avisa y aparece badge naranja **A COSTO** en la barra. Los productos entran al carrito usando `Precio_Costo` en lugar de la lista de precios.
+
+### Fix crítico — email fantasma de la DIAN
+
+- La consulta DIAN de adquiriente devuelve el email del **último emisor que le facturó a ese NIT**, no el del cliente consultado. Al usar los datos DIAN para crear un cliente o facturar ocasional, el sistema estaba guardando ese email (típicos: `facturasnoprocesadas@olimpica.com.co`, `info1@danncarlton.com`).
+- Corrección: los flujos "Usar solo aquí" y "Guardar como cliente" ya NO usan el email de DIAN. El panel muestra un aviso amarillo indicando por qué se ignora.
+- Si necesita enviar la factura por correo a un cliente ocasional, el email debe escribirse manualmente.
+
+### Fix — inputs de abono en modales de pago (efecto "no muestra el texto")
+
+- En **Cuentas por Cobrar** (pagos a facturas de un cliente) y en **Proveedores** (pagos a facturas de crédito), al presionar los botones **Distribuir / Todo / Pagar Todo**, los abonos calculados aparecían en el state pero los inputs mostraban vacío hasta hacer focus/blur en cada celda. Causa: los inputs son uncontrolled (`defaultValue`) y necesitan re-mount al cambiar el state completo.
+- Corrección: incrementar `formVersion` en los tres puntos que redistribuyen abonos, forzando el re-render inmediato.
+
+### UX
+
+- El checkbox **"Enviar por correo"** en la barra de FE se activa automáticamente si el cliente seleccionado tiene un correo válido (antes había que marcarlo cada vez).
+- Fix del listado de historial de precios de venta — se corrigieron los nombres de columnas en el endpoint (`A_nombre`, `Razon_Social`).
+
+---
+
+## 4.3.84 — 2026-08-10
+
+### Fix crítico FE — rechazo DIAN FAU12 en facturas con abono
+
+- Al emitir FE de crédito con abono inicial, el JSON llevaba `pre_paid_amount` con el valor del abono pero sin el detalle de anticipos individuales que exige la regla DIAN **FAU12** ("Valor del Anticipo Total es distinto a la Suma de todos los anticipos"). Rechazo garantizado.
+- Corrección: los abonos al momento de emitir **NO son anticipos DIAN** — son movimiento interno de cartera. La factura ahora sale por el total completo (`payable_amount = total`) sin `pre_paid_amount`.
+- El abono se sigue registrando internamente en Cuentas por Cobrar como siempre.
+
+### Flujo FE simplificado
+
+- **Selector MEDIO DE PAGO (DIAN) directo en la barra superior** cuando el documento es Factura Electrónica o Doc. Soporte. Muestra el catálogo oficial: 10 Efectivo, 20 Cheque, 30 Transferencia crédito, 31 Débito domiciliado, 41 Concentración, 42 Consignación, 47 PSE, 48 Tarjeta crédito, 49 Tarjeta débito.
+- **Sin modal de Abono para FE** — al presionar "Guardar y Enviar a DIAN" aparece un modal simple de confirmación con Total + medio DIAN + cuenta destino. Un solo paso.
+- **Selector CUENTA destino** (Bancolombia/Nequi/Tarjeta) aparece automáticamente cuando FE Contado y el medio DIAN no es Efectivo, para que la caja cuadre por cuenta interna.
+- Sincronización inteligente: al elegir DIAN 48/49 (Tarjeta) la cuenta salta a Tarjeta. Otras opciones vuelven a Bancolombia por defecto.
+- Mapeo automático del `payment_method_id` cuando el modal no interviene (compat POS).
+
+### UX
+
+- **Checkbox "Enviar por correo"** ahora se activa automáticamente si el cliente tiene un email válido (antes había que marcarlo cada vez).
+
+### Backend
+
+- `api/facturacion-electronica/enviar.php` — acepta `payment_method_id` explícito del frontend; si no viene, mapeo automático desde `id_mediopago` interno (mapeo corregido: tarjeta ahora es DIAN 49 en vez del código 14 que no existe).
+- `pre_paid_amount` siempre 0 en el JSON DIAN.
+
+---
+
+## 4.3.83 — 2026-08-07
+
+### Fix crítico — Factura Anterior de Proveedor (modal no abría)
+
+- El botón "Factura Anterior" del listado de Proveedores no abría el modal por un error en la ubicación del JSX del modal (estaba dentro del componente ProveedorDetalle en vez del componente principal). El estado sí cambiaba pero el modal no se renderizaba. Movido al lugar correcto — ahora abre normal.
+
+### Fix crítico BD — saldos fantasma en proveedores
+
+- **Vista `vw_prov_pedidos_credito_saldos`** solo miraba pagos con formato viejo (`tblegresos.FactN` casteado a int contra `tblpedidos.Pedido_N`). Los pagos hechos con el flujo nuevo (`NFacturaAnt = FacturaCompra_N`) eran invisibles para la vista → las facturas pagadas aparecían con saldo pendiente falso.
+- El detalle del proveedor mostraba `SALDO PENDIENTE $X` arriba, pero abajo todas las facturas en `Pagada / $0`. Inconsistencia entre cache y vista.
+- Ningún dato se perdió — los pagos siempre estuvieron correctos en `tblegresos`. Solo el resumen mentía.
+- **Fix aplicado en `actualizacion_completa.sql`** — la vista ahora suma pagos por AMBOS formatos.
+- Script separado `sql/fix_vista_saldos_proveedores.sql` para aplicar solo este fix rápido (5-10 seg).
+- ⚠️ **Requiere ejecución manual del SQL** en cada BD de cliente (el updater no aplica migraciones de BD por diseño).
+
+---
+
+## 4.3.82 — 2026-08-07
+
+### Facturas Anteriores (saldos migrados)
+
+- **Registrar Factura Anterior de PROVEEDOR** — nuevo botón en el listado de Proveedores (color naranja). Permite migrar saldos que se le deben a un proveedor antes del sistema, sin crear compra ni afectar inventario. Los saldos aparecen en Cuentas por Pagar para aplicar abonos.
+- **Prefijo automático `AT-`** en el número de factura anterior (para clientes y proveedores). El usuario digita solo el número; el sistema guarda `AT-12345` para diferenciar de facturas del sistema.
+- **No permite duplicar número por cliente/proveedor** — evita ambigüedad al aplicar pagos. Sí se permite el mismo número entre distintos clientes/proveedores.
+
+### Pagos — fix crítico
+
+- **Fix crítico**: al aplicar un pago a una factura anterior (número `AT-*`), el sistema NO lo estaba registrando — el pago se perdía silenciosamente porque el endpoint solo buscaba en `tblventas`. Ahora detecta el prefijo `AT-` y actualiza correctamente `tblfacturasanteriores`.
+- Al **anular** un pago de factura anterior, el saldo se restaura correctamente en `tblfacturasanteriores`.
+
+### Kardex — navegación sin salir
+
+- **Número de factura clickeable** en la columna Detalle del Kardex:
+  - **Ventas y devoluciones** → abre `DetalleFacturaModal` encima del kardex
+  - **Compras** → hace lookup del `Pedido_N` y abre `DetalleCompraModal`
+- Al cerrar el modal, el Kardex sigue visible con la posición de scroll intacta.
+
+### Utilidad reusable
+
+- Nuevo helper `moneyInputHandlers()` en `src/utils/moneyInput.ts` — inputs monetarios que muestran `$ 1.234` al blur y el número raw al focus. Se aplica en los modales de Factura Anterior y en cualquier input futuro que maneje dinero.
+
+### Inventario — formato visual
+
+- Columna **Exist.** en el Listado de Artículos ahora muestra con separador de miles (`28.175` en vez de `28175`). Formato colombiano consistente con el resto del sistema.
+
+### Backend
+
+- Nuevos endpoints:
+  - `/api/proveedores/factura-anterior.php` (POST create/eliminar)
+  - `/api/compras/nueva.php?lookup_pedido=1` (lookup FacturaCompra_N → Pedido_N)
+- Endpoint mejorado: `/api/clientes/factura-anterior.php` (prefijo AT- + validación duplicado + validación saldo ≤ valor)
+- Endpoint fixeado: `/api/clientes/pagos.php` (soporte facturas anteriores en pagar/anular)
+
+---
+
+## 4.3.81 — 2026-08-06
+
+### Compras — Multi-tab estilo Chrome + herramientas de precio
+
+**Tabs múltiples en Nueva Compra** (base de la mejora):
+- Se pueden tener varias compras en armado simultáneamente sin perder trabajo.
+- Barra de pestañas superior estilo Chrome con `+` para nueva y `X` para cerrar (con confirmación si hay líneas).
+- Cada tab guarda su propio estado — se pueden armar 2 compras a proveedores distintos en paralelo.
+- **Fix del bug reportado**: al dar click al lápiz de una compra existente desde el listado, ahora abre en **tab nuevo** en vez de reemplazar la compra en armado. Ya no se pierde trabajo al consultar otra compra.
+- Persistencia en localStorage: al cerrar la app, las compras a medio armar se conservan.
+
+**Botón 📊 Historial de Precios en cada fila:**
+- Al agregar un producto a la compra, el usuario puede ver las últimas 20 compras de ese producto.
+- Muestra: fecha, proveedor, factura, cantidad, costo unitario final (con IVA + flete).
+- **Deltas visuales**: variación % vs compra anterior + vs promedio histórico. Rojo si subió, verde si bajó, gris si igual.
+- Estadísticas del producto: precio promedio, mínimo, máximo y total de compras.
+- Utilidad: detectar aumentos de precio anómalos antes de aceptar una nueva compra.
+
+**Botón "Buscar Compra" en la barra:**
+- Modal buscable (por proveedor, pedido o número de factura) con filtro por año/mes.
+- Al elegir una compra, se abre en un **tab nuevo** — no destruye tabs abiertos.
+
+**Dropdown de búsqueda de productos enriquecido:**
+- Al buscar un producto para agregar a la compra, además del nombre y precio de catálogo, se muestra debajo: `Última: $X · Proveedor Y · hace Z días`.
+- El usuario ve de un vistazo si el precio va bien vs lo histórico, sin abrir modales.
+- Ancho del dropdown aumentado (750px) para que los nombres largos + la sub-línea respiren.
+
+### Backend
+- Nuevo endpoint `/compras/historial-precios.php?items=N` → devuelve compras + estadísticas + deltas.
+- `/compras/nueva.php?buscar=X` enriquecido con `ultimo_costo`, `ultima_fecha_compra`, `ultimo_proveedor` por producto.
+
+---
+
+## 4.3.80 — 2026-08-06
+
+### Conteo de Inventario — rendimiento y fix visual
+
+- **Fix crítico**: al guardar el valor de una casilla, el input quedaba vacío visualmente aunque el dato sí estaba en BD. Ahora el `valorInicial` del input lee del Map de cambios local (no solo de la fila) → el valor se mantiene visible después del ✓.
+- **Fix foco perdido**: al pulsar Enter para pasar a la siguiente casilla, el cursor se perdía por remount de celdas al terminar el POST async. Fix: enfoque con `setTimeout(120ms)` + reintentos, y eliminación del timer de 2 seg que borraba `savedItems` (era el disparador principal del remount).
+- **Optimización de re-renders**: input extraído a componente memoizado externo (`InputConteoCell` con `React.memo`), `colsDetalle` en `useMemo` con deps mínimas, `guardarItem` y `handleSaveInput` en `useCallback`, `getRowStyle` estable → menos remounts, cursor estable, mejor rendimiento con 1.000+ productos.
+- **✓ verde permanente** en casillas guardadas — se acumulan durante la sesión como indicador visual de progreso.
+
+### Caja — fix crítico de doble descuento en anulaciones
+
+- **Bug**: al anular una venta Contado, el sistema descontaba el valor **dos veces** del Total en Efectivo:
+  1. La venta anulada se excluía de "Ventas Contado" (`WHERE EstadoFact = 'Valida'`)
+  2. Además se restaba en la línea "Anulaciones" (movimiento de reembolso)
+  → Resultado: caja descuadrada en el valor de la anulación.
+- **Fix**: las consultas de Ventas Contado y desglose por medio de pago ahora **incluyen las anuladas del día** (`EstadoFact IN ('Valida','Anulada')`). La anulación aparece como salida separada en "Anulaciones". Neto correcto y trazable — igual que hacía el sistema VB6.
+- **Afecta**: `caja/sesion.php` (Resumen de Sesión, ventas por medio, post-cierre) y `caja/estado.php` (Resumen del día, ventas por medio, actualización de totales).
+- **Ejemplo**: caja con Ventas Contado $2.306.100 y una anulación de $184.000 (venta original $184.000). Antes daba $2.218.100. Ahora: Ventas Contado $2.490.100 − Anulaciones $184.000 = **$2.306.100 efectivo neto** (correcto).
+
+---
+
+## 4.3.79 — 2026-08-06
+
+### Ventas — edición de factura al estilo VB6
+
+- **Cambio Crédito ↔ Contado bidireccional**: se puede convertir una factura de Crédito a Contado y viceversa desde el modal Editar Factura.
+- **Medio de pago editable**: cuando el Tipo es Contado, aparece dropdown Medio de Pago (Efectivo / Tarjeta / Bancolombia / Nequi). Útil para corregir un medio mal ingresado sin tener que anular y rehacer.
+- **Fix crítico Crédito → Contado no aparecía en caja**: cuando se convertía una factura, se cambiaba el Tipo pero NO se registraba el cobro. La venta quedaba invisible en la caja del día. Ahora se registra automáticamente en `tblpagos` con Fecha del cambio para que aparezca en la sesión activa.
+- **Contado → Crédito**: anula el cobro automático que se había creado (lo marca `Estado='Anulada'`, no se borra por regla de inmutabilidad contable).
+- **Contado → Contado con otro medio**: actualiza el registro sin generar nuevo cobro.
+- **SQL de backfill** disponible en `sql/fix_ventas_convertidas_contado.sql` para corregir facturas históricas que se convirtieron antes del fix.
+
+### Conteo de Inventario — UI compacta
+
+- Las 4 tarjetas de estadísticas (Total / Contados / Con Diferencia / Valor Diferencia) se colapsaron en **una sola barra horizontal delgada** de ~36px. Antes ocupaban ~96px de alto en cards separadas.
+- La grilla del detalle **crece ~60px** al aprovechar el espacio recuperado — más filas visibles en monitores pequeños.
+
+---
+
+## 4.3.78 — 2026-08-05
+
+### Conteo de Inventario — CRÍTICO: auto-guardado por celda
+
+- **Auto-guardado inmediato**: al salir de cada casilla (Tab, Enter o click fuera), la cantidad contada se guarda en la BD al instante. **Ya no es posible perder trabajo digitado** si se cae la app, se va la luz o se cierra por error.
+- Indicador visual en cada celda: `⟳` violeta mientras guarda · borde verde + `✓` dos segundos al confirmar.
+- El botón "Guardar (N)" queda como respaldo si algún guardado individual fallara (por corte de red, etc.).
+- **Contexto**: en versiones anteriores el conteo se guardaba en memoria y solo se persistía al dar click en "Guardar" o al cerrar el conteo — un crash o cierre accidental perdía todo lo digitado desde el último guardado.
+
+### Impresión de facturas — media carta
+
+- Campo **"Máx. productos en media carta"** ahora se puede escribir libremente (antes era select fijo 8/10/12/15/20). Rango permitido: 1 a 60. Hint: recomendado 20, típico 8-30.
+- Fix menor: el fallback cuando el valor no estaba definido usaba 12; ahora usa 20 (coincide con el default).
+
+### Diseño
+
+- **Conteo de Inventario** ahora usa el mismo estilo que **Listado de Artículos**: header violeta pastel, tipografía 12px, hover suave, mismo locale español en los menús del grid. Se ve como del mismo sistema.
+
+---
+
+## 4.3.77 — 2026-08-05
+
+### Conteo de Inventario
+
+- **Exportar a Excel** — nuevo botón verde en el detalle del conteo, genera `.xlsx` con: Código, Descripción, Categoría, Costo Unit, Existencia, Conteo, Diferencia, Valor Diferencia y Observación. Formato de moneda aplicado en columnas de dinero.
+- **Reporte Final** — cuando el conteo está Cerrado o Cancelado, aparece un botón "Reporte Final" con las columnas: Existencia · Conteo · Diferencia · Valor Dif., más una fila de totales. Portrait carta, con colores por celda (verde=cuadra, rojo=faltante, azul=sobrante).
+- Los botones **Ciego** y **Sistema** solo aparecen mientras el conteo está Abierto (son hojas de trabajo). El Reporte Final reemplaza esos dos cuando ya se cerró.
+- **Grilla del detalle más alta** — se aprovecha el espacio vertical (110px más de tabla visible).
+
+---
+
+## 4.3.76 — 2026-08-04
+
+### Impresión de facturas — rediseño completo del ticket media carta
+
+- **Fix crítico**: el nombre del propietario NO salía en la impresión (aparecía "-" hardcoded en 4 componentes). Ahora se lee del campo `Propietario` de Datos Empresa.
+- Layout nuevo: nombre del negocio + propietario + NIT + dirección + teléfono **centrados** bajo el logo (izquierda) y el número de factura (derecha).
+- Nuevo campo **"Detalles / Actividad Económica"** aparece bajo los datos, centrado, multi-línea (respeta saltos de línea).
+- **Frase promocional configurable** al final del ticket ("GRACIAS POR SU COMPRA", "FELIZ NAVIDAD", etc.) — se cambia en Configuración → Impresión.
+- **Paginación automática** cuando hay muchos productos: se dividen en hojas (default 20 por hoja), con indicador "Página X de Y" y "Continúa en la siguiente página →" en las intermedias. La última página dice "— FINAL".
+- **Margen izquierdo** ampliado para evitar que la "F" de "Fecha" se corte en la impresora.
+- **Footer pegado al fondo** de la media carta (antes flotaba en el medio con espacio vacío).
+- **Marca "Facturado con Conta FT v4.3.76"** al pie de las 3 impresiones (media carta, carta, tirilla). Pequeña y discreta.
+
+### Compras a proveedores
+
+- **Fix del flete en `Precio_Costo`**: al comprar con flete, el precio de costo del inventario ahora refleja el costo real (con flete + IVA) de la compra. Antes el promedio ponderado con el stock previo diluía el flete cuando el producto ya tenía existencia.
+- **Fix botón "+ Nueva"**: si estabas editando una compra y le dabas "+ Nueva", los campos se limpiaban pero seguía en modo edición. Al guardar pisaba el pedido anterior. Ahora resetea completamente al modo "nueva compra".
+- **Campos Flete / Descuento / Retención**: ahora tienen formato moneda automático al perder foco y estilo destacado con colores propios (naranja/verde/rojo) para no confundirse.
+
+### Ventas y Cartera
+
+- **Fix bug de borradores FE**: si tenías un borrador de factura electrónica guardado, no podías enviar otras FE a DIAN (error `uq_prefix_number`). Corregido.
+- **Confirmación de anular factura** más clara — modal integrado en vez del cuadro genérico del navegador.
+- **Rendimiento del Listado de Ventas**: en PCs lentos (Celeron, poca RAM) ahora puede cargar 10x más rápido. Dos opciones nuevas en Configuración → Impresión:
+  - "Mostrar columna Saldo en Listado" (apagable — el saldo se consulta en el módulo Cartera si es necesario)
+  - "Traer máximo N facturas" (100 / 200 / 500 / 1000 / 2000)
+- **Detalle de factura** más rápido — hasta 14x en el modal por indexado adicional en pagos.
+
+### Caja Registradora
+
+- **Botón nuevo "Corregir base"**: si al abrir la caja el usuario digitó mal la base (por ejemplo $500.000 en vez de $50.000), un administrador puede corregirla sin cerrar la sesión. Queda registro en la observación.
+
+### Datos Empresa
+
+- **API Token oculto** con asteriscos por defecto. Botón ojo para mostrar/ocultar temporalmente. Botón copiar al portapapeles. Evita que se pueda copiar accidentalmente cuando otros ven la pantalla.
+
+### Actualizaciones automáticas
+
+- **Fix de configuración perdida al actualizar**: en clientes que vienen de versiones 4.1 o 4.2 y actualizaron a 4.3, la configuración quedaba "reseteada" porque Electron cambió la carpeta de datos. El sistema ahora detecta y copia automáticamente la configuración vieja a la nueva ubicación.
+
+### Base de datos
+
+- **Fix del script de actualización** para BDs muy antiguas (VB6): algunas vistas quedaban registradas como tabla por sintaxis antigua rechazada por MariaDB moderno, y hacía que el script fallara silenciosamente dejando la BD a medio actualizar. Ahora limpia ambos casos antes de crearlas.
+
+### Herramientas nuevas para soporte técnico
+
+Para diagnóstico y optimización en PCs de clientes (uso del desarrollador vía AnyDesk):
+
+- `verificar_migracion.bat` — reporta qué falta en la BD del cliente
+- `diagnostico_entorno.bat` — chequeo completo (MySQL, PHP, OpCache, Windows Defender, benchmark de queries reales)
+- `optimizar_entorno_xampp.bat` — aplica OpCache + buffer 512MB + exclusiones Defender con un click
+- `test_rendimiento.bat` — mide antes/después para confirmar mejora
+
+---
+
+## 4.3.75 — 2026-07-29
+
+### Fix crítico: tipo de documento del cliente (NIT / Cédula) enviado a DIAN
+
+Se detectó que las facturas electrónicas se enviaban a DIAN con el **tipo de documento incorrecto** — clientes con NIT (empresas, S.A.S.) aparecían clasificados como "Cédula de ciudadanía" en el XML/PDF descargado. Causa: en la migración VB6→React se omitió el selector "Tipo Doc." en el modal de crear/editar cliente, y todos los clientes quedaban con el default `id_documento=2` (Cédula) sin poder cambiarlo.
+
+Cambios:
+
+- **Nuevo campo "Tipo Doc." en el modal de cliente**, exactamente donde estaba en el VB6 original (al lado del NIT). Lista las 5 opciones DIAN: NIT, Cédula ciudadanía, Cédula extranjería, Pasaporte, Doc. extranjero.
+- **Auto-sincronización con Tipo Adquiriente**: si seleccionas "Persona Jurídica" se sugiere NIT; si eliges "Persona Natural" se sugiere Cédula. Respeta si escogiste un tipo raro (Pasaporte/CE).
+- **Consulta DIAN mejorada**: cuando consultas un cliente por su NIT/CC vía Resolución 202/2025, ahora la respuesta actualiza automáticamente el Tipo Doc. y el Tipo Adquiriente (antes solo traía nombre y correo).
+- **Fix del flujo "Guardar como cliente" desde consulta DIAN en Nueva Venta**: guardaba `id_documento=6` (id inexistente en la BD) → el JOIN caía al default Cédula. Ahora usa el id correcto (1=NIT).
+
+### Backfill automático de clientes históricos
+
+El `actualizacion_completa.sql` corre 3 reglas idempotentes para corregir clientes existentes que quedaron mal clasificados:
+
+1. Personas Jurídicas con Cédula → NIT.
+2. NIT numérico de 9-10 dígitos marcado como Cédula → NIT (red de seguridad).
+3. `id_documento` inválido (fuera del rango 1-5, típicamente el `6` del bug histórico) → NIT o Cédula según la longitud del número.
+
+En clientes reales se corrigen automáticamente al aplicar la actualización — no se requiere edición manual.
+
+### Cómo validar tras actualizar
+
+En "Configuración → Impresión" está la opción **"Modo prueba FE"**: activa el envío al endpoint de previsualización (no gasta consecutivo, no firma). Emite una factura y verifica en el XML que aparece:
+- `<cbc:CompanyID ... schemeName="31">...</cbc:CompanyID>` para clientes NIT
+- `<cbc:CompanyID ... schemeName="13">...</cbc:CompanyID>` para clientes Cédula
+
+Los `preview_*.json` en `conta-app-backend/api/facturacion-electronica/logs/` guardan el JSON exacto que se envió a la API.
+
+---
+
+## 4.3.74 — 2026-07-28
+
+### Anulación de compras a proveedores
+
+Nuevo botón **"Anular Compra"** en el Detalle de una compra (icono rojo). Al confirmar:
+
+- Resta la cantidad de cada línea al inventario y registra reverso en kardex (salida C_D=2 con costo original).
+- Marca `EstadoPedido='Anulada'` y `Saldo=0` (sale automáticamente de cartera de proveedores).
+- Si la compra era **Contado**, marca el egreso relacionado como Anulada y (si fue en efectivo) ingresa el reverso a la caja abierta HOY del usuario — no toca cajas cerradas.
+- Autorización: admin directo; vendedores requieren autorización de administrador.
+- Trazabilidad completa (usuario, autorizador, timestamp) queda en el Comentario de la compra.
+- En el listado, las compras anuladas se marcan con pill rojo "ANULADA" y ya no se pueden editar.
+
+### Borradores de facturación electrónica
+
+Ahora se puede **guardar una FE como borrador** sin enviarla a DIAN todavía:
+
+- Botón **"Guardar Borrador"** en Nueva Venta (solo cuando tipo=Electrónica). No toca `tblventas` ni kardex hasta enviarla.
+- En el módulo Facturación Electrónica, filtro nuevo **"Borradores"** + botones Editar (lápiz) y Eliminar (papelera) en cada borrador.
+- Al editar: se abre en Nueva Venta con todos los datos, el botón cambia a **"Actualizar Borrador #ID"**. Al guardar, reemplaza el borrador anterior.
+- Uso típico: reintentar una FE que rebotó por datos incorrectos del cliente sin duplicar la venta.
+
+### Módulo Anticipos de clientes
+
+Nuevo módulo para gestionar anticipos/abonos que un cliente entrega antes de la factura (cuenta 280505). Registra ingreso a caja, se aplica luego contra facturas pendientes, saldos disponibles por cliente.
+
+### Consulta DIAN adquiriente (Resolución 202/2025)
+
+Al agregar un cliente por NIT, la app consulta directamente a la API de DIAN para traer razón social, correo, régimen y actividad económica actualizados. Reduce errores de digitación y datos desactualizados.
+
+### Módulo Mantenimiento BD
+
+Ejecución controlada de scripts SQL (backup, migración, auditoría) desde la app sin necesidad de abrir phpMyAdmin. Solo admins.
+
+### Informe Comparativo Anual
+
+Nuevo informe que compara ventas mes a mes entre varios años, para ver el comportamiento estacional del negocio.
+
+### UX
+
+- **Atajo "0" + Enter en Ventas**: escribir 0 en cantidad y presionar Enter navega directo al siguiente producto (útil cuando escaneas rápido).
+- Formato de moneda dinámico en precios de venta: al enfocar quita separadores para editar; al desenfocar aplica formato $ con miles.
+
+### Fixes
+
+- Reparación de `AUTO_INCREMENT` en BDs legacy VB6 que venían sin la columna incrementable en `tblkardex`, `tblpedidos`, `tblbancos`, `tblcotizaciones`.
+- `Precio_Costo`/`PrecioC` se tratan como valores CON IVA en todos los cálculos de COGS (era inconsistente antes).
+- Módulo de logo del sistema: al cambiar de BD entre empresas el logo no se persistía entre sesiones incorrectamente.
+- Servicios: el campo `Servicio` se compara numéricamente (`Number(x)===1`) para evitar falsos positivos con el string "0".
+
+---
+
+## 4.3.73 — 2026-07-23
+
+### Fix crítico: saldo pendiente de proveedores inflado
+
+El endpoint de proveedores (listado y detalle) leía el campo cacheado `tblpedidos.Saldo`, que en BDs con historia larga suele estar desincronizado con los egresos reales. Resultado: aparecían facturas "fantasma" ya pagadas sumando al saldo pendiente (ej. Icoplastic mostraba $14.7M cuando el saldo real era $8.5M).
+
+Solución: ahora el backend calcula el saldo real desde `tblegresos` usando las mismas vistas que el software VB6 original:
+
+- **`vw_prov_facturas_anteriores_saldos`** — saldos iniciales pendientes
+- **`vw_prov_pedidos_credito_saldos`** — pedidos crédito con saldo real (Total − suma egresos)
+- **`vw_prov_cxp_aging`** — aging unificado (solo pendientes reales)
+- **`vw_proveedores_saldo_actual`** — saldo por proveedor
+
+El módulo de Clientes ya calculaba desde `tblpagos`, por eso no tenía el problema.
+
+### Rendimiento en BDs grandes (>50k ventas)
+
+- **Listado de Ventas**: cambio de `YEAR(Fecha) = X AND MONTH(Fecha) = Y` a rango de fechas (`Fecha >= X AND Fecha < Y`), que sí usa el índice. En Icoplastic (101k ventas) pasa de segundos a milisegundos.
+- **Listado de Compras**: LIMIT 500 en el backend + mes actual por defecto en el frontend (antes traía el año completo).
+- **Script `optimizar_indices.sql`** — crea 40+ índices sobre las columnas más consultadas (Fecha, Items, CodigoCli, EstadoFact, etc.). Idempotente: aplica solo lo que falte y valida columnas antes de crear.
+
+### Compatibilidad SQL para BDs legacy VB6 y sin FE
+
+- Agregada creación idempotente de tablas FE (`electronic_documents`, `detalle_document_electronic`) para clientes que aún no activan facturación electrónica — así los queries de FE (que aparecen en cuadre de caja, informes, etc.) no revientan.
+- `caja/sesion.php` detecta si existe `electronic_documents` antes de consultar. Antes, un cliente sin FE hacía que la caja apareciera como "Cerrada" aunque tuviera sesión abierta.
+- Migración de PRIMARY KEY antes de AUTO_INCREMENT en `tblkardex`, `tblpedidos`, `tblbancos`, `tblcotizaciones`, `detalle_cotizacion`, `detalle_document_electronic` — las BDs VB6 muy viejas venían sin PK y el consolidado rompía a mitad de aplicación.
+
+### Otros
+
+- Nuevas columnas `enviada_dian`, `cufe` en `tblventas` y `email_factelect`, `password_factelect` en `tbldatosempresa` — se crean vacías en clientes sin FE para que consultas y edición no fallen.
+
+---
+
+## 4.3.72 — 2026-07-22
+
+### Fix: Caja Registradora no detectaba la sesión abierta si la caja no era la #1
+
+Al abrir el módulo Caja Registradora, el componente arrancaba con `Id_Caja=1` por defecto. Si la caja operativa del usuario era otra (ej. Id_Caja=3), el frontend mostraba "Cerrada" aunque hubiera una sesión activa. Al intentar abrir, el backend respondía "Esta caja ya está abierta por ...", generando confusión y llevando a cerrar sesiones válidas.
+
+Ahora la lógica de auto-selección es:
+
+1. Si hay una sola caja disponible → esa.
+2. Si alguna caja tiene sesión abierta → esa (evita perder la sesión y la base).
+3. Fallback: primera caja del listado (nunca queda apuntando a un `Id_Caja=1` que no existe en la BD).
+
+Los otros clientes (con Id_Caja=1 real) no notaron el bug porque coincidía con el default.
+
+---
+
+## 4.3.71 — 2026-07-21
+
+### Fix: modal Editar Producto se abría marcado como "Servicio"
+
+Al dar clic en el lápiz de un producto normal, el modal se posicionaba en la card "Servicio" en vez de "Producto físico". Causa: chequeo truthy sobre un valor que a veces llega como string `"0"` — `"0" ? 1 : 0` da 1. Corregido con `Number(a.Servicio) === 1` para que solo el valor exactamente 1 (numérico o string) marque servicio.
+
+Esto también evitaba, al guardar sin cambiar nada, convertir accidentalmente productos en servicios (que no descuentan inventario).
+
+---
+
+## 4.3.70 — 2026-07-21
+
+### Respaldo automático de la Base de Datos
+
+Nuevo módulo en **Configuración → Respaldo de la Base de Datos**:
+
+- **Automático diario**: al abrir la app se genera un respaldo del día si aún no existe. Máximo uno por día natural, aunque abran la app varios cajeros.
+- **Botón "Respaldar Ahora"** para forzar uno extra (útil antes de actualizaciones).
+- Archivos en `C:\ContaFT-Backups\contaft-YYYY-MM-DD_HHMMSS.sql`. Rotación automática de 30 días.
+- Dump PHP puro — funciona incluso en servidores con `exec/shell_exec` bloqueados.
+- El .sql restaura con `mysql -uroot -p nombre_bd < archivo.sql`.
+
+### Módulo Financiaciones (opcional — negocios que venden a plazos)
+
+Activable por empresa desde Configuración. Diseñado para almacenes de motos, electrodomésticos, muebles.
+
+- Contratos con cronograma de cuotas de fechas y valores libres.
+- Interés de **mora % mensual global** configurable. Se calcula on-the-fly y se cobra aparte (no reduce el saldo del capital, respeta kardex inmutable).
+- Filtro por antigüedad de mora: sin mora / 1-30 / 31-60 / 61-90 / +90 días. Badge muestra días vencidos.
+- Cobro con opción de "condonar mora" (botón "No cobrar").
+- Permisos granulares: consultar / crear-editar / registrar pagos.
+
+### Anulación de Notas de Artículo
+
+- Ahora se pueden anular notas de cualquier fecha (antes solo del día). Requiere permiso admin o `inventario_editar`.
+- **Soft-delete**: la nota queda con `Estado='Anulada'` — no se borra. Respeta la regla del kardex inmutable con un asiento REVERSO.
+- Modal con motivo opcional, fila tachada con badge ANULADA, filtro "Mostrar anuladas" para revisar histórico.
+- Fix bug histórico: ahora la nota guarda el usuario que la creó (antes salía "Sistema").
+
+### Tema unificado en listados
+
+Clientes, Proveedores, Productos por Proveedor, Cartera de Clientes y Cuentas por Cobrar comparten ahora el mismo estilo del Listado de Artículos: headers púrpura, filas compactas, hover y localización en español.
+
+### Nueva Compra
+
+- **Botón "Rotación"** al lado del proveedor: abre un modal con Productos por Proveedor preseleccionado — se puede consultar rotación sin salir de la compra.
+- **Botón "Imprimir"** en la barra inferior: genera un HTML formateado con encabezado, líneas, totales y footer, e imprime en iframe oculto (sin popup).
+
+### Nueva Venta
+
+- Enter en Cantidad y en Precio ahora pasa al campo predeterminado (código o nombre) según Configuración → Campo predeterminado.
+- Precio con formato `$ 24.000` al perder el foco, número plano `24000` al enfocar, y en negrita.
+- Dropdown de búsqueda por nombre ya no se abre con input vacío.
+
+### Compatibilidad SQL para clientes sin Facturación Electrónica
+
+Migración consolidada corregida — antes rompía en BDs sin las tablas de FE. Ahora todas las migraciones de FE verifican existencia de tabla antes de aplicar. También se agregan `enviada_dian`/`cufe` a `tblventas` y `email_factelect`/`password_factelect` a `tbldatosempresa` como columnas vacías, para que el resto del sistema no falle al consultarlas.
+
+### Otros
+
+- Defensa contra warnings PHP al vender/anular con productos huérfanos.
+- Toast informativo al imprimir factura desde el listado (antes con vista previa desactivada, el clic parecía no hacer nada).
+- Inventario: filtro "Inactivos", columnas Etiqueta y Estado ocultas por defecto, nombres en MAYÚSCULAS, botones de acciones más limpios sin borde.
+
+---
+
+## 4.3.69 — 2026-07-14
+
+### Flete en compras: input global y prorrateo por línea sincronizados
+
+Se agruparon varios problemas del flete en Nueva Compra que quedaron pendientes desde versiones anteriores:
+
+- **Re-prorrateo automático al cambiar el flete global**: antes al modificar el input "FLETE" del footer, las columnas "Flete/u" de las líneas no se actualizaban aunque el backend sí lo prorrateaba al guardar. Resultado: pantalla y BD mostraban valores distintos. Ahora un `useEffect([flete])` re-prorratea todas las líneas no-manuales al instante.
+- **Flete no se limpiaba al Guardar / "+ Nueva"**: el input FLETE usaba `defaultValue` que ignora cambios posteriores del state. Se le agregó `key={flete-${flete}}` para forzar re-mount cuando `setFlete(0)` corre desde botones.
+- **FleteUnit ahora siempre editable**: antes se deshabilitaba cuando el flete global era 0. Impedía el patrón "flete por peso" donde cada ítem lleva su propio costo de transporte.
+- **Flete global sincroniza con la suma real al editar manualmente**: si el usuario tipea manualmente `Flete/u` en las líneas, el flete global del footer refleja `SUM(FleteUnit × Cantidad)` de todas las líneas — no acumula sobre valores residuales del state anterior.
+
+### Decimales en Costo del inventario
+
+Los costos promedio con flete prorrateado quedan con decimales en BD (ej. `Precio_Costo = 98748.47`), pero varias pantallas los truncaban a entero, causando confusión ("¿por qué en la compra se ve $98.748,47 y en el inventario $98.748?").
+
+- **InventarioManagement**: `formatearMoneda` ahora muestra decimales si existen, entero si no.
+- **EditarArticuloModal**: `fmtMoneda`/`fmt` respetan decimales; al hacer focus en los campos de Costo sin IVA / Costo con IVA se muestra el valor con 2 decimales (antes truncaba con `Math.round`).
+
+---
+
+## 4.3.68 — 2026-07-11
+
+### Regla de negocio: anular egreso NO revive la compra
+
+Al anular un pago a proveedor, la compra queda intacta con su saldo original — solo el egreso se marca como Anulada y deja de contar en reportes. Antes, la 4.3.66 recalculaba `tblpedidos.Saldo` y hacía que la compra volviera a Cuentas por Pagar como si estuviera impaga, confundiendo al usuario.
+
+- `api/movimientos/pagos-proveedores.php action=anular` — se removió el bloque que recalculaba el saldo de la compra. Ahora el flujo es: (1) marcar egreso Anulada; (2) si el pago fue efectivo, devolver el valor a la caja abierta actual. La compra no se toca.
+
+### Modales de confirmación en el listado de Pagos
+
+Los botones "Anular" del listado de Pagos de Clientes y Pagos a Proveedores usaban `confirm()` nativo del navegador, que en algunos entornos rompía el foco del grid u ocultaba modales encima. Migrado al componente reusable `<ConfirmDialog>` que ya usa el resto del sistema (facturas recibidas, cerrar caja, etc.).
+
+- El diálogo de anular egreso ahora indica dinámicamente si el pago era en efectivo (→ "se devolverá a la caja") o transferencia (→ "no afecta caja"). Ayuda al usuario a saber qué esperar antes de confirmar.
+
+---
+
+## 4.3.67 — 2026-07-11
+
+### Fix crítico: anular pago de proveedor lanzaba "tblcompras doesn't exist"
+
+Al anular un egreso desde el listado de Pagos a Proveedores, el sistema fallaba con `SQLSTATE[42S02] Base table or view not found: 1146 Table 'X.tblcompras' doesn't exist`. El endpoint que agregué en 4.3.64 consultaba una tabla llamada `tblcompras` que en el sistema NO existe — el nombre real (heredado del legacy VB6) es `tblpedidos`.
+
+- `api/movimientos/pagos-proveedores.php` — reemplazado `tblcompras` por `tblpedidos` en el `SELECT`/`UPDATE` que recalcula el saldo de la compra al anular el egreso. Ahora la anulación revierte correctamente el saldo en Cuentas por Pagar.
+
+---
+
+## 4.3.66 — 2026-07-11
+
+### Defensa cruzada Producto vs Servicio en la venta
+
+Un cliente reportó que varios productos se estaban registrando como servicios (sin descontar inventario) aunque en el catálogo tenían `Servicio=0`. Investigación: el flujo estándar del frontend actual (4.3.64+) NO puede producirlo, pero flujos antiguos o cache stale podían dejar `es_servicio=1` en el payload y el backend lo aceptaba sin verificar.
+
+- `api/ventas/nueva.php` — antes de tratar una línea como servicio, ahora consulta `tblarticulos.Servicio` del catálogo. Si el catálogo dice que es producto (=0), el flag `es_servicio=1` del payload se ignora y la venta descuenta stock + registra kárdex normalmente. El catálogo siempre manda.
+
+### Fix: "Pagos a Proveedores" mezclaba gastos operativos
+
+El listado de Pagos a Proveedores repetía los mismos registros que aparecían en Gastos (papelería, aseo, arriendo). Ambos endpoints leen de `tblegresos` pero solo Gastos filtraba por `FactN = '-1'` (marca del módulo de gastos operativos); Pagos a Proveedores no filtraba y mezclaba todo.
+
+- `api/movimientos/pagos-proveedores.php` — se agregó `AND e.FactN <> '-1'` al `WHERE`. Ahora solo salen los egresos vinculados a una factura de compra real.
+
+### Fix: servicio no se agregaba al buscar por código exacto
+
+Al tipear el código exacto de un servicio + Enter, el sistema decía "no hay existencia suficiente" — porque el endpoint `?codigo=` no devolvía el flag `Servicio`, el frontend lo trataba como producto y validaba stock (existencia siempre 0 para servicios).
+
+- `api/ventas/nueva.php` — la búsqueda exacta por código ahora también incluye `COALESCE(a.Servicio, 0) AS Servicio` en el `SELECT`, igual que la búsqueda por texto.
+
+---
+
+## 4.3.65 — 2026-07-11
+
+### Fix crítico: "Configurar Servidor" en loop tras actualizar
+
+Después de actualizar a 4.3.64, algunos clientes cayeron en un bucle: la app mostraba "Configurar Servidor", indicaban `localhost`, la prueba decía "Conexión exitosa", pero al Guardar volvía al mismo modal.
+
+Causa: `config.json` se guardaba en la carpeta del `.exe` (`C:\Program Files\Conta FT 4.3\`), que Windows protege — sin permisos elevados el escrito fallaba silenciosamente y al reload el archivo seguía sin `apiUrl`.
+
+Además: el handler `Guardar` no esperaba a que la escritura IPC del config resolviera antes de hacer `window.location.reload()`, así que aunque hubiera permisos, el reload podía ganar la carrera.
+
+- `electron/main.js` — `getConfigPath()` ahora usa `app.getPath('userData')` (`%APPDATA%/Roaming/Conta FT 4.3/`) que siempre es escribible por el usuario. La primera vez que arranca la 4.3.65, si detecta un `config.json` legacy junto al `.exe`, lo migra automáticamente al nuevo path preservando el `apiUrl` del cliente.
+- `ConfigurarServidor.tsx` — `guardar` y `usarLocal` ahora hacen `await setApiUrl(...)` antes de `onConfigured()`, garantizando que el archivo se persistió antes del reload.
+
+Workaround temporal para clientes bloqueados (funciona antes de instalar 4.3.65): abrir la app clic derecho → "Ejecutar como administrador", configurar servidor una vez, cerrar. Los próximos arranques leen el `config.json` recién creado sin problemas.
+
+---
+
+## 4.3.64 — 2026-07-11
+
+### Auto-actualización de la base de datos
+
+Antes: cada upgrade de la app requería que el cliente aplicara manualmente `actualizacion_completa.sql` en phpMyAdmin. Riesgo alto de saltar el paso y romper funciones.
+
+- Nuevo endpoint `api/actualizacion/aplicar-sql.php`. Al iniciar sesión, el frontend le envía la versión de la app; si `tbldatosempresa.version_sql_aplicada` es distinta, corre el `.sql` consolidado con `mysqli::multi_query` (libera cursores de `PREPARE/EXECUTE` que PDO deja abiertos) y actualiza la versión.
+- 100% en background — no bloquea el login. Si algo falla queda logueado en el response sin impedir usar la app.
+- Idempotente: cada `ALTER TABLE` del `.sql` se salta si la columna ya existe. Reejecutar es seguro.
+
+### Compras al Contado: medio de pago
+
+Antes al hacer una compra al contado no se distinguía si el pago fue efectivo, tarjeta, Bancolombia o Nequi — todo pasaba por caja. Ahora:
+
+- Al confirmar la compra al contado se abre un modal con las 4 tarjetas de medio de pago (mismo esquema que ventas: 0=Efectivo · 1=Tarjeta · 2=Bancolombia · 3=Nequi).
+- Solo Efectivo descuenta la caja. Los demás quedan como egreso registrado con `id_mediopago` en `tblegresos` — la caja física no se afecta.
+- Nueva columna `tblegresos.id_mediopago INT NOT NULL DEFAULT 0`.
+
+### Pagos: Anular + Ver comprobante desde el listado
+
+Pagos de Clientes y Pagos a Proveedores tienen columna Acciones con:
+
+- 🖨️ Ver / Imprimir comprobante — reutiliza `ReciboImpresion` cambiando `tipoTercero` ("COMPROBANTE DE EGRESO" para proveedor).
+- 🚫 Anular — endpoint POST en `pagos-proveedores.php` con `action=anular`: marca egreso `Estado='Anulada'`, recalcula el saldo de la compra afectada (vuelve a Cuentas por Pagar), y si era efectivo devuelve el valor a la caja abierta actual (respetando cajas cerradas).
+
+### POS Ventas: botón Anular en el listado
+
+Botón `Ban` rojo por fila. Reusa el flujo existente de `detalle-factura.php action=anular` incluyendo `AutorizacionAdminModal` cuando el backend responde `requiere_autorizacion` y toast cuando responde `requiere_caja_abierta`.
+
+### PDF de FE con concepto largo
+
+El PDF de la Factura Electrónica mostraba el nombre del artículo del catálogo ("HORA PROGRAMACIÓN") aunque el concepto enviado a la DIAN fuera largo ("Prestación de servicios profesionales…"). Ahora el `SELECT` de items en `facturacion-electronica/pdf.php` hace `COALESCE(NULLIF(d.description, ''), a.Nombres_Articulo)` — el concepto DIAN gana si viene con contenido.
+
+### Descripción temporal ampliada
+
+`tbldetalle_venta.DescripcionTemp` pasó de `VARCHAR(100)` a `VARCHAR(500)` — antes conceptos largos rompían con `SQLSTATE[22001] Data too long`.
+
+---
+
+## 4.3.63 — 2026-07-02
+
+### Logo de la empresa desde el servidor (no más hardcode)
+
+Antes el PDF de FE usaba un path hardcoded del logo de Innovación. Y el logo que el usuario subía en Datos de la Empresa solo se guardaba en `localStorage`, así que servía en la máquina donde se subió pero NO llegaba al PDF (que se genera server-side).
+
+- Nuevo endpoint `api/empresa/logo.php` — POST base64 sube y guarda en `conta-app-backend/uploads/logo.{ext}`, DELETE lo borra, GET devuelve URL pública. Crea la columna `tbldatosempresa.Logo` idempotentemente.
+- `api/empresa/datos.php` — GET devuelve `Logo_url` (absoluta) para que el frontend la muestre y las impresiones la reutilicen.
+- `api/facturacion-electronica/pdf.php` — toma el logo del path guardado en BD; si no existe archivo, imprime sin logo (adiós al logo de Innovación por default).
+- `DatosEmpresa.tsx` — al guardar sube al backend; al cargar trae desde el servidor.
+
+### Cotizaciones — nuevo modo de documento + botones de imprimir
+
+Se puede elegir "Cotización" desde el selector DOCUMENTO al inicio (no como acción posterior). En ese modo el botón Finalizar cambia a "Guardar Cotización" en azul, se omiten validaciones de stock/crédito/caja y no toca kardex/inventario.
+
+- Botón "Nueva Cotización" de la barra ahora **activa el modo** (antes solo intentaba guardar y no hacía nada sin líneas). Label de la pestaña cambia a "Cotización N" inmediatamente. Cuando ya está en modo cotización con líneas, el botón muta a "Guardar Cotización".
+- 🖨️ **Imprimir cotización**: botón nuevo en la barra superior cuando la pestaña activa ya es una cotización guardada, y otro botón en cada fila del listado **Cotizaciones guardadas** — permite reimprimir sin abrir la cotización en una pestaña.
+- Fix crítico SQL: `tblcotizaciones.id_cotizacion` y `detalle_cotizacion.id_detalle_cotiza` en BDs viejas venían sin AUTO_INCREMENT, causando `1364 Field 'id_cotizacion' doesn't have a default value` al guardar. `actualizacion_completa.sql` ahora aplica el ALTER idempotentemente. También corregido en `estructura_conta_ft.sql` y `conta_template_cliente_nuevo.sql` para nuevas instalaciones.
+
+### Facturación electrónica — consulta de eventos DIAN (facturas a crédito)
+
+En Colombia, una factura a crédito se convierte en título valor cuando el cliente la acepta formalmente (evento 033) o pasan 3 días hábiles sin rechazo (aceptación tácita). Se agregó visibilidad de estos eventos:
+
+- Nuevo endpoint proxy `api/facturacion-electronica/eventos.php`:
+  - `GET ?cufe=X` → consulta rápida a `/eventos-estado` (BD Lumen).
+  - `GET ?cufe=X&refresh=1` → consulta DIAN en tiempo real via `/eventos`.
+  - `POST { cufes: [...] }` → batch con `curl_multi_init` en paralelo (max 100 cufes).
+- Listado FE — nueva columna **Evento** con badge coloreado por estado (Pendiente / Acuse / Recibido / Aceptada / Aceptación Tácita / Rechazada). Solo muestra badge en facturas crédito autorizadas. Botón 🔄 por fila fuerza consulta DIAN. Carga en batch al abrir el módulo.
+- Modal de detalle de FE — botón azul **Consultar eventos** en el header y bloque nuevo con timeline visual de los 4 pasos (acuse → recibido → aceptación → rechazo) con fechas. Muestra motivo de rechazo si aplica. Auto-carga estado al abrir el modal.
+- `listar.php` incluye `payment_form_id` para que el frontend pueda filtrar créditos.
+
+### Archivos tocados
+- `conta-app-backend/api/empresa/logo.php` (nuevo)
+- `conta-app-backend/api/empresa/datos.php`
+- `conta-app-backend/api/facturacion-electronica/pdf.php`
+- `conta-app-backend/api/facturacion-electronica/eventos.php` (nuevo)
+- `conta-app-backend/api/facturacion-electronica/listar.php`
+- `conta-app-backend/sql/actualizacion_completa.sql`
+- `conta-app-backend/sql/estructura_conta_ft.sql`
+- `conta-app-backend/sql/conta_template_cliente_nuevo.sql`
+- `Dashboard-Facturación/src/components/DatosEmpresa.tsx`
+- `Dashboard-Facturación/src/components/NuevaVenta.tsx`
+- `Dashboard-Facturación/src/components/VentasTabs.tsx`
+- `Dashboard-Facturación/src/components/FacturacionElectronica.tsx`
+- `Dashboard-Facturación/src/components/DetalleDocElectronico.tsx`
+
+---
+
+## 4.3.62 — 2026-06-26
+
+### Fix — Total inflado también aparecía en la vista previa de FE y en el listado
+
+Después de 4.3.61 el PDF impreso ya salía bien, pero el **modal de detalle de FE** (vista previa con CUFE + ítems + totales) seguía mostrando `$ 979.530` arriba en "Total:" y abajo en "TOTAL:". También el listado de facturas electrónicas y el resumen "Total Facturado" leían el campo cacheado.
+
+Causa: 4 lugares más leían `doc.total` / `e.total` directamente:
+- `DetalleDocElectronico.tsx` — `totalDoc = parseFloat(doc.total)` → ahora `totalBase + totalIva - descuento`.
+- `FacturacionElectronica.tsx` (`buildDatosFE` al copiar/imprimir desde el grid) — fallback al cálculo desde líneas.
+- `api/facturacion-electronica/listar.php` — JOIN con `detalle_document_electronic` agrupado, total recalculado por fila (afecta grid + resumen).
+- `api/facturacion-electronica/detalle.php` — `$doc['total']` y `$notas[*]['total']` se recalculan desde sus respectivos detalles.
+
+Con esto, las facturas viejas (emitidas antes de 4.3.61, con `electronic_documents.total` inflado en la BD) **se ven bien sin migración**: la UI y el PDF reconstruyen el total al vuelo desde las líneas correctas. Si en el futuro se quiere normalizar la BD, basta con `UPDATE electronic_documents SET total = ... FROM (SUM line_extension_amount + SUM tax_amount - descuento)`.
+
+### Archivos tocados
+- `Dashboard-Facturación/src/components/DetalleDocElectronico.tsx`
+- `Dashboard-Facturación/src/components/FacturacionElectronica.tsx`
+- `conta-app-backend/api/facturacion-electronica/listar.php`
+- `conta-app-backend/api/facturacion-electronica/detalle.php`
+
+---
+
+## 4.3.61 — 2026-06-26
+
+### Fix CRÍTICO — Total inflado en facturas con IVA Incluido
+
+**Síntoma reportado**: Cliente INVERSIONES EBENEZER (Régimen Común, IvaIncluido=1) generaba factura electrónica IE2 donde DIAN aceptaba bien ($887.000), pero el PDF local mostraba **Total: $979.530** — un valor inflado en exactamente el 19% sobre el precio bruto que ya tenía IVA incluido.
+
+**Diagnóstico**:
+- `api/ventas/nueva.php` calculaba el total como `subtotal + (subtotal × iva/100)` ignorando que cuando `IvaIncluido=1` el precio del catálogo YA contiene el IVA. Resultado: se sumaba IVA encima del precio ya inflado, y `tblventas.Total` quedaba con el monto duplicado.
+- `api/facturacion-electronica/enviar.php` insertaba `electronic_documents.total` leyendo `$factura['Total']` directamente, propagando el valor inflado.
+- `api/facturacion-electronica/pdf.php` leía `$doc['total']` sin recalcular, así el PDF mostraba el valor inflado aunque las líneas (line_extension_amount + tax_amount) estaban correctas.
+
+A DIAN sí se enviaba el valor correcto porque `buildInvoiceJSON()` ya respetaba IvaIncluido al calcular `payable_amount = totalBase + totalIva - descGlobal`. Por eso la factura era aceptada con CUFE válido, pero el PDF mostraba inconsistencia.
+
+**Cambios**:
+- `api/ventas/nueva.php`: lee `IvaIncluido` de `tbldatosempresa`. Si está activo, extrae IVA del bruto con la fórmula `lineAmount × iva/(100+iva)` en vez de agregarlo. Aplica a ambos loops (totales de cabecera + detalle por línea). `tbldetalle_venta.Subtotal` se mantiene como bruto (compatibilidad con informes), pero `Impuesto` ahora trae el monto correcto.
+- `api/facturacion-electronica/enviar.php`: nueva función `calcularTotalDocFE()` que computa el total desde las líneas respetando régimen + IvaIncluido. Usada en ambos INSERTs de `electronic_documents` (caso normal y reenvío por contingencia).
+- `api/facturacion-electronica/pdf.php`: `$total` ya no se lee de `$doc['total']`, se recalcula como `subtotal + totalIva - descuento`. Esto permite que **facturas antiguas emitidas con el bug** muestren el total correcto al regenerarse el PDF, sin necesidad de reenviar a DIAN.
+
+### Fix — Validación correo cliente (dos capas)
+
+Reportado: cliente con email malformado (`rafaelgonzalez517@` sin dominio) emitió factura electrónica con `send_email=true`. El backend rechazaba el envío del correo silenciosamente (filter_var FALSE) y el cliente no recibía el correo aunque la UI lo prometía. Se cierra el agujero con DOS validaciones bloqueantes:
+
+**1. Al guardar/editar cliente** (`CustomersManagement.tsx`):
+   El campo Email es opcional, pero si se llena debe pasar el regex `/^[^\s@]+@[^\s@]+\.[^\s@]+$/`. Soporta varios correos separados por `,` o `;` — todos deben ser válidos. Si alguno falla, se muestra mensaje "Correo inválido: X. Use formato usuario@dominio.com" y NO se guarda.
+
+**2. Al emitir factura electrónica** (`NuevaVenta.tsx`):
+   - Al seleccionar cliente: si ningún token del campo Email pasa el regex completo (no solo `includes('@')` como antes), se desactiva `enviarEmailFE` automáticamente.
+   - Al ejecutar venta: si `tipoDocumento === 'electronica' && enviarEmailFE` pero el cliente no tiene ningún correo válido, se bloquea la emisión con `toast.error` y se pide editar el cliente o destildar "Enviar a correo".
+
+### Archivos tocados
+- `conta-app-backend/api/ventas/nueva.php`
+- `conta-app-backend/api/facturacion-electronica/enviar.php`
+- `conta-app-backend/api/facturacion-electronica/pdf.php`
+- `Dashboard-Facturación/src/components/NuevaVenta.tsx`
+- `Dashboard-Facturación/src/components/CustomersManagement.tsx`
+
+---
+
+## 4.3.60 — 2026-06-26
+
+### Cartera/Pagar — UI más limpia + confirmación de pago
+
+- Tabla con nombres simples: `Abono | Descuento | Saldo Nuevo` (volvió a estos labels después de probar variantes más descriptivas).
+- Indicador derecho ahora dice **TOTAL A PAGAR**.
+- Campo arriba renombrado a **DESCUENTO**.
+- Se removieron extras visuales que distraían: banda azul explicativa, fórmula "60.000 − 45.000 − 15.000" debajo de Saldo Nuevo, sublabel "+ rebaja $Y = cubre $Z". El cálculo lo refleja la propia columna Saldo Nuevo.
+- **Confirmación antes de guardar**: el botón Guardar ahora abre un diálogo con resumen:
+  > *"Recibirás $45.000 en efectivo/banco y aplicarás $15.000 de descuento a 1 factura(s)."*
+  
+  con botones `Cancelar` / `Sí, guardar`. Evita guardados accidentales.
+
+### Archivos tocados
+- `Dashboard-Facturación/src/components/ClienteDetalle.tsx`
+
+---
+
+## 4.3.59 — 2026-06-26
+
+### Productos tipo Servicio (reintroduce funcionalidad del sistema anterior)
+
+La BD ya tenía las columnas `tblarticulos.Servicio` y `tbldetalle_venta.DescripcionTemp`, faltaba cablearlas. Ahora un producto se puede marcar como **servicio**, y al venderlo:
+
+- Su Existencia NO se descuenta (no afecta kardex ni inventario).
+- El concepto/descripción del producto es **editable por venta** — útil para conceptos largos como "Mantenimiento preventivo de equipo Dell Latitude con cambio de pasta térmica" que cambian por cliente.
+- La descripción editada se guarda en `tbldetalle_venta.DescripcionTemp` y aparece en el PDF impreso (tirilla y carta), en el detalle de la factura, en reimpresiones, en la copia a nueva venta y en la FE enviada a DIAN (campo `description`).
+
+**Modal de producto reorganizado**: el primer paso ahora es elegir "Producto físico" vs "Servicio" con dos botones grandes. Cuando se elige Servicio, se ocultan las secciones que no aplican (Existencias, Ubicación, Costo) y la tabla de precios se reduce a 2 columnas en vez de 4.
+
+**Listado de inventario**: nuevo filtro de tipo arriba `[Todos N] [Productos N] [Servicios N]`. Solo aparece si el negocio tiene al menos un servicio en catálogo.
+
+### Cartera/Pagar — labels más claros, banda explicativa
+
+Usuario reportó confusión: pensaba que la "Rebaja" se restaba del campo "Abono", cuando en realidad son independientes. Mejoras de UI (sin cambio de lógica):
+
+- Banda azul arriba del módulo Pagar: *"En Paga escribe solo lo que el cliente te entrega en plata. La Rebaja es lo que tú le perdonas sin recibir dinero. Saldo nuevo = saldo anterior − Paga − Rebaja"*.
+- Renombrados: "PAGO GLOBAL" → "PAGA EN TOTAL", "DESC." → "REBAJA (sin recibir $)", columnas "Abono"/"Desc." → "Paga"/"Rebaja".
+- Indicador derecho cuando hay rebaja muestra: `RECIBE $45.000 + rebaja $15.000 = cubre $60.000` — deja claro que ambos suman para reducir el saldo.
+
+### Archivos tocados
+- `Dashboard-Facturación/src/components/EditarArticuloModal.tsx` — selector Producto/Servicio + campos condicionales
+- `Dashboard-Facturación/src/components/InventarioManagement.tsx` — filtro por tipo
+- `Dashboard-Facturación/src/components/NuevaVenta.tsx` — input editable para servicios + salta validación de stock
+- `Dashboard-Facturación/src/components/ImpresionFactura.tsx` — usa DescripcionTemp
+- `Dashboard-Facturación/src/components/ClienteDetalle.tsx` — labels claros en módulo Pagar
+- `conta-app-backend/api/inventario/crear-articulo.php` + `actualizar-articulo.php` — persistir Servicio
+- `conta-app-backend/api/inventario/articulos.php` — devolver Servicio
+- `conta-app-backend/api/ventas/nueva.php` — guardar DescripcionTemp, saltar stock/kardex si servicio
+- `conta-app-backend/api/ventas/detalle-factura.php` + `listar.php` + `copiar.php` — COALESCE DescripcionTemp
+- `conta-app-backend/api/facturacion-electronica/enviar.php` — usar DescripcionTemp en JSON DIAN
+
+---
+
+## 4.3.58 — 2026-06-25
+
+### Fixes módulo Gastos
+
+**1. Informe del periodo — todos los gastos aparecían "Sin categoría"** (`api/informes/resumen.php`)
+- `tblegresos.categoria_gasto` es VARCHAR(50) y guarda el nombre de la categoría (ej. "Arriendo"). El JOIN del informe comparaba contra `cg.Id_Categoria` (INT) → nunca matcheaba. Fix: JOIN por `cg.Nombre` en los 3 lugares donde aparece.
+
+**2. Listado de gastos duplicaba el último** (`api/movimientos/gastos.php`)
+- Bug clásico PHP: el primer `foreach ($gastos as &$g)` dejaba `$g` como referencia al último elemento. El siguiente `foreach ($gastos as $g)` sobrescribía ese último elemento en cada iteración, corrompiendo el array. Síntoma reportado: con 2 gastos (Arriendo $1.500.000 + Aseo $45.000) la tabla mostraba el de Aseo dos veces y el total por categoría decía "Aseo: $90.000". Fix: `unset($g)` después del primer foreach por referencia.
+
+### Archivos tocados
+- `conta-app-backend/api/informes/resumen.php` — JOIN por nombre
+- `conta-app-backend/api/movimientos/gastos.php` — unset tras foreach con &
+
+---
+
+## 4.3.57 — 2026-06-24
+
+### Fixes FE — onboarding de cliente nuevo (INVERSIONES EBENEZER)
+
+Cliente nuevo destapó 4 problemas en FE que se acumularon en este parche. **Cero impacto para clientes con Régimen Simple/Simplificado** — todos los cambios se ejecutan solo en flujo de FE o son cosméticos del PDF de FE.
+
+**1. SQL: defaults en `electronic_documents`** (`actualizacion_completa.sql`)
+- BDs viejas tenían `descuento`, `abono`, `efectivo`, `valorpagado1`, `codigoEmp`, `id_mediopago` como `NOT NULL` sin default. INSERT desde `enviar.php` fallaba con *"Field 'X' doesn't have a default value"*. Ahora `actualizacion_completa.sql` aplica los defaults idempotentemente.
+
+**2. SQL: AUTO_INCREMENT en `detalle_document_electronic`** (`actualizacion_completa.sql`)
+- La PK `id_detalle_document` quedaba `NOT NULL` sin `AUTO_INCREMENT` en esquemas viejos. Cada INSERT de línea de FE fallaba. Migración idempotente: si la columna no tiene auto_increment, bumpea filas con id=0 y aplica el ALTER.
+
+**3. Prefijo de FE**
+- **Bug A** — `api/empresa/datos.php` no incluía la columna `Prefijo` en su UPDATE. Al guardarlo desde Datos de Empresa, el backend lo ignoraba y al recargar aparecía vacío. Fix: agregar `Prefijo = ?` al UPDATE.
+- **Bug B** — `enviar.php` insertaba `electronic_documents.prefix='FCON'` hardcoded. Tras autorización DIAN, actualizaba `number` y `cufe` pero **olvidaba** actualizar `prefix`. Resultado: factura emitida por DIAN como "IE1" se mostraba en Conta FT como "FCON1". Fix: leer `result.prefix` y actualizarlo en el UPDATE post-autorización.
+
+**4. PDF FE — bloque final se desbordaba a segunda página**
+- En `api/facturacion-electronica/pdf.php`, `$alturaBloqueF = 65` no contemplaba el "Total de líneas" ni los `Ln`. Resultado: factura de 1 línea quedaba con QR+totales en página 1 y "Total de líneas: 1" solito en página 2. Ahora `$alturaBloqueF = 80` para que todo quepa en una hoja.
+
+### Archivos tocados
+- `conta-app-backend/sql/actualizacion_completa.sql` — migraciones idempotentes
+- `conta-app-backend/api/empresa/datos.php` — Prefijo en UPDATE
+- `conta-app-backend/api/facturacion-electronica/enviar.php` — prefix de DIAN al UPDATE
+- `conta-app-backend/api/facturacion-electronica/pdf.php` — alturaBloqueF=80
+
+---
+
+## 4.3.56 — 2026-06-22
+
+### Fix Nueva Venta: IVA se sumaba dos veces cuando el precio ya lo incluía
+
+Si la empresa tenía configurado **"Precio con IVA incluido"** (Configuración → Sistema → IvaIncluido=1), Nueva Venta tomaba el `Precio_Venta` del catálogo (que ya contiene IVA) y le **sumaba el IVA otra vez** al calcular el total. El cliente reportó que un producto de $13.000 con IVA 19% terminaba mostrando $15.470 en lugar de $13.000.
+
+**Fix en `NuevaVenta.tsx`**:
+- Lee `getConfigImpresion().precioIvaIncluido`.
+- Si está activo: el IVA por línea se **separa** del subtotal con fórmula `iva/(100+iva)` y el `totalFactura = subtotal − descuento` (sin sumar IVA encima). Se muestra "IVA incluido: $X" como informativo.
+- Si NO está activo: comportamiento previo intacto — IVA se calcula con `iva/100` y se suma al subtotal.
+
+Comportamiento retrocompatible: clientes con `IvaIncluido=0` no perciben cambios.
+
+### Archivos tocados
+- `Dashboard-Facturación/src/components/NuevaVenta.tsx` — cálculo de `totalIvaBase` y `totalFactura` según flag.
+
+---
+
+## 4.3.55 — 2026-06-16
+
+### Fix crítico — Factura electrónica DIAN
+
+Dos correcciones en `api/facturacion-electronica/enviar.php` que provocaban que DIAN rechazara la factura con el error *"Los totales de la factura no cuadran correctamente"*:
+
+**1. Cálculo de IVA por línea con cantidades fraccionarias.** La fórmula `$ivaAmount / max($cant, 1) * $cant` dividía el IVA por 2 cuando la cantidad era menor a 1 (ej. 0.50 kg, 0.25 libras). Solo se manifestaba al vender productos a granel o por peso — con cantidades enteras (1, 2, etc.) pasaba inadvertido. Ejemplo real reportado: factura con 0.50 kg de pollo, DIAN esperaba `tax_amount=2119.05` y Conta FT enviaba `1059.53`. Ahora `tax_amount = $ivaAmount` directo, sin multiplicar de nuevo por cantidad.
+
+**2. Régimen Simplificado / No Responsable de IVA.** Si la empresa estaba registrada como no responsable de IVA pero sus productos en el catálogo tenían IVA configurado (5%, 19%), el JSON salía con IVA cobrado, lo cual DIAN rechaza (un no responsable no puede cobrar IVA). Ahora `buildInvoiceJSON()` lee `tbldatosempresa.Regimen` y fuerza IVA=0 en todas las líneas si detecta: "Simplificado", "No responsable", "No resp" o simplemente "no". Empresas con régimen "Común" se comportan igual que antes.
+
+Mismo ajuste aplicado en el INSERT a `tbldetalle_documento_electronico` para que el guardado local también respete el régimen.
+
+### Eliminar documentos rechazados desde la UI
+
+En el listado de Facturación Electrónica, los documentos que DIAN rechaza quedaban ocupando espacio sin poder hacer nada con ellos. Ahora:
+
+- **Icono de basura por fila**: aparece solo en documentos con estado *rechazado* o *error* y sin CUFE. Pide confirmación antes de eliminar.
+- **Botón "Limpiar rechazados"** en el header: aparece cuando hay al menos 1 rechazado. Elimina todos los del listado de una sola vez, mostrando el conteo.
+- **Endpoint protegido**: `POST /api/facturacion-electronica/eliminar.php` valida en backend que el documento NO tenga CUFE y que su estado sea rechazado/error. Si el frontend envía un id de un documento autorizado lo ignora silenciosamente — los autorizados son inmutables ante DIAN y se manejan vía nota crédito.
+- Elimina también el detalle (`tbldetalle_documento_electronico`) en la misma transacción.
+
+### Archivos tocados
+- `conta-app-backend/api/facturacion-electronica/enviar.php` — fix tax_amount + detección de régimen.
+- `conta-app-backend/api/facturacion-electronica/eliminar.php` — NUEVO endpoint protegido.
+- `Dashboard-Facturación/src/components/FacturacionElectronica.tsx` — icono basura por fila + botón masivo en header.
+
+### Fix: abono inicial en venta a crédito no quedaba en tblpagos
+
+Cuando se creaba una factura **a crédito** y se ingresaba un abono inicial desde el modal de cobro (campo "Valor Efectivo" del cierre de venta), el sistema guardaba el monto en `tblventas.Abono` y descontaba del `Saldo`, pero **NO** insertaba la fila correspondiente en `tblpagos`. Resultado:
+
+- El detalle de la factura mostraba el saldo descontado (correcto, lee `tblventas.Saldo`).
+- Pero el módulo de **Pagar / Cartera del cliente** mostraba el saldo COMPLETO (lee desde `vw_saldos_por_factura` que calcula `Total - SUM(tblpagos)`), permitiendo cobrar el abono otra vez.
+
+Ahora `api/ventas/nueva.php` inserta una fila en `tblpagos` (con `DetallePago = "Abono inicial al crear factura N° X"`, `RecCajaN = MAX+1`, `id_mediopago` y `Codigo` del cliente) cuando `tipo != 'Contado' && abono > 0`.
+
+Backfill aplicado para casos detectados en producción (`conta_nutrigranos`): factura 598 (Pedro Guerra, abono $40.000).
+
+---
+
 ## 4.3.54 — 2026-06-09
 
 ### Sincronización móvil completa: ediciones + clientes nuevos + automático

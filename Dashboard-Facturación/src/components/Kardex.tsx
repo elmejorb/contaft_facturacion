@@ -1,6 +1,35 @@
 import { useState, useEffect } from 'react';
 import { X, Search, RefreshCw } from 'lucide-react';
 import api from '../services/api';
+import toast from 'react-hot-toast';
+import { DetalleFacturaModal } from './DetalleFacturaModal';
+import { DetalleCompraModal } from './DetalleCompraModal';
+
+// Detecta "Venta Fra. N° 1246" o "Dev. Fra. N° 15" en el detalle del kardex.
+// El grupo 2 captura el Factura_N (numérico) que sirve directamente para
+// abrir DetalleFacturaModal.
+const REGEX_FACTURA_VENTA = /(Venta|Dev\.)\s+Fra\.?\s*N[°º]?\s*(\d+)/i;
+
+// Detecta compras. El detalle del kardex incluye el FacturaCompra_N (número
+// del proveedor, varchar). NO es el Pedido_N interno — hay que hacer un
+// lookup al backend antes de abrir DetalleCompraModal.
+// Formatos observados:
+//   "Compras según Fact Nº 40382"
+//   "Compras según Fact Nº  0002"   (espacios variables)
+//   "Compra Adicional Fact Nº 1162"
+const REGEX_FACTURA_COMPRA = /Compra[s]?\s+(?:seg[uú]n|Adicional)\s+Fact\s*N[°º]?\s*(\S+)/i;
+
+function extraerFacturaVenta(detalle: string | null | undefined): number | null {
+  if (!detalle) return null;
+  const m = detalle.match(REGEX_FACTURA_VENTA);
+  return m ? parseInt(m[2]) : null;
+}
+
+function extraerFacturaCompra(detalle: string | null | undefined): string | null {
+  if (!detalle) return null;
+  const m = detalle.match(REGEX_FACTURA_COMPRA);
+  return m ? m[1] : null;
+}
 
 interface KardexMovimiento {
   Fecha: string;
@@ -44,6 +73,32 @@ export function Kardex({ isOpen, onClose, producto }: KardexProps) {
   const [anio, setAnio] = useState(new Date().getFullYear());
   const [fechaInicio, setFechaInicio] = useState('');
   const [fechaFin, setFechaFin] = useState('');
+  // Al hacer click en el número de factura del detalle, abre modal sin salir
+  // del Kardex. null = cerrado, número = ID de la factura a mostrar.
+  const [facturaAbierta, setFacturaAbierta] = useState<number | null>(null);
+  // Compras usan Pedido_N interno; se resuelve via lookup antes de abrir.
+  const [pedidoAbierto, setPedidoAbierto] = useState<number | null>(null);
+  const [buscandoPedido, setBuscandoPedido] = useState(false);
+
+  // Al click en el número de una compra, busca el Pedido_N con la FacturaCompra_N
+  // + Items del producto que estamos viendo, y abre DetalleCompraModal.
+  const abrirCompraDesdeKardex = async (facturaCompraN: string) => {
+    if (!producto || buscandoPedido) return;
+    setBuscandoPedido(true);
+    try {
+      const url = `http://localhost:80/conta-app-backend/api/compras/nueva.php?lookup_pedido=1&factura=${encodeURIComponent(facturaCompraN)}&items=${producto.Items}`;
+      const r = await fetch(url);
+      const d = await r.json();
+      if (d.success && d.pedido_n) {
+        setPedidoAbierto(d.pedido_n);
+      } else {
+        toast.error(d.message || `No se encontró la compra ${facturaCompraN}`);
+      }
+    } catch (e) {
+      toast.error('Error al buscar la compra');
+    }
+    setBuscandoPedido(false);
+  };
 
   useEffect(() => {
     if (isOpen && producto) cargarKardex();
@@ -208,7 +263,54 @@ export function Kardex({ isOpen, onClose, producto }: KardexProps) {
                         onMouseLeave={e => { if (!esInicial) (e.currentTarget as HTMLElement).style.background = index % 2 === 1 ? '#f9fafb' : '#fff'; }}
                         >
                           <td style={{ ...s.td, textAlign: 'center', color: '#7c3aed', fontWeight: 500 }}>{fmtFecha(mov.Fecha)}</td>
-                          <td style={{ ...s.td, fontWeight: 500, color: '#111827' }}>{mov.Detalle}</td>
+                          <td style={{ ...s.td, fontWeight: 500, color: '#111827' }}>
+                            {(() => {
+                              // 1) Venta / Devolución → link directo al modal de factura
+                              const factN = extraerFacturaVenta(mov.Detalle);
+                              if (factN) {
+                                const partes = mov.Detalle.split(String(factN));
+                                return <>
+                                  {partes[0]}
+                                  <button
+                                    type="button"
+                                    onClick={() => setFacturaAbierta(factN)}
+                                    title={`Ver factura Nº ${factN} sin salir del kardex`}
+                                    style={{
+                                      background: 'none', border: 'none', padding: 0,
+                                      color: '#7c3aed', fontWeight: 700, cursor: 'pointer',
+                                      textDecoration: 'underline', textUnderlineOffset: 2,
+                                      fontFamily: 'inherit', fontSize: 'inherit',
+                                    }}
+                                  >{factN}</button>
+                                  {partes.slice(1).join(String(factN))}
+                                </>;
+                              }
+                              // 2) Compra → link con lookup async (necesita resolver
+                              //    FacturaCompra_N → Pedido_N antes de abrir modal)
+                              const facCompra = extraerFacturaCompra(mov.Detalle);
+                              if (facCompra) {
+                                const partes = mov.Detalle.split(facCompra);
+                                return <>
+                                  {partes[0]}
+                                  <button
+                                    type="button"
+                                    onClick={() => abrirCompraDesdeKardex(facCompra)}
+                                    disabled={buscandoPedido}
+                                    title={`Ver compra ${facCompra} sin salir del kardex`}
+                                    style={{
+                                      background: 'none', border: 'none', padding: 0,
+                                      color: '#0891b2', fontWeight: 700,
+                                      cursor: buscandoPedido ? 'wait' : 'pointer',
+                                      textDecoration: 'underline', textUnderlineOffset: 2,
+                                      fontFamily: 'inherit', fontSize: 'inherit',
+                                    }}
+                                  >{facCompra}</button>
+                                  {partes.slice(1).join(facCompra)}
+                                </>;
+                              }
+                              return mov.Detalle;
+                            })()}
+                          </td>
                           <td style={{ ...s.td, textAlign: 'center', fontFamily: 'monospace' }}>{fmtCant(mov.Cantidad_Entrada)}</td>
                           <td style={{ ...s.td, textAlign: 'right', fontFamily: 'monospace', color: '#16a34a' }}>{fmt(mov.Costo_Entrada)}</td>
                           <td style={{ ...s.td, textAlign: 'center', fontFamily: 'monospace' }}>{fmtCant(mov.Cantidad_Salida)}</td>
@@ -246,6 +348,17 @@ export function Kardex({ isOpen, onClose, producto }: KardexProps) {
       </div>
 
       <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
+
+      {/* Modal factura de venta cuando se hace click en el número del detalle.
+          Se monta ENCIMA del Kardex — al cerrar, el Kardex sigue visible con
+          la posición de scroll intacta. */}
+      {facturaAbierta !== null && (
+        <DetalleFacturaModal factN={facturaAbierta} onClose={() => setFacturaAbierta(null)} />
+      )}
+      {/* Modal detalle de compra — se abre después del lookup del Pedido_N. */}
+      {pedidoAbierto !== null && (
+        <DetalleCompraModal pedidoN={pedidoAbierto} onClose={() => setPedidoAbierto(null)} />
+      )}
     </div>
   );
 }

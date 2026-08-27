@@ -46,12 +46,24 @@ try {
            c.motivo_detalle, c.dias_mora_promedio, c.nota_cobranza"
         : "c.CodigoClien, c.Razon_Social, c.Nit, c.Telefonos, c.CupoAutorizado";
 
+    // Nota: `Dias_Mayor_Vencimiento` mide desde la fecha de emisión de la
+    // factura más antigua — NO desde el vencimiento real. Se mantiene por
+    // compatibilidad con filtros existentes.
+    //
+    // `Vence_Prox_7d` es un booleano agregado (0/1) para el filtro del panel
+    // de sugerencias: 1 si el cliente tiene al menos una factura cuya fecha
+    // de vencimiento cae dentro de los próximos 7 días (usando f.Dias como
+    // plazo). Usamos MAX() sobre CASE para obtener OR agregado eficiente.
     $stmt = $db->query("
         SELECT $selectCols,
                COUNT(*) as Facturas_Pendientes,
                SUM(f.Saldo) as Saldo_Total,
                MIN(f.Fecha) as Factura_Mas_Antigua,
-               DATEDIFF(CURDATE(), MIN(f.Fecha)) as Dias_Mayor_Vencimiento
+               DATEDIFF(CURDATE(), MIN(f.Fecha)) as Dias_Mayor_Vencimiento,
+               MAX(CASE
+                     WHEN DATEDIFF(DATE_ADD(f.Fecha, INTERVAL f.Dias DAY), CURDATE()) BETWEEN 0 AND 7
+                     THEN 1 ELSE 0
+                   END) as Vence_Prox_7d
         FROM tblclientes c
         INNER JOIN ($sqlFacturas) f ON c.CodigoClien = f.CodigoCli
         GROUP BY $groupBy
@@ -65,6 +77,7 @@ try {
         $c['CupoAutorizado'] = floatval($c['CupoAutorizado']);
         $c['Facturas_Pendientes'] = intval($c['Facturas_Pendientes']);
         $c['Dias_Mayor_Vencimiento'] = intval($c['Dias_Mayor_Vencimiento']);
+        $c['Vence_Prox_7d'] = intval($c['Vence_Prox_7d'] ?? 0);
         $c['cartera_castigada'] = intval($c['cartera_castigada'] ?? 0);
         $c['dias_mora_promedio'] = $c['dias_mora_promedio'] !== null ? intval($c['dias_mora_promedio']) : null;
     }

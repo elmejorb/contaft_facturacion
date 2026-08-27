@@ -19,7 +19,8 @@ try {
         $identificacion = $_GET['identificacion'];
         $stmt = $pdo->prepare("
             SELECT CodigoClien, Nit as Identificacion, Razon_Social as Nombre_Cliente,
-                   Telefonos as Telefono, Direccion, Email, CupoAutorizado as Cupo
+                   Telefonos as Telefono, Direccion, Email, CupoAutorizado as Cupo,
+                   Preciocosto, UltimoPrecio
             FROM tblclientes WHERE Nit = :id LIMIT 1
         ");
         $stmt->execute(['id' => $identificacion]);
@@ -30,7 +31,8 @@ try {
         $q = '%' . $_GET['q'] . '%';
         $stmt = $pdo->prepare("
             SELECT CodigoClien, Nit as Identificacion, Razon_Social as Nombre_Cliente,
-                   Telefonos as Telefono, Direccion, Email, CupoAutorizado as Cupo
+                   Telefonos as Telefono, Direccion, Email, CupoAutorizado as Cupo,
+                   Preciocosto, UltimoPrecio
             FROM tblclientes
             WHERE Nit LIKE :q OR Razon_Social LIKE :q2
             ORDER BY Razon_Social LIMIT 20

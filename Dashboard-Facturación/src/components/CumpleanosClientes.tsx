@@ -163,15 +163,5 @@ export function CumpleanosClientes() {
 }
 
 // Exportar hook para usar en notificaciones del dashboard
-export function useCumpleanosHoy() {
-  const [cumpleHoy, setCumpleHoy] = useState<any[]>([]);
-
-  useEffect(() => {
-    fetch(`${API}?rango=7`)
-      .then(r => r.json())
-      .then(d => { if (d.success) setCumpleHoy(d.clientes); })
-      .catch(() => {});
-  }, []);
-
-  return cumpleHoy;
-}
+// Hook movido a src/hooks/useCumpleanosHoy.ts para permitir code-splitting.
+export { useCumpleanosHoy } from '../hooks/useCumpleanosHoy';

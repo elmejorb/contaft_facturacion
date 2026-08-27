@@ -80,9 +80,16 @@ try {
     $stmt = $db->query("SELECT * FROM tbldatosempresa LIMIT 1");
     $empresa = $stmt->fetch();
 
-    // Get items
+    // Get items.
+    // Prioridad de descripción: el `d.description` es el concepto que se
+    // envía a la DIAN (viene del DescripcionTemp del detalle de venta cuando
+    // es servicio con concepto editado). Si está vacío, cae al nombre del
+    // catálogo. Antes solo se leía Nombres_Articulo y en las FE con concepto
+    // largo salía el nombre corto del servicio en el PDF.
     $stmt = $db->prepare("
-        SELECT d.*, a.Codigo, a.Nombres_Articulo, COALESCE(um.name, 'Unidad') as unidad_nombre
+        SELECT d.*, a.Codigo,
+               COALESCE(NULLIF(d.description, ''), a.Nombres_Articulo) AS Nombres_Articulo,
+               COALESCE(um.name, 'Unidad') as unidad_nombre
         FROM detalle_document_electronic d
         LEFT JOIN tblarticulos a ON d.items = a.Items
         LEFT JOIN unit_measures um ON d.unit_measure_id = um.id
@@ -101,15 +108,22 @@ try {
         'prefix' => $empresa['Prefijo'] ?? $doc['prefix'] ?? 'FCON',
     ];
 
-    // Calculate totals
+    // Calculate totals.
+    // Subtotal e IVA salen de las líneas (line_extension_amount = base sin IVA,
+    // tax_amount = monto del IVA por línea). El TOTAL se recalcula a partir
+    // de estos en lugar de leer $doc['total'] porque ese campo viene de
+    // tblventas.Total y en versiones <4.3.61 podía estar inflado cuando la
+    // empresa usaba IvaIncluido=1 (sumaba IVA encima del precio que ya lo
+    // tenía dentro). Recalcular acá garantiza que el PDF de facturas viejas
+    // muestre el total correcto sin reenviar.
     $subtotal = 0;
     $totalIva = 0;
     foreach ($items as $item) {
         $subtotal += floatval($item['line_extension_amount']);
         $totalIva += floatval($item['tax_amount']);
     }
-    $total = floatval($doc['total']);
     $descuento = floatval($doc['descuento']);
+    $total = $subtotal + $totalIva - $descuento;
 
     $dv = calcularDV(preg_replace('/[^0-9]/', '', $empresa['Nit']));
     $dvCliente = calcularDV(preg_replace('/[^0-9]/', '', $cliente['Nit'] ?? $doc['customer_identification']));
@@ -142,9 +156,17 @@ try {
     if ($diasVenc > 0) $fechaVenc->modify("+$diasVenc days");
     $fechaVencStr = $fechaVenc->format('d/m/Y');
 
-    // Logo
-    $logoPath = 'C:/xampp/htdocs/facturacion-electronica/img/logo_2_innovacion.png';
-    if (!file_exists($logoPath)) $logoPath = null;
+    // Logo: tomamos el path guardado en tbldatosempresa.Logo (gestionado desde
+    // Datos de Empresa → endpoint /empresa/logo.php). Resolvemos la ruta
+    // absoluta del filesystem para que TCPDF la pueda leer. Si no hay logo
+    // configurado o el archivo no existe, el PDF se imprime sin imagen.
+    $logoPath = null;
+    if (!empty($empresa['Logo'])) {
+        // __DIR__ = api/facturacion-electronica → subir 2 niveles a conta-app-backend
+        $backendRoot = realpath(__DIR__ . '/../..');
+        $candidate = $backendRoot . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $empresa['Logo']);
+        if (file_exists($candidate)) $logoPath = $candidate;
+    }
 
     // ======= GENERATE PDF =======
     class MYPDF extends TCPDF {
@@ -276,7 +298,11 @@ EOD;
     $alturaPagina = $pdf->getPageHeight();
     $margenFooter = 30; // espacio del footer TCPDF
     $alturaMaxima = $alturaPagina - $margenFooter;
-    $alturaBloqueF = 65; // alto del bloque QR+totales (sin firmas)
+    // Alto total del bloque: QR (32) + Ln + texto legal/totales (~30) +
+    // "Total de líneas" (~5) + márgenes = ~80mm. Antes era 65, lo que
+    // dejaba el contenido muy abajo y empujaba "Total de líneas" a una
+    // segunda página vacía.
+    $alturaBloqueF = 80;
 
     // Si no cabe, nueva página
     if (($alturaActual + $alturaBloqueF) > $alturaMaxima) {

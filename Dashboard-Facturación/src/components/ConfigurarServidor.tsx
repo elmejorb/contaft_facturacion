@@ -22,13 +22,18 @@ export function ConfigurarServidor({ onConfigured }: Props) {
     setTesting(false);
   };
 
-  const guardar = () => {
-    setApiUrl(urlCompleta);
+  // BUG previo: no se esperaba a que `setApiUrl` (async — escribe config.json
+  // vía IPC) resolviera antes del `onConfigured() → window.location.reload()`.
+  // Si el reload gana la carrera, la escritura al disco queda a medias y al
+  // reabrir la app vuelve a pedir "Configurar Servidor" en un loop infinito.
+  // Con await garantizamos que la escritura persistió antes del reload.
+  const guardar = async () => {
+    await setApiUrl(urlCompleta);
     onConfigured();
   };
 
-  const usarLocal = () => {
-    setApiUrl('http://localhost:80/conta-app-backend/api');
+  const usarLocal = async () => {
+    await setApiUrl('http://localhost:80/conta-app-backend/api');
     onConfigured();
   };
 

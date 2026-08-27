@@ -3,7 +3,7 @@ import { AgGridReact } from 'ag-grid-react';
 import { AllCommunityModule, ModuleRegistry, ColDef } from 'ag-grid-community';
 import {
   Search, RefreshCw, FileText, CheckCircle, XCircle, AlertTriangle,
-  Clock, Send, Eye, Printer, Globe, Mail, MailCheck, MailOpen, MailX, FileMinus, X, Copy
+  Clock, Send, Eye, Printer, Globe, Mail, MailCheck, MailOpen, MailX, FileMinus, X, Copy, Trash2, Pencil
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { DetalleDocElectronico } from './DetalleDocElectronico';
@@ -72,7 +72,9 @@ function mapFEtoDatosFactura(doc: any, items: any[], empresa?: any): DatosFactur
     subtotal,
     descuento: items.reduce((s, i) => s + (parseFloat(i.discount_amount) || 0), 0),
     iva,
-    total: parseFloat(doc.total) || (subtotal + iva),
+    // Recalculamos siempre desde subtotal+iva para evitar el doc.total
+    // inflado de facturas viejas emitidas con el bug pre-4.3.61.
+    total: subtotal + iva - (items.reduce((s, i) => s + (parseFloat(i.discount_amount) || 0), 0)),
     efectivo: 0, transferencia: 0, cambio: 0, abono: 0, saldo: 0,
     medioPago: doc.payment_method_name || '',
     vendedor: '',
@@ -82,8 +84,9 @@ function mapFEtoDatosFactura(doc: any, items: any[], empresa?: any): DatosFactur
       telefono: (empresa && empresa.Telefono) || emp.telefono,
       direccion: (empresa && empresa.Direccion) || emp.direccion,
       regimen: (empresa && empresa.Regimen) || emp.regimen || '',
-      propietario: '-',
+      propietario: (empresa && empresa.Propietario) || emp.propietario || '',
       resolucion: (empresa && empresa.Resolucion) || emp.resolucion || '',
+      detalle: (empresa && empresa.Detalle) || emp.detalle || '',
     },
     // ===== Datos específicos FE =====
     esFE: true,
@@ -120,6 +123,11 @@ export function FacturacionElectronica({ onNavigate }: Props = {}) {
   const [ndValor, setNdValor] = useState('');
   const [ndDescripcion, setNdDescripcion] = useState('');
   const [emailStatusMap, setEmailStatusMap] = useState<Record<string, any>>({});
+  // Map cufe → estado de eventos DIAN (acuse/aceptación/rechazo/tácita).
+  // Solo se puebla para facturas a CRÉDITO autorizadas — el resto no tiene
+  // eventos porque contado se paga en la operación misma.
+  const [eventosMap, setEventosMap] = useState<Record<string, any>>({});
+  const [refreshingEvento, setRefreshingEvento] = useState<string | null>(null);
   const [contingencias, setContingencias] = useState<any[]>([]);
   const [showContingencias, setShowContingencias] = useState(false);
   const [reenviandoCont, setReenviandoCont] = useState(false);
@@ -148,6 +156,34 @@ export function FacturacionElectronica({ onNavigate }: Props = {}) {
     localStorage.setItem('fe_para_copiar_id', String(id));
     toast.success(`${label || 'Factura'} cargada para copia — ajuste y guarde`);
     onNavigate?.('nueva-venta');
+  };
+
+  // Editar un borrador — mismo patrón que copiar pero con flag distinto.
+  // NuevaVenta detecta 'borrador_para_editar' y carga los datos vía
+  // action=cargar_borrador. Al guardar, actualiza en vez de crear nuevo.
+  const editarBorrador = (id: number) => {
+    localStorage.setItem('borrador_para_editar', String(id));
+    toast.success('Borrador cargado — edite y guarde');
+    onNavigate?.('nueva-venta');
+  };
+
+  const eliminarBorrador = async (id: number, label: string) => {
+    const ok = await confirmar({
+      title: 'Eliminar borrador',
+      message: `¿Eliminar el borrador ${label}?\n\nSe borra completamente — no se envía a DIAN ni queda registro.`,
+      type: 'danger',
+      confirmText: 'Sí, eliminar',
+    });
+    if (!ok) return;
+    try {
+      const r = await fetch(`${API}/enviar.php`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'eliminar_borrador', id }),
+      });
+      const d = await r.json();
+      if (d.success) { toast.success('Borrador eliminado'); cargar(); }
+      else toast.error(d.message || 'Error');
+    } catch { toast.error('Error de conexión'); }
   };
 
   // Imprimir un documento electrónico en el formato elegido:
@@ -309,6 +345,48 @@ export function FacturacionElectronica({ onNavigate }: Props = {}) {
     } catch (e) { /* silencioso */ }
   };
 
+  // Elimina un documento electrónico rechazado por DIAN. Backend filtra y
+  // solo permite borrar los que NO tienen CUFE y tienen status rechazado/error.
+  const eliminarRechazado = async (id: number, label: string) => {
+    const ok = await confirmar({
+      title: 'Eliminar documento rechazado',
+      message: `¿Eliminar el documento ${label}? Solo se permite eliminar documentos rechazados por DIAN — no afecta documentos autorizados.`,
+      type: 'danger',
+      confirmText: 'Eliminar',
+    });
+    if (!ok) return;
+    try {
+      const r = await fetch(`${API}/eliminar.php`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }),
+      });
+      const d = await r.json();
+      if (d.success) { toast.success(d.message); cargar(); }
+      else toast.error(d.message || 'No se pudo eliminar');
+    } catch (e) { toast.error('Error de conexión'); }
+  };
+
+  const eliminarTodosRechazados = async () => {
+    const total = resumen.rechazados || 0;
+    if (total === 0) { toast('No hay documentos rechazados'); return; }
+    const ok = await confirmar({
+      title: 'Eliminar todos los rechazados',
+      message: `¿Eliminar los ${total} documento(s) rechazado(s) por DIAN? Esta acción no afecta a documentos autorizados ni a ventas locales — solo limpia el listado de FE.`,
+      type: 'danger',
+      confirmText: `Sí, eliminar ${total}`,
+    });
+    if (!ok) return;
+    try {
+      const r = await fetch(`${API}/eliminar.php`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ eliminar_todos_rechazados: true }),
+      });
+      const d = await r.json();
+      if (d.success) { toast.success(d.message); cargar(); }
+      else toast.error(d.message || 'No se pudo eliminar');
+    } catch (e) { toast.error('Error de conexión'); }
+  };
+
   const reenviarUnaContingencia = async (factN: number) => {
     try {
       const r = await fetch(`${API}/enviar.php`, {
@@ -346,7 +424,66 @@ export function FacturacionElectronica({ onNavigate }: Props = {}) {
     } catch (e) { /* silencioso: el sobre cae al estado local */ }
   };
 
+  // Estado de eventos DIAN — solo para facturas a CRÉDITO autorizadas.
+  // Se llama después de que el listado se pobló (usa docs directamente).
+  // Batch al backend PHP → curl_multi en paralelo → mapa cufe → estado.
+  const cargarEventos = async (docsBase: any[]) => {
+    const cufes = docsBase
+      .filter(d => d.status === 'autorizado' && d.cufe && parseInt(d.payment_form_id) === 2)
+      .map(d => d.cufe);
+    if (cufes.length === 0) { setEventosMap({}); return; }
+    try {
+      const r = await fetch(`${API}/eventos.php`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cufes })
+      });
+      const d = await r.json();
+      if (d.success && d.data) setEventosMap(d.data);
+    } catch (e) { /* silencioso: el badge cae a "pendiente" */ }
+  };
+
+  // Refresh manual de una factura — consulta DIAN en tiempo real
+  // (endpoint /eventos, más lento). Actualiza la BD remota y devuelve el
+  // estado fresco. Útil cuando el usuario espera un cambio inmediato tras
+  // avisarle al cliente que acepte la factura.
+  const refrescarEvento = async (cufe: string) => {
+    if (!cufe) return;
+    setRefreshingEvento(cufe);
+    toast.loading('Consultando DIAN...', { id: 'evt-refresh' });
+    try {
+      const r = await fetch(`${API}/eventos.php?cufe=${encodeURIComponent(cufe)}&refresh=1`);
+      const d = await r.json();
+      if (d.success !== false) {
+        setEventosMap(prev => ({ ...prev, [cufe]: d }));
+        toast.success('Estado actualizado', { id: 'evt-refresh' });
+      } else {
+        toast.error(d.message || 'No se pudo consultar', { id: 'evt-refresh' });
+      }
+    } catch (e) {
+      toast.error('Error de conexión', { id: 'evt-refresh' });
+    }
+    setRefreshingEvento(null);
+  };
+
   useEffect(() => { cargar(); cargarEmailStatus(); cargarContingencias(); }, [anio, mes]);
+  // Cuando llegan nuevos docs, disparar la consulta de eventos en paralelo.
+  useEffect(() => { if (docs.length > 0) cargarEventos(docs); }, [docs]);
+
+  // Colores/labels por event_status. Los créditos aceptados (formal o
+  // tácitamente) se pintan verdes porque ya son título valor.
+  const eventoStyle = (status: string | null | undefined) => {
+    switch (status) {
+      case 'aceptada':   return { bg: '#dcfce7', fg: '#15803d', label: 'Aceptada', desc: 'Cliente aceptó formalmente (033) — es título valor' };
+      case 'tacita':     return { bg: '#d1fae5', fg: '#047857', label: 'Aceptación Tácita', desc: '3 días hábiles sin rechazo — título valor automático' };
+      case 'recibido':   return { bg: '#dbeafe', fg: '#1d4ed8', label: 'Recibido', desc: 'Cliente confirmó recibo del bien/servicio (032)' };
+      case 'acuse':      return { bg: '#fef3c7', fg: '#a16207', label: 'Acuse', desc: 'Cliente recibió el correo (030)' };
+      case 'rechazada':  return { bg: '#fee2e2', fg: '#b91c1c', label: 'Rechazada', desc: 'Cliente rechazó (031)' };
+      case 'pendiente':
+      case null:
+      case undefined:
+      default:           return { bg: '#f3f4f6', fg: '#6b7280', label: 'Pendiente', desc: 'Sin eventos aún' };
+    }
+  };
 
   const emailStatusStyle = (status: string | null, sent: boolean) => {
     switch (status) {
@@ -386,6 +523,9 @@ export function FacturacionElectronica({ onNavigate }: Props = {}) {
     'rechazado': { bg: '#fee2e2', fg: '#dc2626', icon: XCircle },
     'anulada': { bg: '#f3f4f6', fg: '#6b7280', icon: XCircle },
     'pendiente': { bg: '#fef3c7', fg: '#d97706', icon: Clock },
+    // "Borrador" — factura preparada localmente pero aún no enviada a DIAN.
+    // No es contingencia oficial (esa requiere resolución DIAN separada).
+    'borrador': { bg: '#e0e7ff', fg: '#4338ca', icon: Clock },
   };
 
   const cols: ColDef[] = [
@@ -395,25 +535,54 @@ export function FacturacionElectronica({ onNavigate }: Props = {}) {
       cellRenderer: (p: any) => <span style={{ color: '#7c3aed', fontWeight: 700 }}>{p.value}</span>
     },
     {
-      headerName: 'Tipo', field: 'tipo_documento', width: 130, sortable: true,
+      // Tipo compactado a sigla (FE / NC / ND / DS) — libera ~60px vs el
+      // texto completo. El tipo completo queda en el tooltip.
+      headerName: 'Tipo', field: 'tipo_documento', width: 70, sortable: true,
       cellRenderer: (p: any) => {
-        const colors: Record<string, string> = { 'Factura electrónica': '#2563eb', 'Nota crédito': '#d97706', 'Nota débito': '#dc2626' };
-        return <span style={{ fontSize: 11, fontWeight: 600, color: colors[p.value] || '#374151' }}>{p.value || 'Factura'}</span>;
+        const tipos: Record<string, { sigla: string; color: string }> = {
+          'Factura electrónica': { sigla: 'FE', color: '#2563eb' },
+          'Nota crédito':        { sigla: 'NC', color: '#d97706' },
+          'Nota débito':         { sigla: 'ND', color: '#dc2626' },
+          'Documento soporte':   { sigla: 'DS', color: '#7c3aed' },
+        };
+        const t = tipos[p.value] || { sigla: 'FE', color: '#374151' };
+        return <span title={p.value || 'Factura electrónica'} style={{ fontSize: 11, fontWeight: 700, color: t.color, background: t.color + '15', padding: '2px 6px', borderRadius: 4 }}>{t.sigla}</span>;
       }
     },
-    { headerName: 'Fecha', field: 'fecha', width: 100, sortable: true,
+    { headerName: 'Fecha', field: 'fecha', width: 105, sortable: true,
       cellRenderer: (p: any) => p.value ? new Date(p.value).toLocaleDateString('es-CO') : '-'
     },
-    { headerName: 'Cliente', field: 'cliente_nombre', flex: 1, minWidth: 180, sortable: true,
+    { headerName: 'Cliente', field: 'cliente_nombre', flex: 1, minWidth: 160, sortable: true,
       cellRenderer: (p: any) => <span style={{ fontWeight: 500 }}>{p.value || '-'}</span>
     },
+    // Vendedor oculto por defecto para liberar espacio a los iconos.
+    // Se puede activar desde el menú de columnas de AG Grid si el negocio
+    // maneja comisiones y necesita verlo directo en el listado.
     {
-      headerName: 'Vendedor', field: 'nombre_vendedor', width: 140, sortable: true,
+      headerName: 'Vendedor', field: 'nombre_vendedor', width: 140, sortable: true, hide: true,
       cellRenderer: (p: any) => p.value ? <span style={{ fontSize: 11, color: '#7c3aed', fontWeight: 600 }}>{p.value}</span> : <span style={{ color: '#d1d5db' }}>-</span>
     },
-    { headerName: 'NIT', field: 'customer_identification', width: 110, sortable: true },
-    { headerName: 'Total', field: 'total', width: 120, sortable: true,
+    { headerName: 'NIT', field: 'customer_identification', width: 100, sortable: true },
+    { headerName: 'Total', field: 'total', width: 110, sortable: true,
       cellRenderer: (p: any) => <span style={{ fontWeight: 700 }}>{fmtMon(p.value || 0)}</span>
+    },
+    {
+      // Término (Contado/Crédito) — consistente con el selector TÉRMINO en
+      // NuevaVenta. Se toma de electronic_documents.payment_form_id. Es
+      // decisivo para saber si aplican eventos DIAN (solo créditos).
+      headerName: 'Término', field: 'payment_form_id', width: 90, sortable: true,
+      valueGetter: (p: any) => {
+        const v = parseInt(p.data.payment_form_id);
+        if (v === 1) return 'Contado';
+        if (v === 2) return 'Crédito';
+        return '';
+      },
+      cellRenderer: (p: any) => {
+        const v = parseInt(p.data.payment_form_id);
+        if (v === 1) return <span style={{ fontSize: 10, fontWeight: 700, color: '#16a34a', background: '#dcfce7', padding: '2px 6px', borderRadius: 4 }}>Contado</span>;
+        if (v === 2) return <span style={{ fontSize: 10, fontWeight: 700, color: '#1d4ed8', background: '#dbeafe', padding: '2px 6px', borderRadius: 4 }}>Crédito</span>;
+        return <span style={{ color: '#d1d5db', fontSize: 10 }}>—</span>;
+      }
     },
     {
       headerName: 'Estado', field: 'status', width: 120, sortable: true,
@@ -428,7 +597,43 @@ export function FacturacionElectronica({ onNavigate }: Props = {}) {
       }
     },
     {
-      headerName: 'CUFE', field: 'cufe', width: 100,
+      // Estado de eventos DIAN. Solo aplica a facturas a CRÉDITO
+      // autorizadas — en contado la celda queda vacía porque no hay
+      // aceptación/rechazo posterior a la emisión.
+      headerName: 'Evento', width: 130, sortable: true,
+      valueGetter: (p: any) => {
+        if (parseInt(p.data.payment_form_id) !== 2) return '';
+        if (p.data.status !== 'autorizado') return '';
+        const ev = p.data.cufe ? eventosMap[p.data.cufe] : null;
+        return ev?.event_status || 'pendiente';
+      },
+      cellRenderer: (p: any) => {
+        if (parseInt(p.data.payment_form_id) !== 2) return <span style={{ color: '#d1d5db', fontSize: 10 }}>—</span>;
+        if (p.data.status !== 'autorizado') return <span style={{ color: '#d1d5db', fontSize: 10 }}>—</span>;
+        const ev = p.data.cufe ? eventosMap[p.data.cufe] : null;
+        const s = eventoStyle(ev?.event_status);
+        const motivo = ev?.eventos?.rechazo_motivo ? ` — ${ev.eventos.rechazo_motivo}` : '';
+        const ultima = ev?.ultima_consulta ? `\nÚltima consulta: ${new Date(ev.ultima_consulta).toLocaleString('es-CO')}` : '';
+        const loading = refreshingEvento === p.data.cufe;
+        return (
+          <div style={{ display: 'flex', gap: 3, alignItems: 'center' }} title={s.desc + motivo + ultima}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', padding: '2px 6px', borderRadius: 6, fontSize: 10, fontWeight: 600, background: s.bg, color: s.fg, whiteSpace: 'nowrap' }}>
+              {s.label}
+            </span>
+            <button title="Consultar DIAN ahora" onClick={() => refrescarEvento(p.data.cufe)}
+              disabled={loading}
+              style={{ width: 20, height: 20, border: 'none', background: 'transparent', cursor: loading ? 'default' : 'pointer', color: '#6b7280', display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: loading ? 0.4 : 1 }}>
+              <RefreshCw size={11} style={loading ? { animation: 'spin 1s linear infinite' } : undefined} />
+            </button>
+          </div>
+        );
+      }
+    },
+    {
+      // CUFE ocultada por defecto para liberar espacio a los iconos.
+      // Sigue disponible via menú de columnas de AG Grid, en el modal de
+      // detalle y en el PDF. También sale en el filtro de búsqueda.
+      headerName: 'CUFE', field: 'cufe', width: 100, hide: true,
       cellRenderer: (p: any) => p.value
         ? <span title={p.value} style={{ fontSize: 10, color: '#6b7280', cursor: 'pointer' }} onClick={() => { navigator.clipboard.writeText(p.value); toast.success('CUFE copiado'); }}>{p.value.substring(0, 12)}...</span>
         : <span style={{ color: '#d1d5db' }}>-</span>
@@ -469,6 +674,21 @@ export function FacturacionElectronica({ onNavigate }: Props = {}) {
             style={{ width: 26, height: 24, border: '1px solid #d1d5db', borderRadius: 4, cursor: 'pointer', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <Copy size={13} color="#16a34a" />
           </button>
+          {/* Editar borrador — solo visible cuando el documento aún no se envió */}
+          {p.data.status === 'borrador' && (
+            <>
+              <button title="Editar borrador"
+                onClick={() => editarBorrador(p.data.id)}
+                style={{ width: 26, height: 24, border: '1px solid #a5b4fc', borderRadius: 4, cursor: 'pointer', background: '#eef2ff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Pencil size={13} color="#4338ca" />
+              </button>
+              <button title="Eliminar borrador"
+                onClick={() => eliminarBorrador(p.data.id, `Borrador #${p.data.id}`)}
+                style={{ width: 26, height: 24, border: '1px solid #fca5a5', borderRadius: 4, cursor: 'pointer', background: '#fef2f2', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Trash2 size={13} color="#dc2626" />
+              </button>
+            </>
+          )}
           {p.data.cufe && (
             <button title={p.data.email_sent ? 'Reenviar correo' : 'Enviar correo al cliente'}
               onClick={async () => {
@@ -498,6 +718,15 @@ export function FacturacionElectronica({ onNavigate }: Props = {}) {
               onClick={() => setShowNotaCredito({ factN: p.data.number, factura_n_local: p.data.factura_n_local, id: p.data.id, cliente: p.data.cliente_nombre, total: p.data.total, prefix: p.data.prefix })}
               style={{ width: 26, height: 24, border: '1px solid #fca5a5', borderRadius: 4, cursor: 'pointer', background: '#fef2f2', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <FileMinus size={13} color="#dc2626" />
+            </button>
+          )}
+          {/* Solo aparece para documentos rechazados o con error (sin CUFE).
+              Los autorizados no se pueden eliminar — para esos hay Nota Crédito arriba. */}
+          {(p.data.status === 'rechazado' || p.data.status === 'error') && !p.data.cufe && (
+            <button title="Eliminar documento rechazado"
+              onClick={() => eliminarRechazado(p.data.id, `${p.data.prefix || ''}${p.data.number}`)}
+              style={{ width: 26, height: 24, border: '1px solid #fca5a5', borderRadius: 4, cursor: 'pointer', background: '#fef2f2', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Trash2 size={13} color="#dc2626" />
             </button>
           )}
         </div>
@@ -545,6 +774,13 @@ export function FacturacionElectronica({ onNavigate }: Props = {}) {
             <button onClick={() => setShowContingencias(true)} title="Facturas pendientes de reenviar a DIAN"
               style={{ height: 30, padding: '0 12px', background: '#fef3c7', color: '#92400e', border: '1px solid #fde68a', borderRadius: 8, fontSize: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5, fontWeight: 600 }}>
               <AlertTriangle size={14} /> Contingencias ({contingencias.length})
+            </button>
+          )}
+          {(resumen.rechazados || 0) > 0 && (
+            <button onClick={eliminarTodosRechazados}
+              title="Eliminar todos los documentos rechazados (solo limpia el listado, no afecta a autorizados)"
+              style={{ height: 30, padding: '0 12px', background: '#fef2f2', color: '#dc2626', border: '1px solid #fecaca', borderRadius: 8, fontSize: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5, fontWeight: 600 }}>
+              <Trash2 size={14} /> Limpiar rechazados ({resumen.rechazados})
             </button>
           )}
           <button onClick={() => { cargarResoluciones(); setShowResoluciones(true); }}
@@ -597,6 +833,7 @@ export function FacturacionElectronica({ onNavigate }: Props = {}) {
           {[
             { id: 'todos', label: 'Todos' },
             { id: 'autorizado', label: 'Autorizados' },
+            { id: 'borrador', label: 'Borradores' },
             { id: 'rechazado', label: 'Rechazados' },
             { id: 'anulada', label: 'Anulados' },
           ].map(f => (
