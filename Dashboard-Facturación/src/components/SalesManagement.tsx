@@ -410,7 +410,10 @@ export function SalesManagement({ onNavigate }: Props = {}) {
 
         <div style={{ flex: 1 }} />
         <span style={{ fontSize: 12, color: '#6b7280' }}>{filtrados.length} factura(s)</span>
-        <button onClick={cargar} style={{
+        {/* onClick={() => cargar()} — NO pasar el evento como arg,
+            cargar() recibe `buscar?: string` y React pasaba el SyntheticEvent
+            que se serializaba como "[object Object]" en la URL → tabla vacía. */}
+        <button onClick={() => cargar()} style={{
           height: 30, padding: '0 12px', background: '#7c3aed', color: '#fff',
           border: 'none', borderRadius: 6, fontSize: 12, cursor: 'pointer',
           display: 'flex', alignItems: 'center', gap: 5

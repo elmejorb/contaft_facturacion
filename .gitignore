@@ -72,6 +72,9 @@ Dashboard-Facturación/config.json
 # Carpeta temporal local — no versionar
 /temp/
 
+# PDFs de prueba de layout impresión — no versionar
+Dashboard-Facturación/test_carta*.pdf
+
 # secrets.php contiene API keys de Groq/OpenAI/etc. — jamás debe subirse.
 # Cada instalación tiene el suyo copiándolo desde secrets.example.php.
 conta-app-backend/api/config/secrets.php

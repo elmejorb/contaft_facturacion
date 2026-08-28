@@ -386,9 +386,22 @@ function mediaCarta(
 // ============================================================
 // CARTA COMPLETA
 // ============================================================
-function carta(d: DatosFactura): string {
+// Formato "carta" (letter portrait). Layout original — el que ya venía en
+// v4.3.87. Cuando el detalle desborda una hoja, imprimirFactura divide los
+// items en chunks y llama a esta función una vez por chunk con `paginacion`:
+//   - Encabezado empresa/cliente y títulos de columnas se dibujan en cada hoja.
+//   - Recuadro Nº factura muestra "Pág X de N" cuando hay paginación.
+//   - Páginas INTERMEDIAS: pie chico con "Nº ítems en esta página" + "Continúa
+//     en la siguiente página" (NO totales, NO firma, NO legal).
+//   - Página ÚLTIMA (o sin paginación): pie completo con SUBTOTAL/IVA/TOTAL,
+//     retenciones, firma "Recibí Conforme" y texto legal.
+function carta(
+  d: DatosFactura,
+  paginacion?: { pagina: number; totalPaginas: number; esUltima: boolean; totalItemsGlobal: number }
+): string {
   const config = getConfigImpresion();
   const titulo = d.esCotizacion ? 'Cotización Nº' : 'Factura de Venta Nº';
+  const esUltima = !paginacion || paginacion.esUltima;
 
   let html = `<div style="width:100%;font-family:Arial,sans-serif;font-size:12px;padding:12mm;box-sizing:border-box;">`;
 
@@ -413,6 +426,13 @@ function carta(d: DatosFactura): string {
   html += `<div style="border:2px solid #000;padding:6px 16px;text-align:center;">`;
   html += `<div style="font-size:11px;font-weight:bold;">${titulo}</div>`;
   html += `<div style="font-size:22px;font-weight:bold;">${d.esCotizacion ? '' : 'VEN'}${String(d.numero).padStart(7, '0')}</div>`;
+  // Numeración de páginas (solo cuando hay más de una)
+  if (paginacion && paginacion.totalPaginas > 1) {
+    const etiqueta = paginacion.esUltima
+      ? `Pág. ${paginacion.pagina} de ${paginacion.totalPaginas} — FINAL`
+      : `Pág. ${paginacion.pagina} de ${paginacion.totalPaginas}`;
+    html += `<div style="font-size:9px;margin-top:2px;font-weight:${paginacion.esUltima ? 'bold' : 'normal'};">${etiqueta}</div>`;
+  }
   html += `</div></div>`;
 
   // Fecha
@@ -433,7 +453,7 @@ function carta(d: DatosFactura): string {
   html += `</fieldset>`;
 
   // Tabla
-  html += `<table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:10px;">`;
+  html += `<table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:10px;table-layout:fixed;">`;
   html += `<thead><tr style="border:2px solid #000;background:#f0f0f0;">`;
   html += `<th style="text-align:left;padding:3px 6px;border:1px solid #000;width:70px;">Código</th>`;
   html += `<th style="text-align:left;padding:3px 6px;border:1px solid #000;">Descripción</th>`;
@@ -445,17 +465,29 @@ function carta(d: DatosFactura): string {
 
   for (const item of d.items) {
     html += `<tr>`;
-    html += `<td style="padding:2px 6px;border-bottom:1px dotted #ccc;">${item.codigo}</td>`;
-    html += `<td style="padding:2px 6px;border-bottom:1px dotted #ccc;">${item.nombre}</td>`;
-    html += `<td style="text-align:center;padding:2px 6px;border-bottom:1px dotted #ccc;">${item.cantidad}</td>`;
-    html += `<td style="text-align:right;padding:2px 6px;border-bottom:1px dotted #ccc;">${fmtMon(item.precio)}</td>`;
-    html += `<td style="text-align:center;padding:2px 6px;border-bottom:1px dotted #ccc;">${item.iva}%</td>`;
-    html += `<td style="text-align:right;padding:2px 6px;border-bottom:1px dotted #ccc;">${fmtMon(item.subtotal)}</td>`;
+    html += `<td style="padding:2px 6px;border-bottom:1px dotted #ccc;vertical-align:top;">${item.codigo}</td>`;
+    html += `<td style="padding:2px 6px;border-bottom:1px dotted #ccc;vertical-align:top;word-wrap:break-word;">${item.nombre}</td>`;
+    html += `<td style="text-align:center;padding:2px 6px;border-bottom:1px dotted #ccc;vertical-align:top;">${item.cantidad}</td>`;
+    html += `<td style="text-align:right;padding:2px 6px;border-bottom:1px dotted #ccc;vertical-align:top;">${fmtMon(item.precio)}</td>`;
+    html += `<td style="text-align:center;padding:2px 6px;border-bottom:1px dotted #ccc;vertical-align:top;">${item.iva}%</td>`;
+    html += `<td style="text-align:right;padding:2px 6px;border-bottom:1px dotted #ccc;vertical-align:top;">${fmtMon(item.subtotal)}</td>`;
     html += `</tr>`;
   }
   html += `</tbody></table>`;
 
-  // Pie
+  // ===== PIE — solo pie chico "Continúa..." en páginas intermedias =====
+  if (!esUltima) {
+    html += `<div style="border-top:1px solid #000;padding-top:6px;margin-top:8px;font-size:11px;">`;
+    html += `<div><b>Nº Artículos en esta página:</b> ${d.items.length} &nbsp;&nbsp; <b>Total del pedido:</b> ${paginacion!.totalItemsGlobal}</div>`;
+    html += `<div style="text-align:center;font-size:12px;font-weight:bold;font-style:italic;margin-top:8px;">`;
+    html += `↓ Continúa en la siguiente página (Pág. ${paginacion!.pagina + 1} de ${paginacion!.totalPaginas}) ↓`;
+    html += `</div>`;
+    html += `</div>`;
+    html += `</div>`; // cierra contenedor principal
+    return html;
+  }
+
+  // ===== PIE COMPLETO (última página o factura de una sola hoja) =====
   html += `<div style="display:flex;gap:16px;">`;
   html += `<div style="flex:1;">`;
   html += `<div style="margin-bottom:30px;">Observaciones:</div>`;
@@ -481,7 +513,7 @@ function carta(d: DatosFactura): string {
   html += `Esta Factura de Venta se asimila para todos los efectos legales, a una letra de cambio según el Artículo 772 - 774 del Comercio y causará intereses moratorios a las tasas vigentes a la fecha del vencimiento sobre los saldos no pagados oportunamente. No se aceptan devoluciones sin previa autorización escrita.`;
   html += `</div>`;
 
-  // Marca del sistema — pequeña pero legible, discreta al final
+  // Marca del sistema
   html += `<div style="font-size:10px;color:#6b7280;text-align:right;margin-top:4px;">${MARCA_SISTEMA}</div>`;
 
   html += `</div>`;
@@ -547,10 +579,38 @@ export function imprimirFactura(datos: DatosFactura, formatoOverride?: 'tirilla'
       pageSize = 'letter landscape';
       break;
     }
-    case 'carta':
-      contenido = carta(datos);
+    case 'carta': {
+      // Splitting igual que media-carta: chunks de N items por hoja, cada uno
+      // con encabezado/cliente/columnas repetidos. Intermedias muestran
+      // "Continúa...", la última muestra totales/firma/legal.
+      // 32 items caben cómodos en carta portrait dejando espacio para el pie
+      // completo cuando es la última página (medida empírica con VB6).
+      const maxPorHojaCarta = 32;
+      if (datos.items.length > maxPorHojaCarta) {
+        const chunks: typeof datos.items[] = [];
+        for (let i = 0; i < datos.items.length; i += maxPorHojaCarta) {
+          chunks.push(datos.items.slice(i, i + maxPorHojaCarta));
+        }
+        contenido = chunks.map((chunk, idx) => {
+          const paginaData = { ...datos, items: chunk };
+          const paginacion = {
+            pagina: idx + 1,
+            totalPaginas: chunks.length,
+            esUltima: idx === chunks.length - 1,
+            totalItemsGlobal: datos.items.length,
+          };
+          const pagHtml = carta(paginaData, paginacion);
+          const sep = idx < chunks.length - 1
+            ? '<div style="page-break-after:always;"></div>'
+            : '';
+          return pagHtml + sep;
+        }).join('');
+      } else {
+        contenido = carta(datos);
+      }
       pageSize = 'letter portrait';
       break;
+    }
     default:
       contenido = mediaCarta(datos);
       pageSize = 'letter landscape';

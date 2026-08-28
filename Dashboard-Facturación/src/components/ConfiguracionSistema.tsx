@@ -794,6 +794,47 @@ export function ConfiguracionSistema() {
               </div>
             </label>
           );})}
+
+          {/* Rendimiento — cuántas facturas trae el Listado de Ventas.
+              PCs rápidos: 500-1000. Celeron/HDD: 100-200. */}
+          <div style={{ marginTop: 4, padding: '12px 14px', border: '1px dashed #93c5fd', borderRadius: 8, background: '#eff6ff' }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: '#1e40af', marginBottom: 6 }}>Rendimiento del listado de ventas</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <label style={{ fontSize: 12, color: '#374151' }}>Traer máximo:</label>
+              <select
+                value={config.limiteListadoVentas || 500}
+                onChange={e => set('limiteListadoVentas', parseInt(e.target.value))}
+                style={{ height: 30, width: 130, border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, padding: '0 8px', fontWeight: 700, color: '#1e40af' }}>
+                <option value={100}>100 facturas</option>
+                <option value={200}>200 facturas</option>
+                <option value={500}>500 facturas</option>
+                <option value={1000}>1000 facturas</option>
+                <option value={2000}>2000 facturas</option>
+              </select>
+              <span style={{ fontSize: 11, color: '#6b7280' }}>por consulta</span>
+            </div>
+            <div style={{ fontSize: 11, color: '#6b7280', marginTop: 6 }}>
+              Ideal <b>100-200</b> en PCs lentos (Celeron, HDD). <b>500</b> es el default. <b>1000+</b> solo en PCs modernos con SSD. Menos filas = tabla más rápida de renderizar.
+            </div>
+          </div>
+
+          {/* Sub-config de Financiaciones — solo aparece si el módulo está activo.
+              Deja la tasa en 0 para que el sistema NO cobre mora (opcional). */}
+          {config.usarFinanciaciones && (
+            <div style={{ marginTop: 4, padding: '12px 14px', border: '1px dashed #c4b5fd', borderRadius: 8, background: '#faf5ff' }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: '#6b21a8', marginBottom: 6 }}>Interés de mora</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <input type="number" min={0} max={20} step="0.1"
+                  value={config.tasaMoraMensual}
+                  onChange={e => set('tasaMoraMensual', parseFloat(e.target.value) || 0)}
+                  style={{ width: 90, height: 30, padding: '0 8px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, textAlign: 'right', fontWeight: 700, color: '#7c3aed' }} />
+                <span style={{ fontSize: 12, color: '#374151' }}>% mensual sobre valor de cuota vencida</span>
+              </div>
+              <div style={{ fontSize: 11, color: '#6b7280', marginTop: 6 }}>
+                Deje en <b>0</b> si su negocio no cobra mora. Ejemplo: 2% mensual sobre una cuota de $400.000 a 45 días vencida = ~$12.000 de interés.
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -850,48 +891,6 @@ export function ConfiguracionSistema() {
             </label>
           );
         })}
-
-          {/* Rendimiento — cuántas facturas trae el Listado de Ventas.
-              PCs rápidos: 500-1000. Celeron/HDD: 100-200. */}
-          <div style={{ marginTop: 4, padding: '12px 14px', border: '1px dashed #93c5fd', borderRadius: 8, background: '#eff6ff' }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: '#1e40af', marginBottom: 6 }}>Rendimiento del listado de ventas</div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <label style={{ fontSize: 12, color: '#374151' }}>Traer máximo:</label>
-              <select
-                value={config.limiteListadoVentas || 500}
-                onChange={e => set('limiteListadoVentas', parseInt(e.target.value))}
-                style={{ height: 30, width: 130, border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, padding: '0 8px', fontWeight: 700, color: '#1e40af' }}>
-                <option value={100}>100 facturas</option>
-                <option value={200}>200 facturas</option>
-                <option value={500}>500 facturas</option>
-                <option value={1000}>1000 facturas</option>
-                <option value={2000}>2000 facturas</option>
-              </select>
-              <span style={{ fontSize: 11, color: '#6b7280' }}>por consulta</span>
-            </div>
-            <div style={{ fontSize: 11, color: '#6b7280', marginTop: 6 }}>
-              Ideal <b>100-200</b> en PCs lentos (Celeron, HDD). <b>500</b> es el default. <b>1000+</b> solo en PCs modernos con SSD. Menos filas = tabla más rápida de renderizar.
-            </div>
-          </div>
-
-          {/* Sub-config de Financiaciones — solo aparece si el módulo está activo.
-              Deja la tasa en 0 para que el sistema NO cobre mora (opcional). */}
-          {config.usarFinanciaciones && (
-            <div style={{ marginTop: 4, padding: '12px 14px', border: '1px dashed #c4b5fd', borderRadius: 8, background: '#faf5ff' }}>
-              <div style={{ fontSize: 12, fontWeight: 600, color: '#6b21a8', marginBottom: 6 }}>Interés de mora</div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <input type="number" min={0} max={20} step="0.1"
-                  value={config.tasaMoraMensual}
-                  onChange={e => set('tasaMoraMensual', parseFloat(e.target.value) || 0)}
-                  style={{ width: 90, height: 30, padding: '0 8px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, textAlign: 'right', fontWeight: 700, color: '#7c3aed' }} />
-                <span style={{ fontSize: 12, color: '#374151' }}>% mensual sobre valor de cuota vencida</span>
-              </div>
-              <div style={{ fontSize: 11, color: '#6b7280', marginTop: 6 }}>
-                Deje en <b>0</b> si su negocio no cobra mora. Ejemplo: 2% mensual sobre una cuota de $400.000 a 45 días vencida = ~$12.000 de interés.
-              </div>
-            </div>
-          )}
-        </div>
       </div>
 
       {/* Vendedores Móviles */}

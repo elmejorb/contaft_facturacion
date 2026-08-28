@@ -749,11 +749,21 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
         if (d.cliente) {
           const c = d.cliente;
           const email = c.Email || '';
+          const pc = parseInt(c.Preciocosto ?? 0) === 1 ? 1 : 0;
+          const up = parseInt(c.UltimoPrecio ?? 0) === 1 ? 1 : 0;
           setCliente({
             id: c.CodigoClien, nombre: c.Nombre_Cliente, nit: c.Identificacion || '0',
             tel: c.Telefono || '0', dir: c.Direccion || '-',
-            cupo: parseFloat(c.Cupo) || 0, esCliente: true, email
+            cupo: parseFloat(c.Cupo) || 0, esCliente: true, email,
+            preciocosto: pc, ultimoprecio: up,
           });
+          // Sincronizar el flag "Enviar a correo" con la validez del email
+          // (mismo criterio que seleccionarCliente para no dejar checked cuando
+          // el email es inválido y luego bloquear con "correo no válido").
+          const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+          const tokens = email.split(/[;,]+/).map((s: string) => s.trim()).filter((s: string) => s.length > 0);
+          const hayValido = tokens.some((t: string) => emailRegex.test(t));
+          setEnviarEmailFE(hayValido);
           // Info crédito
           if (c.CodigoClien && c.CodigoClien !== 130500) {
             fetch(`http://localhost:80/conta-app-backend/api/clientes/info-credito.php?id=${c.CodigoClien}`)
@@ -761,11 +771,16 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
               .catch(() => {});
           }
         } else if (d.nombre_cliente) {
+          // Comprador ocasional — copiado desde tblventas (snapshot). El id=0
+          // fuerza a NuevaVenta a NO usar cupo, retenciones ni ultimoprecio,
+          // pero al enviar la FE los datos van directo en el body del POST
+          // (cliente_nombre, cliente_identificacion, cliente_direccion).
           setCliente({
             id: 0, nombre: d.nombre_cliente, nit: d.nit_cliente || '0',
-            tel: '0', dir: '-', cupo: 0, esCliente: false, email: ''
+            tel: '0', dir: '-', cupo: 0, esCliente: false, email: '',
+            preciocosto: 0, ultimoprecio: 0,
           });
-          toast('Cliente no encontrado localmente. Seleccione el cliente correcto.', { icon: '⚠️' });
+          toast('Comprador ocasional copiado. Verifique los datos antes de enviar a DIAN.', { icon: '⚠️', duration: 6000 });
         }
 
         // Forma de pago — 'Crédito' con tilde para que matchee con el <option>
@@ -773,7 +788,11 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
         const fp = (d.forma_pago || 'contado').toLowerCase();
         const nuevoTipo = fp === 'contado' ? 'Contado' : 'Crédito';
         setTipo(nuevoTipo);
-        if (nuevoTipo === 'Crédito') setDias(30);
+        // Días de crédito — si el backend los envía (copiar.php lo hace desde
+        // payment_due_days del doc original), respetarlos. Si no, 30 default.
+        if (nuevoTipo === 'Crédito') {
+          setDias(Number(d.dias) > 0 ? Number(d.dias) : 30);
+        }
 
         // Tipo de documento — el backend lo envía si la copia viene de FE,
         // en cuyo caso preseleccionamos "Factura Electrónica". Para pedidos
