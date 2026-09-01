@@ -1019,9 +1019,28 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
       await onCotizar?.();
       return;
     }
-    if (tipo === 'Crédito' && cliente.id === 130500) {
-      setError('El cliente genérico "VENTAS AL CONTADO" no puede usarse en ventas a crédito. Seleccione un cliente real para que la deuda aparezca en Cuentas por Cobrar.');
-      return;
+    // Crédito con consumidor final — bloqueado. La DIAN rechaza FE a crédito
+    // sin cliente identificado (art. 616-1 ET / Res. 165/2023): el emisor debe
+    // conocer al deudor. Y aunque no fuera FE, el genérico no permite llevar
+    // Cuentas por Cobrar (no hay a quién cobrarle).
+    // Consumidor final = genérico local (130500), ocasional (id=0), o NIT
+    // vacío/0/222222222222 (código DIAN de "consumidor final").
+    if (tipo === 'Crédito') {
+      const nitLimpio = (cliente.nit || '').replace(/[^0-9]/g, '');
+      const esConsumidorFinal = cliente.id === 130500
+        || cliente.id === 0
+        || !cliente.esCliente
+        || nitLimpio === ''
+        || nitLimpio === '0'
+        || nitLimpio === '222222222222';
+      if (esConsumidorFinal) {
+        if (tipoDocumento === 'electronica' || tipoDocumento === 'soporte') {
+          setError('No se puede emitir Factura Electrónica a Crédito con Consumidor Final. La DIAN exige un cliente identificado con datos fiscales completos. Cambie a Contado o seleccione un cliente real.');
+        } else {
+          setError('El cliente genérico "VENTAS AL CONTADO" no puede usarse en ventas a crédito. Seleccione un cliente real para que la deuda aparezca en Cuentas por Cobrar.');
+        }
+        return;
+      }
     }
     // FE / Doc. Soporte: sin modal de pago con abono (FAU12). Solo confirmación.
     // El medio DIAN ya se eligió arriba en la barra; contado o crédito se define

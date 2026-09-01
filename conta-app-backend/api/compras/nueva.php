@@ -511,6 +511,15 @@ try {
             }
         }
 
+        // Traer el pedido original para saber si venía con egreso vinculado
+        // (compra contado que ya había generado su comprobante).
+        $stmtOrigPed = $db->prepare("SELECT TipoPedido, Total, FacturaCompra_N, CodigoPro FROM tblpedidos WHERE Pedido_N = ?");
+        $stmtOrigPed->execute([$pedidoN]);
+        $pedOrig = $stmtOrigPed->fetch();
+        $facturaOrig = $pedOrig['FacturaCompra_N'] ?? '';
+        $codigoProOrig = intval($pedOrig['CodigoPro'] ?? 0);
+        $tipoOrig = $pedOrig['TipoPedido'] ?? '';
+
         // Update header
         $db->prepare("
             UPDATE tblpedidos SET FacturaCompra_N = ?, Fecha = ?, N_Mes = ?, anio = ?,
@@ -524,12 +533,103 @@ try {
             $pedidoN
         ]);
 
+        // ==========================================================
+        // SINCRONIZAR EGRESO al editar compra Contado
+        // ==========================================================
+        // Bug reportado: al editar una compra contado (pagada con Bancos u
+        // otro medio) y guardar cambios, el sistema podía dejar el egreso
+        // viejo con el valor original o (en versiones anteriores) generar
+        // un segundo egreso a Caja. Ahora:
+        //  - Buscamos el egreso vinculado por FactN+CodigoPro (usando los
+        //    datos ORIGINALES del pedido, porque el usuario pudo haber
+        //    cambiado la factura al editar).
+        //  - Si existe → ACTUALIZAR su Valor y Concepto/FactN con los
+        //    datos nuevos, preservando el id_mediopago original (no forzar
+        //    a Caja/Efectivo).
+        //  - Si NO existe (era crédito y ahora contado, o el pedido original
+        //    nunca generó egreso) → NO se crea automáticamente. El usuario
+        //    debe registrar el pago desde el módulo "Pagos a Proveedores"
+        //    para evitar egresos duplicados o mal clasificados.
+        // ==========================================================
+        $egresoSincronizado = null;
+        if ($tipoPedido === 'Contado' || $tipoOrig === 'Contado') {
+            $stmtEg = $db->prepare("
+                SELECT N_Comprobante, id_mediopago FROM tblegresos
+                WHERE FactN = ? AND CodigoPro = ? AND COALESCE(Estado, 'Valida') <> 'Anulada'
+                ORDER BY N_Comprobante DESC LIMIT 1
+            ");
+            $stmtEg->execute([strval($facturaOrig), $codigoProOrig]);
+            $egresoExistente = $stmtEg->fetch();
+
+            if ($egresoExistente) {
+                // Actualizar egreso existente — preserva el id_mediopago
+                // (si el pago original fue por Bancos, así queda; no lo
+                // cambiamos a Caja al editar).
+                $nCompEgr = intval($egresoExistente['N_Comprobante']);
+                $mpOriginal = intval($egresoExistente['id_mediopago']);
+                $conceptoNuevo = "Pago compra #$pedidoN - Factura proveedor: $facturaCompra";
+
+                $db->prepare("
+                    UPDATE tblegresos
+                       SET FactN = ?, NFacturaAnt = ?, Valor = ?, ValorFact = ?,
+                           Concepto = ?, Cedula = (SELECT Nit FROM tblproveedores WHERE CodigoPro = ?),
+                           Orden = (SELECT RazonSocial FROM tblproveedores WHERE CodigoPro = ?)
+                     WHERE N_Comprobante = ?
+                ")->execute([
+                    strval($facturaCompra), strval($facturaCompra),
+                    $totalCompra, $totalCompra,
+                    $conceptoNuevo, $codigoPro, $codigoPro,
+                    $nCompEgr
+                ]);
+
+                // Si el egreso original salía de caja física (id_mediopago=0),
+                // ajustar el saldo de la caja por la diferencia entre el
+                // valor viejo y el nuevo. Sin esto la caja queda descuadrada.
+                if ($mpOriginal === 0) {
+                    $totalViejo = floatval($pedOrig['Total'] ?? 0);
+                    $diferencia = $totalCompra - $totalViejo;
+                    if (abs($diferencia) > 0.01) {
+                        // Buscar Id_Caja del movimiento original (por concepto histórico).
+                        $stmtMv = $db->prepare("
+                            SELECT Id_Caja_Origen, Id_Sesion FROM tblmov_caja
+                             WHERE Tipo = 'compra' AND Descripcion LIKE ?
+                             ORDER BY Id_Movimiento DESC LIMIT 1
+                        ");
+                        $stmtMv->execute(["Pago compra #$pedidoN%"]);
+                        $mvOrig = $stmtMv->fetch();
+                        if ($mvOrig) {
+                            $idCajaOrig = intval($mvOrig['Id_Caja_Origen']);
+                            $sesionOrig = $mvOrig['Id_Sesion'] ? intval($mvOrig['Id_Sesion']) : null;
+                            // Registrar movimiento de ajuste por la diferencia
+                            $signo = $diferencia > 0 ? 'compra' : 'compra_ajuste';
+                            $db->prepare("
+                                INSERT INTO tblmov_caja (Id_Sesion, Id_Caja_Origen, Id_Usuario, Valor, Tipo, Descripcion)
+                                VALUES (?, ?, ?, ?, ?, ?)
+                            ")->execute([$sesionOrig, $idCajaOrig, $idUsuario ?: 0, abs($diferencia), $signo,
+                                "Ajuste edición compra #$pedidoN Fac. $facturaCompra"]);
+                            // El saldo se decrementa si diferencia positiva (costó más), aumenta si negativa
+                            $db->prepare("UPDATE tblcajas SET Saldo = Saldo - ? WHERE Id_Caja = ?")
+                               ->execute([$diferencia, $idCajaOrig]);
+                        }
+                    }
+                }
+                $egresoSincronizado = $nCompEgr;
+            }
+            // Si NO había egreso previo (ej. era crédito y ahora contado):
+            // se NO crea automáticamente. El usuario debe ir a Pagos a
+            // Proveedores. Esto evita el bug del "segundo egreso mal
+            // clasificado a Caja" reportado por el cliente.
+        }
+
         $db->commit();
+        $msg = "Compra #$pedidoN actualizada exitosamente";
+        if ($egresoSincronizado) $msg .= " · Egreso #$egresoSincronizado sincronizado";
         echo json_encode([
             'success' => true,
-            'message' => "Compra #$pedidoN actualizada exitosamente",
+            'message' => $msg,
             'Pedido_N' => $pedidoN,
-            'Total' => $totalCompra
+            'Total' => $totalCompra,
+            'egreso_sincronizado' => $egresoSincronizado
         ], JSON_UNESCAPED_UNICODE);
 
     } else {
