@@ -969,6 +969,39 @@ PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 -- 2c. Recrear vw_facturas_elec_cliente_saldos (módulo FE — electronic_documents)
 -- Solo se crea si existe la tabla electronic_documents (FE habilitada).
+-- PRERREQUISITO: la columna tblpagos.Nfact_electronica debe existir (la vista
+-- la lee para agrupar pagos por documento electrónico). Se agrega aquí antes
+-- de crear la vista para BDs que no la tienen (Mercaya, y en general cualquier
+-- BD que se saltó una migración anterior). Idempotente.
+SET @col_nfe = (SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tblpagos' AND COLUMN_NAME = 'Nfact_electronica');
+SET @sql = IF(@col_nfe = 0,
+  "ALTER TABLE tblpagos ADD COLUMN Nfact_electronica VARCHAR(50) NULL DEFAULT '' AFTER NFactAnt",
+  'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- PRERREQUISITO 2: columnas de electronic_documents que se agregaron después
+-- del CREATE original (BDs que ya tenían la tabla y no las recibieron por el
+-- CREATE TABLE IF NOT EXISTS). La vista vw_facturas_elec_cliente_saldos las
+-- referencia (EstadoFact al menos). Idempotente.
+SET @t_ed = (SELECT COUNT(*) FROM information_schema.TABLES
+          WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'electronic_documents');
+SET @col_ef = IF(@t_ed = 1,
+  (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'electronic_documents' AND COLUMN_NAME = 'EstadoFact'), 1);
+SET @sql = IF(@col_ef = 0,
+  "ALTER TABLE electronic_documents ADD COLUMN EstadoFact INT(1) NOT NULL DEFAULT 1",
+  'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @col_es = IF(@t_ed = 1,
+  (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'electronic_documents' AND COLUMN_NAME = 'email_sent'), 1);
+SET @sql = IF(@col_es = 0,
+  "ALTER TABLE electronic_documents ADD COLUMN email_sent TINYINT(1) DEFAULT 0, ADD COLUMN email_sent_at DATETIME NULL, ADD COLUMN email_recipient VARCHAR(500) NULL",
+  'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
 SET @t = (SELECT COUNT(*) FROM information_schema.TABLES
           WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'electronic_documents');
 
@@ -1805,6 +1838,52 @@ CREATE TABLE IF NOT EXISTS tbl_detalle_orden_compra (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ================================================================
+-- v5.8 — Conversión de empaques (factor_conversion en tblarticulos)
+-- Para farmacias/abarrotes: UN solo producto con un factor que define
+-- cuántas unidades base contiene un empaque. Ej: "Acetaminofén" con
+-- factor 100 → 1 caja = 100 pastillas. Al vender/comprar el operador
+-- elige "Caja" o "Unidad" y el sistema hace la conversión.
+-- El campo Unidades INT ya existe (INT DEFAULT 1) — se reutiliza como
+-- factor_conversion. nombre_empaque es nuevo — nombre visible del empaque.
+-- ================================================================
+SET @has_col_np := (SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tblarticulos' AND COLUMN_NAME = 'nombre_empaque');
+SET @sql := IF(@has_col_np = 0,
+  'ALTER TABLE tblarticulos ADD COLUMN nombre_empaque VARCHAR(30) NULL DEFAULT NULL COMMENT ''Ej: Caja x100, Blister x10'' AFTER Unidades',
+  'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- Backfill: Unidades NULL o 0 → 1 (sin conversión, comportamiento actual)
+UPDATE tblarticulos SET Unidades = 1 WHERE Unidades IS NULL OR Unidades = 0;
+
+-- ================================================================
+-- v5.9 — Entradas y Salidas Directas de Inventario
+-- Movimientos sin pasar por Compras/Ventas: regalos, muestras,
+-- devoluciones, mermas, traslados, correcciones. Deja rastro en
+-- tblkardex y en esta tabla propia para auditoría.
+-- ================================================================
+CREATE TABLE IF NOT EXISTS tbl_movs_directos (
+    id_mov          INT AUTO_INCREMENT PRIMARY KEY,
+    numero_mov      VARCHAR(20) UNIQUE COMMENT 'MD-000001 correlativo',
+    tipo            ENUM('entrada','salida') NOT NULL,
+    motivo          VARCHAR(50) NOT NULL COMMENT 'ajuste_positivo, regalo_proveedor, devolucion_cliente, traslado, produccion, reingreso, otro | vencido, danado, robo, autoconsumo, regalo_cliente, traslado_salida, correccion, otro',
+    fecha           DATE NOT NULL,
+    Items           INT NOT NULL COMMENT 'FK tblarticulos.Items',
+    Cantidad        DECIMAL(14,4) NOT NULL,
+    Costo_Unitario  DECIMAL(19,4) DEFAULT 0 COMMENT 'CON IVA; 0 = usa costo actual del artículo',
+    Costo_Total     DECIMAL(19,4) DEFAULT 0 COMMENT 'Cantidad × Costo_Unitario efectivo',
+    Concepto        VARCHAR(500) NULL COMMENT 'Texto libre visible en kardex',
+    Id_Usuario      INT NULL,
+    Estado          ENUM('Valida','Anulada') NOT NULL DEFAULT 'Valida',
+    FechaCreacion   DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FechaMod        DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_tipo (tipo),
+    INDEX idx_fecha (fecha),
+    INDEX idx_items (Items),
+    INDEX idx_estado (Estado)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ================================================================
 -- VERIFICACIÓN FINAL
 -- ================================================================
 SELECT '✓ Actualización completa Conta FT aplicada' AS resultado;
@@ -1819,3 +1898,16 @@ SELECT
         WHERE TABLE_SCHEMA = DATABASE()
         AND TABLE_NAME IN ('vw_diagnostico_inventario_30d','vw_auditoria_inventario_90d','vw_productos_stock_bajo','vw_lotes_por_vencer'))
     AS vistas_creadas;
+
+-- ============================================================
+-- NIT empresa: normalizar (solo digitos base, sin puntos, sin guion, sin DV)
+-- ============================================================
+-- Bug historico: algunos clientes guardaron el NIT con puntos y guion
+-- (ej "10.951.081-3"). Al enviar a DIAN o imprimir en PDF, el sistema
+-- concatenaba el DV nuevamente, generando NIT+DV mal (109510813-5).
+-- Este snippet deja solo los digitos base del numero. El DV se calcula
+-- en cada uso (PDF, envio DIAN).
+UPDATE tbldatosempresa
+   SET Nit = REGEXP_REPLACE(SUBSTRING_INDEX(Nit, '-', 1), '[^0-9]', '')
+ WHERE Id_Empresa = 1
+   AND Nit REGEXP '[^0-9]';

@@ -6,6 +6,37 @@ import { getConfigImpresion, saveConfigImpresion, saveEmpresaCache } from './Con
 const API = 'http://localhost:80/conta-app-backend/api/empresa/datos.php';
 const API_LOGO = 'http://localhost:80/conta-app-backend/api/empresa/logo.php';
 
+// Devuelve solo el numero base del NIT (sin puntos, sin guion, sin DV).
+// Tolera formatos heredados: "10.951.081-3", "10951081-3", "10951081".
+const nitBase = (nit: any): string => {
+  if (!nit) return '';
+  const s = String(nit);
+  const parte = s.includes('-') ? s.split('-')[0] : s;
+  return parte.replace(/[^0-9]/g, '');
+};
+
+// Formatea con puntos de miles: 10951081 → "10.951.081"
+const formatearNit = (base: string): string => {
+  if (!base) return '';
+  const n = parseInt(base, 10);
+  if (isNaN(n)) return base;
+  return n.toLocaleString('es-CO');
+};
+
+// Digito de verificacion oficial DIAN (mod 11).
+const calcularDV = (nit: string): string => {
+  const clean = nitBase(nit);
+  if (!clean) return '';
+  const factores = [3, 7, 13, 17, 19, 23, 29, 37, 41, 43, 47, 53, 59, 67, 71, 73, 79, 83, 89, 97];
+  let suma = 0;
+  const rev = clean.split('').reverse();
+  for (let i = 0; i < rev.length && i < factores.length; i++) {
+    suma += parseInt(rev[i], 10) * factores[i];
+  }
+  const res = suma % 11;
+  return res > 1 ? String(11 - res) : String(res);
+};
+
 export function DatosEmpresa() {
   const [form, setForm] = useState<any>({});
   const [loading, setLoading] = useState(true);
@@ -49,10 +80,13 @@ export function DatosEmpresa() {
   const guardar = async () => {
     setGuardando(true);
     try {
+      // Normalizamos el NIT: en BD guardamos solo el numero base (sin puntos,
+      // sin guion, sin DV). El PDF y el envio a DIAN reconstruyen el DV.
+      const payload = { ...form, Nit: nitBase(form.Nit ?? '') };
       // 1) Datos generales
       const r = await fetch(API, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form)
+        body: JSON.stringify(payload)
       });
       const d = await r.json();
       if (!d.success) { toast.error(d.message); setGuardando(false); return; }
@@ -153,7 +187,32 @@ export function DatosEmpresa() {
             </div>
             <div style={{ display: 'flex', gap: 10, marginBottom: 10 }}>
               {campo('Propietario(a)', 'Propietario')}
-              {campo('NIT con DV', 'Nit', { width: '180px' })}
+              <div style={{ width: '220px', flexShrink: 0 }}>
+                <label style={lbl}>NIT (sin DV)</label>
+                <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                  <input
+                    type="text"
+                    value={formatearNit(nitBase(form.Nit ?? ''))}
+                    onChange={e => {
+                      const soloDig = e.target.value.replace(/[^0-9]/g, '');
+                      set('Nit', soloDig);
+                    }}
+                    placeholder="10.951.081"
+                    style={{ ...inp, flex: 1 }}
+                  />
+                  <span style={{ fontSize: 14, color: '#9ca3af', fontWeight: 700 }}>-</span>
+                  <input
+                    type="text"
+                    value={calcularDV(form.Nit ?? '')}
+                    readOnly
+                    title="Dígito de verificación calculado automáticamente"
+                    style={{ ...inp, width: 38, background: '#f3e8ff', textAlign: 'center', fontWeight: 700, color: '#7c3aed' }}
+                  />
+                </div>
+                <div style={{ fontSize: 9, color: '#6b7280', marginTop: 2 }}>
+                  Solo el número. El DV se calcula automáticamente.
+                </div>
+              </div>
             </div>
             <div style={{ display: 'flex', gap: 10, marginBottom: 10 }}>
               {campo('Dirección', 'Direccion')}

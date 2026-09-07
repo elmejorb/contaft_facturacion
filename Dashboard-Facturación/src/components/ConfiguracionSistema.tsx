@@ -130,6 +130,14 @@ export function getConfigImpresion(): ConfigImpresion {
   return defaultConfig;
 }
 
+// Helpers derivados de tipo de negocio — evitan toggles redundantes.
+// Farmacia y droguerías tienen conversión de empaques (Caja x100 → 100
+// pastillas) automáticamente. Otros negocios no la necesitan.
+export function esFarmacia(): boolean {
+  const t = (getConfigImpresion().tipoNegocio || '').toLowerCase();
+  return t.includes('farmacia') || t.includes('droguer');
+}
+
 export function saveConfigImpresion(config: ConfigImpresion) {
   localStorage.setItem(CONFIG_KEY, JSON.stringify(config));
 }
@@ -317,9 +325,14 @@ export function ConfiguracionSistema() {
 
   // Sync CRM → local: si la suscripción trae FE activa y el config local
   // aún la tiene apagada, forzamos ON. El CRM es la fuente de verdad.
+  // IMPORTANTE: persistimos al localStorage tambien (setConfig solo actualiza
+  // el state de React; sin saveConfigImpresion, otras pantallas como
+  // NuevaVenta.tsx que leen getConfigImpresion() no ven el cambio).
   useEffect(() => {
     if (feActivaCRM && !config.usarFacturacionElectronica) {
-      setConfig(c => ({ ...c, usarFacturacionElectronica: true } as ConfigImpresion));
+      const next = { ...config, usarFacturacionElectronica: true } as ConfigImpresion;
+      setConfig(next);
+      saveConfigImpresion(next);
     }
   }, [feActivaCRM]);
 

@@ -45,11 +45,13 @@ try {
     $query = "INSERT INTO tblarticulos (
         Items, Codigo, Nombres_Articulo, Id_Categoria, Existencia, Existencia_minima,
         Precio_Costo, Precio_Venta, Precio_Venta2, Precio_Venta3, Precio_Minimo,
-        Iva, CodigoPro, Estante, Estado, requiere_lote, Servicio, Id_Etiqueta, FechaMod
+        Iva, CodigoPro, Estante, Estado, requiere_lote, Servicio, Id_Etiqueta,
+        Unidades, nombre_empaque, FechaMod
     ) VALUES (
         :items, :codigo, :nombre, :categoria, :existencia, :existenciaMinima,
         :costo, :precio1, :precio2, :precio3, :precioMinimo,
-        :iva, :proveedor, :estante, :estado, :requiereLote, :servicio, :etiqueta, NOW()
+        :iva, :proveedor, :estante, :estado, :requiereLote, :servicio, :etiqueta,
+        :unidades, :nombreEmpaque, NOW()
     )";
 
     $stmt = $db->prepare($query);
@@ -72,6 +74,8 @@ try {
         ':requiereLote' => !empty($input['requiere_lote']) ? 1 : 0,
         ':servicio' => !empty($input['Servicio']) ? 1 : 0,
         ':etiqueta' => !empty($input['Id_Etiqueta']) ? intval($input['Id_Etiqueta']) : null,
+        ':unidades' => max(1, intval($input['Unidades'] ?? 1)),
+        ':nombreEmpaque' => trim($input['nombre_empaque'] ?? '') ?: null,
     ]);
 
     // Si hay existencia inicial y existe la tabla kardex, registrar la carga inicial.

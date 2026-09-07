@@ -21,8 +21,19 @@ if (file_exists($tcpdfPath)) {
 
 require_once '../config/database.php';
 
+// Devuelve solo el numero base del NIT (sin puntos, sin guion, sin DV).
+// Tolera cualquier formato heredado: "10.951.081-3", "10951081-3", "10951081".
+function nitBase($nit) {
+    if ($nit === null || $nit === '') return '';
+    // Si trae guion, el DV va despues -> nos quedamos con la parte de la izquierda.
+    if (strpos($nit, '-') !== false) {
+        $nit = explode('-', $nit)[0];
+    }
+    return preg_replace('/[^0-9]/', '', $nit);
+}
+
 function calcularDV($nit) {
-    $nit = preg_replace('/[^0-9]/', '', $nit);
+    $nit = nitBase($nit);
     if (!$nit) return '0';
     $factor = [3, 7, 13, 17, 19, 23, 29, 37, 41, 43, 47, 53, 59, 67, 71, 73, 79, 83, 89, 97];
     $suma = 0;
@@ -125,8 +136,8 @@ try {
     $descuento = floatval($doc['descuento']);
     $total = $subtotal + $totalIva - $descuento;
 
-    $dv = calcularDV(preg_replace('/[^0-9]/', '', $empresa['Nit']));
-    $dvCliente = calcularDV(preg_replace('/[^0-9]/', '', $cliente['Nit'] ?? $doc['customer_identification']));
+    $dv = calcularDV($empresa['Nit']);
+    $dvCliente = calcularDV($cliente['Nit'] ?? $doc['customer_identification']);
 
     $prefijo = $doc['prefix'] ?? $resolucion['prefix'] ?? 'FCON';
     $numFact = $doc['number'];
@@ -207,7 +218,11 @@ try {
     $pdf->MultiCell(95, 5, $empresa['Empresa'], 0, 'C');
     $pdf->SetFont('helvetica', '', 9);
     $pdf->SetX(55);
-    $pdf->MultiCell(95, 4, $empresa['Propietario'] !== '-' ? strtoupper($empresa['Propietario']) . "\n" : '' . "NIT " . $empresa['Nit'] . "-$dv", 0, 'C');
+    $nitEmpClean = nitBase($empresa['Nit']);
+    $nitEmpFmt = $nitEmpClean !== '' ? number_format(intval($nitEmpClean), 0, ',', '.') : '';
+    $lineaEmp = ($empresa['Propietario'] !== '-' ? strtoupper($empresa['Propietario']) . "\n" : '')
+              . "NIT " . $nitEmpFmt . "-" . $dv;
+    $pdf->MultiCell(95, 4, $lineaEmp, 0, 'C');
     $pdf->SetX(55);
     $pdf->MultiCell(95, 4, $empresa['Direccion'], 0, 'C');
     $pdf->SetX(55);
@@ -228,7 +243,9 @@ try {
 
     // Cliente
     $clienteNombre = $cliente['Razon_Social'] ?? '-';
-    $clienteNit = $cliente['Nit'] ?? $doc['customer_identification'] ?? '-';
+    $clienteNitRaw = $cliente['Nit'] ?? $doc['customer_identification'] ?? '-';
+    $clienteNitBase = nitBase($clienteNitRaw);
+    $clienteNit = $clienteNitBase !== '' ? number_format(intval($clienteNitBase), 0, ',', '.') : $clienteNitRaw;
     $clienteDir = $cliente['Direccion'] ?? '-';
     $clienteTel = $cliente['Telefonos'] ?? '-';
     $tipoIdent = $cliente['type_doc_name'] ?? 'CC';

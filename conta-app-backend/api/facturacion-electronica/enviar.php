@@ -135,9 +135,11 @@ function buildInvoiceJSON($db, $factura, $items, $companyId, $customerEmailOverr
     $stmt->execute([$factura['CodigoCli']]);
     $cliente = $stmt->fetch();
 
-    // Calculate DV
-    $nit = $cliente['Nit'] ?? $factura['Identificacion'] ?? '0';
-    $dv = calculateDV($nit);
+    // Calculate DV. Normalizamos el NIT (sin puntos, sin guion, sin DV) para
+    // que a DIAN NUNCA le llegue el guion o el DV pegado como parte del numero.
+    $nitRaw = $cliente['Nit'] ?? $factura['Identificacion'] ?? '0';
+    $nit = nitBase($nitRaw) ?: '0';
+    $dv = calculateDV($nitRaw);
 
     // Email del comprador — prioridad: (1) override que viene en el body del
     // POST (comprador ocasional traído de DIAN, no está en tblclientes),
@@ -371,9 +373,19 @@ function calcularTotalDocFE($db, $factura, $items) {
     return round($totalBase + $totalIva - $descGlobal, 2);
 }
 
+// Devuelve solo el numero base del NIT (sin puntos, sin guion, sin DV).
+// Tolera cualquier formato heredado: "10.951.081-3", "10951081-3", "10951081".
+function nitBase($nit) {
+    if ($nit === null || $nit === '') return '';
+    if (strpos($nit, '-') !== false) {
+        $nit = explode('-', $nit)[0];
+    }
+    return preg_replace('/[^0-9]/', '', $nit);
+}
+
 // Calculate DV (dígito de verificación)
 function calculateDV($nit) {
-    $nit = preg_replace('/[^0-9]/', '', $nit);
+    $nit = nitBase($nit);
     if (!$nit || $nit === '0') return '0';
     $primes = [3, 7, 13, 17, 19, 23, 29, 37, 41, 43, 47, 53, 59, 67, 71];
     $sum = 0;

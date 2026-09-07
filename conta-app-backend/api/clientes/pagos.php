@@ -189,10 +189,79 @@ try {
 
                 $valorTotal = $valor + $descuento;
 
-                // Detectar si es factura anterior (prefijo "AT-") o normal.
-                // Las anteriores viven en tblfacturasanteriores y usan NFactAnt
-                // en tblpagos (Fact_N queda en 0 porque no existen en tblventas).
+                // Detectar el tipo de factura:
+                //   • "AT-..."          → factura anterior (tblfacturasanteriores)
+                //   • "<PREFIX><num>"   → factura electrónica (electronic_documents),
+                //                          ej. "FCON183", "SETP12", "FE100"
+                //   • numérica          → factura normal (tblventas)
+                //
+                // Las FE se detectan por: string que NO empieza con "AT-" pero
+                // TIENE una parte no numérica al inicio. Vinculan a
+                // electronic_documents.id vía tblpagos.Nfact_electronica.
                 $esAnterior = is_string($factN) && stripos($factN, 'AT-') === 0;
+                $esElectronica = !$esAnterior && is_string($factN)
+                                 && preg_match('/^([A-Za-z]+)(\d+)$/', $factN, $matchesFE);
+
+                if ($esElectronica) {
+                    // === Factura ELECTRÓNICA (electronic_documents) ===
+                    $prefFE = $matchesFE[1];
+                    $numFE  = intval($matchesFE[2]);
+
+                    // Ubicar el documento. cod_cliente asegura que la FE
+                    // pertenece a este cliente (defensa contra pagos cruzados).
+                    $stmtFE = $db->prepare("
+                        SELECT ed.id, ed.total,
+                               COALESCE(s.Saldo, ed.total) AS Saldo
+                        FROM electronic_documents ed
+                        LEFT JOIN vw_facturas_elec_cliente_saldos s ON s.DocID = ed.id
+                        WHERE ed.prefix = :pref AND ed.number = :num
+                          AND ed.cod_cliente = :cli
+                          AND ed.status = 'autorizado'
+                        LIMIT 1
+                    ");
+                    $stmtFE->execute([':pref' => $prefFE, ':num' => $numFE, ':cli' => $clienteId]);
+                    $docFE = $stmtFE->fetch();
+                    if (!$docFE) continue;
+
+                    $saldoActual = floatval($docFE['Saldo']);
+                    $valorFact = floatval($docFE['total']);
+                    if ($saldoActual <= 0.001) continue;
+
+                    if ($valorTotal > $saldoActual) $valorTotal = $saldoActual;
+                    if ($valor > $saldoActual - $descuento) $valor = max($saldoActual - $descuento, 0);
+
+                    $nuevoSaldo = $saldoActual - $valorTotal;
+                    $esPagoFinal = $saldoActual > 0.001 && $nuevoSaldo <= 0.001;
+                    $detalle = ($esPagoFinal ? "Pago Final" : "Abono") . " de factura electrónica Nº {$factN}";
+
+                    // INSERT con Nfact_electronica = ID del documento (la vista
+                    // vw_facturas_elec_cliente_saldos hace CAST a UNSIGNED del
+                    // Nfact_electronica y lo une con electronic_documents.id).
+                    $stmtInsertFE = $db->prepare("
+                        INSERT INTO tblpagos (RecCajaN, Codigo, Fact_N, ValorPago, Fecha, DetallePago,
+                            ValorFact, SaldoAct, Descuento, Retencion, Estado, Afectada, id_mediopago,
+                            NFactAnt, Nfact_electronica, FechaMod, id_usuario)
+                        VALUES (:rec, :codigo, 0, :valor, :fecha, :detalle, :valor_fact, :saldo_act,
+                            :descuento, 0, 'Valida', '1110', :medio, '', :nfe, NOW(), :id_user)
+                    ");
+                    $stmtInsertFE->execute([
+                        ':rec' => $recCaja,
+                        ':codigo' => $clienteId,
+                        ':valor' => $valor,
+                        ':fecha' => $fechaPago,
+                        ':detalle' => $detalle,
+                        ':valor_fact' => $valorFact,
+                        ':saldo_act' => max($nuevoSaldo, 0),
+                        ':descuento' => $descuento,
+                        ':medio' => $medioPago,
+                        ':nfe' => strval($docFE['id']),
+                        ':id_user' => $idUsuario,
+                    ]);
+
+                    $totalPagado += $valor;
+                    $facturasAfectadas++;
+                    continue;
+                }
 
                 if ($esAnterior) {
                     // Buscar la factura anterior por (FacturaN, CodigoCli)

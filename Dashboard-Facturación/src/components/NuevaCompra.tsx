@@ -5,7 +5,7 @@ import toast from 'react-hot-toast';
 import { EditarArticuloModal } from './EditarArticuloModal';
 import { HistorialPreciosModal } from './HistorialPreciosModal';
 import { useAuth } from '../contexts/AuthContext';
-import { getConfigImpresion, getEmpresaCache } from './ConfiguracionSistema';
+import { getConfigImpresion, getEmpresaCache, esFarmacia } from './ConfiguracionSistema';
 
 const API = 'http://localhost:80/conta-app-backend/api/compras/nueva.php';
 const fmtMon = (v: number) => {
@@ -23,13 +23,16 @@ interface LineaCompra {
   CostoConIva: number; FleteUnit: number; CostoFinal: number;
   CostoAnterior: number; CostoPromedio: number;
   PrecioVenta: number; Subtotal: number;
-  // Si true, el usuario editó manualmente FleteUnit (ej. flete por peso).
-  // El recálculo automático de prorrateo respeta este valor y solo distribuye
-  // el flete restante entre las líneas no marcadas.
   FleteManual?: boolean;
   RequiereLote?: number;
   FechaVencimiento?: string;
   NumeroLote?: string;
+  // Conversión de empaques (solo Farmacia). Ver notas en NuevaVenta.
+  // Al comprar por empaque: Cantidad = cajas y CostoSinIva/CostoConIva son
+  // costos por caja. Al enviar al backend cantidad × factor, costo / factor.
+  FactorConversion?: number;
+  NombreEmpaque?: string | null;
+  ComprarComoEmpaque?: boolean;
 }
 
 let lid = Date.now();
@@ -218,6 +221,9 @@ export function NuevaCompra({ pedidoEditar, onClose, initialState, onStateChange
       RequiereLote: (usarLotes && art.requiere_lote) ? 1 : 0,
       FechaVencimiento: '',
       NumeroLote: '',
+      FactorConversion: Math.max(1, Number(art.factor_conversion) || 1),
+      NombreEmpaque: art.nombre_empaque || null,
+      ComprarComoEmpaque: false,
     };
     setLineas(prev => [...prev, nueva]);
     setBuscarProd(''); setShowProdDrop(false);
@@ -594,11 +600,20 @@ export function NuevaCompra({ pedidoEditar, onClose, initialState, onStateChange
         flete, descuento, retencion, opcion_factura: opcionIva,
         id_usuario: user?.id || 0, // para egreso automático en compra contado
         medio_pago: tipo === 'Contado' ? medioPago : 0,
-        items: lineas.map(l => ({
-          id_detalle: l.IdDetalle || 0,
-          items: l.Items, cantidad: l.Cantidad, costo_sin_iva: l.CostoSinIva,
-          iva_pct: l.IvaPct, precio_venta: l.PrecioVenta
-        }))
+        items: lineas.map(l => {
+          // Conversión de empaques: si compra por empaque (ComprarComoEmpaque=true
+          // con FactorConversion>1), la cantidad y el costo unitario en el body
+          // deben ir SIEMPRE en unidad base. La BD nunca ve "cajas".
+          const factor = Math.max(1, l.FactorConversion || 1);
+          const esEmp = !!l.ComprarComoEmpaque && factor > 1;
+          const cantBase = esEmp ? l.Cantidad * factor : l.Cantidad;
+          const costoSinIvaBase = esEmp ? Math.round((l.CostoSinIva / factor) * 100) / 100 : l.CostoSinIva;
+          return {
+            id_detalle: l.IdDetalle || 0,
+            items: l.Items, cantidad: cantBase, costo_sin_iva: costoSinIvaBase,
+            iva_pct: l.IvaPct, precio_venta: l.PrecioVenta
+          };
+        })
       };
       if (modoEdicion && pedidoN > 0) body.pedido_n = pedidoN;
 
@@ -809,8 +824,50 @@ export function NuevaCompra({ pedidoEditar, onClose, initialState, onStateChange
                     </button>
                   </td>
                   <td style={{ padding: '3px 6px', fontWeight: 500, fontSize: 11 }}>
-                    {l.Nombre}
-                    {l.RequiereLote ? <span style={{ marginLeft: 6, padding: '1px 6px', background: '#fef3c7', color: '#92400e', fontSize: 9, borderRadius: 3, fontWeight: 700 }}>PERECEDERO</span> : null}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                      <span>{l.Nombre}</span>
+                      {l.RequiereLote ? <span style={{ padding: '1px 6px', background: '#fef3c7', color: '#92400e', fontSize: 9, borderRadius: 3, fontWeight: 700 }}>PERECEDERO</span> : null}
+                      {esFarmacia() && (l.FactorConversion || 1) > 1 && (
+                        <button
+                          onClick={() => {
+                            const f = l.FactorConversion || 1;
+                            setLineas(prev => prev.map(x => {
+                              if (x.id !== l.id) return x;
+                              const yaEsEmp = !!x.ComprarComoEmpaque;
+                              // De Und→Emp: cantidad/f, costos×f. De Emp→Und: cantidad×f, costos/f.
+                              const nuevaCant = yaEsEmp
+                                ? Math.max(1, Math.round(x.Cantidad * f))
+                                : Math.max(1, Math.round(x.Cantidad / f));
+                              const mul = yaEsEmp ? 1/f : f;
+                              const nuevoSinIva = Math.round(x.CostoSinIva * mul * 100) / 100;
+                              const nuevoIvaVal = nuevoSinIva * (x.IvaPct / 100);
+                              const nuevoConIva = nuevoSinIva + nuevoIvaVal;
+                              return {
+                                ...x,
+                                ComprarComoEmpaque: !yaEsEmp,
+                                Cantidad: nuevaCant,
+                                CostoSinIva: nuevoSinIva,
+                                IvaVal: nuevoIvaVal,
+                                CostoConIva: nuevoConIva,
+                                CostoFinal: nuevoConIva + (x.FleteUnit || 0),
+                                Subtotal: nuevaCant * nuevoConIva,
+                              };
+                            }));
+                          }}
+                          title={l.ComprarComoEmpaque
+                            ? `Comprando por ${l.NombreEmpaque || 'Empaque'} (${l.FactorConversion} unidades c/u). Click para cambiar a Unidad.`
+                            : `Click para comprar por ${l.NombreEmpaque || 'Empaque'} (${l.FactorConversion} unidades c/u).`}
+                          style={{
+                            padding: '1px 8px', fontSize: 10, fontWeight: 700,
+                            background: l.ComprarComoEmpaque ? '#7c3aed' : '#f3e8ff',
+                            color: l.ComprarComoEmpaque ? '#fff' : '#7c3aed',
+                            border: '1px solid #c4b5fd', borderRadius: 10, cursor: 'pointer',
+                            whiteSpace: 'nowrap',
+                          }}>
+                          {l.ComprarComoEmpaque ? `📦 ${l.NombreEmpaque || 'Empaque'}` : `🔹 Und · ×${l.FactorConversion}`}
+                        </button>
+                      )}
+                    </div>
                   </td>
                   <td style={{ padding: '2px 3px', textAlign: 'center' }}>
                     <input type="text" defaultValue={String(l.Cantidad)} onBlur={e => actualizarLinea(l.id, 'Cantidad', parseFloat(e.target.value) || 1)} onFocus={e => e.target.select()} onKeyDown={soloNum}

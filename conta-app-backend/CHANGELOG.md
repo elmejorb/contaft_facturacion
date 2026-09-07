@@ -5,6 +5,70 @@ Visible solo para administradores desde **Configuración → Acerca de → Ver h
 
 ---
 
+## 4.3.95 — 2026-09-07
+
+### Fix crítico — cliente real sin NIT bloqueado en ventas a crédito
+
+- Bug reportado por varios clientes: al vender a crédito a una persona natural real (con `CodigoClien` y cupo, pero sin NIT registrado — se identifica con cédula), el sistema mostraba la alerta *"El cliente genérico VENTAS AL CONTADO no puede usarse en ventas a crédito"* y bloqueaba el guardado.
+- Causa: la validación mezclaba "genérico" con "cualquier cliente sin NIT". La condición marcaba como consumidor final cualquier `nitLimpio === ''` o `'0'`, sin importar que `cliente.id` fuera real.
+- Corrección: ahora se separan dos conceptos:
+  - **Genérico** (id=130500 "VENTAS AL CONTADO" u ocasional sin id): bloqueado siempre en crédito.
+  - **Consumidor Final DIAN** (NIT `222222222222`): bloqueado solo en FE / Doc. Soporte (la DIAN lo rechaza).
+  - **Cliente real sin NIT** (persona natural identificada por cédula): PASA — puede llevar crédito y CxC normalmente.
+
+### Fix — Facturación Electrónica activa en Configuración pero apagada en Ventas
+
+- El indicador *Factura Electrónica* aparecía marcado en Configuración pero no salía en el selector de Nueva Venta. Causaba confusión — el usuario "veía" que la tenía activa pero no podía elegirla.
+- Causa: la sincronización CRM → localStorage solo corría cuando el usuario abría Configuración, y no persistía el estado (solo actualizaba React state). En Ventas se leía el localStorage y devolvía apagado.
+- Corrección: la sincronización ahora corre al arrancar la app (`Dashboard.tsx`) apenas termina de cargar entitlements, y persiste el resultado en localStorage. Ventas ve el estado correcto al primer intento.
+
+### Fix — Pagos a Facturas Electrónicas no se guardaban
+
+- Reportado en cliente MercaYa: al abonar una FE desde la ficha del cliente, el sistema decía *"Pago registrado"* pero no quedaba en `tblpagos` y la FE seguía en cartera.
+- Causa: `pagos.php` no tenía rama para reconocer identificadores tipo `FCON189` (prefijo+número de FE); solo procesaba números tipo `Factura_N` de tblventas. Los pagos a FE se descartaban silenciosamente.
+- Corrección: nueva detección `esElectronica` que separa prefijo y número, busca la FE en `electronic_documents` y guarda el pago con `Nfact_electronica = doc.id`. Además:
+  - Vista `vw_facturas_elec_cliente_saldos` para que el detalle del cliente sume correctamente los abonos.
+  - Script `MERCAYA_backfill_pagos_FE.sql` para reasignar pagos históricos huérfanos.
+
+### Fix — NIT con guion doble en PDF de factura electrónica
+
+- El PDF mostraba `NIT 10.951.081-3-3` cuando el NIT en Datos de Empresa se había guardado como `10.951.081-3`. Adicionalmente, si el propietario no era `-`, el NIT desaparecía del PDF por un ternario mal escrito.
+- Corrección: nueva función `nitBase()` que normaliza el NIT (quita puntos y guion, extrae solo el número base). El PDF muestra el NIT reformateado con puntos + DV calculado una sola vez. También `enviar.php` a DIAN envía `identification_number` limpio.
+- **Datos Empresa** ahora tiene input inteligente: solo dígitos, muestra los puntos automáticamente, y el DV calculado al lado en color púrpura (readonly).
+
+### Módulo nuevo — Entradas y Salidas Directas de Inventario
+
+- Nuevo módulo para registrar movimientos de inventario sin pasar por Compras/Ventas.
+- **Entradas**: 7 motivos (Ajuste positivo, Devolución cliente, Producción propia, Traslado entrada, etc.).
+- **Salidas**: 8 motivos (Ajuste negativo, Consumo interno, Muestra gratis, Merma/vencimiento, Rotura, Traslado salida, etc.).
+- Se registra en kardex con costo unitario, motivo y observación. Anulable con contra-asiento (nunca borra filas — sigue la regla de kardex inmutable).
+
+### Módulo nuevo — Conversión de empaques (gated: solo Farmacia)
+
+- Para farmacias, tiendas naturistas y similares que venden un mismo producto en distintas presentaciones (caja x 10, unidad suelta).
+- Campos nuevos en artículo: `FactorConversion`, `NombreEmpaque`, `VenderComoEmpaque`, `ComprarComoEmpaque`.
+- Nueva Venta y Nueva Compra: botón toggle **🔹Und / 📦Empaque** al agregar producto. Convierte automáticamente cantidad y precio al empaque seleccionado.
+- Solo aparece si `Configuración → Tipo de Negocio` contiene "farmacia" o "droguería".
+
+### Módulo nuevo — Informe Ventas por Producto
+
+- Nuevo informe con buscador de producto + rango de fechas.
+- Tabla con todas las ventas del producto: fecha, factura, cliente, cantidad, precio, subtotal.
+- Totalizadores: cantidad total, subtotal, promedio de precio.
+- Ubicado en **Informes → Ventas → Ventas por Producto**.
+
+### Fix — Etiquetas de comportamiento de cliente (Puntual/Regular/Moroso/Crítico)
+
+- Reportado por usuaria de Distrisalsas: clientes con facturas al día aparecían como "En mora".
+- Umbrales ajustados a valores más realistas: Puntual ≤7d (era 3), Regular ≤30d (era 15), Moroso ≤75d (era 60), Crítico >75d. Factura vencida >90d fuerza Crítico (era >60d).
+
+### Fix — Egreso al editar compra + integración factura recibida
+
+- Al editar una compra pagada, el egreso ligado ahora se ajusta automáticamente (antes quedaba con el valor viejo, generando descuadre de caja).
+- Vinculación bidireccional egreso ↔ compra: si se modifica una, la otra se actualiza.
+
+---
+
 ## 4.3.87 — 2026-08-12
 
 ### Hotfix — "Corregir base" tumbaba la app

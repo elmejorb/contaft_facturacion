@@ -4,7 +4,7 @@ import { HistorialPreciosVentaModal } from './HistorialPreciosVentaModal';
 import { KardexArticuloModal } from './KardexArticuloModal';
 import { EditarArticuloModal } from './EditarArticuloModal';
 import toast from 'react-hot-toast';
-import { getConfigImpresion, getEmpresaCache, saveEmpresaCache } from './ConfiguracionSistema';
+import { getConfigImpresion, getEmpresaCache, saveEmpresaCache, esFarmacia } from './ConfiguracionSistema';
 import { imprimirFactura, buildDatosFactura } from './ImpresionFactura';
 import { useAuth } from '../contexts/AuthContext';
 import { AutorizacionAdminModal, type AdminAutorizado } from './AutorizacionAdminModal';
@@ -246,12 +246,19 @@ interface LineaVenta {
   Iva: number;
   Descuento: number;
   Subtotal: number;
-  // Si el producto es servicio (tblarticulos.Servicio=1): se permite editar
-  // el concepto (descripción) por venta, no se descuenta inventario y NO se
+  // Servicio: se permite editar el concepto, no descuenta inventario, no
   // valida existencia. La descripción editada se guarda en
   // tbldetalle_venta.DescripcionTemp y se muestra en el PDF en vez del nombre.
   EsServicio?: boolean;
   DescripcionTemp?: string;
+  // Conversión de empaques (solo Farmacia). FactorConversion > 1 significa
+  // que el artículo se compra/vende también por empaque (Ej. Caja x100).
+  // VenderComoEmpaque=true: Cantidad y PrecioVenta están en empaques → al
+  // enviar al backend se multiplican por FactorConversion para que la BD
+  // siempre vea unidad base.
+  FactorConversion?: number;
+  NombreEmpaque?: string | null;
+  VenderComoEmpaque?: boolean;
 }
 
 export interface TabState {
@@ -536,6 +543,9 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
         PrecioVenta: precio, Iva: art.Iva || 0, Descuento: 0, Subtotal: cantInicial * precio,
         EsServicio: esServicio,
         DescripcionTemp: esServicio ? art.Nombres_Articulo : undefined,
+        FactorConversion: Math.max(1, Number(art.factor_conversion) || 1),
+        NombreEmpaque: art.nombre_empaque || null,
+        VenderComoEmpaque: false,
       };
       setLineas(prev => [...prev, nueva]);
     }
@@ -975,12 +985,19 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
             id: cliente.id, nombre: cliente.nombre, nit: cliente.nit,
             tel: cliente.tel, dir: cliente.dir, email: cliente.email || '',
           },
-          items: lineas.map(l => ({
-            items: l.Items, cantidad: l.Cantidad, precio: l.PrecioVenta,
-            precio_costo: l.PrecioCosto, iva: l.Iva, descuento: l.Descuento,
-            es_servicio: l.EsServicio ? 1 : 0,
-            descripcion_temp: l.EsServicio ? (l.DescripcionTemp || l.Nombre) : null,
-          })),
+          items: lineas.map(l => {
+            // Conversión de empaques (ver comentario en el flow de guardar venta).
+            const factor = Math.max(1, l.FactorConversion || 1);
+            const esEmp = !!l.VenderComoEmpaque && factor > 1;
+            const cantBase = esEmp ? l.Cantidad * factor : l.Cantidad;
+            const precioBase = esEmp ? Math.round(l.PrecioVenta / factor) : l.PrecioVenta;
+            return {
+              items: l.Items, cantidad: cantBase, precio: precioBase,
+              precio_costo: l.PrecioCosto, iva: l.Iva, descuento: l.Descuento,
+              es_servicio: l.EsServicio ? 1 : 0,
+              descripcion_temp: l.EsServicio ? (l.DescripcionTemp || l.Nombre) : null,
+            };
+          }),
           tipo, dias: tipo === 'Contado' ? 0 : dias,
           // Medio de pago: si hay transferencia se usa el medio elegido, sino efectivo
           medio_pago: parseInt(pagoTransferencia || '0') > 0 ? pagoMedioTransf : 0,
@@ -1019,26 +1036,27 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
       await onCotizar?.();
       return;
     }
-    // Crédito con consumidor final — bloqueado. La DIAN rechaza FE a crédito
-    // sin cliente identificado (art. 616-1 ET / Res. 165/2023): el emisor debe
-    // conocer al deudor. Y aunque no fuera FE, el genérico no permite llevar
-    // Cuentas por Cobrar (no hay a quién cobrarle).
-    // Consumidor final = genérico local (130500), ocasional (id=0), o NIT
-    // vacío/0/222222222222 (código DIAN de "consumidor final").
+    // Credito con consumidor final — hay dos escenarios distintos:
+    //   1. Cliente GENERICO (130500 "VENTAS AL CONTADO" o ocasional sin id):
+    //      SIEMPRE bloqueado en credito, sea Factura POS, FE o Doc. Soporte.
+    //      Motivo: no hay a quien cobrarle — la deuda no cuadra en CxC.
+    //   2. Cliente identificado como CONSUMIDOR FINAL DIAN (NIT 222222222222):
+    //      Solo bloqueado en FE / Doc. Soporte (DIAN rechaza FE a credito sin
+    //      cliente identificado, art. 616-1 ET / Res. 165/2023).
+    //
+    // OJO: un cliente real (persona natural sin NIT, identificado por cedula)
+    // NO es "consumidor final" — puede llevar credito y CxC sin problema.
     if (tipo === 'Crédito') {
       const nitLimpio = (cliente.nit || '').replace(/[^0-9]/g, '');
-      const esConsumidorFinal = cliente.id === 130500
-        || cliente.id === 0
-        || !cliente.esCliente
-        || nitLimpio === ''
-        || nitLimpio === '0'
-        || nitLimpio === '222222222222';
-      if (esConsumidorFinal) {
-        if (tipoDocumento === 'electronica' || tipoDocumento === 'soporte') {
-          setError('No se puede emitir Factura Electrónica a Crédito con Consumidor Final. La DIAN exige un cliente identificado con datos fiscales completos. Cambie a Contado o seleccione un cliente real.');
-        } else {
-          setError('El cliente genérico "VENTAS AL CONTADO" no puede usarse en ventas a crédito. Seleccione un cliente real para que la deuda aparezca en Cuentas por Cobrar.');
-        }
+      const esGenerico = cliente.id === 130500 || cliente.id === 0 || !cliente.esCliente;
+      const esConsumidorFinalDIAN = nitLimpio === '222222222222';
+
+      if (esGenerico) {
+        setError('El cliente genérico "VENTAS AL CONTADO" no puede usarse en ventas a crédito. Seleccione un cliente real para que la deuda aparezca en Cuentas por Cobrar.');
+        return;
+      }
+      if (esConsumidorFinalDIAN && (tipoDocumento === 'electronica' || tipoDocumento === 'soporte')) {
+        setError('No se puede emitir Factura Electrónica a Crédito con Consumidor Final (NIT 222222222). La DIAN exige un cliente identificado con datos fiscales completos. Cambie a Contado o seleccione un cliente real.');
         return;
       }
     }
@@ -1293,15 +1311,23 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
         autorizado_por_nombre: authCupoAdmin?.nombre || null,
         efectivo: efectivoFinal, valor_pagado: valorPagadoFinal,
         abono: tipo !== 'Contado' ? pagoAbonoNum : 0,
-        items: lineasFinal.map(l => ({
-          items: l.Items, cantidad: l.Cantidad, precio: l.PrecioVenta,
-          precio_costo: l.PrecioCosto, iva: l.Iva, descuento: l.Descuento,
-          // Si es servicio, mandar la descripción editada (lo que el usuario
-          // tipeó en la celda Nombre). El backend la guarda en
-          // tbldetalle_venta.DescripcionTemp y NO descuenta inventario.
-          es_servicio: l.EsServicio ? 1 : 0,
-          descripcion_temp: l.EsServicio ? (l.DescripcionTemp || l.Nombre) : null,
-        })),
+        items: lineasFinal.map(l => {
+          // Conversión de empaques: si la línea se está vendiendo como Empaque
+          // (VenderComoEmpaque=true con FactorConversion>1), la cantidad y el
+          // precio de la BD SIEMPRE deben ir en unidad base. Multiplicamos la
+          // cantidad por el factor y dividimos el precio unitario por el mismo
+          // factor para preservar el subtotal (Q_emp × P_emp = Q_und × P_und).
+          const factor = Math.max(1, l.FactorConversion || 1);
+          const esEmp = !!l.VenderComoEmpaque && factor > 1;
+          const cantBase = esEmp ? l.Cantidad * factor : l.Cantidad;
+          const precioBase = esEmp ? Math.round(l.PrecioVenta / factor) : l.PrecioVenta;
+          return {
+            items: l.Items, cantidad: cantBase, precio: precioBase,
+            precio_costo: l.PrecioCosto, iva: l.Iva, descuento: l.Descuento,
+            es_servicio: l.EsServicio ? 1 : 0,
+            descripcion_temp: l.EsServicio ? (l.DescripcionTemp || l.Nombre) : null,
+          };
+        }),
         retenciones: retencionesCalc,
       };
       const r = await fetch(API_VENTA, {
@@ -1826,9 +1852,67 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
                         }}
                         title="Editable: este servicio permite cambiar el concepto en cada factura"
                         style={{ width: '100%', height: 26, border: '1px dashed #c4b5fd', borderRadius: 4, fontSize: 12, padding: '0 6px', background: '#faf5ff', outline: 'none', fontWeight: 500 }} />
-                    ) : l.Nombre}
+                    ) : (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span>{l.Nombre}</span>
+                        {esFarmacia() && (l.FactorConversion || 1) > 1 && (
+                          <button
+                            onClick={() => {
+                              // Toggle: al pasar a Empaque, cantidad y precio se multiplican por
+                              // el factor. Al volver a Unidad, se dividen. La existencia siempre
+                              // se muestra en unidad base. Al enviar al backend la cantidad ya
+                              // sale multiplicada (el backend siempre ve unidad base).
+                              const f = l.FactorConversion || 1;
+                              setLineas(prev => prev.map(x => {
+                                if (x.id !== l.id) return x;
+                                const yaEsEmp = !!x.VenderComoEmpaque;
+                                const nuevoModo = !yaEsEmp;
+                                // Cantidad/precio siempre representan lo que está en la línea
+                                // como venta actual. Al cambiar de modo se ajustan para que
+                                // "1 caja" ↔ "N unidades" mantengan el subtotal equivalente.
+                                const nuevaCant = yaEsEmp
+                                  ? Math.max(1, Math.round(x.Cantidad * f))  // Emp → Und
+                                  : Math.max(1, Math.round(x.Cantidad / f)); // Und → Emp
+                                const nuevoPrecio = yaEsEmp
+                                  ? Math.round(x.PrecioVenta / f)
+                                  : Math.round(x.PrecioVenta * f);
+                                return {
+                                  ...x,
+                                  VenderComoEmpaque: nuevoModo,
+                                  Cantidad: nuevaCant,
+                                  PrecioVenta: nuevoPrecio,
+                                  Subtotal: nuevaCant * nuevoPrecio - x.Descuento,
+                                };
+                              }));
+                            }}
+                            title={l.VenderComoEmpaque
+                              ? `Vendiendo por ${l.NombreEmpaque || 'Empaque'} (${l.FactorConversion} unidades c/u). Click para cambiar a Unidad.`
+                              : `Click para vender por ${l.NombreEmpaque || 'Empaque'} (${l.FactorConversion} unidades c/u).`}
+                            style={{
+                              padding: '1px 8px', fontSize: 10, fontWeight: 700,
+                              background: l.VenderComoEmpaque ? '#7c3aed' : '#f3e8ff',
+                              color: l.VenderComoEmpaque ? '#fff' : '#7c3aed',
+                              border: '1px solid #c4b5fd', borderRadius: 10, cursor: 'pointer',
+                              whiteSpace: 'nowrap',
+                            }}>
+                            {l.VenderComoEmpaque ? `📦 ${l.NombreEmpaque || 'Empaque'}` : `🔹 Und · ×${l.FactorConversion}`}
+                          </button>
+                        )}
+                      </div>
+                    )}
                   </td>
-                  <td style={{ padding: '4px 8px', textAlign: 'center', width: 55, color: l.EsServicio ? '#9ca3af' : (l.Existencia < l.Cantidad ? '#dc2626' : '#16a34a'), fontWeight: 600, fontSize: 11 }}>{l.EsServicio ? '—' : l.Existencia}</td>
+                  {(() => {
+                    // Existencia mostrada: si vendiendo por empaque, dividir stock
+                    // por el factor para que el vendedor vea "cuántos empaques
+                    // completos hay disponibles". Si no, mostrar unidades.
+                    const factor = Math.max(1, l.FactorConversion || 1);
+                    const esEmp = !!l.VenderComoEmpaque && factor > 1;
+                    const existMostrada = esEmp ? Math.floor(l.Existencia / factor) : l.Existencia;
+                    const rojo = existMostrada < l.Cantidad;
+                    return (
+                      <td style={{ padding: '4px 8px', textAlign: 'center', width: 55, color: l.EsServicio ? '#9ca3af' : (rojo ? '#dc2626' : '#16a34a'), fontWeight: 600, fontSize: 11 }}>{l.EsServicio ? '—' : existMostrada}</td>
+                    );
+                  })()}
                   <td style={{ padding: '3px 4px', textAlign: 'center', width: 65 }}>
                     <input type="text" defaultValue={String(l.Cantidad)} data-venta-cant={l.id}
                       onBlur={e => { const v = parseFloat(e.target.value) || 1; actualizarLinea(l.id, 'Cantidad', v); }}

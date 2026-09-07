@@ -25,13 +25,21 @@ $action = $_GET['action'] ?? $body['action'] ?? '';
 try {
 
     // --- Helper: clasifica comportamiento según días promedio de mora ---
+    // Umbrales ajustados (v5.5.1) — la escala anterior era muy estricta para
+    // el mercado colombiano donde 15 días de retraso no es "moroso".
+    // Escala nueva más realista:
+    //   • Excelente  = paga antes del vencimiento (mora < 0)
+    //   • Puntual    = hasta 7 días de retraso promedio
+    //   • Regular    = 8-30 días
+    //   • Moroso     = 31-75 días
+    //   • Crítico    = >75 días, o factura abierta vencida >90 días
     $clasificar = function ($mora, $tieneSaldoVencidoCritico) {
         if ($tieneSaldoVencidoCritico) return 'critico';
         if ($mora === null) return 'sin_datos';
         if ($mora < 0) return 'excelente';
-        if ($mora <= 3) return 'puntual';
-        if ($mora <= 15) return 'regular';
-        if ($mora <= 60) return 'moroso';
+        if ($mora <= 7)  return 'puntual';
+        if ($mora <= 30) return 'regular';
+        if ($mora <= 75) return 'moroso';
         return 'critico';
     };
 
@@ -62,7 +70,7 @@ try {
             INNER JOIN tblclientes c ON c.CodigoClien = s.CodigoCli
             WHERE c.CodigoClien = ?
               AND s.Saldo > 0
-              AND DATEDIFF(CURDATE(), DATE_ADD(s.Fecha, INTERVAL COALESCE(c.Termino,0) DAY)) > 60
+              AND DATEDIFF(CURDATE(), DATE_ADD(s.Fecha, INTERVAL COALESCE(c.Termino,0) DAY)) > 90
         ");
         $stmt->execute([$codigoClien]);
         $criticas = intval($stmt->fetch()['criticas'] ?? 0);

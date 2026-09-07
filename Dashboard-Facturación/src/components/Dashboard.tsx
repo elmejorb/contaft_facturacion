@@ -56,7 +56,7 @@ import { useStockBajoCount } from '../hooks/useStockBajoCount';
 import { useCumpleanosHoy } from '../hooks/useCumpleanosHoy';
 // Estos exports NO son componentes (funciones/consts) → deben ser estáticos.
 // Se usan en efectos y helpers fuera del área de rendering perezoso.
-import { saveEmpresaCache, getConfigImpresion } from './ConfiguracionSistema';
+import { saveEmpresaCache, getConfigImpresion, saveConfigImpresion } from './ConfiguracionSistema';
 
 // PESADOS (usan AG Grid, xlsx, recharts, tabs enteros) — lazy con code-splitting.
 // Cada uno se descarga cuando el usuario navega a esa sección. Reduce el bundle
@@ -94,6 +94,7 @@ const DistribuirProductos = lazy(() => import('./DistribuirProductos').then(m =>
 const StockBajo = lazy(() => import('./StockBajo').then(m => ({ default: m.StockBajo })));
 const NotasArticulo = lazy(() => import('./NotasArticulo').then(m => ({ default: m.NotasArticulo })));
 const LotesPorVencer = lazy(() => import('./LotesPorVencer').then(m => ({ default: m.LotesPorVencer })));
+const MovsDirectos = lazy(() => import('./MovsDirectos').then(m => ({ default: m.MovsDirectos })));
 const InformesHub = lazy(() => import('./informes/InformesHub').then(m => ({ default: m.InformesHub })));
 const ConfiguracionSistema = lazy(() => import('./ConfiguracionSistema').then(m => ({ default: m.ConfiguracionSistema })));
 const FinanciacionesManagement = lazy(() => import('./FinanciacionesManagement').then(m => ({ default: m.FinanciacionesManagement })));
@@ -132,7 +133,7 @@ interface DashboardProps {
   user?: UserData | null;
 }
 
-type View = 'overview' | 'products' | 'customers' | 'suppliers' | 'purchases' | 'sales' | 'inventario' | 'diagnostico' | 'auditoria' | 'categorias' | 'conteo' | 'configuracion' | 'cuentas-cobrar' | 'top-clientes' | 'cumpleanos' | 'cuentas-pagar' | 'productos-proveedor' | 'nueva-venta' | 'ventas-tipo-pago' | 'datos-empresa' | 'usuarios' | 'nueva-compra' | 'facturacion-electronica' | 'facturas-recibidas' | 'caja' | 'caja-historial' | 'pagos-clientes' | 'pagos-proveedores' | 'gastos' | 'bancos' | 'config-categorias-gasto' | 'config-cajas' | 'config-servidor' | 'config-permisos' | 'familias' | 'distribuir' | 'stock-bajo' | 'config-retenciones' | 'informes-hub' | 'notas-articulo' | 'lotes-vencer' | 'inicio' | 'config-etiquetas' | 'vendedores-gestion' | 'vendedores-pedidos' | 'vendedores-informe' | 'ordenes-compra' | 'financiaciones' | 'backup-bd' | 'mantenimiento-bd' | 'anticipos-clientes';
+type View = 'overview' | 'products' | 'customers' | 'suppliers' | 'purchases' | 'sales' | 'inventario' | 'diagnostico' | 'auditoria' | 'categorias' | 'conteo' | 'configuracion' | 'cuentas-cobrar' | 'top-clientes' | 'cumpleanos' | 'cuentas-pagar' | 'productos-proveedor' | 'nueva-venta' | 'ventas-tipo-pago' | 'datos-empresa' | 'usuarios' | 'nueva-compra' | 'facturacion-electronica' | 'facturas-recibidas' | 'caja' | 'caja-historial' | 'pagos-clientes' | 'pagos-proveedores' | 'gastos' | 'bancos' | 'config-categorias-gasto' | 'config-cajas' | 'config-servidor' | 'config-permisos' | 'familias' | 'distribuir' | 'stock-bajo' | 'config-retenciones' | 'informes-hub' | 'notas-articulo' | 'lotes-vencer' | 'inicio' | 'config-etiquetas' | 'vendedores-gestion' | 'vendedores-pedidos' | 'vendedores-informe' | 'ordenes-compra' | 'financiaciones' | 'backup-bd' | 'mantenimiento-bd' | 'anticipos-clientes' | 'movs-directos';
 
 interface MenuItem {
   id: string;
@@ -200,6 +201,19 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
     ? vendedoresHabilitado
     : entitlements?.vendedor_movil?.activo === true;
   const feEntitlementOK = entitlements?.facturacion_electronica?.activo === true;
+
+  // Sync CRM -> localStorage al arrancar: si la suscripcion tiene FE activa y
+  // el config local esta en false (por ejemplo, tras cambiar de BD o tras un
+  // reinstalado), forzamos ON y persistimos. Sin esto, NuevaVenta no muestra
+  // el selector "Factura Electronica" hasta que el usuario entre a
+  // Configuracion y guarde manualmente.
+  useEffect(() => {
+    if (entitLoading) return;
+    const cfg = getConfigImpresion();
+    if (feEntitlementOK && !cfg.usarFacturacionElectronica) {
+      saveConfigImpresion({ ...cfg, usarFacturacionElectronica: true });
+    }
+  }, [entitLoading, feEntitlementOK]);
   // Módulos opcionales locales (adaptación, no CRM) — solo se muestran si el admin
   // los activó en Configuración → Módulos opcionales del negocio.
   const financiacionesHabilitado = !!getConfigImpresion().usarFinanciaciones;
@@ -240,6 +254,7 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
         { id: 'inventario-conteo', label: 'Conteo de Inventario', view: 'conteo' as View },
         { id: 'inventario-notas', label: 'Notas de Artículo', view: 'notas-articulo' as View },
         { id: 'inventario-lotes', label: 'Productos por Vencer', view: 'lotes-vencer' as View },
+        { id: 'inventario-movs-directos', label: 'Entradas y Salidas Directas', view: 'movs-directos' as View },
       ]
     },
     { 
@@ -760,6 +775,7 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
           {currentView === 'stock-bajo' && <StockBajo />}
           {currentView === 'notas-articulo' && <NotasArticulo />}
           {currentView === 'lotes-vencer' && <LotesPorVencer />}
+          {currentView === 'movs-directos' && <MovsDirectos />}
           {currentView === 'config-etiquetas' && <ConfigEtiquetas />}
           {currentView === 'configuracion' && <ConfiguracionSistema />}
           {currentView === 'datos-empresa' && <DatosEmpresa />}

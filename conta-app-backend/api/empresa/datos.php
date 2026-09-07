@@ -30,6 +30,12 @@ try {
     } elseif ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $data = json_decode(file_get_contents('php://input'), true);
 
+        // Normalizar NIT: guardamos solo digitos base (sin puntos, sin guion,
+        // sin DV). El DV se recalcula en cada impresion / envio a DIAN.
+        $nitRaw = $data['Nit'] ?? '';
+        if (strpos($nitRaw, '-') !== false) $nitRaw = explode('-', $nitRaw)[0];
+        $data['Nit'] = preg_replace('/[^0-9]/', '', $nitRaw);
+
         $stmt = $db->prepare("
             UPDATE tbldatosempresa SET
                 Empresa = ?, Propietario = ?, Nit = ?, Direccion = ?, Telefono = ?,

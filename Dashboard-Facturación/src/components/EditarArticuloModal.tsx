@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Save, X, Layers } from 'lucide-react';
 import api from '../services/api';
 import { ComponentesModal } from './ComponentesModal';
-import { getConfigImpresion } from './ConfiguracionSistema';
+import { getConfigImpresion, esFarmacia } from './ConfiguracionSistema';
 
 interface Articulo {
   Items: number; Codigo: string; Descripcion: string; Existencia: number;
@@ -319,6 +319,37 @@ export function EditarArticuloModal({ isOpen, onClose, articulo, onGuardado, mod
                 )}
               </fieldset>
             </div>
+          )}
+
+          {/* Conversión de empaques — solo se muestra si el tipo de negocio
+              es Farmacia / Droguería (se detecta por tipoNegocio en config).
+              Ej: "Acetaminofén" con Factor=100, Empaque="Caja x100" significa
+              que al vender 1 caja se descuentan 100 pastillas del stock. */}
+          {!form.Servicio && esFarmacia() && (
+            <fieldset style={{ ...s.fieldset, borderColor: '#c4b5fd', background: '#faf5ff' }}>
+              <legend style={{ ...s.legend, color: '#7c3aed' }}>Conversión de empaques</legend>
+              <div style={{ display: 'grid', gridTemplateColumns: '110px 1fr', gap: 10, alignItems: 'end' }}>
+                <div>
+                  <label style={s.label}>Factor (Uds/empaque)</label>
+                  <input type="text" defaultValue={form.Unidades || 1}
+                    onKeyDown={soloNumeros}
+                    onBlur={e => set('Unidades', Math.max(1, Math.round(toNum(e.target.value) || 1)))}
+                    title="Cuántas unidades base contiene 1 empaque. Dejalo en 1 si el producto se maneja solo por unidad."
+                    style={{ ...s.input, textAlign: 'right', fontWeight: 600 }} />
+                </div>
+                <div>
+                  <label style={s.label}>Nombre del empaque</label>
+                  <input value={form.nombre_empaque || ''} onChange={e => set('nombre_empaque', e.target.value)}
+                    placeholder="Ej. Caja x100, Blister x10, Bulto x50 kg"
+                    style={s.input} />
+                </div>
+              </div>
+              <div style={{ fontSize: 10, color: '#6b7280', marginTop: 6 }}>
+                Con factor &gt; 1, al facturar podés elegir vender "1 {form.nombre_empaque || 'empaque'}"
+                (descuenta {form.Unidades || 1} unidades) o vender "1 unidad".
+                Los precios y la existencia se mantienen SIEMPRE en unidad base.
+              </div>
+            </fieldset>
           )}
 
           {/* Detalle. Para servicios solo mostramos el IVA y los precios de

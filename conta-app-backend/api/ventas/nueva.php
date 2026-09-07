@@ -24,6 +24,8 @@ try {
                 SELECT a.Items, a.Codigo, a.Nombres_Articulo, a.Existencia, a.Precio_Costo,
                        a.Precio_Venta, a.Precio_Venta2, a.Precio_Venta3, a.Iva, a.Precio_Minimo,
                        COALESCE(a.Servicio, 0) AS Servicio,
+                       COALESCE(a.Unidades, 1) AS factor_conversion,
+                       a.nombre_empaque,
                        COALESCE(c.Categoria, 'VARIOS') as Categoria
                 FROM tblarticulos a
                 LEFT JOIN tblcategoria c ON a.Id_Categoria = c.Id_Categoria

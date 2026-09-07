@@ -60,6 +60,8 @@ try {
         requiere_lote = :requiereLote,
         Servicio = :servicio,
         Id_Etiqueta = :etiqueta,
+        Unidades = :unidades,
+        nombre_empaque = :nombreEmpaque,
         FechaMod = NOW()
     WHERE Items = :items";
 
@@ -82,6 +84,8 @@ try {
         ':requiereLote' => !empty($input['requiere_lote']) ? 1 : 0,
         ':servicio' => !empty($input['Servicio']) ? 1 : 0,
         ':etiqueta' => !empty($input['Id_Etiqueta']) ? intval($input['Id_Etiqueta']) : null,
+        ':unidades' => max(1, intval($input['Unidades'] ?? 1)),
+        ':nombreEmpaque' => trim($input['nombre_empaque'] ?? '') ?: null,
         ':items' => $input['Items'],
     ]);
 

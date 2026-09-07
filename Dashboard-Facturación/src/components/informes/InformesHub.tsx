@@ -12,6 +12,7 @@ import { InformeEstadoResultados } from './InformeEstadoResultados';
 import { InformeVentasListado } from './InformeVentasListado';
 import { InformeComprasListado } from './InformeComprasListado';
 import { InformeTopProductos } from './InformeTopProductos';
+import { InformeVentasPorProducto } from './InformeVentasPorProducto';
 import { InformeInventarioValorizado } from './InformeInventarioValorizado';
 import { InformeProductosAgotados } from './InformeProductosAgotados';
 import { InformeGastos } from './InformeGastos';
@@ -31,7 +32,7 @@ import { InformeFacturasVendedor } from './InformeFacturasVendedor';
 
 type ReporteId =
   | 'cuadre' | 'cierre-mes' | 'estado-resultados' | 'iva'
-  | 'ventas' | 'compras' | 'top-productos' | 'top-clientes' | 'ventas-categoria'
+  | 'ventas' | 'compras' | 'top-productos' | 'ventas-por-producto' | 'top-clientes' | 'ventas-categoria'
   | 'ventas-mensual' | 'ventas-diario' | 'facturas-vendedor'
   | 'inventario' | 'agotados' | 'productos-vencer'
   | 'gastos' | 'pagos-proveedores'
@@ -60,6 +61,7 @@ const REPORTES: ReporteDef[] = [
   { id: 'ventas-mensual', titulo: 'Ventas Mensuales (con costo y utilidad)', desc: 'Resumen mes por mes del año con contado, crédito, costo, utilidad y margen.', icon: Calendar, color: '#16a34a', bg: '#dcfce7', categoria: 'ventas' },
   { id: 'ventas-diario', titulo: 'Ventas Diarias (con costo y utilidad)', desc: 'Resumen día por día del rango con utilidad y margen.', icon: CalendarDays, color: '#16a34a', bg: '#dcfce7', categoria: 'ventas' },
   { id: 'top-productos', titulo: 'Artículos Más Vendidos', desc: 'Top N productos con cantidad, monto, costo y utilidad.', icon: BarChart3, color: '#16a34a', bg: '#dcfce7', categoria: 'ventas' },
+  { id: 'ventas-por-producto', titulo: 'Ventas de un Producto (rango)', desc: 'Todas las facturas donde se vendió un producto específico en el rango, con cantidades, precios, costos y utilidad.', icon: Package, color: '#16a34a', bg: '#dcfce7', categoria: 'ventas' },
   { id: 'top-clientes', titulo: 'Top Clientes', desc: 'Mejores clientes del período con monto, ticket promedio y % de participación.', icon: Crown, color: '#16a34a', bg: '#dcfce7', categoria: 'ventas' },
   { id: 'ventas-categoria', titulo: 'Ventas por Categoría', desc: 'Distribución de ventas y utilidad por categoría de producto, con gráfica de barras.', icon: Layers, color: '#16a34a', bg: '#dcfce7', categoria: 'ventas' },
   { id: 'facturas-vendedor', titulo: 'Ventas por Vendedor', desc: 'Ranking por vendedor con número de facturas, ticket promedio y participación.', icon: UserCheck, color: '#16a34a', bg: '#dcfce7', categoria: 'ventas' },
@@ -113,6 +115,7 @@ export function InformesHub() {
         {activo === 'ventas' && <InformeVentasListado />}
         {activo === 'compras' && <InformeComprasListado />}
         {activo === 'top-productos' && <InformeTopProductos />}
+        {activo === 'ventas-por-producto' && <InformeVentasPorProducto />}
         {activo === 'inventario' && <InformeInventarioValorizado />}
         {activo === 'agotados' && <InformeProductosAgotados />}
         {activo === 'productos-vencer' && <LotesPorVencer />}

@@ -27,6 +27,8 @@ try {
                 SELECT a.Items, a.Codigo, a.Nombres_Articulo, a.Existencia, a.Precio_Costo,
                        a.Precio_CostoComp, a.Precio_Venta, a.Iva, a.Flete,
                        COALESCE(a.requiere_lote, 0) AS requiere_lote,
+                       COALESCE(a.Unidades, 1) AS factor_conversion,
+                       a.nombre_empaque,
                        COALESCE(c.Categoria, 'VARIOS') as Categoria,
                        (SELECT d.IvaPct
                         FROM tbldetalle_pedido d
