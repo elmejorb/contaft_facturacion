@@ -5,6 +5,20 @@ Visible solo para administradores desde **Configuración → Acerca de → Ver h
 
 ---
 
+## 4.3.99 — 2026-09-08
+
+### Fix — Al fallar Factura Electrónica quedaba una POS creada aparte
+
+- Reportado por cliente: *"creo una factura electrónica y se le crearon una electrónica y una POS"*.
+- Causa: el flujo actual crea primero la venta en `tblventas` (POS) y después envía a DIAN. Si DIAN fallaba y el cliente pulsaba *"Dejar sin enviar"*, la venta POS quedaba creada con `Factura_N` y el electronic_document quedaba con `status='rechazado'`. El cliente terminaba con 2 documentos por una sola factura que en realidad quería hacer.
+- Corrección:
+  - **Renombrado del botón**: *"Dejar sin enviar"* → **"Guardar como borrador"**.
+  - **Nueva acción backend** `convertir_a_borrador` en `facturacion-electronica/enviar.php`: anula la venta POS creada (marca `EstadoFact='Anulada'` + revierte stock + registra entrada en kardex) Y cambia el electronic_document de `rechazado` a `borrador`.
+  - El borrador queda editable desde *Facturación Electrónica → Borradores*. Cero duplicación.
+  - **Se quitó la opción "Emitir en contingencia"** — el modo contingencia requiere resolución DIAN específica que la mayoría de clientes no tiene. El modal ahora ofrece solo dos caminos claros: **Reintentar DIAN** o **Guardar como borrador**.
+
+---
+
 ## 4.3.98 — 2026-09-08
 
 ### Fix — pagos a proveedor por banco restaban del cuadre de caja

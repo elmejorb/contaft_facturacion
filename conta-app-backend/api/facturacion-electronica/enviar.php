@@ -1284,6 +1284,72 @@ try {
             ], JSON_UNESCAPED_UNICODE);
             break;
 
+        // Convertir a borrador — se llama cuando el usuario intento emitir FE,
+        // DIAN fallo, y el usuario decide NO reintentar ni ir a contingencia.
+        // Objetivo: NO dejar la venta POS creada como si fuera una venta real.
+        //
+        // Que hace:
+        //   1. Anula la venta POS asociada (EstadoFact='Anulada', revierte stock).
+        //   2. Cambia el status del electronic_document de 'rechazado' a 'borrador'.
+        //   3. El usuario puede volver a intentarlo desde Facturacion Electronica.
+        //
+        // Body: { factura_n, doc_local_id }
+        case 'convertir_a_borrador':
+            $factN = intval($data['factura_n'] ?? 0);
+            $docId = intval($data['doc_local_id'] ?? 0);
+            if (!$factN || !$docId) {
+                echo json_encode(['success' => false, 'message' => 'factura_n y doc_local_id requeridos']);
+                exit;
+            }
+
+            $db->beginTransaction();
+            try {
+                // 1. Leer detalle de la venta para revertir stock
+                $stmtDet = $db->prepare("SELECT Items, Cantidad FROM tbldetalle_venta WHERE Factura_N = ?");
+                $stmtDet->execute([$factN]);
+                $lineas = $stmtDet->fetchAll();
+
+                // 2. Revertir stock + registrar entrada en kardex (regla: kardex inmutable)
+                $stmtStock = $db->prepare("UPDATE tblarticulos SET Existencia = Existencia + ? WHERE Items = ?");
+                $stmtArt = $db->prepare("SELECT Existencia, Precio_Costo FROM tblarticulos WHERE Items = ?");
+                $mesNombre = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'][intval(date('n')) - 1];
+                $stmtKardex = $db->prepare("INSERT INTO tblkardex (Fecha, Mes, Items, Detalle, C_D, Cant_Ent, Cost_Ent, Cant_Sal, Cost_Sal, Cant_Saldo, Cost_Saldo, Cost_Unit) VALUES (NOW(), ?, ?, ?, 1, ?, ?, 0, 0, ?, ?, ?)");
+                foreach ($lineas as $l) {
+                    $items = intval($l['Items']);
+                    $cant  = floatval($l['Cantidad']);
+                    $stmtStock->execute([$cant, $items]);
+                    $stmtArt->execute([$items]);
+                    $art = $stmtArt->fetch();
+                    if ($art) {
+                        $costo = floatval($art['Precio_Costo']);
+                        $exNueva = floatval($art['Existencia']);
+                        $stmtKardex->execute([
+                            $mesNombre, $items, "Conversion FV-$factN a borrador FE",
+                            $cant, $cant * $costo, $exNueva, $exNueva * $costo, $costo
+                        ]);
+                    }
+                }
+
+                // 3. Marcar la venta POS como anulada (Saldo=0)
+                $db->prepare("UPDATE tblventas SET EstadoFact = 'Anulada', Saldo = 0 WHERE Factura_N = ?")
+                   ->execute([$factN]);
+
+                // 4. Convertir el electronic_document de 'rechazado' a 'borrador'
+                $db->prepare("UPDATE electronic_documents SET status = 'borrador', number = 0 WHERE id = ?")
+                   ->execute([$docId]);
+
+                $db->commit();
+                echo json_encode([
+                    'success' => true,
+                    'message' => "Venta FV-$factN anulada y guardada como borrador FE. Puede reeditarlo desde Facturacion Electronica > Borradores.",
+                    'borrador_id' => $docId,
+                ], JSON_UNESCAPED_UNICODE);
+            } catch (\Throwable $e) {
+                $db->rollBack();
+                echo json_encode(['success' => false, 'message' => 'Error convirtiendo a borrador: ' . $e->getMessage()]);
+            }
+            break;
+
         // Cargar borrador — devuelve cabecera + items + datos del cliente
         // para pre-llenar Nueva Venta y permitir edición.
         // GET/POST { id }

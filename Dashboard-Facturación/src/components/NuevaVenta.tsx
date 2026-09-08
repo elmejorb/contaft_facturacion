@@ -368,7 +368,8 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
   const [success, setSuccess] = useState('');
   const [showPagoModal, setShowPagoModal] = useState(false);
   const [distribucionesPendientes, setDistribucionesPendientes] = useState<any[] | null>(null);
-  const [contingenciaPrompt, setContingenciaPrompt] = useState<{ factN: number; motivo: string; intentos: number } | null>(null);
+  const [contingenciaPrompt, setContingenciaPrompt] = useState<{ factN: number; motivo: string; intentos: number; docLocalId?: number | null } | null>(null);
+  const [convirtiendoBorrador, setConvirtiendoBorrador] = useState(false);
   const [previewXml, setPreviewXml] = useState<{ factN: number; xml: string } | null>(null);
   const [retencionesCliente, setRetencionesCliente] = useState<any[]>([]);
   const [retencionModoCliente, setRetencionModoCliente] = useState<'informativo' | 'gross_up'>('gross_up');
@@ -1226,12 +1227,55 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
         finalizarVentaExitosa(factN, dDian.doc_local_id || null, false);
       } else {
         toast.dismiss('dian-retry');
-        setContingenciaPrompt({ factN, motivo: dDian.message || 'DIAN rechazó la factura', intentos: intentos + 1 });
+        setContingenciaPrompt({ factN, motivo: dDian.message || 'DIAN rechazó la factura', intentos: intentos + 1, docLocalId: dDian.doc_local_id ?? contingenciaPrompt.docLocalId ?? null });
       }
     } catch (e) {
       toast.dismiss('dian-retry');
-      setContingenciaPrompt({ factN, motivo: 'Sin conexión con la API', intentos: intentos + 1 });
+      setContingenciaPrompt({ factN, motivo: 'Sin conexión con la API', intentos: intentos + 1, docLocalId: contingenciaPrompt.docLocalId ?? null });
     }
+  };
+
+  // Cuando la FE fallo y el usuario NO quiere reenviarla, en vez de dejar
+  // una venta POS creada (bug reportado: "se me crea una FE y una POS"),
+  // convertimos: anular la venta POS + cambiar el electronic_document
+  // (que quedo en 'rechazado') a 'borrador' para que el usuario pueda
+  // editarlo mas tarde desde Facturacion Electronica.
+  const convertirEnBorrador = async () => {
+    if (!contingenciaPrompt) return;
+    const { factN, docLocalId } = contingenciaPrompt;
+    if (!docLocalId) {
+      // Si por alguna razon no tenemos el doc_local_id (raro), solo cerramos.
+      // La venta POS queda creada — se puede anular manual.
+      setContingenciaPrompt(null);
+      toast('Se dejó sin enviar. Puede reenviar más tarde desde Facturación Electrónica.', { icon: 'ℹ️', duration: 6000 });
+      finalizarVentaExitosa(factN, null, false);
+      return;
+    }
+    setConvirtiendoBorrador(true);
+    try {
+      const r = await fetch(API_FE, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'convertir_a_borrador', factura_n: factN, doc_local_id: docLocalId }),
+      });
+      const d = await r.json();
+      if (d.success) {
+        toast.success(d.message || 'Guardado como borrador FE. Ya puede editarlo.', { duration: 6000 });
+        setContingenciaPrompt(null);
+        // Limpiar el carrito y volver al inicio como si fuera venta exitosa,
+        // pero sin abrir PDF (porque la FE no salio).
+        setShowPagoModal(false);
+        setLineas([]); setDescuentoGlobal(0); setEfectivo(''); setNota('');
+        setCliente({ id: 130500, nombre: 'VENTAS AL CONTADO', nit: '0', tel: '0', dir: '-', cupo: 0, esCliente: false, email: '' });
+        setTipoDocumento('pos');
+        onFacturaCreada?.(0);
+        setGuardando(false);
+      } else {
+        toast.error(d.message || 'No se pudo convertir a borrador');
+      }
+    } catch (e) {
+      toast.error('Error de conexión convirtiendo a borrador');
+    }
+    setConvirtiendoBorrador(false);
   };
 
   const ejecutarVenta = async () => {
@@ -1386,13 +1430,13 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
             } else {
               toast.dismiss('dian');
               setGuardando(false);
-              setContingenciaPrompt({ factN, motivo: dDian.message || 'DIAN rechazó la factura', intentos: 1 });
+              setContingenciaPrompt({ factN, motivo: dDian.message || 'DIAN rechazó la factura', intentos: 1, docLocalId: dDian.doc_local_id ?? null });
               return; // El modal maneja el resto
             }
           } catch (e) {
             toast.dismiss('dian');
             setGuardando(false);
-            setContingenciaPrompt({ factN, motivo: 'Sin conexión con la API de facturación electrónica', intentos: 1 });
+            setContingenciaPrompt({ factN, motivo: 'Sin conexión con la API de facturación electrónica', intentos: 1, docLocalId: null });
             return;
           }
         }
@@ -2276,25 +2320,21 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
                 <b>Motivo:</b> {contingenciaPrompt.motivo}
                 {contingenciaPrompt.intentos > 1 && <div style={{ marginTop: 4, color: '#d97706' }}>Intentos: {contingenciaPrompt.intentos}</div>}
               </div>
-              <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 6, padding: 10, fontSize: 11, color: '#78350f' }}>
-                <b>Modo Contingencia (Res. DIAN 000165/2023):</b> puedes emitir la factura en contingencia ahora e imprimir un comprobante físico con el banner legal. El sistema intentará transmitirla automáticamente cuando vuelva la conexión, o podrás reenviarla manualmente desde <i>Facturación Electrónica → Reenviar contingencias</i> (plazo: 48 horas).
+              <div style={{ background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: 6, padding: 10, fontSize: 11, color: '#075985' }}>
+                <b>Reintentar DIAN:</b> vuelve a enviar la factura tal como está (útil si el error fue de red).<br />
+                <b>Guardar como borrador:</b> anula la venta POS creada (revierte stock) y deja los datos como borrador editable en <i>Facturación Electrónica → Borradores</i>. No queda ninguna venta duplicada.
               </div>
             </div>
             <div style={{ padding: '12px 18px', borderTop: '1px solid #e5e7eb', display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-              <button onClick={() => setContingenciaPrompt(null)}
-                style={{ height: 34, padding: '0 14px', background: '#f3f4f6', border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 12, cursor: 'pointer', color: '#6b7280' }}>
-                Dejar sin enviar
+              <button onClick={convertirEnBorrador} disabled={convirtiendoBorrador}
+                title="Guarda los datos como borrador editable en Facturación Electrónica. La venta POS creada se anula y se revierte el stock."
+                style={{ height: 34, padding: '0 14px', background: convirtiendoBorrador ? '#e5e7eb' : '#f3f4f6', border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 12, cursor: convirtiendoBorrador ? 'wait' : 'pointer', color: '#374151', fontWeight: 600 }}>
+                {convirtiendoBorrador ? 'Guardando…' : 'Guardar como borrador'}
               </button>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <button onClick={reintentarDian}
-                  style={{ height: 34, padding: '0 14px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, cursor: 'pointer', fontWeight: 600 }}>
-                  Reintentar DIAN
-                </button>
-                <button onClick={aceptarContingencia}
-                  style={{ height: 34, padding: '0 14px', background: '#d97706', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, cursor: 'pointer', fontWeight: 700 }}>
-                  Emitir en contingencia
-                </button>
-              </div>
+              <button onClick={reintentarDian}
+                style={{ height: 34, padding: '0 14px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, cursor: 'pointer', fontWeight: 600 }}>
+                Reintentar DIAN
+              </button>
             </div>
           </div>
         </div>
