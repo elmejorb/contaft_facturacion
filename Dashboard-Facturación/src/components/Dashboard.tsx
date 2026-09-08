@@ -214,6 +214,17 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
       saveConfigImpresion({ ...cfg, usarFacturacionElectronica: true });
     }
   }, [entitLoading, feEntitlementOK]);
+
+  // TODO(auto-migrar): en 4.3.96 intentamos auto-aplicar actualizacion_completa.sql
+  // al arrancar, pero fallo en BDs legacy sin AUTO_INCREMENT en tblcajas /
+  // tblcategorias_gasto ("Field 'Id_Caja' doesn't have a default value"), y ese
+  // fallo bloqueaba a los clientes. Se retiro la 4.3.96 y por ahora la migracion
+  // vuelve a ser MANUAL (Configuracion → Mantenimiento BD → Aplicar Actualizacion
+  // Completa). El blindaje real esta en el fix defensivo del backend
+  // (crear-articulo.php, actualizar-articulo.php, articulos.php): detectan
+  // columnas dinamicamente y no crashean si la migracion aun no se corrio.
+  // Cuando el auto-migrar este probado contra BDs legacy (tblcajas AI, duplicate
+  // email_recipient, etc.) se puede reactivar.
   // Módulos opcionales locales (adaptación, no CRM) — solo se muestran si el admin
   // los activó en Configuración → Módulos opcionales del negocio.
   const financiacionesHabilitado = !!getConfigImpresion().usarFinanciaciones;

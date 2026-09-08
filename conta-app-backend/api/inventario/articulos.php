@@ -41,6 +41,32 @@ try {
     // Convertir el ordenamiento
     $ordenarPorReal = isset($columnMap[$ordenarPor]) ? $columnMap[$ordenarPor] : 'Codigo';
 
+    // Detectar columnas / tablas opcionales para tolerar BDs viejas que aun
+    // no corrieron actualizacion_completa. Sin este chequeo el SELECT crashea
+    // con "Unknown column" o "Table doesn't exist" y el listado queda en
+    // "Error al cargar los articulos".
+    $colStmt = $db->query("SELECT COLUMN_NAME FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tblarticulos'");
+    $artCols = array_column($colStmt->fetchAll(PDO::FETCH_ASSOC), 'COLUMN_NAME');
+    $tblStmt = $db->query("SELECT TABLE_NAME FROM information_schema.TABLES
+        WHERE TABLE_SCHEMA = DATABASE()");
+    $tblExists = array_column($tblStmt->fetchAll(PDO::FETCH_ASSOC), 'TABLE_NAME');
+
+    $selFactor    = in_array('FactorConversion', $artCols)   ? 'COALESCE(a.FactorConversion, 1)' : '1';
+    $selNombreEmp = in_array('NombreEmpaque', $artCols)      ? 'a.NombreEmpaque'                 : 'NULL';
+    $selVenderEmp = in_array('VenderComoEmpaque', $artCols)  ? 'COALESCE(a.VenderComoEmpaque, 0)' : '0';
+    $selComprarEmp= in_array('ComprarComoEmpaque', $artCols) ? 'COALESCE(a.ComprarComoEmpaque, 0)' : '0';
+    $selIdEtiq    = in_array('Id_Etiqueta', $artCols)        ? 'a.Id_Etiqueta' : 'NULL';
+    $selEstante   = in_array('Estante', $artCols)            ? 'a.Estante' : "''";
+    $selExMin     = in_array('Existencia_minima', $artCols)  ? 'a.Existencia_minima' : '0';
+    $selReqLote   = in_array('requiere_lote', $artCols)      ? 'COALESCE(a.requiere_lote, 0)' : '0';
+    $selServicio  = in_array('Servicio', $artCols)           ? 'COALESCE(a.Servicio, 0)' : '0';
+    $joinProv     = in_array('tblproveedores', $tblExists) ? 'LEFT JOIN tblproveedores p ON a.CodigoPro = p.CodigoPro' : '';
+    $selProv      = in_array('tblproveedores', $tblExists) ? "COALESCE(p.RazonSocial, '')" : "''";
+    $joinEtiq     = in_array('tbletiquetas', $tblExists) ? 'LEFT JOIN tbletiquetas e ON a.Id_Etiqueta = e.Id_Etiqueta' : '';
+    $selEtiq      = in_array('tbletiquetas', $tblExists) ? "COALESCE(e.Nombre, '')" : "''";
+    $selEtiqColor = in_array('tbletiquetas', $tblExists) ? "COALESCE(e.Color, '')" : "''";
+
     // Construir la consulta SQL con LEFT JOIN para obtener nombres de categoría y proveedor
     $query = "SELECT
                 a.Items,
@@ -54,22 +80,26 @@ try {
                 a.Precio_Minimo as PrecioMinimo,
                 COALESCE(c.Categoria, 'VARIOS') as Categoria,
                 '' as Marca,
-                COALESCE(p.RazonSocial, '') as Proveedor,
+                $selProv as Proveedor,
                 CASE WHEN a.Estado = 1 THEN 'Activo' ELSE 'Inactivo' END as Estado,
                 a.Iva,
                 a.Id_Categoria as Id_Categoria,
                 a.CodigoPro as CodigoPro,
-                a.Estante,
-                a.Existencia_minima,
-                COALESCE(a.requiere_lote, 0) AS requiere_lote,
-                COALESCE(a.Servicio, 0) AS Servicio,
-                a.Id_Etiqueta,
-                COALESCE(e.Nombre, '') as Etiqueta,
-                COALESCE(e.Color, '') as Etiqueta_Color
+                $selEstante as Estante,
+                $selExMin as Existencia_minima,
+                $selReqLote AS requiere_lote,
+                $selServicio AS Servicio,
+                $selIdEtiq as Id_Etiqueta,
+                $selEtiq as Etiqueta,
+                $selEtiqColor as Etiqueta_Color,
+                $selFactor AS FactorConversion,
+                $selNombreEmp AS NombreEmpaque,
+                $selVenderEmp AS VenderComoEmpaque,
+                $selComprarEmp AS ComprarComoEmpaque
               FROM tblArticulos a
               LEFT JOIN tblcategoria c ON a.Id_Categoria = c.Id_Categoria
-              LEFT JOIN tblproveedores p ON a.CodigoPro = p.CodigoPro
-              LEFT JOIN tbletiquetas e ON a.Id_Etiqueta = e.Id_Etiqueta;";
+              $joinProv
+              $joinEtiq";
 
     // Filtrar por estado si es necesario
     if ($estado === 'Activos') {

@@ -5,6 +5,30 @@ Visible solo para administradores desde **Configuración → Acerca de → Ver h
 
 ---
 
+## 4.3.97 — 2026-09-08
+
+### Hotfix — "Error de conexión" y "Error al cargar los artículos" tras la 4.3.95
+
+Corrige los tres errores que reportaron los clientes tras la 4.3.95, sin depender de que apliquen manualmente `actualizacion_completa.sql`:
+
+- **Guardar/editar producto**: el `INSERT`/`UPDATE` crasheaba con *"Unknown column FactorConversion"* en BDs viejas. Ahora `crear-articulo.php` y `actualizar-articulo.php` detectan las columnas presentes vía `information_schema` y solo escriben las que existen.
+- **Listado de inventario en blanco** con *"Error al cargar los artículos"*: `articulos.php` construye el `SELECT` dinámicamente, tolerando ausencia de `FactorConversion`, `NombreEmpaque`, `Estante`, `Id_Etiqueta`, tabla `tblproveedores`, tabla `tbletiquetas`, etc.
+- **Buscador de productos en Nueva Venta / Nueva Compra**: aplica el mismo criterio defensivo.
+
+### `actualizacion_completa.sql` (opcional, mejora robustez del script)
+
+Para clientes que sí lo corran (manual o desde *Configuración → Mantenimiento BD*):
+
+- **Duplicate column 'email_recipient'**: los `ADD COLUMN email_sent / email_sent_at / email_recipient` se separaron con checks individuales — antes se agregaban las 3 juntas y si `email_recipient` ya existía por otra ruta el bloque completo fallaba.
+- **tblcajas / tblcategorias_gasto sin AUTO_INCREMENT**: en BDs legacy VB6 estas tablas quedaban con `Id_Caja INT NOT NULL` sin `AUTO_INCREMENT`. Los INSERTs de "Caja 1", "Caja Principal", categorías default fallaban con *"Field 'Id_Caja' doesn't have a default value"*. Ahora se fuerza `MODIFY ... AUTO_INCREMENT` y se agrega `PRIMARY KEY` si falta antes de los INSERT.
+
+### Retirada — versión 4.3.96
+
+- La 4.3.96 se publicó 08-sep-2026 con un auto-migrador que ejecutaba `actualizacion_completa.sql` al arrancar. En BDs legacy el script fallaba (mismo bug de arriba) y bloqueaba a los clientes. Se retiró el mismo día.
+- El auto-migrar automático queda pospuesto hasta que esté probado contra 3+ BDs con distintos grados de legacy. Por ahora la política vuelve a ser: **migración manual desde Configuración → Mantenimiento BD**, respaldada por el fix defensivo del backend.
+
+---
+
 ## 4.3.95 — 2026-09-07
 
 ### Fix crítico — cliente real sin NIT bloqueado en ventas a crédito

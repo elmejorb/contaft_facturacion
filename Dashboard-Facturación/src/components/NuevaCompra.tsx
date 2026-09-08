@@ -223,7 +223,8 @@ export function NuevaCompra({ pedidoEditar, onClose, initialState, onStateChange
       NumeroLote: '',
       FactorConversion: Math.max(1, Number(art.factor_conversion) || 1),
       NombreEmpaque: art.nombre_empaque || null,
-      ComprarComoEmpaque: false,
+      // Arranca en modo empaque si el producto lo tiene marcado por defecto
+      ComprarComoEmpaque: !!Number(art.comprar_como_empaque),
     };
     setLineas(prev => [...prev, nueva]);
     setBuscarProd(''); setShowProdDrop(false);

@@ -127,6 +127,16 @@ CREATE TABLE IF NOT EXISTS tblmov_caja (
     KEY idx_sesion (Id_Sesion)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- BDs legacy pueden tener tblcajas con Id_Caja INT NOT NULL sin AUTO_INCREMENT
+-- (CREATE TABLE IF NOT EXISTS respeta la existente). Los INSERT de abajo
+-- fallan con "Field 'Id_Caja' doesn't have a default value". Forzamos AI:
+SET @tiene_pk_cajas = (SELECT COUNT(*) FROM information_schema.TABLE_CONSTRAINTS
+    WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='tblcajas' AND CONSTRAINT_TYPE='PRIMARY KEY');
+SET @sql = IF(@tiene_pk_cajas = 0,
+    'ALTER TABLE tblcajas ADD PRIMARY KEY (Id_Caja)', 'SELECT 1');
+PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
+ALTER TABLE tblcajas MODIFY Id_Caja INT NOT NULL AUTO_INCREMENT;
+
 INSERT INTO tblcajas (Nombre, Tipo, Activa)
 SELECT 'Caja 1', 'punto_venta', 1
 FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM tblcajas WHERE Nombre = 'Caja 1');
@@ -994,12 +1004,26 @@ SET @sql = IF(@col_ef = 0,
   'SELECT 1');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
+-- Cada columna con su propio check — antes se agregaban las 3 juntas si
+-- email_sent faltaba, pero si email_recipient ya existía por otra ruta
+-- (bloque más abajo, o script de un cliente), el ADD masivo fallaba con
+-- "Duplicate column name 'email_recipient'".
 SET @col_es = IF(@t_ed = 1,
   (SELECT COUNT(*) FROM information_schema.COLUMNS
     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'electronic_documents' AND COLUMN_NAME = 'email_sent'), 1);
-SET @sql = IF(@col_es = 0,
-  "ALTER TABLE electronic_documents ADD COLUMN email_sent TINYINT(1) DEFAULT 0, ADD COLUMN email_sent_at DATETIME NULL, ADD COLUMN email_recipient VARCHAR(500) NULL",
-  'SELECT 1');
+SET @sql = IF(@col_es = 0, "ALTER TABLE electronic_documents ADD COLUMN email_sent TINYINT(1) DEFAULT 0", 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @col_es = IF(@t_ed = 1,
+  (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'electronic_documents' AND COLUMN_NAME = 'email_sent_at'), 1);
+SET @sql = IF(@col_es = 0, "ALTER TABLE electronic_documents ADD COLUMN email_sent_at DATETIME NULL", 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @col_es = IF(@t_ed = 1,
+  (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'electronic_documents' AND COLUMN_NAME = 'email_recipient'), 1);
+SET @sql = IF(@col_es = 0, "ALTER TABLE electronic_documents ADD COLUMN email_recipient VARCHAR(500) NULL", 'SELECT 1');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 SET @t = (SELECT COUNT(*) FROM information_schema.TABLES
@@ -1882,6 +1906,40 @@ CREATE TABLE IF NOT EXISTS tbl_movs_directos (
     INDEX idx_items (Items),
     INDEX idx_estado (Estado)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ================================================================
+-- Conversion de empaques (gate frontend: solo tipoNegocio=Farmacia)
+-- ================================================================
+-- Un mismo producto puede venderse como unidad o como empaque (caja).
+-- Ej: ACETAMINOFEN 500MG X 100 TABS. Compra=CAJA de 100, Venta=TABLETA.
+-- Idempotente: agrega solo las columnas faltantes.
+SET @c1 = (SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='tblarticulos' AND COLUMN_NAME='FactorConversion');
+SET @sql = IF(@c1=0,
+  "ALTER TABLE tblarticulos ADD COLUMN FactorConversion INT NOT NULL DEFAULT 1 COMMENT 'Unidades por empaque. 1=sin conversion'",
+  'SELECT 1');
+PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
+
+SET @c2 = (SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='tblarticulos' AND COLUMN_NAME='NombreEmpaque');
+SET @sql = IF(@c2=0,
+  "ALTER TABLE tblarticulos ADD COLUMN NombreEmpaque VARCHAR(30) NULL DEFAULT 'CAJA'",
+  'SELECT 1');
+PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
+
+SET @c3 = (SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='tblarticulos' AND COLUMN_NAME='VenderComoEmpaque');
+SET @sql = IF(@c3=0,
+  "ALTER TABLE tblarticulos ADD COLUMN VenderComoEmpaque TINYINT(1) NOT NULL DEFAULT 0",
+  'SELECT 1');
+PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
+
+SET @c4 = (SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='tblarticulos' AND COLUMN_NAME='ComprarComoEmpaque');
+SET @sql = IF(@c4=0,
+  "ALTER TABLE tblarticulos ADD COLUMN ComprarComoEmpaque TINYINT(1) NOT NULL DEFAULT 0",
+  'SELECT 1');
+PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
 
 -- ================================================================
 -- VERIFICACIÓN FINAL

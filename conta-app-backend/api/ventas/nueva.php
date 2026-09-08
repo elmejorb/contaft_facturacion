@@ -15,6 +15,17 @@ $method = $_SERVER['REQUEST_METHOD'];
 
 try {
     if ($method === 'GET') {
+        // Fix defensivo: detectar columnas de conversion agregadas en 4.3.95.
+        // Clientes que no corrieron actualizacion_completa no las tienen y el
+        // SELECT crashea con "Unknown column FactorConversion".
+        $colStmt = $db->query("SELECT COLUMN_NAME FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tblarticulos'");
+        $artCols = array_column($colStmt->fetchAll(PDO::FETCH_ASSOC), 'COLUMN_NAME');
+        $selFactor    = in_array('FactorConversion', $artCols)   ? 'COALESCE(a.FactorConversion, 1)' : '1';
+        $selNombreEmp = in_array('NombreEmpaque', $artCols)      ? 'a.NombreEmpaque'                 : 'NULL';
+        $selVenderEmp = in_array('VenderComoEmpaque', $artCols)  ? 'COALESCE(a.VenderComoEmpaque, 0)' : '0';
+        $selComprarEmp= in_array('ComprarComoEmpaque', $artCols) ? 'COALESCE(a.ComprarComoEmpaque, 0)' : '0';
+
         // Búsqueda EXACTA por código (input de código + Enter, escáner de barras, etc.)
         // No usa LIKE para evitar falsos positivos como "1" trayendo cualquier producto con "1" en el código.
         if (isset($_GET['codigo'])) {
@@ -24,8 +35,10 @@ try {
                 SELECT a.Items, a.Codigo, a.Nombres_Articulo, a.Existencia, a.Precio_Costo,
                        a.Precio_Venta, a.Precio_Venta2, a.Precio_Venta3, a.Iva, a.Precio_Minimo,
                        COALESCE(a.Servicio, 0) AS Servicio,
-                       COALESCE(a.Unidades, 1) AS factor_conversion,
-                       a.nombre_empaque,
+                       $selFactor AS factor_conversion,
+                       $selNombreEmp AS nombre_empaque,
+                       $selVenderEmp AS vender_como_empaque,
+                       $selComprarEmp AS comprar_como_empaque,
                        COALESCE(c.Categoria, 'VARIOS') as Categoria
                 FROM tblarticulos a
                 LEFT JOIN tblcategoria c ON a.Id_Categoria = c.Id_Categoria
@@ -57,6 +70,10 @@ try {
             SELECT a.Items, a.Codigo, a.Nombres_Articulo, a.Existencia, a.Precio_Costo,
                    a.Precio_Venta, a.Precio_Venta2, a.Precio_Venta3, a.Iva, a.Precio_Minimo,
                    COALESCE(a.Servicio, 0) AS Servicio,
+                   $selFactor AS factor_conversion,
+                   $selNombreEmp AS nombre_empaque,
+                   $selVenderEmp AS vender_como_empaque,
+                   $selComprarEmp AS comprar_como_empaque,
                    COALESCE(c.Categoria, 'VARIOS') as Categoria
             FROM tblarticulos a
             LEFT JOIN tblcategoria c ON a.Id_Categoria = c.Id_Categoria

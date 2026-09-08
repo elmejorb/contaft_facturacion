@@ -545,7 +545,8 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
         DescripcionTemp: esServicio ? art.Nombres_Articulo : undefined,
         FactorConversion: Math.max(1, Number(art.factor_conversion) || 1),
         NombreEmpaque: art.nombre_empaque || null,
-        VenderComoEmpaque: false,
+        // Arranca en modo empaque solo si el producto lo tiene marcado por defecto
+        VenderComoEmpaque: !!Number(art.vender_como_empaque),
       };
       setLineas(prev => [...prev, nueva]);
     }

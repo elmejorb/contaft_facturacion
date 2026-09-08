@@ -22,13 +22,25 @@ try {
         //   - ultimo_proveedor: nombre del proveedor de esa compra
         // Se filtran compras Anuladas para no confundir al usuario.
         if (isset($_GET['buscar'])) {
+            // Fix defensivo: detectar columnas 4.3.95 (FactorConversion etc).
+            // Clientes sin actualizacion_completa no las tienen y el SELECT crashea.
+            $colStmt = $db->query("SELECT COLUMN_NAME FROM information_schema.COLUMNS
+                WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tblarticulos'");
+            $artCols = array_column($colStmt->fetchAll(PDO::FETCH_ASSOC), 'COLUMN_NAME');
+            $selFactor    = in_array('FactorConversion', $artCols)   ? 'COALESCE(a.FactorConversion, 1)' : '1';
+            $selNombreEmp = in_array('NombreEmpaque', $artCols)      ? 'a.NombreEmpaque'                 : 'NULL';
+            $selVenderEmp = in_array('VenderComoEmpaque', $artCols)  ? 'COALESCE(a.VenderComoEmpaque, 0)' : '0';
+            $selComprarEmp= in_array('ComprarComoEmpaque', $artCols) ? 'COALESCE(a.ComprarComoEmpaque, 0)' : '0';
+
             $q = $_GET['buscar'];
             $stmt = $db->prepare("
                 SELECT a.Items, a.Codigo, a.Nombres_Articulo, a.Existencia, a.Precio_Costo,
                        a.Precio_CostoComp, a.Precio_Venta, a.Iva, a.Flete,
                        COALESCE(a.requiere_lote, 0) AS requiere_lote,
-                       COALESCE(a.Unidades, 1) AS factor_conversion,
-                       a.nombre_empaque,
+                       $selFactor AS factor_conversion,
+                       $selNombreEmp AS nombre_empaque,
+                       $selVenderEmp AS vender_como_empaque,
+                       $selComprarEmp AS comprar_como_empaque,
                        COALESCE(c.Categoria, 'VARIOS') as Categoria,
                        (SELECT d.IvaPct
                         FROM tbldetalle_pedido d

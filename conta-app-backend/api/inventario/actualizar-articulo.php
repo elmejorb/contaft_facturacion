@@ -35,6 +35,19 @@ try {
     $existNueva     = isset($input['Existencia']) ? floatval($input['Existencia']) : $existActual;
     $costoUnit      = floatval($input['Precio_Costo'] ?? $articuloActual['Precio_Costo'] ?? 0);
 
+    // Detectar columnas presentes en tblarticulos. Los campos de conversion
+    // (FactorConversion, NombreEmpaque, VenderComoEmpaque, ComprarComoEmpaque)
+    // se agregaron en 4.3.95 — clientes que NO han corrido actualizacion_completa
+    // no las tienen. Sin este chequeo el UPDATE crashea con "Unknown column"
+    // y el frontend muestra "error de conexion" al guardar.
+    $colStmt = $db->query("SELECT COLUMN_NAME FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tblarticulos'");
+    $cols = array_column($colStmt->fetchAll(PDO::FETCH_ASSOC), 'COLUMN_NAME');
+    $tieneFactor = in_array('FactorConversion', $cols);
+    $tieneNombreEmp = in_array('NombreEmpaque', $cols);
+    $tieneVenderEmp = in_array('VenderComoEmpaque', $cols);
+    $tieneComprarEmp = in_array('ComprarComoEmpaque', $cols);
+
     // Notas defensivas:
     //   - `Servicio` y `requiere_lote`: `!empty()` funciona bien para 0/1
     //     numérico y string; se preserva.
@@ -42,31 +55,26 @@ try {
     //   - `Id_Etiqueta`: null si viene 0 o vacío (no hay etiqueta 0).
     //   - Los coalesce `?? valor_actual` evitan resets accidentales cuando el
     //     frontend NO envía el campo (ej. flujos de bulk edit parcial).
-    $query = "UPDATE tblarticulos SET
-        Codigo = :codigo,
-        Nombres_Articulo = :nombre,
-        Id_Categoria = :categoria,
-        Precio_Costo = :costo,
-        Precio_Venta = :precio1,
-        Precio_Venta2 = :precio2,
-        Precio_Venta3 = :precio3,
-        Precio_Minimo = :precioMinimo,
-        Iva = :iva,
-        Existencia = :existencia,
-        Existencia_minima = :existenciaMinima,
-        CodigoPro = :proveedor,
-        Estante = :estante,
-        Estado = :estado,
-        requiere_lote = :requiereLote,
-        Servicio = :servicio,
-        Id_Etiqueta = :etiqueta,
-        Unidades = :unidades,
-        nombre_empaque = :nombreEmpaque,
-        FechaMod = NOW()
-    WHERE Items = :items";
-
-    $stmt = $db->prepare($query);
-    $stmt->execute([
+    $sets = [
+        'Codigo = :codigo',
+        'Nombres_Articulo = :nombre',
+        'Id_Categoria = :categoria',
+        'Precio_Costo = :costo',
+        'Precio_Venta = :precio1',
+        'Precio_Venta2 = :precio2',
+        'Precio_Venta3 = :precio3',
+        'Precio_Minimo = :precioMinimo',
+        'Iva = :iva',
+        'Existencia = :existencia',
+        'Existencia_minima = :existenciaMinima',
+        'CodigoPro = :proveedor',
+        'Estante = :estante',
+        'Estado = :estado',
+        'requiere_lote = :requiereLote',
+        'Servicio = :servicio',
+        'Id_Etiqueta = :etiqueta',
+    ];
+    $params = [
         ':codigo' => $input['Codigo'],
         ':nombre' => $input['Nombres_Articulo'],
         ':categoria' => $input['Id_Categoria'] ?? 0,
@@ -84,10 +92,29 @@ try {
         ':requiereLote' => !empty($input['requiere_lote']) ? 1 : 0,
         ':servicio' => !empty($input['Servicio']) ? 1 : 0,
         ':etiqueta' => !empty($input['Id_Etiqueta']) ? intval($input['Id_Etiqueta']) : null,
-        ':unidades' => max(1, intval($input['Unidades'] ?? 1)),
-        ':nombreEmpaque' => trim($input['nombre_empaque'] ?? '') ?: null,
         ':items' => $input['Items'],
-    ]);
+    ];
+    if ($tieneFactor) {
+        $sets[] = 'FactorConversion = :factorConv';
+        $params[':factorConv'] = max(1, intval($input['FactorConversion'] ?? $input['Unidades'] ?? 1));
+    }
+    if ($tieneNombreEmp) {
+        $sets[] = 'NombreEmpaque = :nombreEmpaque';
+        $params[':nombreEmpaque'] = trim($input['NombreEmpaque'] ?? $input['nombre_empaque'] ?? '') ?: null;
+    }
+    if ($tieneVenderEmp) {
+        $sets[] = 'VenderComoEmpaque = :venderEmp';
+        $params[':venderEmp'] = !empty($input['VenderComoEmpaque']) ? 1 : 0;
+    }
+    if ($tieneComprarEmp) {
+        $sets[] = 'ComprarComoEmpaque = :comprarEmp';
+        $params[':comprarEmp'] = !empty($input['ComprarComoEmpaque']) ? 1 : 0;
+    }
+    $sets[] = 'FechaMod = NOW()';
+
+    $query = 'UPDATE tblarticulos SET ' . implode(', ', $sets) . ' WHERE Items = :items';
+    $stmt = $db->prepare($query);
+    $stmt->execute($params);
 
     // Si la existencia cambió manualmente, registrar la diferencia en el kardex
     // como entrada (suma) o salida (resta) — preserva el libro inmutable.

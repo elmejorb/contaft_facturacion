@@ -42,20 +42,24 @@ try {
     $existenciaInicial = floatval($input['Existencia'] ?? 0);
     $costoUnit = floatval($input['Precio_Costo'] ?? 0);
 
-    $query = "INSERT INTO tblarticulos (
-        Items, Codigo, Nombres_Articulo, Id_Categoria, Existencia, Existencia_minima,
-        Precio_Costo, Precio_Venta, Precio_Venta2, Precio_Venta3, Precio_Minimo,
-        Iva, CodigoPro, Estante, Estado, requiere_lote, Servicio, Id_Etiqueta,
-        Unidades, nombre_empaque, FechaMod
-    ) VALUES (
-        :items, :codigo, :nombre, :categoria, :existencia, :existenciaMinima,
-        :costo, :precio1, :precio2, :precio3, :precioMinimo,
-        :iva, :proveedor, :estante, :estado, :requiereLote, :servicio, :etiqueta,
-        :unidades, :nombreEmpaque, NOW()
-    )";
+    // Detectar columnas presentes en tblarticulos. Los campos de conversion se
+    // agregaron en 4.3.95 — si el cliente no corrio actualizacion_completa,
+    // el INSERT rigido crashea con "Unknown column" (frontend: "error de conexion").
+    $colStmt = $db->query("SELECT COLUMN_NAME FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tblarticulos'");
+    $cols = array_column($colStmt->fetchAll(PDO::FETCH_ASSOC), 'COLUMN_NAME');
+    $tieneFactor = in_array('FactorConversion', $cols);
+    $tieneNombreEmp = in_array('NombreEmpaque', $cols);
+    $tieneVenderEmp = in_array('VenderComoEmpaque', $cols);
+    $tieneComprarEmp = in_array('ComprarComoEmpaque', $cols);
 
-    $stmt = $db->prepare($query);
-    $stmt->execute([
+    $campos = ['Items', 'Codigo', 'Nombres_Articulo', 'Id_Categoria', 'Existencia', 'Existencia_minima',
+        'Precio_Costo', 'Precio_Venta', 'Precio_Venta2', 'Precio_Venta3', 'Precio_Minimo',
+        'Iva', 'CodigoPro', 'Estante', 'Estado', 'requiere_lote', 'Servicio', 'Id_Etiqueta'];
+    $placeholders = [':items', ':codigo', ':nombre', ':categoria', ':existencia', ':existenciaMinima',
+        ':costo', ':precio1', ':precio2', ':precio3', ':precioMinimo',
+        ':iva', ':proveedor', ':estante', ':estado', ':requiereLote', ':servicio', ':etiqueta'];
+    $params = [
         ':items' => $nextItems,
         ':codigo' => $input['Codigo'],
         ':nombre' => $input['Nombres_Articulo'],
@@ -74,9 +78,29 @@ try {
         ':requiereLote' => !empty($input['requiere_lote']) ? 1 : 0,
         ':servicio' => !empty($input['Servicio']) ? 1 : 0,
         ':etiqueta' => !empty($input['Id_Etiqueta']) ? intval($input['Id_Etiqueta']) : null,
-        ':unidades' => max(1, intval($input['Unidades'] ?? 1)),
-        ':nombreEmpaque' => trim($input['nombre_empaque'] ?? '') ?: null,
-    ]);
+    ];
+    if ($tieneFactor) {
+        $campos[] = 'FactorConversion'; $placeholders[] = ':factorConv';
+        $params[':factorConv'] = max(1, intval($input['FactorConversion'] ?? $input['Unidades'] ?? 1));
+    }
+    if ($tieneNombreEmp) {
+        $campos[] = 'NombreEmpaque'; $placeholders[] = ':nombreEmpaque';
+        $params[':nombreEmpaque'] = trim($input['NombreEmpaque'] ?? $input['nombre_empaque'] ?? '') ?: null;
+    }
+    if ($tieneVenderEmp) {
+        $campos[] = 'VenderComoEmpaque'; $placeholders[] = ':venderEmp';
+        $params[':venderEmp'] = !empty($input['VenderComoEmpaque']) ? 1 : 0;
+    }
+    if ($tieneComprarEmp) {
+        $campos[] = 'ComprarComoEmpaque'; $placeholders[] = ':comprarEmp';
+        $params[':comprarEmp'] = !empty($input['ComprarComoEmpaque']) ? 1 : 0;
+    }
+    $campos[] = 'FechaMod'; $placeholders[] = 'NOW()';
+
+    $query = 'INSERT INTO tblarticulos (' . implode(', ', $campos) . ') VALUES ('
+             . implode(', ', $placeholders) . ')';
+    $stmt = $db->prepare($query);
+    $stmt->execute($params);
 
     // Si hay existencia inicial y existe la tabla kardex, registrar la carga inicial.
     if ($existenciaInicial > 0) {
