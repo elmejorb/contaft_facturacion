@@ -5,6 +5,25 @@ Visible solo para administradores desde **Configuración → Acerca de → Ver h
 
 ---
 
+## 4.3.98 — 2026-09-08
+
+### Fix — pagos a proveedor por banco restaban del cuadre de caja
+
+- Reportado por cliente: al pagar a un proveedor seleccionando *"Bancolombia"* como medio de pago, el egreso se contabilizaba correctamente en `tblegresos` con `TipoPago=2`, pero el resumen del día de la caja lo restaba del efectivo como si fuera un pago en efectivo.
+- Causa: el `SUM(Valor) FROM tblegresos` en el cuadre no filtraba por `TipoPago` — sumaba todo (efectivo + banco).
+- Corrección: `caja/sesion.php` y `caja/estado.php` (4 SELECTs afectados) ahora suman solo `AND COALESCE(TipoPago, 0) = 0`. Los egresos por banco/transferencia siguen apareciendo en informes financieros (Cierre de Mes, Pagos a Proveedores) pero ya no tocan el efectivo del día.
+- Compatible con egresos históricos que tenían `TipoPago = NULL` — se tratan como efectivo (default histórico correcto).
+
+### Fix — Anulaciones y devoluciones se veían "reflejadas de nuevo"
+
+- Reportado por cliente: *"Se me refleja en caja de nuevo"*. En el módulo Caja, el listado inferior *"Movimientos de Caja"* mostraba todos los `tblmov_caja` con signo negativo — incluidos los que ya estaban resumidos arriba en las líneas *Egresos*, *Anulaciones* y *Retiros parciales*.
+- Numéricamente NO había doble descuento — el `total_efectivo` era correcto. Pero visualmente parecía que cada egreso se restaba dos veces (arriba en el resumen + abajo en la lista con `-$X` en rojo).
+- Corrección:
+  - **Backend** (`caja/sesion.php`): el listado ahora excluye `Tipo IN ('gasto','pago_proveedor','retiro_parcial')`. Solo devuelve traslados entre cajas y depósitos a banco (movimientos que NO se agregan en el resumen).
+  - **Frontend** (`CajaRegistradora.tsx`): el bloque se renombró a *"Traslados y depósitos"* con una nota aclaratoria — *"Los egresos y anulaciones ya están incluidos arriba en el resumen"*. Sin color rojo ni signo `-` (son movimientos neutros, no descuentos).
+
+---
+
 ## 4.3.97 — 2026-09-08
 
 ### Hotfix — "Error de conexión" y "Error al cargar los artículos" tras la 4.3.95

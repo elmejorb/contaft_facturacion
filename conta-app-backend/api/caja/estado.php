@@ -74,8 +74,10 @@ try {
         $stmt->execute([$fechaCaja]);
         $pagos = $stmt->fetch();
 
-        // Egresos (pagos a proveedores + gastos)
-        $stmt = $db->prepare("SELECT COALESCE(SUM(Valor), 0) as total, COUNT(*) as cantidad FROM tblegresos WHERE DATE(Fecha) = ? AND Estado = 'Valida'");
+        // Egresos (pagos a proveedores + gastos) — SOLO efectivo (TipoPago=0)
+        // afecta el efectivo real de la caja. Los pagos por banco/transferencia
+        // NO restan del cuadre de caja.
+        $stmt = $db->prepare("SELECT COALESCE(SUM(Valor), 0) as total, COUNT(*) as cantidad FROM tblegresos WHERE DATE(Fecha) = ? AND Estado = 'Valida' AND COALESCE(TipoPago, 0) = 0");
         $stmt->execute([$fechaCaja]);
         $egresos = $stmt->fetch();
 
@@ -192,7 +194,7 @@ try {
             $stmt->execute([$fechaCaja]);
             $pg = $stmt->fetch();
 
-            $stmt = $db->prepare("SELECT COALESCE(SUM(Valor), 0) as t FROM tblegresos WHERE DATE(Fecha) = ? AND Estado = 'Valida'");
+            $stmt = $db->prepare("SELECT COALESCE(SUM(Valor), 0) as t FROM tblegresos WHERE DATE(Fecha) = ? AND Estado = 'Valida' AND COALESCE(TipoPago, 0) = 0");
             $stmt->execute([$fechaCaja]);
             $eg = $stmt->fetch();
 

@@ -639,15 +639,21 @@ export function CajaRegistradora() {
                 </div>
               </div>
 
-              {/* Movimientos de la sesión */}
+              {/* Otros movimientos de la sesion — traslados y depositos.
+                  Los egresos, anulaciones y retiros parciales YA salen
+                  desglosados arriba en el resumen; no los repetimos aqui
+                  para evitar la sensacion de doble descuento. */}
               {res.movimientos && res.movimientos.length > 0 && (
                 <div style={{ background: '#fff', borderRadius: 12, padding: 16, boxShadow: '0 1px 3px rgba(0,0,0,0.08)', marginBottom: 12 }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Movimientos de Caja</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>Traslados y depósitos</div>
+                  <div style={{ fontSize: 10, color: '#9ca3af', marginBottom: 8 }}>
+                    Movimientos entre cajas y hacia bancos. Los egresos y anulaciones ya están incluidos arriba en el resumen.
+                  </div>
                   {res.movimientos.map((m: any) => (
                     <div key={m.Id_Mov} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', borderBottom: '1px solid #f3f4f6', fontSize: 12 }}>
-                      <ArrowDownRight size={13} color="#d97706" />
+                      <ArrowDownRight size={13} color="#6b7280" />
                       <span style={{ flex: 1, color: '#6b7280' }}>{m.Descripcion}</span>
-                      <span style={{ fontWeight: 700, color: '#d97706' }}>-{fmtMon(parseFloat(m.Valor))}</span>
+                      <span style={{ fontWeight: 700, color: '#6b7280' }}>{fmtMon(parseFloat(m.Valor))}</span>
                       <span style={{ fontSize: 10, color: '#9ca3af' }}>{new Date(m.Fecha).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })}</span>
                     </div>
                   ))}

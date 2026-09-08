@@ -188,8 +188,12 @@ try {
         $stmt->execute($paramsUsuario);
         $pg = $stmt->fetch();
 
-        // Egresos
-        $stmt = $db->prepare("SELECT COALESCE(SUM(Valor),0) as t, COUNT(*) as c FROM tblegresos WHERE Fecha >= ? AND Estado = 'Valida'$filtroUsuarioPagos");
+        // Egresos — SOLO los pagados en efectivo (TipoPago=0) deben restar del
+        // total de caja. Los egresos pagados por banco/tarjeta/transferencia
+        // (TipoPago>0) NO afectan el efectivo fisico de la caja.
+        // Bug reportado por cliente: pagos a proveedor via "Bancolombia" restaban
+        // del cuadre de caja como si fueran efectivo.
+        $stmt = $db->prepare("SELECT COALESCE(SUM(Valor),0) as t, COUNT(*) as c FROM tblegresos WHERE Fecha >= ? AND Estado = 'Valida' AND COALESCE(TipoPago, 0) = 0$filtroUsuarioPagos");
         $stmt->execute($paramsUsuario);
         $eg = $stmt->fetch();
 
@@ -203,8 +207,18 @@ try {
         $stmt->execute([$sesion['Id_Sesion']]);
         $retiros = floatval($stmt->fetch()['t']);
 
-        // Movimientos de caja de esta sesión
-        $stmt = $db->prepare("SELECT * FROM tblmov_caja WHERE Id_Sesion = ? ORDER BY Fecha DESC");
+        // Movimientos de caja de esta sesion — SOLO los "otros" que NO se
+        // contabilizan en las lineas del resumen (Egresos, Anulaciones,
+        // Retiros parciales). Antes se listaban todos y el cliente veia el
+        // mismo egreso arriba en el resumen y abajo en la lista, dando la
+        // impresion de doble descuento. Con este filtro, la lista solo muestra
+        // traslados entre cajas y depositos a banco — que no cambian el neto.
+        $stmt = $db->prepare("
+            SELECT * FROM tblmov_caja
+             WHERE Id_Sesion = ?
+               AND Tipo NOT IN ('gasto','pago_proveedor','retiro_parcial')
+             ORDER BY Fecha DESC
+        ");
         $stmt->execute([$sesion['Id_Sesion']]);
         $movimientos = $stmt->fetchAll();
 
@@ -419,7 +433,8 @@ try {
             $stmt = $db->prepare("SELECT COALESCE(SUM(CASE WHEN id_mediopago=0 THEN ValorPago ELSE 0 END),0) as ef, COALESCE(SUM(CASE WHEN id_mediopago>0 THEN ValorPago ELSE 0 END),0) as tr, COALESCE(SUM(ValorPago),0) as t FROM tblpagos WHERE Fecha >= ? AND Estado = 'Valida'$filtroUm");
             $stmt->execute($params); $pg = $stmt->fetch();
 
-            $stmt = $db->prepare("SELECT COALESCE(SUM(Valor),0) as t FROM tblegresos WHERE Fecha >= ? AND Estado = 'Valida'$filtroUm");
+            // Solo egresos en efectivo (TipoPago=0) restan del efectivo real de caja.
+            $stmt = $db->prepare("SELECT COALESCE(SUM(Valor),0) as t FROM tblegresos WHERE Fecha >= ? AND Estado = 'Valida' AND COALESCE(TipoPago, 0) = 0$filtroUm");
             $stmt->execute($params); $eg = $stmt->fetch();
 
             $stmt = $db->prepare("SELECT COALESCE(SUM(Valor),0) as t FROM tblmov_caja WHERE Id_Sesion = ? AND Tipo = 'gasto' AND Descripcion LIKE 'Reembolso por %'");
