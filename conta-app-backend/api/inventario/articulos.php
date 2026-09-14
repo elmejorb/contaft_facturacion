@@ -56,6 +56,7 @@ try {
     $selNombreEmp = in_array('NombreEmpaque', $artCols)      ? 'a.NombreEmpaque'                 : 'NULL';
     $selVenderEmp = in_array('VenderComoEmpaque', $artCols)  ? 'COALESCE(a.VenderComoEmpaque, 0)' : '0';
     $selComprarEmp= in_array('ComprarComoEmpaque', $artCols) ? 'COALESCE(a.ComprarComoEmpaque, 0)' : '0';
+    $selPrecioEmp = in_array('Precio_Venta_Empaque', $artCols) ? 'a.Precio_Venta_Empaque'         : 'NULL';
     $selIdEtiq    = in_array('Id_Etiqueta', $artCols)        ? 'a.Id_Etiqueta' : 'NULL';
     $selEstante   = in_array('Estante', $artCols)            ? 'a.Estante' : "''";
     $selExMin     = in_array('Existencia_minima', $artCols)  ? 'a.Existencia_minima' : '0';
@@ -95,14 +96,21 @@ try {
                 $selFactor AS FactorConversion,
                 $selNombreEmp AS NombreEmpaque,
                 $selVenderEmp AS VenderComoEmpaque,
-                $selComprarEmp AS ComprarComoEmpaque
+                $selComprarEmp AS ComprarComoEmpaque,
+                $selPrecioEmp AS Precio_Venta_Empaque
               FROM tblArticulos a
               LEFT JOIN tblcategoria c ON a.Id_Categoria = c.Id_Categoria
               $joinProv
               $joinEtiq";
 
-    // Filtrar por estado si es necesario
-    if ($estado === 'Activos') {
+    // Filtro por Items (traer un solo producto — usado por Editar Producto
+    // desde Nueva Compra sin salir de la pantalla).
+    $itemsFilter = isset($_GET['items']) ? intval($_GET['items']) : 0;
+    $params = [];
+    if ($itemsFilter > 0) {
+        $query .= " WHERE a.Items = :items";
+        $params[':items'] = $itemsFilter;
+    } elseif ($estado === 'Activos') {
         $query .= " WHERE a.Estado = 1";
     } elseif ($estado === 'Inactivos') {
         $query .= " WHERE a.Estado = 0";
@@ -113,7 +121,7 @@ try {
 
     // Ejecutar la consulta
     $stmt = $db->prepare($query);
-    $stmt->execute();
+    $stmt->execute($params);
 
     $articulos = $stmt->fetchAll();
 

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, Fragment } from 'react';
-import { Search, Trash2, Plus, Save, X, Package, Landmark, CreditCard, Smartphone, Banknote, BarChart3, Printer } from 'lucide-react';
+import { Search, Trash2, Plus, Save, X, Package, Landmark, CreditCard, Smartphone, Banknote, BarChart3, Printer, Edit3 } from 'lucide-react';
 import { ProductosProveedor } from './ProductosProveedor';
 import toast from 'react-hot-toast';
 import { EditarArticuloModal } from './EditarArticuloModal';
@@ -119,6 +119,9 @@ export function NuevaCompra({ pedidoEditar, onClose, initialState, onStateChange
   // Modal de historial de precios de un producto de la compra.
   // Guarda el Items del producto seleccionado; null = modal cerrado.
   const [historialItems, setHistorialItems] = useState<number | null>(null);
+  // Editar producto en linea (sin salir de la compra). Guardamos el objeto
+  // Articulo completo (cargado desde /inventario/articulos.php?items=X).
+  const [editarArticulo, setEditarArticulo] = useState<any | null>(null);
   const searchTimer = useRef<any>(null);
   const codigoRef = useRef<HTMLInputElement>(null);
   const buscarInputRef = useRef<HTMLInputElement>(null);
@@ -997,6 +1000,24 @@ export function NuevaCompra({ pedidoEditar, onClose, initialState, onStateChange
                       style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2 }}>
                       <BarChart3 size={12} color="#7c3aed" />
                     </button>
+                    <button type="button"
+                      onClick={async () => {
+                        // Cargar el producto completo desde el listado unificado
+                        // (mismo formato que espera el modal). Se hace on-demand
+                        // en vez de guardar todo el articulo en la linea para no
+                        // inflar el localStorage/tabState.
+                        try {
+                          const r = await fetch(`http://localhost:80/conta-app-backend/api/inventario/articulos.php?items=${l.Items}`);
+                          const d = await r.json();
+                          const art = (d.success && Array.isArray(d.articulos) && d.articulos[0]) || null;
+                          if (art) setEditarArticulo(art);
+                          else toast.error('No se pudo cargar el producto');
+                        } catch { toast.error('Error de conexión al cargar producto'); }
+                      }}
+                      title="Editar este producto (sin salir de la compra)"
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2 }}>
+                      <Edit3 size={12} color="#059669" />
+                    </button>
                     <button onClick={() => eliminarLinea(l.id)}
                       title="Eliminar línea"
                       style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2 }}>
@@ -1464,6 +1485,40 @@ export function NuevaCompra({ pedidoEditar, onClose, initialState, onStateChange
             </div>
           </div>
         </div>
+      )}
+
+      {/* Modal editar producto de una linea del carrito (sin salir de la
+          compra). Al guardar, actualiza la linea del carrito con los precios/
+          factor/nombre nuevos y muestra toast. */}
+      {editarArticulo && (
+        <EditarArticuloModal
+          isOpen={true}
+          articulo={editarArticulo}
+          onClose={() => setEditarArticulo(null)}
+          onGuardado={async () => {
+            const items = editarArticulo.Items;
+            setEditarArticulo(null);
+            // Recargar el producto del backend para tener los valores nuevos
+            try {
+              const r = await fetch(`${API}?codigo=${encodeURIComponent(editarArticulo.Codigo || '')}`);
+              const d = await r.json();
+              const art = d.success && d.articulos?.[0];
+              if (art) {
+                // Actualizar TODAS las lineas del carrito que apuntan a este Items
+                setLineas(prev => prev.map(l => l.Items !== items ? l : ({
+                  ...l,
+                  Nombre: art.Nombres_Articulo || l.Nombre,
+                  IvaPct: art.Iva ?? l.IvaPct,
+                  FactorConversion: Math.max(1, Number(art.factor_conversion) || 1),
+                  NombreEmpaque: art.nombre_empaque ?? l.NombreEmpaque,
+                  // Precio_Costo y CostoSinIva se mantienen como los tiene el usuario
+                  // en la linea (el precio de esta compra puede diferir del catalogo).
+                })));
+              }
+              toast.success('Producto actualizado');
+            } catch { toast.success('Producto actualizado'); }
+          }}
+        />
       )}
 
       {/* Modal crear producto rápido */}

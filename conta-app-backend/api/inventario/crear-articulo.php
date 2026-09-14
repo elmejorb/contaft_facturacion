@@ -52,6 +52,7 @@ try {
     $tieneNombreEmp = in_array('NombreEmpaque', $cols);
     $tieneVenderEmp = in_array('VenderComoEmpaque', $cols);
     $tieneComprarEmp = in_array('ComprarComoEmpaque', $cols);
+    $tienePrecioEmp = in_array('Precio_Venta_Empaque', $cols);
 
     $campos = ['Items', 'Codigo', 'Nombres_Articulo', 'Id_Categoria', 'Existencia', 'Existencia_minima',
         'Precio_Costo', 'Precio_Venta', 'Precio_Venta2', 'Precio_Venta3', 'Precio_Minimo',
@@ -94,6 +95,11 @@ try {
     if ($tieneComprarEmp) {
         $campos[] = 'ComprarComoEmpaque'; $placeholders[] = ':comprarEmp';
         $params[':comprarEmp'] = !empty($input['ComprarComoEmpaque']) ? 1 : 0;
+    }
+    if ($tienePrecioEmp) {
+        $campos[] = 'Precio_Venta_Empaque'; $placeholders[] = ':precioEmp';
+        $val = $input['Precio_Venta_Empaque'] ?? null;
+        $params[':precioEmp'] = ($val === null || $val === '' || floatval($val) <= 0) ? null : floatval($val);
     }
     $campos[] = 'FechaMod'; $placeholders[] = 'NOW()';
 

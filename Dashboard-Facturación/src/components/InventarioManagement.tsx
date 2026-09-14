@@ -19,6 +19,7 @@ import api from '../services/api';
 import { Kardex } from './Kardex';
 import { DetalleProductoModal } from './DetalleProductoModal';
 import { EditarArticuloModal } from './EditarArticuloModal';
+import { esFarmacia } from './ConfiguracionSistema';
 import { AG_GRID_LOCALE_ES } from '../utils/agGridLocaleEs';
 
 ModuleRegistry.registerModules([AllCommunityModule]);
@@ -41,6 +42,9 @@ interface Articulo {
   Id_Etiqueta?: number | null;
   Etiqueta?: string;
   Etiqueta_Color?: string;
+  FactorConversion?: number;
+  NombreEmpaque?: string | null;
+  Precio_Venta_Empaque?: number | null;
 }
 
 const myTheme = themeQuartz.withParams({
@@ -234,6 +238,32 @@ export function InventarioManagement() {
         }}>{display}</span>;
       },
     },
+    // Columna "En Cajas" — solo Farmacia. Muestra el desglose "3 CAJAs + 7 und"
+    // para productos con FactorConversion > 1. En productos sin factor,
+    // muestra guión "—".
+    ...(esFarmacia() ? [{
+      headerName: 'En Cajas',
+      field: 'Existencia' as keyof Articulo,
+      colId: 'existencia_cajas',
+      width: 130,
+      type: 'numericColumn' as const,
+      cellRenderer: (params: { data: Articulo }) => {
+        const factor = Math.max(1, Number(params.data.FactorConversion) || 1);
+        if (factor <= 1) return <span style={{ color: '#d1d5db' }}>—</span>;
+        const exist = Number(params.data.Existencia) || 0;
+        const cajas = Math.floor(exist / factor);
+        const sueltas = Math.round(exist - cajas * factor);
+        const emp = params.data.NombreEmpaque || 'CAJA';
+        return (
+          <span style={{ fontSize: 11 }}>
+            <b style={{ color: '#7c3aed' }}>{cajas}</b>
+            <span style={{ color: '#9ca3af' }}> {emp.toLowerCase()}(s) + </span>
+            <b style={{ color: '#7c3aed' }}>{sueltas}</b>
+            <span style={{ color: '#9ca3af' }}> und</span>
+          </span>
+        );
+      },
+    }] : []),
     {
       headerName: 'IVA',
       field: 'Iva' as keyof Articulo,

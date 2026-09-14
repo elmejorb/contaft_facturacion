@@ -3,6 +3,7 @@ import { AgGridReact } from 'ag-grid-react';
 import { Plus, RefreshCw, XCircle, Search, ArrowUpFromLine, ArrowDownToLine, X } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../contexts/AuthContext';
+import { esFarmacia } from './ConfiguracionSistema';
 
 const API = 'http://localhost:80/conta-app-backend/api/movs-directos';
 const API_BUSCAR = 'http://localhost:80/conta-app-backend/api/compras/nueva.php';
@@ -216,6 +217,15 @@ function ModalNuevo({ tipo, idUsuario, onClose, onSuccess }: {
   const [costoUnitario, setCostoUnitario] = useState('');
   const [concepto, setConcepto] = useState('');
   const [enviando, setEnviando] = useState(false);
+  // Modo empaque: si el producto tiene FactorConversion>1 y es Farmacia,
+  // el cajero puede ingresar cantidad/costo por CAJA en vez de por unidad.
+  // Al guardar se multiplica cantidad por factor y se divide el costo.
+  const [modoEmpaque, setModoEmpaque] = useState(false);
+  // Precios de venta opcionales (solo entrada). Vacío = no toca los del producto.
+  // Cuando el cajero encuentra sobrante o carga producto nuevo, puede aprovechar
+  // para ajustar los precios sin salir del modal.
+  const [precioVentaUnd, setPrecioVentaUnd] = useState('');
+  const [precioVentaEmp, setPrecioVentaEmp] = useState('');
   const searchTimer = useRef<any>(null);
 
   const buscar = (q: string) => {
@@ -233,26 +243,52 @@ function ModalNuevo({ tipo, idUsuario, onClose, onSuccess }: {
     setProducto(a);
     setBusqueda(`${a.Codigo} — ${a.Nombres_Articulo}`);
     setShowDrop(false);
+    // Arrancar en modo empaque si el producto lo tiene marcado por defecto
+    // para compras (regla de Farmacia). Usuario puede cambiar con el toggle.
+    const factorA = Math.max(1, Number(a.factor_conversion || a.FactorConversion) || 1);
+    const empDefault = factorA > 1 && esFarmacia() && (
+      tipo === 'entrada'
+        ? !!Number(a.comprar_como_empaque || a.ComprarComoEmpaque)
+        : !!Number(a.vender_como_empaque || a.VenderComoEmpaque)
+    );
+    setModoEmpaque(empDefault);
     if (tipo === 'entrada' && !costoUnitario && a.Precio_Costo) {
-      setCostoUnitario(String(Math.round(a.Precio_Costo)));
+      // Si arranca en modo caja, sugerir costo × factor (costo por caja).
+      const costoUnit = Math.round(a.Precio_Costo);
+      setCostoUnitario(String(empDefault ? costoUnit * factorA : costoUnit));
     }
+    // Precios de venta como referencia (vacío si no vienen — no obliga)
+    setPrecioVentaUnd('');
+    setPrecioVentaEmp('');
   };
 
   const guardar = async () => {
     if (!producto) { toast.error('Seleccione un producto'); return; }
     const cant = Number(cantidad);
     if (!cant || cant <= 0) { toast.error('Cantidad debe ser mayor a 0'); return; }
-    if (tipo === 'salida' && cant > (producto.Existencia || 0)) {
-      toast.error(`Existencia actual (${producto.Existencia}) menor que la cantidad`); return;
+    // Convertir a unidad base si el usuario ingresó por empaque
+    const factor = Math.max(1, Number(producto.factor_conversion || producto.FactorConversion) || 1);
+    const cantBase = modoEmpaque && factor > 1 ? cant * factor : cant;
+    const costoIngresado = Number(costoUnitario) || 0;
+    const costoBase = modoEmpaque && factor > 1 && costoIngresado > 0
+      ? Math.round((costoIngresado / factor) * 10000) / 10000
+      : costoIngresado;
+    if (tipo === 'salida' && cantBase > (producto.Existencia || 0)) {
+      toast.error(`Existencia actual (${producto.Existencia}) menor que la cantidad (${cantBase} en unidades)`); return;
     }
     setEnviando(true);
     try {
       const r = await fetch(`${API}/crear.php`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          tipo, motivo, fecha, Items: producto.Items, Cantidad: cant,
-          Costo_Unitario: Number(costoUnitario) || 0,
+          tipo, motivo, fecha, Items: producto.Items,
+          Cantidad: cantBase,
+          Costo_Unitario: costoBase,
           Concepto: concepto, Id_Usuario: idUsuario,
+          // Precios de venta opcionales (solo se aplican en tipo='entrada').
+          // Vacío o 0 = no toca los precios actuales del producto.
+          Precio_Venta: tipo === 'entrada' && precioVentaUnd ? Number(precioVentaUnd) : null,
+          Precio_Venta_Empaque: tipo === 'entrada' && precioVentaEmp ? Number(precioVentaEmp) : null,
         }),
       });
       const d = await r.json();
@@ -319,27 +355,130 @@ function ModalNuevo({ tipo, idUsuario, onClose, onSuccess }: {
             )}
           </div>
 
-          {producto && (
-            <div style={{ background: '#f9fafb', padding: 8, borderRadius: 6, fontSize: 11, color: '#374151' }}>
-              <b>{producto.Nombres_Articulo}</b> · Stock: <b>{producto.Existencia}</b> · Costo actual: {fmtMon(producto.Precio_Costo || 0)}
+          {producto && (() => {
+            const factorP = Math.max(1, Number(producto.factor_conversion || producto.FactorConversion) || 1);
+            const nombreEmp = (producto.nombre_empaque || producto.NombreEmpaque || 'Caja');
+            const puedeEmpaque = factorP > 1 && esFarmacia();
+            const cantNum = Number(cantidad) || 0;
+            const totalUndBase = modoEmpaque && factorP > 1 ? cantNum * factorP : cantNum;
+            return (
+              <>
+                <div style={{ background: '#f9fafb', padding: 8, borderRadius: 6, fontSize: 11, color: '#374151' }}>
+                  <b>{producto.Nombres_Articulo}</b> · Stock: <b>{producto.Existencia}</b> · Costo actual: {fmtMon(producto.Precio_Costo || 0)}
+                  {puedeEmpaque && <> · 1 {nombreEmp} = <b>{factorP}</b> unidades</>}
+                </div>
+
+                {puedeEmpaque && (
+                  <div style={{ display: 'flex', gap: 6, fontSize: 11 }}>
+                    <button type="button"
+                      onClick={() => setModoEmpaque(false)}
+                      style={{
+                        flex: 1, padding: '5px 10px', fontSize: 11, fontWeight: 700, cursor: 'pointer',
+                        background: !modoEmpaque ? '#7c3aed' : '#f3e8ff', color: !modoEmpaque ? '#fff' : '#7c3aed',
+                        border: '1px solid #c4b5fd', borderRadius: 6,
+                      }}>
+                      🔹 Por Unidad
+                    </button>
+                    <button type="button"
+                      onClick={() => setModoEmpaque(true)}
+                      style={{
+                        flex: 1, padding: '5px 10px', fontSize: 11, fontWeight: 700, cursor: 'pointer',
+                        background: modoEmpaque ? '#7c3aed' : '#f3e8ff', color: modoEmpaque ? '#fff' : '#7c3aed',
+                        border: '1px solid #c4b5fd', borderRadius: 6,
+                      }}>
+                      📦 Por {nombreEmp} (×{factorP})
+                    </button>
+                  </div>
+                )}
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                  <div>
+                    <label style={lbl}>Cantidad ({modoEmpaque ? nombreEmp + 's' : 'unidades'}) *</label>
+                    <input type="text" inputMode="decimal" value={cantidad}
+                      onChange={e => setCantidad(e.target.value.replace(/[^\d.]/g, ''))}
+                      style={{ ...inp, textAlign: 'right', fontWeight: 700 }} />
+                    {modoEmpaque && cantNum > 0 && (
+                      <div style={{ fontSize: 10, color: '#7c3aed', marginTop: 2, textAlign: 'right' }}>
+                        = <b>{totalUndBase}</b> unidades
+                      </div>
+                    )}
+                  </div>
+                  <div>
+                    <label style={lbl}>Costo unitario ({modoEmpaque ? 'por ' + nombreEmp : 'por unidad'})</label>
+                    <input type="text" inputMode="decimal"
+                      key={`costo-${producto.Items}-${costoUnitario}`}
+                      defaultValue={costoUnitario ? fmtMon(Number(costoUnitario)) : ''}
+                      onFocus={e => { e.target.value = costoUnitario; e.target.select(); }}
+                      onBlur={e => {
+                        const v = e.target.value.replace(/[^\d.]/g, '');
+                        setCostoUnitario(v);
+                        e.target.value = v ? fmtMon(Number(v)) : '';
+                      }}
+                      placeholder="0 = hereda costo actual"
+                      style={{ ...inp, textAlign: 'right' }} />
+                  </div>
+                </div>
+
+                {/* Precios de venta OPCIONALES — solo en tipo entrada. Vacío
+                    = no toca los del producto. Sirve para actualizar precios
+                    al mismo tiempo que se registra sobrante / producto nuevo. */}
+                {tipo === 'entrada' && (
+                  <div style={{ display: 'grid', gridTemplateColumns: puedeEmpaque ? '1fr 1fr' : '1fr', gap: 10 }}>
+                    <div>
+                      <label style={lbl}>Precio venta unidad <span style={{ color: '#9ca3af', fontWeight: 400 }}>(opcional)</span></label>
+                      <input type="text" inputMode="decimal"
+                        key={`pvu-${producto.Items}`}
+                        defaultValue={precioVentaUnd ? fmtMon(Number(precioVentaUnd)) : ''}
+                        onFocus={e => { e.target.value = precioVentaUnd; e.target.select(); }}
+                        onBlur={e => {
+                          const v = e.target.value.replace(/[^\d.]/g, '');
+                          setPrecioVentaUnd(v);
+                          e.target.value = v ? fmtMon(Number(v)) : '';
+                        }}
+                        placeholder="Vacío = no cambia el actual"
+                        title="Si lo llenas, actualiza el precio de venta unitario del producto."
+                        style={{ ...inp, textAlign: 'right' }} />
+                    </div>
+                    {puedeEmpaque && (
+                      <div>
+                        <label style={lbl}>Precio venta {nombreEmp} <span style={{ color: '#9ca3af', fontWeight: 400 }}>(opcional)</span></label>
+                        <input type="text" inputMode="decimal"
+                          key={`pve-${producto.Items}`}
+                          defaultValue={precioVentaEmp ? fmtMon(Number(precioVentaEmp)) : ''}
+                          onFocus={e => { e.target.value = precioVentaEmp; e.target.select(); }}
+                          onBlur={e => {
+                            const v = e.target.value.replace(/[^\d.]/g, '');
+                            setPrecioVentaEmp(v);
+                            e.target.value = v ? fmtMon(Number(v)) : '';
+                          }}
+                          placeholder="Vacío = no cambia el actual"
+                          title={`Si lo llenas, actualiza el precio de venta por ${nombreEmp.toLowerCase()} del producto (independiente del cálculo P.unidad × ${factorP}).`}
+                          style={{ ...inp, textAlign: 'right', color: '#7c3aed', fontWeight: 600, background: '#faf5ff', borderColor: '#c4b5fd' }} />
+                      </div>
+                    )}
+                  </div>
+                )}
+              </>
+            );
+          })()}
+
+          {!producto && (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <div>
+                <label style={lbl}>Cantidad *</label>
+                <input type="text" inputMode="decimal" value={cantidad}
+                  onChange={e => setCantidad(e.target.value.replace(/[^\d.]/g, ''))}
+                  style={{ ...inp, textAlign: 'right' }} disabled />
+              </div>
+              <div>
+                <label style={lbl}>Costo unitario (con IVA)</label>
+                <input type="text" inputMode="decimal" value={costoUnitario}
+                  onChange={e => setCostoUnitario(e.target.value.replace(/[^\d.]/g, ''))}
+                  placeholder="Seleccione un producto primero"
+                  style={{ ...inp, textAlign: 'right' }} disabled />
+              </div>
             </div>
           )}
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            <div>
-              <label style={lbl}>Cantidad *</label>
-              <input type="text" inputMode="decimal" value={cantidad}
-                onChange={e => setCantidad(e.target.value.replace(/[^\d.]/g, ''))}
-                style={{ ...inp, textAlign: 'right' }} />
-            </div>
-            <div>
-              <label style={lbl}>Costo unitario (con IVA)</label>
-              <input type="text" inputMode="decimal" value={costoUnitario}
-                onChange={e => setCostoUnitario(e.target.value.replace(/[^\d.]/g, ''))}
-                placeholder="0 = hereda costo actual"
-                style={{ ...inp, textAlign: 'right' }} />
-            </div>
-          </div>
 
           <div>
             <label style={lbl}>Concepto / Observaciones</label>

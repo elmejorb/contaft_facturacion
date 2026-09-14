@@ -25,6 +25,7 @@ try {
         $selNombreEmp = in_array('NombreEmpaque', $artCols)      ? 'a.NombreEmpaque'                 : 'NULL';
         $selVenderEmp = in_array('VenderComoEmpaque', $artCols)  ? 'COALESCE(a.VenderComoEmpaque, 0)' : '0';
         $selComprarEmp= in_array('ComprarComoEmpaque', $artCols) ? 'COALESCE(a.ComprarComoEmpaque, 0)' : '0';
+        $selPrecioEmp = in_array('Precio_Venta_Empaque', $artCols) ? 'a.Precio_Venta_Empaque'         : 'NULL';
 
         // Búsqueda EXACTA por código (input de código + Enter, escáner de barras, etc.)
         // No usa LIKE para evitar falsos positivos como "1" trayendo cualquier producto con "1" en el código.
@@ -39,6 +40,7 @@ try {
                        $selNombreEmp AS nombre_empaque,
                        $selVenderEmp AS vender_como_empaque,
                        $selComprarEmp AS comprar_como_empaque,
+                       $selPrecioEmp AS precio_venta_empaque,
                        COALESCE(c.Categoria, 'VARIOS') as Categoria
                 FROM tblarticulos a
                 LEFT JOIN tblcategoria c ON a.Id_Categoria = c.Id_Categoria
@@ -74,6 +76,7 @@ try {
                    $selNombreEmp AS nombre_empaque,
                    $selVenderEmp AS vender_como_empaque,
                    $selComprarEmp AS comprar_como_empaque,
+                   $selPrecioEmp AS precio_venta_empaque,
                    COALESCE(c.Categoria, 'VARIOS') as Categoria
             FROM tblarticulos a
             LEFT JOIN tblcategoria c ON a.Id_Categoria = c.Id_Categoria

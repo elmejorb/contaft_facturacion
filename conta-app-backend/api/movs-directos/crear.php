@@ -41,6 +41,11 @@ try {
     $costoU  = floatval($data['Costo_Unitario'] ?? 0);
     $conc    = trim($data['Concepto'] ?? '');
     $idUser  = intval($data['Id_Usuario'] ?? 0) ?: null;
+    // Precios de venta opcionales (solo tipo=entrada). null = no cambia.
+    $precioVenta    = isset($data['Precio_Venta']) && $data['Precio_Venta'] !== null && floatval($data['Precio_Venta']) > 0
+                      ? floatval($data['Precio_Venta']) : null;
+    $precioVentaEmp = isset($data['Precio_Venta_Empaque']) && $data['Precio_Venta_Empaque'] !== null && floatval($data['Precio_Venta_Empaque']) > 0
+                      ? floatval($data['Precio_Venta_Empaque']) : null;
 
     if (!in_array($tipo, ['entrada', 'salida'], true)) {
         echo json_encode(['success' => false, 'message' => 'tipo debe ser entrada|salida']); exit;
@@ -84,9 +89,26 @@ try {
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ")->execute([$numero, $tipo, $motivo, $fecha, $items, $cant, $costoU, $costoTotal, $conc, $idUser]);
 
-    // Actualizar existencia
-    $db->prepare("UPDATE tblarticulos SET Existencia = ? WHERE Items = ?")
-       ->execute([$nuevaExist, $items]);
+    // Actualizar existencia + precios opcionales (solo si entrada)
+    $sets = ['Existencia = ?'];
+    $params = [$nuevaExist];
+    if ($tipo === 'entrada' && $precioVenta !== null) {
+        $sets[] = 'Precio_Venta = ?';
+        $params[] = $precioVenta;
+    }
+    if ($tipo === 'entrada' && $precioVentaEmp !== null) {
+        // Verificar que la columna exista (defensivo, para BDs sin migracion)
+        $colStmt = $db->query("SELECT COUNT(*) FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tblarticulos'
+              AND COLUMN_NAME = 'Precio_Venta_Empaque'");
+        if (intval($colStmt->fetchColumn()) > 0) {
+            $sets[] = 'Precio_Venta_Empaque = ?';
+            $params[] = $precioVentaEmp;
+        }
+    }
+    $params[] = $items;
+    $db->prepare('UPDATE tblarticulos SET ' . implode(', ', $sets) . ' WHERE Items = ?')
+       ->execute($params);
 
     // Registrar en kardex
     $meses = ['','Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];

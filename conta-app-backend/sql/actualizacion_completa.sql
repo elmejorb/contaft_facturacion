@@ -1941,6 +1941,18 @@ SET @sql = IF(@c4=0,
   'SELECT 1');
 PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
 
+-- Precio_Venta_Empaque: precio de venta del empaque completo (opcional).
+-- Cuando el producto tiene FactorConversion>1 y se vende por CAJA, si este
+-- campo tiene valor se usa tal cual (sin multiplicar). Sino, se calcula
+-- Precio_Venta × FactorConversion. Permite tener precio unitario redondo
+-- ($10/tableta) Y precio caja distinto ($912/caja) sin quedar con decimales.
+SET @c5 = (SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='tblarticulos' AND COLUMN_NAME='Precio_Venta_Empaque');
+SET @sql = IF(@c5=0,
+  "ALTER TABLE tblarticulos ADD COLUMN Precio_Venta_Empaque DECIMAL(19,4) NULL AFTER Precio_Venta",
+  'SELECT 1');
+PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
+
 -- ================================================================
 -- VERIFICACIÓN FINAL
 -- ================================================================

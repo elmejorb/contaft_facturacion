@@ -27,6 +27,7 @@ try {
             $selNombreEmp = in_array('NombreEmpaque', $artCols)      ? 'a.NombreEmpaque'                 : 'NULL';
             $selVenderEmp = in_array('VenderComoEmpaque', $artCols)  ? 'COALESCE(a.VenderComoEmpaque, 0)' : '0';
             $selComprarEmp= in_array('ComprarComoEmpaque', $artCols) ? 'COALESCE(a.ComprarComoEmpaque, 0)' : '0';
+            $selPrecioEmp = in_array('Precio_Venta_Empaque', $artCols) ? 'a.Precio_Venta_Empaque'         : 'NULL';
             $stmt = $db->prepare("
                 SELECT a.Items, a.Codigo, a.Nombres_Articulo, a.Existencia, a.Precio_Costo,
                        a.Precio_CostoComp, a.Precio_Venta, a.Iva, a.Flete,
@@ -35,6 +36,7 @@ try {
                        $selNombreEmp AS nombre_empaque,
                        $selVenderEmp AS vender_como_empaque,
                        $selComprarEmp AS comprar_como_empaque,
+                       $selPrecioEmp AS precio_venta_empaque,
                        COALESCE(c.Categoria, 'VARIOS') as Categoria
                 FROM tblarticulos a
                 LEFT JOIN tblcategoria c ON a.Id_Categoria = c.Id_Categoria
@@ -71,6 +73,7 @@ try {
             $selNombreEmp = in_array('NombreEmpaque', $artCols)      ? 'a.NombreEmpaque'                 : 'NULL';
             $selVenderEmp = in_array('VenderComoEmpaque', $artCols)  ? 'COALESCE(a.VenderComoEmpaque, 0)' : '0';
             $selComprarEmp= in_array('ComprarComoEmpaque', $artCols) ? 'COALESCE(a.ComprarComoEmpaque, 0)' : '0';
+            $selPrecioEmp = in_array('Precio_Venta_Empaque', $artCols) ? 'a.Precio_Venta_Empaque'         : 'NULL';
 
             $q = $_GET['buscar'];
             $stmt = $db->prepare("
@@ -81,6 +84,7 @@ try {
                        $selNombreEmp AS nombre_empaque,
                        $selVenderEmp AS vender_como_empaque,
                        $selComprarEmp AS comprar_como_empaque,
+                       $selPrecioEmp AS precio_venta_empaque,
                        COALESCE(c.Categoria, 'VARIOS') as Categoria,
                        (SELECT d.IvaPct
                         FROM tbldetalle_pedido d

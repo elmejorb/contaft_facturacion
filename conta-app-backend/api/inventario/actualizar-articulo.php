@@ -47,6 +47,7 @@ try {
     $tieneNombreEmp = in_array('NombreEmpaque', $cols);
     $tieneVenderEmp = in_array('VenderComoEmpaque', $cols);
     $tieneComprarEmp = in_array('ComprarComoEmpaque', $cols);
+    $tienePrecioEmp = in_array('Precio_Venta_Empaque', $cols);
 
     // Notas defensivas:
     //   - `Servicio` y `requiere_lote`: `!empty()` funciona bien para 0/1
@@ -109,6 +110,12 @@ try {
     if ($tieneComprarEmp) {
         $sets[] = 'ComprarComoEmpaque = :comprarEmp';
         $params[':comprarEmp'] = !empty($input['ComprarComoEmpaque']) ? 1 : 0;
+    }
+    if ($tienePrecioEmp) {
+        $sets[] = 'Precio_Venta_Empaque = :precioEmp';
+        // Vacio o 0 → NULL (deja que se calcule Precio_Venta × Factor)
+        $val = $input['Precio_Venta_Empaque'] ?? null;
+        $params[':precioEmp'] = ($val === null || $val === '' || floatval($val) <= 0) ? null : floatval($val);
     }
     $sets[] = 'FechaMod = NOW()';
 

@@ -16,6 +16,7 @@ interface Articulo {
   NombreEmpaque?: string | null;
   VenderComoEmpaque?: number | boolean;
   ComprarComoEmpaque?: number | boolean;
+  Precio_Venta_Empaque?: number | string | null;
 }
 
 interface Props {
@@ -36,6 +37,7 @@ export function EditarArticuloModal({ isOpen, onClose, articulo, onGuardado, mod
     Precio_Minimo: 0, Iva: 0, Existencia: 0, Existencia_minima: 0,
     Id_Categoria: 0, CodigoPro: 0, Estante: '', Estado: 1, requiere_lote: 0, Servicio: 0, Id_Etiqueta: 0,
     FactorConversion: 1, NombreEmpaque: '', VenderComoEmpaque: 0, ComprarComoEmpaque: 0,
+    Precio_Venta_Empaque: 0,
   };
 
   const formDesdeArticulo = (a: Articulo) => ({
@@ -58,6 +60,7 @@ export function EditarArticuloModal({ isOpen, onClose, articulo, onGuardado, mod
     NombreEmpaque: a.NombreEmpaque || '',
     VenderComoEmpaque: Number(a.VenderComoEmpaque) === 1 ? 1 : 0,
     ComprarComoEmpaque: Number(a.ComprarComoEmpaque) === 1 ? 1 : 0,
+    Precio_Venta_Empaque: a.Precio_Venta_Empaque != null ? Number(a.Precio_Venta_Empaque) : 0,
   });
 
   // Inicializar form directamente desde props (no useEffect)
@@ -386,22 +389,38 @@ export function EditarArticuloModal({ isOpen, onClose, articulo, onGuardado, mod
           {!form.Servicio && esFarmacia() && (
             <fieldset style={{ ...s.fieldset, borderColor: '#c4b5fd', background: '#faf5ff' }}>
               <legend style={{ ...s.legend, color: '#7c3aed' }}>Conversión de empaques</legend>
-              <div style={{ display: 'grid', gridTemplateColumns: '110px 1fr', gap: 10, alignItems: 'end' }}>
+              <div style={{ display: 'grid',
+                             gridTemplateColumns: (form.FactorConversion || 1) > 1 ? '90px 1fr 130px' : '110px 1fr',
+                             gap: 10, alignItems: 'end' }}>
                 <div>
-                  <label style={s.label}>Factor (Uds/empaque)</label>
+                  <label style={s.label}>Factor</label>
                   <input type="text" key={`fc-${form.Items}-${form.FactorConversion}`}
                     defaultValue={form.FactorConversion || 1}
                     onKeyDown={soloNumeros}
                     onBlur={e => set('FactorConversion', Math.max(1, Math.round(toNum(e.target.value) || 1)))}
-                    title="Cuántas unidades base contiene 1 empaque. Dejalo en 1 si el producto se maneja solo por unidad."
+                    title="Cuántas unidades base contiene 1 empaque (1 = sin conversión)."
                     style={{ ...s.input, textAlign: 'right', fontWeight: 600 }} />
                 </div>
                 <div>
                   <label style={s.label}>Nombre del empaque</label>
                   <input value={form.NombreEmpaque || ''} onChange={e => set('NombreEmpaque', e.target.value)}
-                    placeholder="Ej. Caja x100, Blister x10, Bulto x50 kg"
+                    placeholder="Ej. Caja, Blister, Bulto"
                     style={s.input} />
                 </div>
+                {(form.FactorConversion || 1) > 1 && (
+                  <div>
+                    <label style={s.label} title={`Precio del ${(form.NombreEmpaque || 'empaque').toLowerCase()} completo. Vacío = P.unidad × ${form.FactorConversion}. Llénalo cuando el precio NO sea multiplicación exacta (ej. tableta $10, caja $912).`}>
+                      Precio {form.NombreEmpaque || 'CAJA'} <span style={{ color: '#9ca3af', fontWeight: 400 }}>ⓘ</span>
+                    </label>
+                    <input type="text" key={`pvenc-${form.Items}`}
+                      defaultValue={form.Precio_Venta_Empaque || ''}
+                      onKeyDown={soloNumeros}
+                      onBlur={e => set('Precio_Venta_Empaque', toNum(e.target.value))}
+                      placeholder="Opcional"
+                      title={`Vacío = se calcula P.unidad × ${form.FactorConversion} automático`}
+                      style={{ ...s.input, textAlign: 'right', color: '#7c3aed', fontWeight: 700, background: '#faf5ff', borderColor: '#c4b5fd' }} />
+                  </div>
+                )}
               </div>
               {(form.FactorConversion || 1) > 1 && (
                 <div style={{ display: 'flex', gap: 16, marginTop: 8, fontSize: 11 }}>
@@ -420,7 +439,7 @@ export function EditarArticuloModal({ isOpen, onClose, articulo, onGuardado, mod
                 </div>
               )}
               <div style={{ fontSize: 10, color: '#6b7280', marginTop: 6 }}>
-                Con factor &gt; 1, al facturar podés elegir vender "1 {form.NombreEmpaque || 'empaque'}"
+                Al facturar puedes elegir vender "1 {form.NombreEmpaque || 'empaque'}"
                 (descuenta {form.FactorConversion || 1} unidades) o vender "1 unidad".
                 Los precios y la existencia se mantienen SIEMPRE en unidad base.
               </div>

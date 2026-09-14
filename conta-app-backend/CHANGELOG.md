@@ -5,6 +5,35 @@ Visible solo para administradores desde **Configuración → Acerca de → Ver h
 
 ---
 
+## 4.4.1 — 2026-09-14
+
+### Farmacia — Precio de Venta por CAJA independiente
+
+- Nueva columna `Precio_Venta_Empaque` en `tblarticulos` (idempotente). Permite tener precio unitario redondo (ej. tableta $10) Y precio de caja diferente (ej. $912) sin que uno dependa del otro.
+- **Editar Producto**: bloque *"Conversión de empaques"* ahora tiene un input adicional *"Precio CAJA"* en la misma fila que Factor y Nombre — vacío = se calcula `P.unidad × Factor` (comportamiento anterior).
+- **Nueva Venta**: al vender en modo 📦 CAJA, si el producto tiene `Precio_Venta_Empaque` cargado, lo usa tal cual (sin multiplicar por factor).
+
+### Editar producto desde Nueva Compra (sin salir)
+
+- Nuevo icono ✏️ verde en cada línea del carrito de Nueva Compra.
+- Abre el modal completo de Editar Producto (mismo que usa Inventario). Al guardar, actualiza la línea del carrito con los datos nuevos.
+- Nuevo parámetro `?items=X` en `articulos.php` para traer un solo producto por ID.
+
+### Movs Directos (Entradas/Salidas) — soporte cajas + precios
+
+- **Toggle 🔹 Und / 📦 CAJA** cuando el producto tiene `FactorConversion > 1` en Farmacia.
+- **Cantidad y Costo** se ingresan en la unidad elegida — el sistema convierte a unidad base al guardar.
+- **Entrada** ahora tiene 2 inputs opcionales: *Precio venta unidad* y *Precio venta CAJA*. Vacío = no toca precios. Con valor = actualiza `Precio_Venta` y/o `Precio_Venta_Empaque` del producto.
+- Todos los inputs de dinero (Costo, Precio Unidad, Precio CAJA) con formato `$ 15.000` al perder foco.
+
+### Listado de Inventario — columna "En Cajas" (Farmacia)
+
+- Nueva columna al lado de *Exist.* que muestra el desglose *"3 caja(s) + 7 und"* para productos con Factor > 1.
+- Solo visible cuando el tipo de negocio es Farmacia. Productos sin conversión muestran "—" gris.
+- Se incluye en la exportación a Excel del listado.
+
+---
+
 ## 4.4.0 — 2026-09-14
 
 ### Borradores de compra persistentes en BD

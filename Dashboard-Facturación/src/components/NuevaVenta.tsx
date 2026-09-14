@@ -259,6 +259,10 @@ interface LineaVenta {
   FactorConversion?: number;
   NombreEmpaque?: string | null;
   VenderComoEmpaque?: boolean;
+  // Precio de venta manual del empaque completo (Farmacia). Si esta lleno,
+  // se usa tal cual al vender en modo CAJA — sin multiplicar por Factor.
+  // Sirve para casos como "tableta $10, caja $912" (no exactamente x100).
+  PrecioVentaEmpaque?: number | null;
 }
 
 export interface TabState {
@@ -537,17 +541,28 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
               : listaPrecio === 3 ? (art.Precio_Venta3 || art.Precio_Venta)
               : art.Precio_Venta;
       }
+      // Si el producto arranca en modo empaque por defecto, ajustar precio
+      // inicial: si tiene Precio_Venta_Empaque manual lo usa, sino calcula
+      // Precio_Venta × Factor. Sin esto la linea saldria en modo CAJA con
+      // precio por unidad — inconsistente para el cajero.
+      const factorArt = Math.max(1, Number(art.factor_conversion) || 1);
+      const empaqueDefault = !!Number(art.vender_como_empaque);
+      const precioEmpManual = art.precio_venta_empaque != null && Number(art.precio_venta_empaque) > 0
+        ? Number(art.precio_venta_empaque) : null;
+      const precioFinal = empaqueDefault && factorArt > 1
+        ? (precioEmpManual != null ? precioEmpManual : Math.round(precio * factorArt))
+        : precio;
       const nueva: LineaVenta = {
         id: ++lineaId, Items: art.Items, Codigo: art.Codigo, Nombre: art.Nombres_Articulo,
         Existencia: esServicio ? 0 : art.Existencia, Cantidad: cantInicial, PrecioCosto: art.Precio_Costo,
         PrecioMinimo: art.Precio_Minimo || 0,
-        PrecioVenta: precio, Iva: art.Iva || 0, Descuento: 0, Subtotal: cantInicial * precio,
+        PrecioVenta: precioFinal, Iva: art.Iva || 0, Descuento: 0, Subtotal: cantInicial * precioFinal,
         EsServicio: esServicio,
         DescripcionTemp: esServicio ? art.Nombres_Articulo : undefined,
-        FactorConversion: Math.max(1, Number(art.factor_conversion) || 1),
+        FactorConversion: factorArt,
         NombreEmpaque: art.nombre_empaque || null,
-        // Arranca en modo empaque solo si el producto lo tiene marcado por defecto
-        VenderComoEmpaque: !!Number(art.vender_como_empaque),
+        VenderComoEmpaque: empaqueDefault,
+        PrecioVentaEmpaque: precioEmpManual,
       };
       setLineas(prev => [...prev, nueva]);
     }
@@ -1918,9 +1933,15 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
                                 const nuevaCant = yaEsEmp
                                   ? Math.max(1, Math.round(x.Cantidad * f))  // Emp → Und
                                   : Math.max(1, Math.round(x.Cantidad / f)); // Und → Emp
+                                // Al pasar a modo EMPAQUE, si el producto tiene un
+                                // Precio_Venta_Empaque cargado (Farmacia), se usa ese
+                                // en vez de PrecioVenta × factor — sirve para
+                                // "tableta $10, caja $912" sin decimales.
                                 const nuevoPrecio = yaEsEmp
                                   ? Math.round(x.PrecioVenta / f)
-                                  : Math.round(x.PrecioVenta * f);
+                                  : (x.PrecioVentaEmpaque && x.PrecioVentaEmpaque > 0
+                                      ? Math.round(x.PrecioVentaEmpaque)
+                                      : Math.round(x.PrecioVenta * f));
                                 return {
                                   ...x,
                                   VenderComoEmpaque: nuevoModo,
