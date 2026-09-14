@@ -359,18 +359,30 @@ try {
     $anio = intval(date('Y', strtotime($fecha)));
 
     // Calculate totals
-    $totalItems = 0;
-    $totalImpuesto = 0;
+    // Descuento comercial se aplica ANTES del IVA (Art. 454 ET Colombia):
+    //   base       = SUM(Cant × CostoSinIva)
+    //   baseNeta   = base − descuento
+    //   factorDesc = descuento / base   (proporción a repartir)
+    //   ivaNeto    = ivaBruto × (1 − factorDesc)
+    //   totalCompra = baseNeta + ivaNeto + flete
+    // Antes se hacía "totalItems (con IVA bruto) + flete − descuento" — el IVA
+    // quedaba inflado y no cuadraba con la factura del proveedor.
+    $totalBaseSinIva = 0;
+    $totalIvaBruto   = 0;
     foreach ($data['items'] as $item) {
-        $cant = floatval($item['cantidad']);
+        $cant        = floatval($item['cantidad']);
         $costoSinIva = floatval($item['costo_sin_iva']);
-        $ivaPct = floatval($item['iva_pct'] ?? 0);
-        $ivaVal = $costoSinIva * ($ivaPct / 100);
-        $subtotal = $cant * ($costoSinIva + $ivaVal);
-        $totalItems += $subtotal;
-        $totalImpuesto += $cant * $ivaVal;
+        $ivaPct      = floatval($item['iva_pct'] ?? 0);
+        $ivaValUnit  = $costoSinIva * ($ivaPct / 100);
+        $totalBaseSinIva += $cant * $costoSinIva;
+        $totalIvaBruto   += $cant * $ivaValUnit;
     }
-    $totalCompra = $totalItems + $flete - $descuento;
+    $descuentoValido = min($descuento, $totalBaseSinIva);
+    $factorDesc = $totalBaseSinIva > 0 ? ($descuentoValido / $totalBaseSinIva) : 0;
+    $totalImpuesto = $totalIvaBruto * (1 - $factorDesc);
+    $baseNeta      = $totalBaseSinIva - $descuentoValido;
+    $totalItems    = $totalBaseSinIva + $totalIvaBruto; // base con IVA bruto (referencia)
+    $totalCompra   = $baseNeta + $totalImpuesto + $flete;
     $saldo = $tipoPedido === 'Contado' ? 0 : $totalCompra;
 
     // Distribute flete proportionally

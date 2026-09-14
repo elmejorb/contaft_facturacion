@@ -495,9 +495,27 @@ export function NuevaCompra({ pedidoEditar, onClose, initialState, onStateChange
     setLineas(prev => prev.map(l => l.id === id ? { ...l, [field]: value } : l));
   };
 
-  const subtotalCompra = lineas.reduce((s, l) => s + l.Subtotal, 0);
-  const totalIva = lineas.reduce((s, l) => s + l.IvaVal * l.Cantidad, 0);
-  const totalCompra = subtotalCompra + flete - descuento;
+  // Cálculo de totales — el descuento comercial va ANTES del IVA
+  // (Art. 454 ET Colombia): el IVA se cobra sobre el valor final después
+  // del descuento, no antes. Si el sistema aplicara "IVA sobre bruto - desc
+  // sobre total", el IVA quedaba INFLADO respecto a la factura del proveedor.
+  //
+  // Fórmula:
+  //   base       = SUM(Cant × CostoSinIva)         (sin IVA, bruto)
+  //   baseNeta   = base − descuento                (después del descuento)
+  //   factorDesc = descuento / base                (proporción a repartir)
+  //   ivaNeto    = SUM(Cant × IvaVal) × (1 − factorDesc)
+  //   totalCompra = baseNeta + ivaNeto + flete − retención
+  const subtotalSinIva = lineas.reduce((s, l) => s + l.Cantidad * l.CostoSinIva, 0);
+  const totalIvaBruto  = lineas.reduce((s, l) => s + l.IvaVal * l.Cantidad, 0);
+  const descuentoValido = Math.min(descuento, subtotalSinIva);
+  const factorDesc = subtotalSinIva > 0 ? descuentoValido / subtotalSinIva : 0;
+  const totalIva = totalIvaBruto * (1 - factorDesc);
+  const baseNeta = subtotalSinIva - descuentoValido;
+  // Subtotal mostrado en la barra inferior = base con IVA (compat visual con
+  // el resto del sistema — Subtotal por línea sigue siendo Cant × CostoConIva).
+  const subtotalCompra = subtotalSinIva + totalIvaBruto;
+  const totalCompra = baseNeta + totalIva + flete;
 
   // Imprime la compra actual con el detalle en HTML sencillo. Funciona sin
   // guardar — útil para tener un "borrador" físico antes de confirmar, o para

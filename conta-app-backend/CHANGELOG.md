@@ -5,6 +5,25 @@ Visible solo para administradores desde **Configuración → Acerca de → Ver h
 
 ---
 
+## 4.4.5 — 2026-09-14
+
+### Fix — Descuento en compras ahora se aplica ANTES del IVA (Art. 454 ET)
+
+- Reportado por cliente Panificadora Granjeras: al registrar una factura con descuento comercial, el sistema calculaba el IVA sobre el bruto y luego restaba el descuento — dando un IVA inflado que no coincidía con la factura del proveedor.
+- **Ejemplo del bug**: compra de $1.130.000 con 5% IVA y descuento de $50.000. Sistema mostraba IVA de $56.500 en vez de $54.000, y total $1.136.500 en vez de $1.134.000.
+- **Fix**: el descuento comercial ahora se aplica proporcionalmente a la base sin IVA antes de calcular el impuesto:
+  ```
+  base       = SUM(Cant × CostoSinIva)
+  baseNeta   = base − descuento
+  factorDesc = descuento / base
+  ivaNeto    = ivaBruto × (1 − factorDesc)
+  totalCompra = baseNeta + ivaNeto + flete
+  ```
+- **Aplicado tanto en frontend (NuevaCompra) como backend (compras/nueva.php)** — el guardado en `tblpedidos.Impuesto` queda con el IVA neto correcto.
+- Interpretación legal correcta según el Art. 454 del ET colombiano: el IVA se cobra sobre el valor final de la operación después de descuentos comerciales.
+
+---
+
 ## 4.4.1 — 2026-09-14
 
 ### Farmacia — Precio de Venta por CAJA independiente
