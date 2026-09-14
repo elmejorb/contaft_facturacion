@@ -3,6 +3,9 @@ import { Plus, X, ShoppingBag, Search } from 'lucide-react';
 import { NuevaCompra, type TabStateCompra } from './NuevaCompra';
 import { BuscarCompraModal } from './BuscarCompraModal';
 import { confirmar } from './ConfirmDialog';
+import toast from 'react-hot-toast';
+
+const API_BORRADORES = 'http://localhost:80/conta-app-backend/api/compras/borradores.php';
 
 // Contenedor de tabs para el módulo Compras — mismo patrón que VentasTabs.
 // Cada tab tiene su propio estado (TabStateCompra) mantenido en memoria,
@@ -24,6 +27,10 @@ interface Tab {
   label: string;
   state: TabStateCompra;
   pedidoN?: number; // Si viene con lápiz de una compra existente
+  // Si el tab viene de "Cargar borrador", guardamos el id para que "Guardar
+  // borrador" haga UPDATE (no INSERT). Al guardar la compra real, el
+  // borrador se elimina del backend.
+  borradorId?: number | null;
 }
 
 function newTabId() { return 'ctab_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6); }
@@ -56,6 +63,7 @@ export function ComprasTabs() {
   });
   const [activeTabId, setActiveTabId] = useState(() => tabs[0]?.id || '');
   const [showBuscar, setShowBuscar] = useState(false);
+  const [showBorradores, setShowBorradores] = useState(false);
   const tabCounter = useRef(tabs.length);
 
   // Abrir una compra existente en tab nuevo (o activar el tab si ya existe).
@@ -109,6 +117,40 @@ export function ComprasTabs() {
     setTabs(prev => [...prev, newTab]);
     setActiveTabId(newTab.id);
   };
+
+  // Abrir un borrador cargado desde la BD en un tab nuevo. Si ya hay un tab
+  // con ese mismo borradorId (evita duplicar), lo activa.
+  const abrirBorradorEnTab = useCallback((borrador: any) => {
+    setTabs(prev => {
+      const existing = prev.find(t => t.borradorId === borrador.id);
+      if (existing) { setActiveTabId(existing.id); return prev; }
+      const state: TabStateCompra = {
+        tipo: borrador.tipo || 'Crédito',
+        dias: Number(borrador.dias) || 30,
+        fecha: borrador.fecha || new Date().toISOString().slice(0, 10),
+        facturaCompra: borrador.factura_compra || '',
+        proveedor: {
+          id: Number(borrador.cod_proveedor) || 0,
+          nombre: borrador.proveedor_nombre || '',
+          nit: borrador.proveedor_nit || '',
+        },
+        opcionIva: Number(borrador.opcion_iva) || 0,
+        lineas: Array.isArray(borrador.lineas) ? borrador.lineas : [],
+        flete: Number(borrador.flete) || 0,
+        descuento: Number(borrador.descuento) || 0,
+        retencion: Number(borrador.retencion) || 0,
+      };
+      const newTab: Tab = {
+        id: newTabId(),
+        label: `Borrador #${borrador.id}`,
+        state,
+        borradorId: borrador.id,
+      };
+      setActiveTabId(newTab.id);
+      return [...prev, newTab];
+    });
+    setShowBorradores(false);
+  }, []);
 
   const cerrarTab = async (tabId: string) => {
     const tab = tabs.find(t => t.id === tabId);
@@ -196,6 +238,16 @@ export function ComprasTabs() {
 
         {/* Barra contextual — acciones que abren modales sin salir del formulario. */}
         <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+          <button onClick={() => setShowBorradores(true)}
+            title="Cargar una compra que dejaste guardada como borrador en la BD"
+            style={{
+              height: 28, padding: '0 10px', fontSize: 11, fontWeight: 600,
+              border: '1px solid #d8b4fe', borderRadius: 6, cursor: 'pointer',
+              display: 'flex', alignItems: 'center', gap: 4,
+              background: '#f3e8ff', color: '#7c3aed', whiteSpace: 'nowrap',
+            }}>
+            📂 Borradores
+          </button>
           <button onClick={() => setShowBuscar(true)}
             title="Buscar y abrir una compra existente en un tab nuevo"
             style={{
@@ -217,7 +269,17 @@ export function ComprasTabs() {
           initialState={activeTab.state}
           onStateChange={onStateChange}
           pedidoEditar={activeTab.pedidoN}
+          borradorInicialId={activeTab.borradorId ?? null}
           onClose={onCompraGuardada}
+        />
+      )}
+
+      {/* Modal de borradores — lista los borradores guardados en la BD y
+          permite cargarlos en un tab nuevo o eliminarlos. */}
+      {showBorradores && (
+        <ModalBorradores
+          onClose={() => setShowBorradores(false)}
+          onCargar={abrirBorradorEnTab}
         />
       )}
 
@@ -228,6 +290,145 @@ export function ComprasTabs() {
           onAbrir={abrirCompraEnTab}
         />
       )}
+    </div>
+  );
+}
+
+// ============================================================
+// Modal listado de borradores
+// ============================================================
+interface ModalBorradoresProps {
+  onClose: () => void;
+  onCargar: (borrador: any) => void;
+}
+
+function ModalBorradores({ onClose, onCargar }: ModalBorradoresProps) {
+  const [borradores, setBorradores] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [cargandoId, setCargandoId] = useState<number | null>(null);
+
+  const cargarLista = async () => {
+    setLoading(true);
+    try {
+      const r = await fetch(API_BORRADORES + '?listar=1');
+      const d = await r.json();
+      if (d.success) setBorradores(d.borradores || []);
+      else toast.error(d.message || 'No se pudieron listar los borradores');
+    } catch {
+      toast.error('Error de conexión al listar borradores');
+    }
+    setLoading(false);
+  };
+
+  useEffect(() => { cargarLista(); }, []);
+
+  const cargar = async (id: number) => {
+    setCargandoId(id);
+    try {
+      const r = await fetch(API_BORRADORES, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'cargar', id }),
+      });
+      const d = await r.json();
+      if (d.success) onCargar(d.borrador);
+      else toast.error(d.message || 'No se pudo cargar el borrador');
+    } catch {
+      toast.error('Error de conexión');
+    }
+    setCargandoId(null);
+  };
+
+  const eliminar = async (id: number) => {
+    if (!await confirmar({
+      title: 'Eliminar borrador',
+      message: '¿Eliminar este borrador de compras? No se puede recuperar.',
+      type: 'warning', confirmText: 'Eliminar',
+    })) return;
+    try {
+      const r = await fetch(API_BORRADORES, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'eliminar', id }),
+      });
+      const d = await r.json();
+      if (d.success) { toast.success('Borrador eliminado'); cargarLista(); }
+      else toast.error(d.message || 'Error');
+    } catch { toast.error('Error de conexión'); }
+  };
+
+  const fmtMon = (v: number) => '$ ' + Math.round(v).toLocaleString('es-CO');
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 99999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.4)' }} onClick={onClose} />
+      <div style={{ position: 'relative', background: '#fff', borderRadius: 12, width: 720, maxHeight: '80vh', boxShadow: '0 20px 60px rgba(0,0,0,0.25)', display: 'flex', flexDirection: 'column' }}
+        onClick={e => e.stopPropagation()}>
+        <div style={{ padding: '14px 18px', borderBottom: '1px solid #e5e7eb', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <div style={{ fontSize: 15, fontWeight: 700 }}>📂 Borradores de compra</div>
+            <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>
+              Compras en armado guardadas en el servidor. Se conservan aunque cierres la app o cambies de equipo.
+            </div>
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}>
+            <X size={18} />
+          </button>
+        </div>
+        <div style={{ flex: 1, overflow: 'auto', padding: 12 }}>
+          {loading ? (
+            <div style={{ padding: 40, textAlign: 'center', color: '#9ca3af' }}>Cargando...</div>
+          ) : borradores.length === 0 ? (
+            <div style={{ padding: 40, textAlign: 'center', color: '#9ca3af', fontSize: 13 }}>
+              No hay borradores guardados. Cuando armes una compra grande, pulsa el botón <b style={{ color: '#7c3aed' }}>💾 Guardar Borrador</b> para no perderla.
+            </div>
+          ) : (
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+              <thead>
+                <tr style={{ background: '#f9fafb', borderBottom: '2px solid #e5e7eb' }}>
+                  <th style={{ padding: '6px 8px', textAlign: 'left', width: 50 }}>#</th>
+                  <th style={{ padding: '6px 8px', textAlign: 'left' }}>Descripción</th>
+                  <th style={{ padding: '6px 8px', textAlign: 'right', width: 100 }}>Total</th>
+                  <th style={{ padding: '6px 8px', textAlign: 'center', width: 60 }}>Líneas</th>
+                  <th style={{ padding: '6px 8px', textAlign: 'center', width: 120 }}>Modificado</th>
+                  <th style={{ padding: '6px 8px', textAlign: 'center', width: 140 }}>Acciones</th>
+                </tr>
+              </thead>
+              <tbody>
+                {borradores.map((b: any) => (
+                  <tr key={b.id} style={{ borderBottom: '1px solid #f3f4f6' }}>
+                    <td style={{ padding: '6px 8px', fontWeight: 700, color: '#7c3aed' }}>#{b.id}</td>
+                    <td style={{ padding: '6px 8px' }}>
+                      <div style={{ fontWeight: 600, color: '#374151' }}>{b.proveedor_nombre || 'Sin proveedor'}</div>
+                      <div style={{ fontSize: 10, color: '#6b7280' }}>
+                        {b.tipo} · {b.factura_compra ? `Fra ${b.factura_compra}` : 'sin factura'}
+                        {b.nombre && b.nombre !== b.proveedor_nombre ? ` · ${b.nombre}` : ''}
+                      </div>
+                    </td>
+                    <td style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 600 }}>{fmtMon(Number(b.total) || 0)}</td>
+                    <td style={{ padding: '6px 8px', textAlign: 'center' }}>
+                      <span style={{ background: '#dcfce7', color: '#16a34a', borderRadius: 10, padding: '2px 8px', fontSize: 10, fontWeight: 700 }}>
+                        {b.lineas_count || 0}
+                      </span>
+                    </td>
+                    <td style={{ padding: '6px 8px', textAlign: 'center', fontSize: 10, color: '#6b7280' }}>
+                      {b.fecha_modificacion ? new Date(b.fecha_modificacion).toLocaleString('es-CO', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '-'}
+                    </td>
+                    <td style={{ padding: '6px 8px', textAlign: 'center' }}>
+                      <button onClick={() => cargar(b.id)} disabled={cargandoId === b.id}
+                        style={{ height: 26, padding: '0 10px', background: '#7c3aed', color: '#fff', border: 'none', borderRadius: 5, fontSize: 11, fontWeight: 600, cursor: cargandoId === b.id ? 'wait' : 'pointer', marginRight: 4 }}>
+                        {cargandoId === b.id ? '...' : 'Cargar'}
+                      </button>
+                      <button onClick={() => eliminar(b.id)}
+                        style={{ height: 26, padding: '0 8px', background: '#fef2f2', color: '#dc2626', border: '1px solid #fecaca', borderRadius: 5, fontSize: 11, cursor: 'pointer' }}>
+                        <X size={12} />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

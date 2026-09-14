@@ -5,6 +5,38 @@ Visible solo para administradores desde **Configuración → Acerca de → Ver h
 
 ---
 
+## 4.4.0 — 2026-09-14
+
+### Borradores de compra persistentes en BD
+
+- Reportado: cliente de farmacia estaba armando una compra grande (uso como conteo de inventario), cerró la app y al día siguiente la compra no apareció. localStorage puede ser limpiado por antivirus/optimizadores o perderse en reinstalación.
+- **Solución**: nuevo botón 💾 **Guardar Borrador** en Nueva Compra. Guarda todo el estado del tab (líneas, proveedor, flete, descuento, etc.) en la BD (`tbl_borradores_compra` — se autocrea al primer uso).
+- Nuevo botón **📂 Borradores** en la barra superior de Nueva Compra: abre modal con listado (proveedor, líneas, total, última modificación) + acciones Cargar / Eliminar.
+- Al guardar la compra real con éxito, el borrador se elimina automáticamente.
+- **Ventajas**: sobrevive limpieza de temporales, funciona en instalaciones en red (multi-cajero), quedan visibles en el listado.
+
+### Fix — Escáner de código de barras en Nueva Compra no leía
+
+- Reportado: cliente escaneaba un producto en Nueva Compra y no lo agregaba, o agregaba el equivocado.
+- Causa: el input "Código..." usaba búsqueda `?buscar=` (LIKE con LIMIT 20) en vez de `?codigo=` (WHERE exacto). Si el código escaneado no aparecía en los primeros 20 resultados alfabéticos, no lo encontraba o traía el primero al azar.
+- **Fix**: nuevo endpoint `compras/nueva.php?codigo=<X>` con búsqueda exacta. El frontend ahora lo usa al presionar Enter en el input rojo. Si el código no existe → toast rojo *"No se encontró producto con código X"* (antes fallaba silencioso).
+
+### Editar Producto — inputs Cajas + Unidades Sueltas (Farmacia)
+
+- Para productos con `FactorConversion > 1` en tipo de negocio Farmacia, el bloque de Existencias muestra 4 inputs en una sola línea centrada:
+  ```
+  Cant. actual · Mínima · CAJA(s) · Sueltas · = 540 und
+  ```
+- Facilita el conteo físico: *"3 cajas cerradas + 7 pastillas sueltas"* — el sistema calcula el total automáticamente (3 × 50 + 7 = 157).
+- El texto explicativo va como tooltip ⓘ para no ocupar espacio.
+- El campo **Estante** se movió a la fila superior (junto a Proveedor/Categoría/Etiqueta) — casi nadie lo usa, no vale ocupar una fila propia.
+
+### Fixes menores
+
+- `toNum` del EditarArticuloModal ahora tolera `number | null | undefined` (no solo string) — antes crasheba con *"v.replace is not a function"* al abrir un producto con existencia numérica.
+
+---
+
 ## 4.3.99 — 2026-09-08
 
 ### Fix — Al fallar Factura Electrónica quedaba una POS creada aparte

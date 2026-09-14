@@ -142,7 +142,11 @@ export function EditarArticuloModal({ isOpen, onClose, articulo, onGuardado, mod
     if (e.key === '.' && (e.target as HTMLInputElement).value.includes('.')) e.preventDefault();
   };
 
-  const toNum = (v: string) => parseFloat(v.replace(/[^0-9.]/g, '')) || 0;
+  const toNum = (v: string | number | null | undefined) => {
+    if (v == null) return 0;
+    if (typeof v === 'number') return isFinite(v) ? v : 0;
+    return parseFloat(String(v).replace(/[^0-9.]/g, '')) || 0;
+  };
   // fmtMoneda respeta decimales si el valor los tiene — importante para que
   // costos como $ 98.748,47 (promedio con flete prorrateado) no se muestren
   // truncados. Los enteros mantienen formato limpio sin ,00 al final.
@@ -177,7 +181,7 @@ export function EditarArticuloModal({ isOpen, onClose, articulo, onGuardado, mod
   // Styles
   const s = {
     overlay: { position: 'fixed' as const, inset: 0, zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.5)' },
-    modal: { position: 'relative' as const, background: '#fff', borderRadius: 10, width: 540, maxHeight: '82vh', display: 'flex', flexDirection: 'column' as const, overflow: 'hidden', boxShadow: '0 25px 50px rgba(0,0,0,0.25)' },
+    modal: { position: 'relative' as const, background: '#fff', borderRadius: 10, width: 640, maxHeight: '86vh', display: 'flex', flexDirection: 'column' as const, overflow: 'hidden', boxShadow: '0 25px 50px rgba(0,0,0,0.25)' },
     header: { background: 'linear-gradient(135deg, #7c3aed, #2563eb)', padding: '8px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' },
     body: { padding: 14, overflowY: 'auto' as const, flex: 1 },
     footer: { padding: '8px 14px', borderTop: '1px solid #e5e7eb', background: '#f9fafb', display: 'flex', justifyContent: 'flex-end', gap: 6 },
@@ -261,7 +265,7 @@ export function EditarArticuloModal({ isOpen, onClose, articulo, onGuardado, mod
               <label style={s.label}>Descripción</label>
               <input value={form.Nombres_Articulo} onChange={e => set('Nombres_Articulo', e.target.value)} style={s.input} />
             </div>
-            <div style={{ ...s.row, gridTemplateColumns: '1fr 1fr 1fr' }}>
+            <div style={{ ...s.row, gridTemplateColumns: form.Servicio ? '1fr 1fr 1fr' : '1fr 1fr 1fr 100px' }}>
               <div>
                 <label style={s.label}>Proveedor</label>
                 <select value={form.CodigoPro} onChange={e => set('CodigoPro', parseInt(e.target.value))} style={s.select}>
@@ -283,52 +287,97 @@ export function EditarArticuloModal({ isOpen, onClose, articulo, onGuardado, mod
                   {etiquetasOpt.map(et => <option key={et.Id_Etiqueta} value={et.Id_Etiqueta}>{et.Nombre}</option>)}
                 </select>
               </div>
+              {!form.Servicio && (
+                <div>
+                  <label style={s.label} title="Ubicación física del producto en la bodega (opcional)">Estante</label>
+                  <input value={form.Estante} onChange={e => set('Estante', e.target.value)} style={s.input}
+                    title="Ubicación física del producto en la bodega. Opcional." />
+                </div>
+              )}
             </div>
           </fieldset>
 
-          {/* Existencias + Ubicación — solo para productos físicos.
-              Los servicios no descuentan inventario ni se ubican en estante. */}
-          {!form.Servicio && (
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 10 }}>
-              <fieldset style={{ ...s.fieldset, marginBottom: 0 }}>
-                <legend style={s.legend}>Existencias</legend>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                  <div>
-                    <label style={s.label}>Cantidad {esNuevo ? '(inicial)' : '(actual)'}</label>
-                    <input type="text" defaultValue={form.Existencia}
-                      onKeyDown={soloNumeros}
-                      onBlur={e => set('Existencia', toNum(e.target.value))}
-                      placeholder="0"
-                      title={esNuevo ? "Stock inicial — genera entrada de Carga Inicial en el kárdex" : "Si lo cambias se registrará la diferencia como Entrada/Salida en el kárdex"}
-                      style={{ ...s.input, background: '#f0fdf4', borderColor: '#bbf7d0', color: '#166534', fontWeight: 600 }} />
-                  </div>
-                  <div>
-                    <label style={s.label}>Exist. Mínima</label>
-                    <input type="text" defaultValue={form.Existencia_minima}
-                      onKeyDown={soloNumeros}
-                      onBlur={e => set('Existencia_minima', toNum(e.target.value))}
-                      style={{ ...s.input, background: '#fef2f2', borderColor: '#fecaca' }} />
-                  </div>
-                </div>
-              </fieldset>
-              <fieldset style={{ ...s.fieldset, marginBottom: 0 }}>
-                <legend style={s.legend}>Ubicación{getConfigImpresion().usarLotes ? ' / Lote' : ''}</legend>
-                <div>
-                  <label style={s.label}>Estante</label>
-                  <input value={form.Estante} onChange={e => set('Estante', e.target.value)} style={s.input} />
-                </div>
-                {/* El checkbox de "perecedero" solo aparece si el negocio maneja lotes/vencimientos
-                    (Configuración → Módulos opcionales → Fechas de vencimiento / Lotes). */}
+          {/* Existencias — fila compacta. Si el producto tiene FactorConversion>1
+              y es Farmacia, aparecen inline 2 inputs adicionales (Cajas +
+              Sueltas) para facilitar el conteo fisico ("3 cajas + 7 sueltas"
+              en vez de calcular 3*50+7=157). El texto explicativo va como
+              tooltip en el ícono ⓘ para no ocupar espacio vertical. */}
+          {!form.Servicio && (() => {
+            const factor = Math.max(1, Number(form.FactorConversion) || 1);
+            const mostrarCajasSueltas = esFarmacia() && factor > 1;
+            const emp = form.NombreEmpaque || 'Caja';
+            const totalExist = toNum(form.Existencia) || 0;
+            const cajasCalc = mostrarCajasSueltas ? Math.floor(totalExist / factor) : 0;
+            const sueltasCalc = mostrarCajasSueltas ? Math.round(totalExist - cajasCalc * factor) : 0;
+            const setDesdeCajasSueltas = (cajas: number, sueltas: number) => {
+              set('Existencia', Math.round(cajas * factor + sueltas));
+            };
+            const tooltipCajas = `Conteo físico rápido: "1 ${emp.toLowerCase()} = ${factor} unidades". Escribí las cajas cerradas y las unidades sueltas por separado — el total en unidades se calcula solo. Ej: 3 ${emp.toLowerCase()}(s) + 7 sueltas = ${3 * factor + 7} unidades.`;
+            return (
+            <fieldset style={{ ...s.fieldset }}>
+              <legend style={s.legend}>
+                Existencias
+                {mostrarCajasSueltas && (
+                  <span title={tooltipCajas}
+                    style={{ marginLeft: 6, cursor: 'help', color: '#7c3aed', fontSize: 11 }}>ⓘ</span>
+                )}
                 {getConfigImpresion().usarLotes && (
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#374151', marginTop: 6, cursor: 'pointer' }}>
+                  <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, color: '#6b7280', marginLeft: 12, cursor: 'pointer', fontWeight: 400 }}>
                     <input type="checkbox" checked={!!form.requiere_lote}
-                      onChange={e => set('requiere_lote', e.target.checked ? 1 : 0)} />
-                    <span>Requiere fecha de vencimiento (perecedero)</span>
+                      onChange={e => set('requiere_lote', e.target.checked ? 1 : 0)}
+                      style={{ margin: 0 }} />
+                    Perecedero (requiere fecha de vencimiento)
                   </label>
                 )}
-              </fieldset>
-            </div>
-          )}
+              </legend>
+              <div style={{ display: 'grid', gridTemplateColumns: mostrarCajasSueltas ? '1fr 1fr 1fr 1fr auto' : '1fr 1fr', gap: 12, alignItems: 'end' }}>
+                <div>
+                  <label style={{ ...s.label, textAlign: 'center' }}>{esNuevo ? 'Cant. inicial' : 'Cant. actual'}</label>
+                  <input type="text" key={`exist-${form.Items}-${form.Existencia}`} defaultValue={form.Existencia}
+                    onKeyDown={soloNumeros}
+                    onBlur={e => set('Existencia', toNum(e.target.value))}
+                    placeholder="0"
+                    title={esNuevo ? "Stock inicial — genera entrada de Carga Inicial en el kárdex" : "Si lo cambias se registrará la diferencia como Entrada/Salida en el kárdex"}
+                    style={{ ...s.input, textAlign: 'center', background: '#f0fdf4', borderColor: '#bbf7d0', color: '#166534', fontWeight: 700 }} />
+                </div>
+                <div>
+                  <label style={{ ...s.label, textAlign: 'center' }}>Mínima</label>
+                  <input type="text" defaultValue={form.Existencia_minima}
+                    onKeyDown={soloNumeros}
+                    onBlur={e => set('Existencia_minima', toNum(e.target.value))}
+                    style={{ ...s.input, textAlign: 'center', background: '#fef2f2', borderColor: '#fecaca' }} />
+                </div>
+                {mostrarCajasSueltas && (
+                  <>
+                    <div>
+                      <label style={{ ...s.label, textAlign: 'center' }}>{emp}(s)</label>
+                      <input type="text" key={`cajas-${form.Items}-${cajasCalc}`}
+                        defaultValue={cajasCalc}
+                        onKeyDown={soloNumeros}
+                        onBlur={e => setDesdeCajasSueltas(toNum(e.target.value) || 0, sueltasCalc)}
+                        placeholder="0"
+                        title={`Número de ${emp.toLowerCase()}s cerradas (1 = ${factor} und)`}
+                        style={{ ...s.input, textAlign: 'center', fontWeight: 700, color: '#7c3aed', background: '#faf5ff', borderColor: '#c4b5fd' }} />
+                    </div>
+                    <div>
+                      <label style={{ ...s.label, textAlign: 'center' }}>Sueltas</label>
+                      <input type="text" key={`sueltas-${form.Items}-${sueltasCalc}`}
+                        defaultValue={sueltasCalc}
+                        onKeyDown={soloNumeros}
+                        onBlur={e => setDesdeCajasSueltas(cajasCalc, toNum(e.target.value) || 0)}
+                        placeholder="0"
+                        title="Unidades sueltas fuera de empaque"
+                        style={{ ...s.input, textAlign: 'center', fontWeight: 700, color: '#7c3aed', background: '#faf5ff', borderColor: '#c4b5fd' }} />
+                    </div>
+                    <div style={{ fontSize: 11, color: '#6b7280', paddingBottom: 6, whiteSpace: 'nowrap', paddingLeft: 4 }}>
+                      = <b style={{ color: '#166534', fontSize: 13 }}>{cajasCalc * factor + sueltasCalc} und</b>
+                    </div>
+                  </>
+                )}
+              </div>
+            </fieldset>
+            );
+          })()}
 
           {/* Conversión de empaques — solo se muestra si el tipo de negocio
               es Farmacia / Droguería (se detecta por tipoNegocio en config).

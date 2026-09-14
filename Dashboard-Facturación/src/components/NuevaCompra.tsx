@@ -8,6 +8,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { getConfigImpresion, getEmpresaCache, esFarmacia } from './ConfiguracionSistema';
 
 const API = 'http://localhost:80/conta-app-backend/api/compras/nueva.php';
+const API_BORRADOR = 'http://localhost:80/conta-app-backend/api/compras/borradores.php';
 const fmtMon = (v: number) => {
   if (v % 1 !== 0) return '$ ' + v.toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   return '$ ' + Math.round(v).toLocaleString('es-CO');
@@ -70,9 +71,13 @@ interface NuevaCompraProps {
   // clásico con LS_KEY (para retro-compatibilidad con Dashboard viejo).
   initialState?: TabStateCompra;
   onStateChange?: (state: TabStateCompra) => void;
+  // Borrador cargado desde BD (persistente entre sesiones y equipos).
+  // Cuando != null, "Guardar borrador" hace UPDATE (no INSERT) y al guardar
+  // la compra real con exito, el borrador se elimina de la BD.
+  borradorInicialId?: number | null;
 }
 
-export function NuevaCompra({ pedidoEditar, onClose, initialState, onStateChange }: NuevaCompraProps = {}) {
+export function NuevaCompra({ pedidoEditar, onClose, initialState, onStateChange, borradorInicialId }: NuevaCompraProps = {}) {
   const { user } = useAuth();
   // Si el negocio NO maneja lotes/vencimientos (boutique, ferretería, accesorios),
   // ignoramos completamente el flag requiere_lote del catálogo: no se muestra
@@ -117,6 +122,11 @@ export function NuevaCompra({ pedidoEditar, onClose, initialState, onStateChange
   const searchTimer = useRef<any>(null);
   const codigoRef = useRef<HTMLInputElement>(null);
   const buscarInputRef = useRef<HTMLInputElement>(null);
+  // Id del borrador cargado (si el tab viene de "Cargar borrador"). Null si es
+  // un tab nuevo. Se usa para que "Guardar borrador" haga UPDATE en vez de
+  // INSERT, y para eliminarlo cuando se guarda la compra real con exito.
+  const [borradorId, setBorradorId] = useState<number | null>(borradorInicialId ?? null);
+  const [guardandoBorrador, setGuardandoBorrador] = useState(false);
 
   // Persistencia del estado de la compra en armado.
   //
@@ -648,6 +658,17 @@ export function NuevaCompra({ pedidoEditar, onClose, initialState, onStateChange
           if (okLotes > 0) toast.success(`${okLotes} lote(s) registrados`);
           if (failLotes > 0) toast.error(`${failLotes} lote(s) fallaron — revisa Productos por Vencer`);
         }
+        // Si el tab venia de un borrador cargado, eliminarlo — la compra
+        // real ya se creo, el borrador ya no tiene sentido.
+        if (borradorId) {
+          try {
+            await fetch(API_BORRADOR, {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ action: 'eliminar', id: borradorId }),
+            });
+          } catch {}
+          setBorradorId(null);
+        }
         if (modoEdicion && onClose) {
           onClose();
         } else {
@@ -660,6 +681,55 @@ export function NuevaCompra({ pedidoEditar, onClose, initialState, onStateChange
       } else toast.error(d.message);
     } catch (e) { toast.error('Error al guardar'); }
     setGuardando(false);
+  };
+
+  // Guardar el estado actual del tab como borrador en la BD (persistente).
+  // Sirve para armar una compra grande sin miedo a perderla: se puede cerrar
+  // la app / cambiar de computador / limpiar temporales y el borrador sigue
+  // en la BD del servidor Apache. Idempotente: si el tab ya venia de un
+  // borrador (borradorId != null), hace UPDATE; sino INSERT.
+  const guardarBorrador = async () => {
+    if (lineas.length === 0 && !proveedor.id && !facturaCompra) {
+      toast.error('El borrador está vacío. Agregue al menos algo antes de guardar.');
+      return;
+    }
+    setGuardandoBorrador(true);
+    try {
+      // Total aproximado para mostrar en el listado (backend no lo recalcula)
+      const totalAprox = lineas.reduce((s, l) => {
+        const factor = Math.max(1, l.FactorConversion || 1);
+        const esEmp = !!l.ComprarComoEmpaque && factor > 1;
+        const q = esEmp ? l.Cantidad * factor : l.Cantidad;
+        const c = esEmp ? (l.CostoSinIva / factor) : l.CostoSinIva;
+        return s + q * c;
+      }, 0) + flete + retencion - descuento;
+      const r = await fetch(API_BORRADOR, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'guardar',
+          id: borradorId,
+          id_usuario: user?.id || 0,
+          tipo, dias, fecha, factura_compra: facturaCompra,
+          cod_proveedor: proveedor.id,
+          proveedor_nombre: proveedor.nombre,
+          proveedor_nit: proveedor.nit,
+          opcion_iva: opcionIva,
+          flete, descuento, retencion,
+          total: Math.round(totalAprox),
+          lineas, // JSON completo — se restaura tal cual al cargar
+        }),
+      });
+      const d = await r.json();
+      if (d.success) {
+        if (!borradorId && d.id) setBorradorId(d.id);
+        toast.success(borradorId ? 'Borrador actualizado' : `Borrador guardado #${d.id}`);
+      } else {
+        toast.error(d.message || 'No se pudo guardar el borrador');
+      }
+    } catch (e) {
+      toast.error('Error de conexión al guardar borrador');
+    }
+    setGuardandoBorrador(false);
   };
 
   const soloNum = (e: React.KeyboardEvent) => {
@@ -962,11 +1032,18 @@ export function NuevaCompra({ pedidoEditar, onClose, initialState, onStateChange
                     if (e.key === 'Enter') {
                       const code = (e.target as HTMLInputElement).value.trim();
                       if (!code) return;
-                      const r = await fetch(`${API}?buscar=${encodeURIComponent(code)}`);
+                      // Escaner de barras (o Enter manual): busqueda EXACTA por
+                      // codigo. Antes se usaba ?buscar= (LIKE con LIMIT 20) y
+                      // si el codigo escaneado no estaba entre los primeros 20
+                      // matches, el escaner "no leia" o agregaba producto
+                      // equivocado.
+                      const r = await fetch(`${API}?codigo=${encodeURIComponent(code)}`);
                       const d = await r.json();
                       if (d.success && d.articulos.length > 0) {
-                        agregarProducto(d.articulos.find((a: any) => a.Codigo === code) || d.articulos[0]);
+                        agregarProducto(d.articulos[0]);
                         (e.target as HTMLInputElement).value = '';
+                      } else {
+                        toast.error(`No se encontró producto con código "${code}"`);
                       }
                     }
                   }} style={{ width: 80, height: 24, padding: '0 4px', border: '1px solid #dc2626', borderRadius: 4, fontSize: 11, fontWeight: 600 }} />
@@ -1177,6 +1254,22 @@ export function NuevaCompra({ pedidoEditar, onClose, initialState, onStateChange
             style={{ height: 30, padding: '0 12px', background: lineas.length > 0 ? '#dbeafe' : '#f3f4f6', color: lineas.length > 0 ? '#1d4ed8' : '#9ca3af', border: '1px solid ' + (lineas.length > 0 ? '#93c5fd' : '#e5e7eb'), borderRadius: 8, fontSize: 11, cursor: lineas.length > 0 ? 'pointer' : 'not-allowed', display: 'flex', alignItems: 'center', gap: 4, fontWeight: 600 }}>
             <Printer size={13} /> Imprimir
           </button>
+          {!modoEdicion && (
+            <button
+              onClick={guardarBorrador}
+              disabled={guardandoBorrador || (lineas.length === 0 && !proveedor.id && !facturaCompra)}
+              title={borradorId
+                ? `Actualiza el borrador #${borradorId} en la BD (persistente).`
+                : 'Guarda la compra en armado como borrador en la BD del servidor. Se puede cerrar la app y retomar después desde cualquier equipo en red.'}
+              style={{ height: 30, padding: '0 14px', background: borradorId ? '#7c3aed' : '#f3e8ff',
+                       color: borradorId ? '#fff' : '#7c3aed',
+                       border: '1px solid ' + (borradorId ? '#7c3aed' : '#d8b4fe'),
+                       borderRadius: 8, fontSize: 12, fontWeight: 600,
+                       cursor: guardandoBorrador ? 'wait' : 'pointer',
+                       display: 'flex', alignItems: 'center', gap: 5 }}>
+              💾 {guardandoBorrador ? 'Guardando…' : (borradorId ? `Actualizar Borrador #${borradorId}` : 'Guardar Borrador')}
+            </button>
+          )}
           <button
             onClick={() => {
               // Validaciones básicas antes de abrir el modal de pago

@@ -13,6 +13,46 @@ $db = $database->getConnection();
 
 try {
     if ($_SERVER['REQUEST_METHOD'] === 'GET') {
+        // Busqueda EXACTA por codigo (escaner de barras o Enter en el input
+        // "Codigo..."). No usa LIKE — el escaner necesita match preciso para
+        // no traer productos equivocados. Devuelve 1 articulo o vacio.
+        if (isset($_GET['codigo'])) {
+            $cod = trim($_GET['codigo'] ?? '');
+            if ($cod === '') { echo json_encode(["success" => true, "articulos" => []]); exit; }
+            // Detectar columnas de conversion (defensivo, igual que en buscar)
+            $colStmt = $db->query("SELECT COLUMN_NAME FROM information_schema.COLUMNS
+                WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tblarticulos'");
+            $artCols = array_column($colStmt->fetchAll(PDO::FETCH_ASSOC), 'COLUMN_NAME');
+            $selFactor    = in_array('FactorConversion', $artCols)   ? 'COALESCE(a.FactorConversion, 1)' : '1';
+            $selNombreEmp = in_array('NombreEmpaque', $artCols)      ? 'a.NombreEmpaque'                 : 'NULL';
+            $selVenderEmp = in_array('VenderComoEmpaque', $artCols)  ? 'COALESCE(a.VenderComoEmpaque, 0)' : '0';
+            $selComprarEmp= in_array('ComprarComoEmpaque', $artCols) ? 'COALESCE(a.ComprarComoEmpaque, 0)' : '0';
+            $stmt = $db->prepare("
+                SELECT a.Items, a.Codigo, a.Nombres_Articulo, a.Existencia, a.Precio_Costo,
+                       a.Precio_CostoComp, a.Precio_Venta, a.Iva, a.Flete,
+                       COALESCE(a.requiere_lote, 0) AS requiere_lote,
+                       $selFactor AS factor_conversion,
+                       $selNombreEmp AS nombre_empaque,
+                       $selVenderEmp AS vender_como_empaque,
+                       $selComprarEmp AS comprar_como_empaque,
+                       COALESCE(c.Categoria, 'VARIOS') as Categoria
+                FROM tblarticulos a
+                LEFT JOIN tblcategoria c ON a.Id_Categoria = c.Id_Categoria
+                WHERE a.Estado = 1 AND a.Codigo = :cod
+                LIMIT 1
+            ");
+            $stmt->execute([':cod' => $cod]);
+            $arts = $stmt->fetchAll();
+            foreach ($arts as &$a) {
+                $a['Existencia']   = floatval($a['Existencia']);
+                $a['Precio_Costo'] = floatval($a['Precio_Costo']);
+                $a['Precio_Venta'] = floatval($a['Precio_Venta']);
+                $a['Iva']          = floatval($a['Iva']);
+            }
+            echo json_encode(["success" => true, "articulos" => $arts], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
         // Buscar artículos.
         // Devuelve además metadatos de la ÚLTIMA COMPRA del producto para que
         // el usuario vea de una el precio/proveedor/fecha antes de agregarlo:
