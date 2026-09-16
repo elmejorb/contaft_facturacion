@@ -5,6 +5,22 @@ Visible solo para administradores desde **Configuración → Acerca de → Ver h
 
 ---
 
+## 4.4.6 — 2026-09-16
+
+### Fix — Botones P1/P2/P3 (Lista de Precios) no recalculaban las líneas del carrito
+
+- Reportado: al pulsar P2 o P3 en Nueva Venta, el borde cambiaba pero los precios de los productos ya en el carrito seguían con el precio de la lista original. Solo afectaba a productos que se agregaran DESPUÉS del click.
+- Fix: al pulsar cualquier botón de lista, se recalcula el precio de cada línea usando el precio alterno correspondiente del producto (`Precio_Venta`, `Precio_Venta2`, `Precio_Venta3`).
+- **Guarda los 3 precios en cada línea** al agregar el producto — evita re-fetch al backend.
+- **Respeta**: servicios (concepto libre), clientes con "facturar a precio costo", clientes con "facturar al último precio", y el modo empaque de Farmacia (usa `Precio_Venta_Empaque` si está cargado para P1).
+
+### Fix — Descuadre de columnas en la tabla del carrito de Nueva Venta
+
+- La última columna (acciones) tenía ancho fijo `30px` en el header pero `82px` / `60px` en las celdas — el desfase de ~50px hacía que "Precio", "IVA" y "Subtotal" quedaran corridos respecto a los inputs de la línea.
+- Ahora el header usa el mismo ancho dinámico que las celdas (`esAdmin ? 82 : 60`).
+
+---
+
 ## 4.4.5 — 2026-09-14
 
 ### Fix — Descuento en compras ahora se aplica ANTES del IVA (Art. 454 ET)

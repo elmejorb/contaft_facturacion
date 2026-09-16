@@ -243,6 +243,12 @@ interface LineaVenta {
   PrecioCosto: number;
   PrecioMinimo?: number;
   PrecioVenta: number;
+  // Precios alternos de las listas P1/P2/P3 — se guardan al agregar el
+  // producto para que los botones LISTA PRECIO puedan recalcular sin
+  // tener que hacer refetch al backend. PrecioVentaLista1 = art.Precio_Venta.
+  PrecioVentaLista1?: number;
+  PrecioVentaLista2?: number;
+  PrecioVentaLista3?: number;
   Iva: number;
   Descuento: number;
   Subtotal: number;
@@ -557,6 +563,11 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
         Existencia: esServicio ? 0 : art.Existencia, Cantidad: cantInicial, PrecioCosto: art.Precio_Costo,
         PrecioMinimo: art.Precio_Minimo || 0,
         PrecioVenta: precioFinal, Iva: art.Iva || 0, Descuento: 0, Subtotal: cantInicial * precioFinal,
+        // Guardar los 3 precios para que los botones P1/P2/P3 puedan cambiar
+        // el precio sin re-fetch. Si algún alterno no viene, cae al principal.
+        PrecioVentaLista1: art.Precio_Venta || 0,
+        PrecioVentaLista2: art.Precio_Venta2 || art.Precio_Venta || 0,
+        PrecioVentaLista3: art.Precio_Venta3 || art.Precio_Venta || 0,
         EsServicio: esServicio,
         DescripcionTemp: esServicio ? art.Nombres_Articulo : undefined,
         FactorConversion: factorArt,
@@ -1634,7 +1645,34 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
           <label style={{ fontSize: 9, color: '#6b7280', display: 'block', marginBottom: 2 }}>LISTA PRECIO</label>
           <div style={{ display: 'flex', gap: 2 }}>
             {[1, 2, 3].map(n => (
-              <button key={n} onClick={() => setListaPrecio(n)} title={`F${n}: Precio ${n}`}
+              <button key={n} onClick={() => {
+                setListaPrecio(n);
+                // Recalcular precio de las líneas ya en el carrito. Sin esto,
+                // los botones solo afectaban a productos AGREGADOS DESPUÉS —
+                // el cajero pensaba que "no hacen nada". Se respetan servicios
+                // (concepto libre) y precios especiales del cliente (costo /
+                // último precio no cambian con la lista).
+                if (cliente.preciocosto === 1 || cliente.ultimoprecio === 1) return;
+                setLineas(prev => prev.map(l => {
+                  if (l.EsServicio) return l;
+                  const base = n === 2 ? (l.PrecioVentaLista2 || l.PrecioVentaLista1 || l.PrecioVenta)
+                             : n === 3 ? (l.PrecioVentaLista3 || l.PrecioVentaLista1 || l.PrecioVenta)
+                             : (l.PrecioVentaLista1 || l.PrecioVenta);
+                  const factor = Math.max(1, l.FactorConversion || 1);
+                  // Si vende por empaque, respetar Precio_Venta_Empaque si es P1
+                  // (donde la Farmacia lo cargó); sino calcular base × factor.
+                  const precioNuevo = l.VenderComoEmpaque && factor > 1
+                    ? (n === 1 && l.PrecioVentaEmpaque && l.PrecioVentaEmpaque > 0
+                        ? Math.round(l.PrecioVentaEmpaque)
+                        : Math.round(base * factor))
+                    : Math.round(base);
+                  return {
+                    ...l,
+                    PrecioVenta: precioNuevo,
+                    Subtotal: l.Cantidad * precioNuevo - l.Descuento,
+                  };
+                }));
+              }} title={`F${n}: Precio ${n}`}
                 style={{ width: 28, height: 28, border: listaPrecio === n ? '2px solid #7c3aed' : '1px solid #d1d5db', borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: 'pointer', background: listaPrecio === n ? '#f3e8ff' : '#fff', color: listaPrecio === n ? '#7c3aed' : '#374151' }}>P{n}</button>
             ))}
           </div>
@@ -1890,7 +1928,7 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
               <th style={{ padding: '8px 8px', textAlign: 'right', width: 75, fontSize: 11, color: '#374151', fontWeight: 700 }}>Desc.</th>
               <th style={{ padding: '8px 8px', textAlign: 'center', width: 40, fontSize: 11, color: '#374151', fontWeight: 700 }}>IVA</th>
               <th style={{ padding: '8px 8px', textAlign: 'right', width: 100, fontSize: 11, color: '#374151', fontWeight: 700 }}>Subtotal</th>
-              <th style={{ padding: '8px 8px', width: 30 }}></th>
+              <th style={{ padding: '8px 4px', width: esAdmin ? 82 : 60 }}></th>
             </tr>
           </thead>
         </table>
