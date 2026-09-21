@@ -1400,11 +1400,29 @@ try {
 
                 // 4A. Si YA existe electronic_document, solo cambiarlo a borrador
                 if ($docId > 0) {
+                    // Liberar el slot (FCON, 0) primero — puede haber OTRO borrador/rechazado
+                    // en 0 que impida el UPDATE si hay UNIQUE (prefix, number).
+                    $db->prepare("
+                        UPDATE electronic_documents
+                        SET number = 9000000000 + id
+                        WHERE prefix = 'FCON' AND number = 0 AND status IN ('pendiente','rechazado','borrador') AND id != ?
+                    ")->execute([$docId]);
                     $db->prepare("UPDATE electronic_documents SET status = 'borrador', number = 0 WHERE id = ?")
                        ->execute([$docId]);
                     $borradorId = $docId;
                 } else {
                     // 4B. FE nunca alcanzó la API — construir electronic_document desde tblventas
+                    // Liberar el slot (FCON, 0) primero — la UNIQUE (prefix, number)
+                    // impediría el INSERT si ya hay otro borrador/rechazado/pendiente
+                    // con number=0. Movemos los existentes a 9000000000+id (fuera del
+                    // rango DIAN) para que sigan siendo listables/editables pero no
+                    // colisionen con este INSERT.
+                    $db->prepare("
+                        UPDATE electronic_documents
+                        SET number = 9000000000 + id
+                        WHERE prefix = 'FCON' AND number = 0 AND status IN ('pendiente','rechazado','borrador')
+                    ")->execute();
+
                     $medio = intval($venta['id_mediopago'] ?? 10);
                     $tipoV = $venta['Tipo'] ?? 'Contado';
                     $paymentFormLocal   = ($tipoV === 'Contado') ? 1 : 2;

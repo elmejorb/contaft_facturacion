@@ -5,6 +5,16 @@ Visible solo para administradores desde **Configuración → Acerca de → Ver h
 
 ---
 
+## 4.4.9 — 2026-09-21
+
+### Hotfix — botón "Convertir a Electrónica" fallaba con Duplicate entry 'FCON-0'
+
+- **Reportado**: al presionar el botón 📄 nuevo del listado de Ventas (4.4.8), aparecía `SQLSTATE[23000]: Integrity constraint violation: 1062 Duplicate entry 'FCON-0' for key 'uq_prefix_number'` cuando la BD ya tenía otro `electronic_document` con `(prefix='FCON', number=0)` (típico: un borrador anterior sin enviar).
+- **Causa**: el endpoint `convertir_a_borrador` hacía INSERT directo en `(FCON, 0)` sin liberar el slot. La constraint UNIQUE lo bloqueaba.
+- **Fix**: antes del INSERT (path B — sin `doc_local_id`) y antes del UPDATE (path A), se ejecuta el mismo release-slot que ya usa `guardar_borrador`: mover los `(FCON, 0)` existentes a `9000000000 + id` (fuera del rango DIAN, permanecen listables en Borradores). Probado en BD real con colisión forzada.
+
+---
+
 ## 4.4.8 — 2026-09-21
 
 ### UX — Modal "No se pudo enviar a la DIAN" ahora se puede cerrar sin duplicar
