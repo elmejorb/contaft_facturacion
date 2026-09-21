@@ -17,6 +17,12 @@ Visible solo para administradores desde **Configuración → Acerca de → Ver h
 - Guarda-rail defensivo: mientras haya una factura FE pendiente, el botón "Guardar" de Nueva Venta queda bloqueado con toast rojo *"Resuelve primero la factura #N (barra amarilla)"*. Evita duplicados.
 - Cuando el reintento re-consulta el cliente en `tblclientes` (por `CodigoCli`), toma las correcciones que hayas hecho — sin necesidad de crear una nueva venta.
 
+### Fix — FE con múltiples correos ahora se envía a TODOS, no solo al primero
+
+- **Reportado**: clientes con dos o más correos en `tblclientes.Email` (separados por coma o `;`) solo recibían la FE en el primero.
+- **Causa**: `enviar.php` línea 651-653 hacía `preg_split('/[;,]/', $email)` y se quedaba con `$partesEmail[0]` — descartaba el resto.
+- **Fix**: ahora se filtran todos los emails válidos con `FILTER_VALIDATE_EMAIL` y se envían separados por coma en `customer_email`, que es el formato que la API DIAN acepta (`"compras@x.com, contabilidad@y.com"`).
+
 ### Fix crítico — "Copiar factura" leía el campo equivocado (bug de mal uso de columna)
 
 - **Reportado**: al copiar una factura FE de un cliente con NIT válido, la nueva venta se guardaba con `Identificacion=0` → validación AAF14 la rechazaba antes de llegar a DIAN. Cuando se agregaba el mismo cliente manualmente (desde el buscador) funcionaba.

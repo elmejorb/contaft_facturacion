@@ -647,12 +647,20 @@ try {
                     $clienteData = $stmtEmail->fetch();
                     $customerEmail = $clienteData['Email'] ?? '';
                 }
-                // Sanitizar: quitar espacios/tabs/nbsp y quedarse con el primer email si hay varios separados
-                $customerEmail = preg_replace('/[\s\x{00A0}]+/u', '', $customerEmail);
-                $partesEmail = preg_split('/[;,]/', $customerEmail);
-                $customerEmail = trim($partesEmail[0] ?? '');
+                // Sanitizar: quitar espacios/tabs/nbsp y aceptar múltiples emails
+                // separados por coma o punto y coma. La API DIAN acepta el string
+                // completo (ej. "compras@x.com, contabilidad@y.com"), así envía
+                // copia a TODOS los destinatarios válidos, no solo al primero.
+                // Bug histórico: antes tomaba solo $partesEmail[0] y descartaba
+                // el resto — clientes con 2+ correos solo recibían en uno.
+                $customerEmailRaw = preg_replace('/[\s\x{00A0}]+/u', '', $customerEmail);
+                $partesEmail = preg_split('/[;,]/', $customerEmailRaw);
+                $emailsValidos = array_values(array_filter(array_map('trim', $partesEmail), function ($e) {
+                    return $e !== '' && filter_var($e, FILTER_VALIDATE_EMAIL);
+                }));
+                $customerEmail = implode(',', $emailsValidos);
 
-                if ($customerEmail && filter_var($customerEmail, FILTER_VALIDATE_EMAIL)) {
+                if ($customerEmail) {
                     $invoiceJSON['send_email'] = 'S';
                     $invoiceJSON['customer_email'] = $customerEmail;
                     $invoiceJSON['customer']['email'] = $customerEmail;
