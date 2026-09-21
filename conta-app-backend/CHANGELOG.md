@@ -5,6 +5,26 @@ Visible solo para administradores desde **Configuración → Acerca de → Ver h
 
 ---
 
+## 4.4.8 — 2026-09-21
+
+### UX — Modal "No se pudo enviar a la DIAN" ahora se puede cerrar sin duplicar
+
+- **Reportado**: al ver el error del modal FE-fallida (ej. "El cliente no tiene NIT/Cédula registrado — regla AAF14"), no había forma de cerrarlo para ir a corregir el cliente. Solo permitía "Reintentar" o "Guardar borrador" — pero primero había que ir a Clientes y ajustar el NIT.
+- **Fix**: nuevo botón X en el header del modal. Al presionarlo:
+  - El modal se cierra sin tocar la venta POS creada.
+  - Aparece una **barra amarilla flotante** en la parte superior de Nueva Venta: *"⚠ Factura #N pendiente de enviar a DIAN — Motivo: X. Corrige los datos del cliente y presiona Reintentar."*
+  - La barra tiene los mismos 2 botones: **🔄 Reintentar DIAN** y **📝 Guardar borrador**.
+- Guarda-rail defensivo: mientras haya una factura FE pendiente, el botón "Guardar" de Nueva Venta queda bloqueado con toast rojo *"Resuelve primero la factura #N (barra amarilla)"*. Evita duplicados.
+- Cuando el reintento re-consulta el cliente en `tblclientes` (por `CodigoCli`), toma las correcciones que hayas hecho — sin necesidad de crear una nueva venta.
+
+### Fix crítico — "Copiar factura" leía el campo equivocado (bug de mal uso de columna)
+
+- **Reportado**: al copiar una factura FE de un cliente con NIT válido, la nueva venta se guardaba con `Identificacion=0` → validación AAF14 la rechazaba antes de llegar a DIAN. Cuando se agregaba el mismo cliente manualmente (desde el buscador) funcionaba.
+- **Causa**: `tblclientes` tiene dos columnas: `Nit` (el NIT real, siempre poblado) y `Identificacion` (originalmente para contacto/persona, muchas veces en 0). `buscar.php` devuelve `Nit as Identificacion` correctamente. `copiar.php` (ventas y FE) devolvía la columna `Identificacion` literal → 0 → rechazo AAF14.
+- **Fix**: `conta-app-backend/api/ventas/copiar.php` y `conta-app-backend/api/facturacion-electronica/copiar.php` cambiados para hacer `SELECT ... Nit AS Identificacion, Nit, ...` igual que `buscar.php`. Sin tocar BD del cliente — el bug queda arreglado para todas las instalaciones al actualizar (el instalador empaqueta el backend PHP vía `extraResources`).
+
+---
+
 ## 4.4.7 — 2026-09-21
 
 ### Fix crítico — FE fallida por red ya NO deja venta POS creada

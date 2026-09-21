@@ -57,10 +57,17 @@ try {
     $nombreOcasional = null;
     $nitOcasional = null;
     if ($doc['cod_cliente']) {
+        // Devolvemos `Nit AS Identificacion` (mismo criterio que api/clientes/buscar.php)
+        // porque el frontend espera el NIT en la key `Identificacion`, y el NIT real
+        // del cliente vive SIEMPRE en la columna `Nit`. La columna `Identificacion`
+        // de tblclientes es para datos del contacto/persona, NO para el NIT.
+        // Sin esto el copiar de FE devolv�a Identificacion=0 y la validaci�n AAF14
+        // rechazaba la venta antes de llegar a DIAN.
         $stmt = $db->prepare("
             SELECT CodigoClien,
                    Razon_Social AS Nombre_Cliente,
-                   Identificacion, Nit,
+                   Nit AS Identificacion,
+                   Nit,
                    Telefonos AS Telefono,
                    Direccion, Email,
                    CupoAutorizado AS Cupo,

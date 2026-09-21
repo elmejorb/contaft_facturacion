@@ -379,6 +379,11 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
   const [showPagoModal, setShowPagoModal] = useState(false);
   const [distribucionesPendientes, setDistribucionesPendientes] = useState<any[] | null>(null);
   const [contingenciaPrompt, setContingenciaPrompt] = useState<{ factN: number; motivo: string; intentos: number; docLocalId?: number | null } | null>(null);
+  // Cuando el usuario cierra el modal FE-fallida con la X (para ir a corregir
+  // datos del cliente, etc.), preservamos aquí la referencia a la factura
+  // pendiente. Aparece una barra amarilla en Nueva Venta con acciones para
+  // reintentar / guardar borrador / descartar sin dejar POS huérfana.
+  const [feFallidaPendiente, setFeFallidaPendiente] = useState<{ factN: number; motivo: string; intentos: number; docLocalId?: number | null } | null>(null);
   const [convirtiendoBorrador, setConvirtiendoBorrador] = useState(false);
   const [previewXml, setPreviewXml] = useState<{ factN: number; xml: string } | null>(null);
   const [retencionesCliente, setRetencionesCliente] = useState<any[]>([]);
@@ -1233,9 +1238,15 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
     finalizarVentaExitosa(contingenciaPrompt.factN, null, true);
   };
 
+  // Reintento DIAN — sirve tanto para el modal abierto como para la barra
+  // amarilla (después de cerrar el modal con la X para ir a corregir datos).
+  // El endpoint DIAN re-lee tblclientes por CodigoCli, así que las
+  // correcciones al cliente (NIT, régimen, municipio…) se toman en el reintento
+  // sin necesidad de tocar tblventas.
   const reintentarDian = async () => {
-    if (!contingenciaPrompt) return;
-    const { factN, intentos } = contingenciaPrompt;
+    const src = contingenciaPrompt || feFallidaPendiente;
+    if (!src) return;
+    const { factN, intentos, docLocalId } = src;
     toast.loading('Reintentando DIAN...', { id: 'dian-retry' });
     try {
       const rDian = await fetch(API_FE, {
@@ -1250,14 +1261,31 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
       if (dDian.success) {
         toast.success(`DIAN: Factura ${dDian.consecutive ? '#' + dDian.consecutive : ''} aprobada`, { id: 'dian-retry', duration: 6000 });
         setContingenciaPrompt(null);
+        setFeFallidaPendiente(null);
         finalizarVentaExitosa(factN, dDian.doc_local_id || null, false);
       } else {
         toast.dismiss('dian-retry');
-        setContingenciaPrompt({ factN, motivo: dDian.message || 'DIAN rechazó la factura', intentos: intentos + 1, docLocalId: dDian.doc_local_id ?? contingenciaPrompt.docLocalId ?? null });
+        const nuevo = { factN, motivo: dDian.message || 'DIAN rechazó la factura', intentos: intentos + 1, docLocalId: dDian.doc_local_id ?? docLocalId ?? null };
+        // Si venía de la barra amarilla, actualizamos la barra Y reabrimos el modal
+        setContingenciaPrompt(nuevo);
+        setFeFallidaPendiente(nuevo);
       }
     } catch (e) {
       toast.dismiss('dian-retry');
-      setContingenciaPrompt({ factN, motivo: 'Sin conexión con la API', intentos: intentos + 1, docLocalId: contingenciaPrompt.docLocalId ?? null });
+      const nuevo = { factN, motivo: 'Sin conexión con la API', intentos: intentos + 1, docLocalId: docLocalId ?? null };
+      setContingenciaPrompt(nuevo);
+      setFeFallidaPendiente(nuevo);
+    }
+  };
+
+  // Cierra el modal sin tocar la venta — se preserva el estado en feFallidaPendiente
+  // y aparece la barra amarilla en Nueva Venta con opciones para reintentar
+  // o guardar como borrador después.
+  const cerrarModalFE = () => {
+    if (contingenciaPrompt) {
+      setFeFallidaPendiente(contingenciaPrompt);
+      setContingenciaPrompt(null);
+      toast('Corrige los datos del cliente y presiona "Reintentar DIAN" en la barra amarilla.', { icon: 'ℹ️', duration: 6000 });
     }
   };
 
@@ -1271,8 +1299,9 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
   // a partir de los datos de la venta antes de anularla. La regla fuerte es:
   // una venta que se intentó enviar por FE NUNCA debe terminar viviendo como POS.
   const convertirEnBorrador = async () => {
-    if (!contingenciaPrompt) return;
-    const { factN, docLocalId } = contingenciaPrompt;
+    const src = contingenciaPrompt || feFallidaPendiente;
+    if (!src) return;
+    const { factN, docLocalId } = src;
     setConvirtiendoBorrador(true);
     try {
       const r = await fetch(API_FE, {
@@ -1283,6 +1312,7 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
       if (d.success) {
         toast.success(d.message || 'Guardado como borrador FE. Ya puede editarlo.', { duration: 6000 });
         setContingenciaPrompt(null);
+        setFeFallidaPendiente(null);
         // Limpiar el carrito y volver al inicio como si fuera venta exitosa,
         // pero sin abrir PDF (porque la FE no salio).
         setShowPagoModal(false);
@@ -1301,6 +1331,14 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
   };
 
   const ejecutarVenta = async () => {
+    // Bloquear crear una venta nueva mientras haya una FE fallida pendiente
+    // (el usuario cerró el modal con la X para ir a corregir). La barra amarilla
+    // tiene los botones para resolverla — sin esto crearía facturas duplicadas.
+    if (feFallidaPendiente) {
+      toast.error(`Resuelve primero la factura #${feFallidaPendiente.factN} pendiente (barra amarilla arriba: Reintentar DIAN o Guardar borrador).`, { duration: 7000 });
+      return;
+    }
+
     // Si la factura es electrónica y el usuario marcó "Enviar a correo",
     // exigimos que al menos un correo del cliente sea válido. Bloquea el
     // caso donde el cliente tenía un email del tipo "abc@" guardado: la
@@ -1565,6 +1603,36 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
     <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 110px)' }}>
       {error && <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, padding: '6px 14px', marginBottom: 8, color: '#dc2626', fontSize: 12, display: 'flex', justifyContent: 'space-between' }}>{error}<button onClick={() => setError('')} style={{ background: 'none', border: 'none', cursor: 'pointer' }}><X size={14} /></button></div>}
       {success && <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: '6px 14px', marginBottom: 8, color: '#16a34a', fontSize: 13, fontWeight: 600 }}>{success}</div>}
+
+      {/* Barra flotante cuando hay FE pendiente por corregir (usuario cerró el
+          modal con la X para ir a corregir datos del cliente). Ofrece las
+          mismas 2 acciones del modal sin bloquear la pantalla. */}
+      {feFallidaPendiente && (
+        <div style={{
+          background: 'linear-gradient(90deg, #fef3c7, #fde68a)',
+          border: '2px solid #f59e0b', borderRadius: 8,
+          padding: '10px 14px', marginBottom: 10,
+          display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
+        }}>
+          <span style={{ fontSize: 20 }}>⚠</span>
+          <div style={{ flex: 1, minWidth: 240 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#78350f' }}>
+              Factura #{feFallidaPendiente.factN} pendiente de enviar a DIAN
+            </div>
+            <div style={{ fontSize: 11, color: '#92400e', marginTop: 2 }}>
+              Motivo: {feFallidaPendiente.motivo}. Corrige los datos del cliente y presiona "Reintentar DIAN", o guarda como borrador para editar después.
+            </div>
+          </div>
+          <button onClick={reintentarDian}
+            style={{ height: 32, padding: '0 14px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, cursor: 'pointer', fontWeight: 700 }}>
+            🔄 Reintentar DIAN
+          </button>
+          <button onClick={convertirEnBorrador} disabled={convirtiendoBorrador}
+            style={{ height: 32, padding: '0 12px', background: '#fff', color: '#78350f', border: '1px solid #d97706', borderRadius: 6, fontSize: 12, cursor: convirtiendoBorrador ? 'wait' : 'pointer', fontWeight: 600 }}>
+            {convirtiendoBorrador ? 'Guardando…' : '📝 Guardar borrador'}
+          </button>
+        </div>
+      )}
 
       {getConfigImpresion().modoPruebaFE && (
         <div style={{ background: 'repeating-linear-gradient(45deg, #fef3c7, #fef3c7 10px, #fde68a 10px, #fde68a 20px)', border: '2px solid #d97706', borderRadius: 8, padding: '8px 14px', marginBottom: 6, color: '#78350f', fontSize: 12, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 10, animation: 'pulseBanner 2s ease-in-out infinite' }}>
@@ -2367,7 +2435,12 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
           <div style={{ position: 'relative', background: '#fff', borderRadius: 12, width: 560, boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
             <div style={{ padding: '14px 18px', borderBottom: '1px solid #e5e7eb', display: 'flex', alignItems: 'center', gap: 10, background: '#fef2f2', borderRadius: '12px 12px 0 0' }}>
               <span style={{ fontSize: 22 }}>⚠</span>
-              <span style={{ fontSize: 15, fontWeight: 700, color: '#991b1b' }}>No se pudo enviar a la DIAN</span>
+              <span style={{ fontSize: 15, fontWeight: 700, color: '#991b1b', flex: 1 }}>No se pudo enviar a la DIAN</span>
+              <button onClick={cerrarModalFE}
+                title="Cerrar para ir a corregir datos del cliente. La factura queda pendiente y aparece una barra amarilla arriba con opciones."
+                style={{ width: 28, height: 28, borderRadius: 6, border: 'none', background: 'rgba(153,27,27,0.1)', color: '#991b1b', fontSize: 18, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}>
+                ×
+              </button>
             </div>
             <div style={{ padding: 18, fontSize: 13, color: '#374151' }}>
               <p style={{ margin: '0 0 10px' }}>La factura <b>#{contingenciaPrompt.factN}</b> quedó guardada localmente pero <b>no llegó a la DIAN</b>.</p>

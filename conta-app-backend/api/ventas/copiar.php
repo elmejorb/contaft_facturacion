@@ -32,13 +32,19 @@ try {
         exit;
     }
 
-    // Cliente local — mismo shape que NuevaVenta espera al cargar pedidos
+    // Cliente local — mismo shape que NuevaVenta espera al cargar pedidos.
+    // Devolvemos `Nit AS Identificacion` (mismo criterio que api/clientes/buscar.php)
+    // porque el frontend espera el NIT en la key `Identificacion`, y el NIT real
+    // del cliente vive SIEMPRE en la columna `Nit`. La columna `Identificacion`
+    // de tblclientes es para datos del contacto/persona de la empresa, NO para
+    // el NIT — nunca se debe leer aquí.
     $cliente = null;
     if ($venta['CodigoCli']) {
         $stmt = $db->prepare("
             SELECT CodigoClien,
                    Razon_Social AS Nombre_Cliente,
-                   Identificacion, Nit,
+                   Nit AS Identificacion,
+                   Nit,
                    Telefonos AS Telefono,
                    Direccion, Email,
                    CupoAutorizado AS Cupo
