@@ -5,6 +5,26 @@ Visible solo para administradores desde **Configuración → Acerca de → Ver h
 
 ---
 
+## 4.4.7 — 2026-09-21
+
+### Fix crítico — FE fallida por red ya NO deja venta POS creada
+
+- **Reportado**: al enviar una Factura Electrónica y perder conexión con la API DIAN, el modal "No se pudo enviar a la DIAN" aparecía, y al presionar "Guardar como borrador" la venta terminaba viviendo como POS Consumidor Final en el histórico — sin borrador FE editable en ningún lado.
+- **Causa**: el frontend hacía early-return cuando `doc_local_id=null` (caso típico de error de red que ocurre ANTES de que el servidor DIAN cree el documento). Esa rama finalizaba la venta como POS exitosa.
+- **Fix**:
+  - Backend `enviar.php` `convertir_a_borrador`: ahora acepta `doc_local_id=0` y reconstruye el `electronic_document` en `borrador` a partir de la venta (`tblventas` + `tbldetalle_venta`). Anula la POS, revierte stock y kardex. Servicios (`Servicio='S'`) no revierten stock.
+  - Frontend `NuevaVenta.tsx`: eliminado el early-return. Siempre llama al endpoint, sea con doc_id existente o con 0.
+- **Regla firme**: una venta que se intentó enviar por FE nunca puede terminar viviendo como POS. Solo hay 2 finales válidos: FE emitida en DIAN o borrador FE editable.
+
+### Feature — Rescate de POS pre-4.4.7 que debieron ser FE
+
+- Nuevo botón **📄 Convertir a Electrónica** (ícono FileText naranja) en el listado de Ventas.
+- Toma una POS existente (no anulada, sin CUFE) → anula la POS + genera un borrador FE con sus items, totales y cliente.
+- El usuario abre el borrador en Facturación Electrónica → Borradores, ajusta si necesita (típicamente cliente si era "Consumidor Final") y envía a DIAN.
+- **Guardas**: el backend bloquea si la venta ya está anulada o si ya tiene un `electronic_document` con CUFE emitido (evita duplicar).
+
+---
+
 ## 4.4.6 — 2026-09-16
 
 ### Fix — Botones P1/P2/P3 (Lista de Precios) no recalculaban las líneas del carrito

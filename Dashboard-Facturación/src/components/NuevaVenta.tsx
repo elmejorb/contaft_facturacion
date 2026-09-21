@@ -1263,25 +1263,21 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
 
   // Cuando la FE fallo y el usuario NO quiere reenviarla, en vez de dejar
   // una venta POS creada (bug reportado: "se me crea una FE y una POS"),
-  // convertimos: anular la venta POS + cambiar el electronic_document
-  // (que quedo en 'rechazado') a 'borrador' para que el usuario pueda
-  // editarlo mas tarde desde Facturacion Electronica.
+  // convertimos: anular la venta POS + cambiar (o crear) el electronic_document
+  // a 'borrador' para que el usuario pueda editarlo desde Facturacion Electronica.
+  //
+  // El endpoint acepta doc_local_id=0 cuando la FE nunca llegó a la API
+  // (caso típico de error de red): en ese modo, RECONSTRUYE el borrador FE
+  // a partir de los datos de la venta antes de anularla. La regla fuerte es:
+  // una venta que se intentó enviar por FE NUNCA debe terminar viviendo como POS.
   const convertirEnBorrador = async () => {
     if (!contingenciaPrompt) return;
     const { factN, docLocalId } = contingenciaPrompt;
-    if (!docLocalId) {
-      // Si por alguna razon no tenemos el doc_local_id (raro), solo cerramos.
-      // La venta POS queda creada — se puede anular manual.
-      setContingenciaPrompt(null);
-      toast('Se dejó sin enviar. Puede reenviar más tarde desde Facturación Electrónica.', { icon: 'ℹ️', duration: 6000 });
-      finalizarVentaExitosa(factN, null, false);
-      return;
-    }
     setConvirtiendoBorrador(true);
     try {
       const r = await fetch(API_FE, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'convertir_a_borrador', factura_n: factN, doc_local_id: docLocalId }),
+        body: JSON.stringify({ action: 'convertir_a_borrador', factura_n: factN, doc_local_id: docLocalId || 0 }),
       });
       const d = await r.json();
       if (d.success) {

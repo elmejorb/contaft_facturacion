@@ -1,9 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AgGridReact } from 'ag-grid-react';
 import { AllCommunityModule, ModuleRegistry, themeQuartz } from 'ag-grid-community';
-import { Smartphone, Plus, RefreshCw, Save, X, Eye, EyeOff, CheckCircle, AlertCircle, UserPlus, Link, Pencil, Users } from 'lucide-react';
+import { Smartphone, Plus, RefreshCw, Save, X, Eye, EyeOff, CheckCircle, AlertCircle, UserPlus, Link, Pencil, Users, Hash, Mail, Lock, Phone, CreditCard, MapPin, Shield, QrCode, Copy, MessageCircle, RotateCw } from 'lucide-react';
+import { QRCodeSVG } from 'qrcode.react';
 import toast from 'react-hot-toast';
 import { useVendedoresConfig } from '../hooks/useVendedoresConfig';
+import { useEntitlements } from '../hooks/useEntitlements';
 import { AG_GRID_LOCALE_ES } from '../utils/agGridLocaleEs';
 
 ModuleRegistry.registerModules([AllCommunityModule]);
@@ -40,6 +42,7 @@ interface Vendedor {
 
 export function VendedoresMovil() {
   const { config, habilitado, refetch } = useVendedoresConfig();
+  const { modulos: entitlements } = useEntitlements();
   const [vendedores, setVendedores] = useState<Vendedor[]>([]);
   const [loading, setLoading] = useState(false);
   const [showModal, setShowModal] = useState(false);
@@ -61,6 +64,96 @@ export function VendedoresMovil() {
   const [asignBusqueda, setAsignBusqueda] = useState('');
   const [asignLoading, setAsignLoading] = useState(false);
   const [asignGuardando, setAsignGuardando] = useState(false);
+
+  // Modal de código para vincular vendedor (pareo con APK vía WhatsApp)
+  const [showPairing, setShowPairing] = useState(false);
+  const [pairingLoading, setPairingLoading] = useState(false);
+  const [pairingData, setPairingData] = useState<{
+    codigo_pairing: string;
+    codigo_pairing_expira: string;
+    token_api: string;
+    nombre_empresa: string;
+    nit: string;
+  } | null>(null);
+
+  const cargarPairing = async () => {
+    setPairingLoading(true);
+    try {
+      // Consultamos el hub usando el token_api local — devuelve el codigo actual
+      if (!config?.api_url || !config?.api_token_empresa) {
+        toast.error('Configura primero URL y token en Configuración → Vendedores');
+        setPairingLoading(false);
+        return;
+      }
+      const r = await fetch(`${config.api_url.replace(/\/$/, '')}/api/empresa/vincular`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ codigo: config.api_token_empresa }),
+      });
+      const d = await r.json();
+      if (d.error) { toast.error(d.mensaje || 'No se pudo obtener el código'); setPairingLoading(false); return; }
+      setPairingData({
+        codigo_pairing: d.codigo_pairing || '',
+        codigo_pairing_expira: d.codigo_pairing_expira || '',
+        token_api: d.token_api,
+        nombre_empresa: d.nombre_empresa,
+        nit: d.nit,
+      });
+    } catch (e) { toast.error('Error consultando el hub'); }
+    setPairingLoading(false);
+  };
+
+  const abrirPairing = async () => {
+    setShowPairing(true);
+    setPairingData(null);
+    await cargarPairing();
+  };
+
+  const renovarCodigoPairing = async () => {
+    const ipc = (window as any).require?.('electron')?.ipcRenderer;
+    if (!ipc) { toast.error('Solo disponible en la app de escritorio'); return; }
+    if (!config?.api_url) { toast.error('Falta URL del hub en Configuración'); return; }
+    setPairingLoading(true);
+    const tid = toast.loading('Generando nuevo código…');
+    try {
+      const r = await ipc.invoke('empresas:renovarCodigoPairing', { apiUrlLumen: config.api_url });
+      toast.dismiss(tid);
+      if (r?.ok) {
+        toast.success('Nuevo código generado');
+        await cargarPairing();
+      } else {
+        const msg = r?.reason === 'modulo-no-activo-crm' ? 'Módulo no activo en su suscripción'
+          : r?.reason === 'jwt-no-en-cache' ? 'Reinicie la app para refrescar el token del CRM'
+          : (r?.message || 'No se pudo renovar el código');
+        toast.error(msg, { duration: 7000 });
+      }
+    } catch (e: any) { toast.dismiss(tid); toast.error(e?.message || 'Error'); }
+    setPairingLoading(false);
+  };
+
+  const textoWhatsApp = pairingData ? [
+    `Bienvenido a *${pairingData.nombre_empresa}*.`,
+    '',
+    `Instala *Conta FT Móvil* y en la primera pantalla ingresa este código de empresa:`,
+    ``,
+    `  🔑  *${pairingData.codigo_pairing}*`,
+    ``,
+    `(o escanea el QR desde la misma app)`,
+    ``,
+    `Después inicia sesión con el email y contraseña que te dio el administrador.`,
+  ].join('\n') : '';
+
+  const copiarWhatsApp = () => {
+    navigator.clipboard.writeText(textoWhatsApp).then(
+      () => toast.success('Texto copiado — pégalo en WhatsApp'),
+      () => toast.error('No se pudo copiar'),
+    );
+  };
+
+  const abrirWhatsAppWeb = () => {
+    const url = `https://wa.me/?text=${encodeURIComponent(textoWhatsApp)}`;
+    window.open(url, '_blank');
+  };
 
   const abrirAsignacion = async (v: Vendedor) => {
     setAsignVend(v);
@@ -127,7 +220,24 @@ export function VendedoresMovil() {
 
   useEffect(() => { if (habilitado) cargar(); }, [habilitado, cargar]);
 
+  // Control de cupo del CRM: el módulo `vendedor_movil` viene con un `cantidad`
+  // en el JWT firmado (ej. cliente contrató 2 vendedores). Bloqueamos crear más
+  // de los permitidos. Los inactivos NO cuentan hacia el cupo — se pueden reactivar
+  // solo si hay espacio libre.
+  const cupoMax = entitlements?.vendedor_movil?.cantidad ?? null; // null = sin cupo definido (permitir)
+  const vendedoresActivos = vendedores.filter(v => !!v.activo).length;
+  const cupoLleno = cupoMax !== null && vendedoresActivos >= cupoMax;
+
+  const validarCupo = (esNuevoActivo: boolean): boolean => {
+    if (!esNuevoActivo) return true;             // se está creando inactivo → no consume cupo
+    if (cupoMax === null) return true;            // sin cupo definido → libre
+    if (vendedoresActivos < cupoMax) return true; // hay espacio
+    toast.error(`Ya usaste tu cupo de ${cupoMax} vendedor(es). Contrata más en Innovación Digital o desactiva otro para liberar espacio.`, { duration: 8000 });
+    return false;
+  };
+
   const abrirCrear = () => {
+    if (!validarCupo(true)) return;
     setEditId(null);
     const nextCode = 'V' + String(vendedores.length + 1).padStart(3, '0');
     setForm({ codigo: nextCode, nombre: '', email: '', password: '', telefono: '', cedula: '', zona: '', can_edit_clients: true, activo: true, codigo_emp: 0 });
@@ -151,6 +261,7 @@ export function VendedoresMovil() {
   };
 
   const seleccionarEmpleado = (emp: any) => {
+    if (!validarCupo(true)) return;
     setShowEmpleadoPicker(false);
     setEditId(null);
     const nextCode = 'V' + String(vendedores.length + 1).padStart(3, '0');
@@ -192,6 +303,12 @@ export function VendedoresMovil() {
       toast.error('Complete código, nombre, email y contraseña');
       return;
     }
+    // Verificar cupo: aplica al crear activo o al reactivar un inactivo
+    if (form.activo) {
+      const yaEstabaActivoAntes = editId ? vendedores.find(v => v.id === editId)?.activo === 1 : false;
+      const consumeCupo = !editId || !yaEstabaActivoAntes;
+      if (consumeCupo && !validarCupo(true)) return;
+    }
     const action = editId ? 'editar' : 'crear';
     const payload: any = editId ? { action, id: editId, ...form } : { action, ...form };
     if (!editId && form.codigo_emp > 0) payload.codigo_emp = form.codigo_emp;
@@ -225,6 +342,9 @@ export function VendedoresMovil() {
   };
 
   const toggleActivo = async (id: number) => {
+    // Si se está pasando de inactivo → activo, verificar cupo primero
+    const actual = vendedores.find(v => v.id === id);
+    if (actual && !actual.activo && !validarCupo(true)) return;
     try {
       const r = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'toggle_activo', id }) });
       const d = await r.json();
@@ -385,8 +505,33 @@ export function VendedoresMovil() {
               Vendedores móviles sincronizados con la app
             </p>
           </div>
+          {/* Chip de cupo del CRM */}
+          {cupoMax !== null && (
+            <div title={`Tu suscripción permite ${cupoMax} vendedor(es) activo(s)`}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 6,
+                padding: '5px 10px',
+                background: cupoLleno ? 'rgba(239, 68, 68, 0.25)' : 'rgba(255, 255, 255, 0.18)',
+                border: `1px solid ${cupoLleno ? 'rgba(239, 68, 68, 0.55)' : 'rgba(255, 255, 255, 0.35)'}`,
+                borderRadius: 20, fontSize: 12, fontWeight: 700, color: '#fff', whiteSpace: 'nowrap',
+              }}>
+              <Users size={13} />
+              {vendedoresActivos} / {cupoMax}
+              {cupoLleno && <span style={{ marginLeft: 3 }}>· lleno</span>}
+            </div>
+          )}
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={abrirPairing}
+            title="Genera un código para vincular la app de un vendedor con esta empresa (compartir por WhatsApp)"
+            style={{
+              height: 38, padding: '0 14px',
+              background: 'rgba(255,255,255,0.15)', color: '#fff',
+              border: '1px solid rgba(255,255,255,0.3)', borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: 'pointer',
+              display: 'flex', alignItems: 'center', gap: 6,
+            }}>
+            <QrCode size={14} /> Código empresa
+          </button>
           <button onClick={sincronizar} disabled={syncing}
             style={{
               height: 38, padding: '0 14px',
@@ -397,20 +542,27 @@ export function VendedoresMovil() {
             <RefreshCw size={14} className={syncing ? 'animate-spin' : ''} /> {syncing ? 'Sync...' : 'Sincronizar'}
           </button>
           <button onClick={abrirPickerEmpleados}
+            disabled={cupoLleno}
+            title={cupoLleno ? `Cupo lleno (${cupoMax} vendedores). Desactiva uno o contrata más en Innovación Digital.` : ''}
             style={{
-              height: 38, padding: '0 14px', background: '#fff', color: '#7c3aed',
-              border: 'none', borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: 'pointer',
+              height: 38, padding: '0 14px', background: '#fff', color: cupoLleno ? '#9ca3af' : '#7c3aed',
+              border: 'none', borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: cupoLleno ? 'not-allowed' : 'pointer',
               display: 'flex', alignItems: 'center', gap: 6,
               boxShadow: '0 2px 8px rgba(0,0,0,0.12)',
+              opacity: cupoLleno ? 0.55 : 1,
             }}>
             <Link size={14} /> Habilitar empleado existente
           </button>
           <button onClick={abrirCrear}
+            disabled={cupoLleno}
+            title={cupoLleno ? `Cupo lleno (${cupoMax} vendedores). Desactiva uno o contrata más en Innovación Digital.` : ''}
             style={{
               height: 38, padding: '0 14px',
               background: 'rgba(255,255,255,0.15)', color: '#fff',
-              border: '1px solid rgba(255,255,255,0.3)', borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: 'pointer',
+              border: '1px solid rgba(255,255,255,0.3)', borderRadius: 10, fontSize: 13, fontWeight: 600,
+              cursor: cupoLleno ? 'not-allowed' : 'pointer',
               display: 'flex', alignItems: 'center', gap: 6,
+              opacity: cupoLleno ? 0.5 : 1,
             }}>
             <Plus size={14} /> Nuevo
           </button>
@@ -724,52 +876,273 @@ export function VendedoresMovil() {
         </div>
       )}
 
-      {showModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 }}>
-          <div style={{ background: '#fff', borderRadius: 16, padding: 24, width: 460, maxHeight: '90vh', overflowY: 'auto' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>
-                {editId ? 'Editar Vendedor' : (form.codigo_emp > 0 ? 'Habilitar Empleado como Vendedor' : 'Nuevo Vendedor')}
-              </h3>
-              <button onClick={() => setShowModal(false)} style={{ border: 'none', background: 'none', cursor: 'pointer' }}><X size={18} /></button>
-            </div>
-            {form.codigo_emp > 0 && !editId && (
+      {showModal && (() => {
+        const modoEdit = !!editId;
+        const modoEmpleado = form.codigo_emp > 0 && !editId;
+        const titulo = modoEdit ? 'Editar Vendedor' : (modoEmpleado ? 'Habilitar Empleado como Vendedor' : 'Nuevo Vendedor');
+        const subtitulo = modoEdit
+          ? 'Actualiza los datos y permisos del vendedor'
+          : (modoEmpleado ? `Vinculando con empleado #${form.codigo_emp}` : 'Crea un usuario para la app móvil');
+        const inputStyle: React.CSSProperties = {
+          height: 34, border: '1px solid #d1d5db', borderRadius: 6, padding: '0 10px', fontSize: 13, width: '100%',
+          background: '#fff', color: '#111827', outline: 'none', boxSizing: 'border-box',
+        };
+        const labelStyle: React.CSSProperties = { fontSize: 11, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: 0.4, display: 'flex', alignItems: 'center', gap: 5 };
+        const fieldWrap: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 4 };
+        const toggleRow = (checked: boolean, onChange: (v: boolean) => void, titleText: string, descText: string, icon: React.ReactNode) => (
+          <label
+            onClick={() => onChange(!checked)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px',
+              border: `2px solid ${checked ? '#7c3aed' : '#e5e7eb'}`,
+              background: checked ? '#faf5ff' : '#fff',
+              borderRadius: 8, cursor: 'pointer', transition: 'all 0.15s',
+            }}>
+            <div style={{
+              width: 36, height: 20, borderRadius: 10, position: 'relative', flexShrink: 0,
+              background: checked ? '#7c3aed' : '#d1d5db', transition: 'background 0.15s',
+            }}>
               <div style={{
-                padding: '10px 12px', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8,
-                marginBottom: 12, fontSize: 12, color: '#1d4ed8',
-                display: 'flex', alignItems: 'center', gap: 8,
-              }}>
-                <Link size={14} />
-                Vinculando con empleado #{form.codigo_emp}. Sus ventas móviles quedarán asociadas a este empleado.
-              </div>
-            )}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              <label style={{ fontSize: 12, fontWeight: 600 }}>Código</label>
-              <input value={form.codigo} onChange={e => setForm(f => ({ ...f, codigo: e.target.value }))} style={{ height: 32, border: '1px solid #d1d5db', borderRadius: 6, padding: '0 10px' }} />
-              <label style={{ fontSize: 12, fontWeight: 600 }}>Nombre completo</label>
-              <input value={form.nombre} onChange={e => setForm(f => ({ ...f, nombre: e.target.value }))} style={{ height: 32, border: '1px solid #d1d5db', borderRadius: 6, padding: '0 10px' }} />
-              <label style={{ fontSize: 12, fontWeight: 600 }}>Email (login en app)</label>
-              <input value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} style={{ height: 32, border: '1px solid #d1d5db', borderRadius: 6, padding: '0 10px' }} />
-              <label style={{ fontSize: 12, fontWeight: 600 }}>{editId ? 'Nueva contraseña (dejar vacío para no cambiar)' : 'Contraseña'}</label>
-              <input type="password" value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))} style={{ height: 32, border: '1px solid #d1d5db', borderRadius: 6, padding: '0 10px' }} />
-              <label style={{ fontSize: 12, fontWeight: 600 }}>Teléfono</label>
-              <input value={form.telefono} onChange={e => setForm(f => ({ ...f, telefono: e.target.value }))} style={{ height: 32, border: '1px solid #d1d5db', borderRadius: 6, padding: '0 10px' }} />
-              <label style={{ fontSize: 12, fontWeight: 600 }}>Cédula</label>
-              <input value={form.cedula} onChange={e => setForm(f => ({ ...f, cedula: e.target.value }))} style={{ height: 32, border: '1px solid #d1d5db', borderRadius: 6, padding: '0 10px' }} />
-              <label style={{ fontSize: 12, fontWeight: 600 }}>Zona</label>
-              <input value={form.zona} onChange={e => setForm(f => ({ ...f, zona: e.target.value }))} style={{ height: 32, border: '1px solid #d1d5db', borderRadius: 6, padding: '0 10px' }} />
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
-                <input type="checkbox" checked={form.can_edit_clients} onChange={e => setForm(f => ({ ...f, can_edit_clients: e.target.checked }))} />
-                Puede editar clientes
-              </label>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
-                <input type="checkbox" checked={form.activo} onChange={e => setForm(f => ({ ...f, activo: e.target.checked }))} />
-                Activo
-              </label>
+                position: 'absolute', top: 2, left: checked ? 18 : 2, width: 16, height: 16, borderRadius: '50%',
+                background: '#fff', transition: 'left 0.15s', boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+              }} />
             </div>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
-              <button onClick={() => setShowModal(false)} style={{ height: 34, padding: '0 16px', border: '1px solid #d1d5db', background: '#fff', borderRadius: 8, cursor: 'pointer' }}>Cancelar</button>
-              <button onClick={guardar} style={{ height: 34, padding: '0 16px', background: '#7c3aed', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 600 }}><Save size={14} style={{ marginRight: 6 }} />Guardar</button>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 600, color: checked ? '#5b21b6' : '#374151' }}>
+                {icon}{titleText}
+              </div>
+              <div style={{ fontSize: 11, color: '#6b7280', marginTop: 1 }}>{descText}</div>
+            </div>
+          </label>
+        );
+
+        return (
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.55)', backdropFilter: 'blur(2px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, padding: 16 }}>
+            <div style={{ background: '#fff', borderRadius: 14, width: 540, maxHeight: '92vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.25)', overflow: 'hidden' }}>
+              {/* Header con acento morado */}
+              <div style={{
+                background: 'linear-gradient(135deg, #7c3aed 0%, #5b21b6 100%)',
+                padding: '16px 20px', color: '#fff',
+                display: 'flex', alignItems: 'center', gap: 12,
+              }}>
+                <div style={{
+                  width: 40, height: 40, borderRadius: 10, background: 'rgba(255,255,255,0.18)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                }}>
+                  {modoEmpleado ? <Link size={20} /> : (modoEdit ? <Pencil size={18} /> : <UserPlus size={20} />)}
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 15, fontWeight: 700, lineHeight: 1.2 }}>{titulo}</div>
+                  <div style={{ fontSize: 12, opacity: 0.85, marginTop: 2 }}>{subtitulo}</div>
+                </div>
+                <button onClick={() => setShowModal(false)}
+                  style={{ border: 'none', background: 'rgba(255,255,255,0.15)', cursor: 'pointer', color: '#fff', width: 30, height: 30, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                  title="Cerrar">
+                  <X size={16} />
+                </button>
+              </div>
+
+              {/* Cuerpo */}
+              <div style={{ padding: '18px 20px', maxHeight: 'calc(92vh - 140px)', overflowY: 'auto' }}>
+                {modoEmpleado && (
+                  <div style={{
+                    padding: '8px 12px', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8,
+                    marginBottom: 14, fontSize: 11.5, color: '#1d4ed8',
+                    display: 'flex', alignItems: 'flex-start', gap: 8,
+                  }}>
+                    <Link size={13} style={{ marginTop: 1, flexShrink: 0 }} />
+                    <span>Sus ventas móviles quedarán asociadas al empleado <b>#{form.codigo_emp}</b>.</span>
+                  </div>
+                )}
+
+                {/* Fila 1: Código + Zona */}
+                <div style={{ display: 'grid', gridTemplateColumns: '110px 1fr', gap: 10, marginBottom: 12 }}>
+                  <div style={fieldWrap}>
+                    <label style={labelStyle}><Hash size={11} />Código</label>
+                    <input value={form.codigo} onChange={e => setForm(f => ({ ...f, codigo: e.target.value }))} style={inputStyle} />
+                  </div>
+                  <div style={fieldWrap}>
+                    <label style={labelStyle}><MapPin size={11} />Zona</label>
+                    <input value={form.zona} onChange={e => setForm(f => ({ ...f, zona: e.target.value }))} placeholder="p. ej. Cali Norte" style={inputStyle} />
+                  </div>
+                </div>
+
+                {/* Fila 2: Nombre completo (ancho completo) */}
+                <div style={{ ...fieldWrap, marginBottom: 12 }}>
+                  <label style={labelStyle}><UserPlus size={11} />Nombre completo</label>
+                  <input value={form.nombre} onChange={e => setForm(f => ({ ...f, nombre: e.target.value }))} placeholder="Nombres y apellidos" style={inputStyle} autoFocus />
+                </div>
+
+                {/* Sección Login */}
+                <div style={{ background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 10, padding: 12, marginBottom: 12 }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: '#7c3aed', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 8 }}>
+                    Acceso a la app móvil
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                    <div style={fieldWrap}>
+                      <label style={labelStyle}><Mail size={11} />Email</label>
+                      <input value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="vendedor@empresa.com" style={inputStyle} />
+                    </div>
+                    <div style={fieldWrap}>
+                      <label style={labelStyle}><Lock size={11} />{modoEdit ? 'Nueva contraseña' : 'Contraseña'}</label>
+                      <input type="password" value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))} placeholder={modoEdit ? 'dejar vacío = no cambiar' : 'mínimo 6 caracteres'} style={inputStyle} />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Fila: Teléfono + Cédula */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 14 }}>
+                  <div style={fieldWrap}>
+                    <label style={labelStyle}><Phone size={11} />Teléfono</label>
+                    <input value={form.telefono} onChange={e => setForm(f => ({ ...f, telefono: e.target.value }))} style={inputStyle} />
+                  </div>
+                  <div style={fieldWrap}>
+                    <label style={labelStyle}><CreditCard size={11} />Cédula</label>
+                    <input value={form.cedula} onChange={e => setForm(f => ({ ...f, cedula: e.target.value }))} style={inputStyle} />
+                  </div>
+                </div>
+
+                {/* Permisos con toggles bonitos */}
+                <div style={{ fontSize: 10, fontWeight: 700, color: '#7c3aed', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 5 }}>
+                  <Shield size={12} />Permisos
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {toggleRow(
+                    !!form.can_edit_clients,
+                    (v) => setForm(f => ({ ...f, can_edit_clients: v })),
+                    'Puede editar clientes',
+                    'Actualizar teléfono, dirección o GPS desde la app',
+                    <Pencil size={12} />,
+                  )}
+                  {toggleRow(
+                    !!form.activo,
+                    (v) => setForm(f => ({ ...f, activo: v })),
+                    'Vendedor activo',
+                    'Si se desactiva, no podrá iniciar sesión en la app',
+                    <CheckCircle size={12} />,
+                  )}
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div style={{ padding: '12px 20px', background: '#f9fafb', borderTop: '1px solid #e5e7eb', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                <button onClick={() => setShowModal(false)}
+                  style={{ height: 36, padding: '0 18px', border: '1px solid #d1d5db', background: '#fff', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600, color: '#374151' }}>
+                  Cancelar
+                </button>
+                <button onClick={guardar}
+                  style={{ height: 36, padding: '0 20px', background: '#7c3aed', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 700, fontSize: 13, display: 'flex', alignItems: 'center', gap: 6, boxShadow: '0 2px 8px rgba(124, 58, 237, 0.35)' }}>
+                  <Save size={14} />{modoEdit ? 'Guardar cambios' : 'Crear vendedor'}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Modal código para vincular vendedor (pareo APK vía WhatsApp) */}
+      {showPairing && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.55)', backdropFilter: 'blur(2px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, padding: 16 }}>
+          <div style={{ background: '#fff', borderRadius: 14, width: 560, maxHeight: '92vh', overflow: 'hidden', boxShadow: '0 20px 60px rgba(0,0,0,0.25)' }}>
+            {/* Header */}
+            <div style={{ background: 'linear-gradient(135deg, #7c3aed 0%, #5b21b6 100%)', padding: '16px 20px', color: '#fff', display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{ width: 40, height: 40, borderRadius: 10, background: 'rgba(255,255,255,0.18)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <QrCode size={20} />
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 15, fontWeight: 700, lineHeight: 1.2 }}>Código de vinculación</div>
+                <div style={{ fontSize: 12, opacity: 0.85, marginTop: 2 }}>
+                  Comparte por WhatsApp al vendedor para que enlace su app con tu empresa
+                </div>
+              </div>
+              <button onClick={() => setShowPairing(false)}
+                style={{ border: 'none', background: 'rgba(255,255,255,0.15)', cursor: 'pointer', color: '#fff', width: 30, height: 30, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                title="Cerrar">
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Cuerpo */}
+            <div style={{ padding: 20, maxHeight: 'calc(92vh - 140px)', overflowY: 'auto' }}>
+              {pairingLoading && !pairingData && (
+                <div style={{ textAlign: 'center', padding: '30px 0', color: '#6b7280', fontSize: 13 }}>
+                  <RefreshCw size={18} className="animate-spin" style={{ display: 'inline-block', verticalAlign: 'middle', marginRight: 6 }} />
+                  Cargando…
+                </div>
+              )}
+              {pairingData && (
+                <>
+                  {/* Grid: QR + Código corto */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '180px 1fr', gap: 20, marginBottom: 16 }}>
+                    <div style={{ background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 12, padding: 12, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <QRCodeSVG value={pairingData.token_api} size={156} level="M" bgColor="#f9fafb" fgColor="#1f2937" />
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 6 }}>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: '#7c3aed', textTransform: 'uppercase', letterSpacing: 0.6 }}>
+                        Código empresa
+                      </div>
+                      <div style={{
+                        fontSize: 32, fontWeight: 800, color: '#5b21b6', letterSpacing: 2, fontFamily: 'ui-monospace, SFMono-Regular, monospace',
+                        padding: '10px 14px', background: '#faf5ff', border: '2px dashed #c4b5fd', borderRadius: 10, textAlign: 'center', userSelect: 'all',
+                      }}>
+                        {pairingData.codigo_pairing || '—'}
+                      </div>
+                      {pairingData.codigo_pairing_expira && (
+                        <div style={{ fontSize: 11, color: '#6b7280', marginTop: 4 }}>
+                          Expira: <b style={{ color: '#374151' }}>{new Date(pairingData.codigo_pairing_expira).toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' })}</b>
+                        </div>
+                      )}
+                      <div style={{ fontSize: 11, color: '#6b7280' }}>
+                        Empresa: <b>{pairingData.nombre_empresa}</b> · NIT {pairingData.nit}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Instrucciones para el vendedor */}
+                  <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 10, padding: 12, marginBottom: 14 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: '#1d4ed8', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 5 }}>
+                      <Smartphone size={13} />¿Cómo lo usa el vendedor?
+                    </div>
+                    <ol style={{ margin: 0, paddingLeft: 18, fontSize: 12, color: '#1e40af', lineHeight: 1.6 }}>
+                      <li>Instala <b>Conta FT Móvil</b> en su celular.</li>
+                      <li>En la primera pantalla, ingresa el código <b>{pairingData.codigo_pairing || '—'}</b> (o escanea el QR).</li>
+                      <li>Luego entra con el <b>email + contraseña</b> que le diste al crear su vendedor.</li>
+                    </ol>
+                  </div>
+
+                  {/* Preview texto WhatsApp */}
+                  <div style={{ fontSize: 10, fontWeight: 700, color: '#7c3aed', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 6 }}>
+                    Mensaje listo para WhatsApp
+                  </div>
+                  <textarea
+                    readOnly
+                    value={textoWhatsApp}
+                    style={{
+                      width: '100%', minHeight: 130, padding: 10, fontSize: 12, fontFamily: 'ui-monospace, SFMono-Regular, monospace',
+                      border: '1px solid #d1d5db', borderRadius: 8, background: '#f9fafb', color: '#374151', resize: 'vertical', outline: 'none', boxSizing: 'border-box',
+                    }}
+                  />
+                </>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div style={{ padding: '12px 20px', background: '#f9fafb', borderTop: '1px solid #e5e7eb', display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
+              <button onClick={renovarCodigoPairing} disabled={pairingLoading}
+                title="Genera un código nuevo (invalida el anterior)"
+                style={{ height: 36, padding: '0 14px', background: '#fff', color: '#7c3aed', border: '1px solid #c4b5fd', borderRadius: 8, cursor: 'pointer', fontSize: 12, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <RotateCw size={13} /> Generar nuevo código
+              </button>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button onClick={copiarWhatsApp} disabled={!pairingData}
+                  style={{ height: 36, padding: '0 14px', border: '1px solid #d1d5db', background: '#fff', borderRadius: 8, cursor: 'pointer', fontSize: 12, fontWeight: 600, color: '#374151', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <Copy size={13} /> Copiar mensaje
+                </button>
+                <button onClick={abrirWhatsAppWeb} disabled={!pairingData}
+                  style={{ height: 36, padding: '0 16px', background: '#25D366', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 12, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6, boxShadow: '0 2px 8px rgba(37, 211, 102, 0.3)' }}>
+                  <MessageCircle size={13} /> Abrir WhatsApp
+                </button>
+              </div>
             </div>
           </div>
         </div>

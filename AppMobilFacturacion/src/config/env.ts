@@ -1,7 +1,9 @@
 /**
  * URL de producción (Hostinger). El APK release apunta acá.
+ * El subdominio api-movil-contaft.* está eliminado en DNS; la ruta correcta
+ * es innovacion-digital.com/api-movil-contaft/public.
  */
-const PROD_API = 'https://api-movil-contaft.innovacion-digital.com';
+const PROD_API = 'https://innovacion-digital.com/api-movil-contaft/public';
 
 /**
  * En dev también apuntamos a la nube por defecto — los datos demo viven allí,
@@ -19,4 +21,8 @@ export const STORAGE_KEYS = {
   token: 'auth.token',
   vendor: 'auth.vendor',
   company: 'auth.company',
+  // Pareo empresa ↔ APK (se guarda al primer arranque via código WhatsApp / QR).
+  // Persiste separado de la sesión: al hacer logout, la empresa vinculada
+  // se mantiene; solo "Cambiar empresa" la borra.
+  pairing: 'empresa.pairing',
 };

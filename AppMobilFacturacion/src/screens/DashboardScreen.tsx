@@ -43,7 +43,7 @@ export const DashboardScreen: React.FC = () => {
   const insets = useSafeAreaInsets();
   const modes = useCompanyModes();
   const vendor = useAuthStore((s) => s.vendor);
-  const logout = useAuthStore((s) => s.logout);
+  const clearSession = useAuthStore((s) => s.clearSession);
   const online = useNetworkStore((s) => s.online);
   const lastSyncAt = useSyncStore((s) => s.lastSyncAt);
   const [resumen, setResumen] = useState<DashboardResumen | null>(null);
@@ -114,7 +114,7 @@ export const DashboardScreen: React.FC = () => {
               <View style={styles.brandDot} />
               <Text style={styles.brandText}>CONTA FT MÓVIL</Text>
             </View>
-            <Pressable onPress={logout} hitSlop={8} style={styles.iconBtn}>
+            <Pressable onPress={clearSession} hitSlop={8} style={styles.iconBtn}>
               <Ionicons name="log-out-outline" size={20} color="#fff" />
             </Pressable>
           </View>

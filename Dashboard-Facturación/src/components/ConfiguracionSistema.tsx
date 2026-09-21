@@ -374,32 +374,102 @@ export function ConfiguracionSistema() {
       .catch(() => {});
   }, []);
 
+  // Handshake con el hub Lumen: si el módulo vendedor_movil está activo en el
+  // CRM, Lumen devuelve el token_api de la empresa (y la aprovisiona si no
+  // existe). Evita que el cliente tenga que pegar tokens a mano.
+  const obtenerTokenDelHub = async (): Promise<{ ok: boolean; token?: string; email?: string; reason?: string; message?: string }> => {
+    const ipc = (window as any).require?.('electron')?.ipcRenderer;
+    if (!ipc) return { ok: false, reason: 'sin-ipc', message: 'Solo disponible en la app de escritorio' };
+    const apiUrl = (vendConfig.api_url || '').trim();
+    if (!apiUrl) return { ok: false, reason: 'sin-api-url', message: 'Ingrese la URL del hub primero' };
+    try {
+      const r = await ipc.invoke('empresas:activar', { apiUrlLumen: apiUrl });
+      if (r?.ok && r.token_api) {
+        return { ok: true, token: r.token_api, email: r.empresa?.email };
+      }
+      return { ok: false, reason: r?.reason, message: r?.message };
+    } catch (e: any) {
+      return { ok: false, reason: 'excepcion', message: e?.message };
+    }
+  };
+
+  const handshakeHubClick = async () => {
+    setVendLoading(true);
+    const tid = toast.loading('Solicitando token al hub…');
+    const r = await obtenerTokenDelHub();
+    toast.dismiss(tid);
+    setVendLoading(false);
+    if (r.ok) {
+      setVendConfig(c => ({
+        ...c,
+        api_token_empresa: r.token!,
+        api_email: c.api_email || r.email || '',
+      }));
+      toast.success('Token obtenido. Presiona "Guardar y sincronizar" para persistir.');
+    } else {
+      const base = r.reason === 'modulo-no-activo-crm' ? 'El módulo Vendedores Móviles no está activo en su suscripción.'
+        : r.reason === 'crm-inaccesible' ? 'No se pudo consultar la suscripción del CRM'
+        : r.reason === 'jwt-no-en-cache' ? 'No hay token de suscripción en caché. Reinicie la app o revise su conexión al CRM.'
+        : r.reason === 'sin-red' ? 'Sin conexión al hub'
+        : r.reason === 'error-lumen' ? `Hub HTTP ${(r as any).status ?? '?'}`
+        : `No se pudo obtener el token (${r.reason || 'error'})`;
+      const detalle = (r as any).body_debug || r.message || '';
+      const msg = detalle ? `${base}: ${String(detalle).slice(0, 200)}` : base;
+      console.error('[handshake-hub] falló', r);
+      // Guarda la última respuesta cruda del hub para diagnóstico visible desde DevTools
+      (window as any).__lastHubResp = r;
+      toast.error(msg, { duration: 12000 });
+    }
+  };
+
   const guardarVendedores = async () => {
     try {
+      // 0. Si el módulo está habilitado y falta el token, intentar handshake automático
+      let cfg = { ...vendConfig };
+      if (cfg.habilitado === 1 && cfg.api_url && !cfg.api_token_empresa) {
+        const r = await obtenerTokenDelHub();
+        if (r.ok) {
+          cfg = { ...cfg, api_token_empresa: r.token!, api_email: cfg.api_email || r.email || '' };
+          setVendConfig(cfg);
+        } else {
+          const msg = r.reason === 'modulo-no-activo-crm' ? 'Vendedores Móviles no está activo en su suscripción.'
+            : r.reason === 'jwt-no-en-cache' ? 'No hay token de suscripción en caché. Reinicie la app.'
+            : (r.message || 'No se pudo obtener el token del hub');
+          toast.error(msg, { duration: 7000 });
+          return;
+        }
+      }
+
       // 1. Guardar localmente en tbl_config_vendedores
       const r = await fetch('http://localhost:80/conta-app-backend/api/vendedores/config.php', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'guardar', ...vendConfig }),
+        body: JSON.stringify({ action: 'guardar', ...cfg }),
       });
       const d = await r.json();
       if (!d.success) { toast.error(d.message); return; }
 
-      // 2. Propagar modos al hub Lumen para que la app móvil los reciba al login
-      if (vendConfig.habilitado === 1 && vendConfig.api_url && vendConfig.api_email && vendConfig.api_token_empresa) {
+      // 2. Propagar modos al hub Lumen. El endpoint /sync/empresa/modos aún no
+      //    está desplegado en todos los hubs — un 404 se trata como warning
+      //    suave (los modos se re-sincronizan en cada push-all).
+      if (cfg.habilitado === 1 && cfg.api_url && cfg.api_email && cfg.api_token_empresa) {
         try {
-          const rm = await fetch(`${vendConfig.api_url.replace(/\/$/, '')}/sync/empresa/modos`, {
+          const rm = await fetch(`${cfg.api_url.replace(/\/$/, '')}/sync/empresa/modos`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              email: vendConfig.api_email,
-              token_api: vendConfig.api_token_empresa,
-              modo_pedidos: !!vendConfig.modo_pedidos,
-              modo_factura_pos: !!vendConfig.modo_factura_pos,
-              modo_factura_electronica: !!vendConfig.modo_factura_electronica,
+              email: cfg.api_email,
+              token_api: cfg.api_token_empresa,
+              modo_pedidos: !!cfg.modo_pedidos,
+              modo_factura_pos: !!cfg.modo_factura_pos,
+              modo_factura_electronica: !!cfg.modo_factura_electronica,
             }),
           });
-          const dm = await rm.json();
+          if (rm.status === 404) {
+            toast.success('Guardado local. (Los modos se aplicarán en la próxima subida al hub)', { duration: 5000 });
+            return;
+          }
+          const dm = await rm.json().catch(() => ({}));
           if (dm.error) {
             toast.success('Guardado local. Hub: ' + (dm.mensaje || 'no se pudo propagar modos'), { duration: 6000 });
             return;
@@ -949,9 +1019,16 @@ export function ConfiguracionSistema() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 8, padding: 14, background: '#f9fafb', borderRadius: 10 }}>
               <div>
                 <label style={{ fontSize: 12, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>URL de la API remota</label>
-                <input value={vendConfig.api_url} onChange={e => setVendConfig(c => ({ ...c, api_url: e.target.value }))}
-                  placeholder="https://conta-basic.innovacion-digital.com/api-conta/public"
-                  style={{ width: '100%', height: 32, border: '1px solid #d1d5db', borderRadius: 6, padding: '0 10px', fontSize: 13 }} />
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <input value={vendConfig.api_url} onChange={e => setVendConfig(c => ({ ...c, api_url: e.target.value }))}
+                    placeholder="https://innovacion-digital.com/api-movil-contaft/public"
+                    style={{ flex: 1, height: 32, border: '1px solid #d1d5db', borderRadius: 6, padding: '0 10px', fontSize: 13 }} />
+                  <button type="button" onClick={() => setVendConfig(c => ({ ...c, api_url: 'https://innovacion-digital.com/api-movil-contaft/public' }))}
+                    title="Usar la URL oficial del hub de vendedores"
+                    style={{ height: 32, padding: '0 10px', background: '#f3f4f6', color: '#374151', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 12, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                    Usar oficial
+                  </button>
+                </div>
               </div>
               <div>
                 <label style={{ fontSize: 12, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>Email de la empresa en la API</label>
@@ -961,9 +1038,19 @@ export function ConfiguracionSistema() {
               </div>
               <div>
                 <label style={{ fontSize: 12, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>Token API</label>
-                <input type="password" value={vendConfig.api_token_empresa} onChange={e => setVendConfig(c => ({ ...c, api_token_empresa: e.target.value }))}
-                  placeholder="Token de la tabla empresas en la API remota"
-                  style={{ width: '100%', height: 32, border: '1px solid #d1d5db', borderRadius: 6, padding: '0 10px', fontSize: 13 }} />
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <input type="password" value={vendConfig.api_token_empresa} onChange={e => setVendConfig(c => ({ ...c, api_token_empresa: e.target.value }))}
+                    placeholder="Se obtiene automáticamente del hub"
+                    style={{ flex: 1, height: 32, border: '1px solid #d1d5db', borderRadius: 6, padding: '0 10px', fontSize: 13 }} />
+                  <button type="button" onClick={handshakeHubClick} disabled={vendLoading || !vendConfig.api_url}
+                    title="Solicita el token al hub usando su suscripción del CRM (no requiere pegarlo manualmente)"
+                    style={{ height: 32, padding: '0 10px', background: '#ede9fe', color: '#5b21b6', border: '1px solid #c4b5fd', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: vendLoading || !vendConfig.api_url ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}>
+                    🔑 Obtener del hub
+                  </button>
+                </div>
+                <div style={{ fontSize: 10, color: '#6b7280', marginTop: 3 }}>
+                  Si su suscripción tiene "Vendedores Móviles" activo, el token se pide automáticamente al hub.
+                </div>
               </div>
               <div>
                 <label style={{ fontSize: 12, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>Intervalo de descarga automática (minutos)</label>

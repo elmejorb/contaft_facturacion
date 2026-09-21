@@ -30,6 +30,8 @@ export const LoginScreen: React.FC<Props> = () => {
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const setSession = useAuthStore((s) => s.setSession);
+  const pairing = useAuthStore((s) => s.pairing);
+  const clearPairing = useAuthStore((s) => s.clearPairing);
 
   const handleLogin = async () => {
     if (!email || !password) {
@@ -39,7 +41,9 @@ export const LoginScreen: React.FC<Props> = () => {
     setLoading(true);
     setErrorMsg(null);
     try {
-      const resp = await authApi.login(email.trim(), password);
+      // Enviamos id_empresa del pairing para que el hub desambigüe si hay
+      // vendedores con el mismo email en distintas empresas.
+      const resp = await authApi.login(email.trim(), password, pairing?.id_empresa);
       await setSession(resp.token, resp.vendedor, resp.empresa);
       if (resp.empresa) {
         syncCatalogsFromApi(resp.empresa.id).catch((err) =>
@@ -83,6 +87,20 @@ export const LoginScreen: React.FC<Props> = () => {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
+          {/* Badge empresa vinculada */}
+          {pairing && (
+            <View style={styles.pairingBadge}>
+              <Ionicons name="business" size={14} color="#5b21b6" />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.pairingLabel}>Empresa vinculada</Text>
+                <Text style={styles.pairingName} numberOfLines={1}>{pairing.nombre_empresa}</Text>
+              </View>
+              <Pressable onPress={clearPairing} hitSlop={8}>
+                <Text style={styles.pairingChange}>Cambiar</Text>
+              </Pressable>
+            </View>
+          )}
+
           {/* Card blanca de login */}
           <View style={styles.card}>
             <Text style={styles.title}>Iniciar sesión</Text>
@@ -237,6 +255,39 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.08,
     shadowRadius: 16,
     elevation: 4,
+  },
+
+  pairingBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: '#faf5ff',
+    borderWidth: 1,
+    borderColor: '#c4b5fd',
+    borderRadius: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    marginTop: -12,
+    marginBottom: 12,
+  },
+  pairingLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#7c3aed',
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+  },
+  pairingName: {
+    fontSize: 13,
+    color: '#111827',
+    fontWeight: '700',
+    marginTop: 1,
+  },
+  pairingChange: {
+    fontSize: 12,
+    color: '#7c3aed',
+    fontWeight: '700',
+    textDecorationLine: 'underline',
   },
   title: {
     fontSize: 22, fontWeight: '800', color: '#111827',

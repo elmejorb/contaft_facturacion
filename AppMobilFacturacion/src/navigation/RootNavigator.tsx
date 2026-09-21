@@ -8,6 +8,7 @@ import { useAuthStore } from '../stores/authStore';
 
 import { SplashScreen } from '../screens/SplashScreen';
 import { LoginScreen } from '../screens/LoginScreen';
+import { VincularEmpresaScreen } from '../screens/VincularEmpresaScreen';
 import { CreateOrderScreen } from '../screens/CreateOrderScreen';
 import { CreateInvoiceScreen } from '../screens/CreateInvoiceScreen';
 import { CreateClientScreen } from '../screens/CreateClientScreen';
@@ -35,6 +36,7 @@ const navTheme = {
 export const RootNavigator: React.FC = () => {
   const hydrated = useAuthStore((s) => s.hydrated);
   const token = useAuthStore((s) => s.token);
+  const pairing = useAuthStore((s) => s.pairing);
   const hydrate = useAuthStore((s) => s.hydrate);
 
   useEffect(() => {
@@ -45,6 +47,7 @@ export const RootNavigator: React.FC = () => {
     return <SplashScreen />;
   }
 
+  const isPaired = !!pairing;
   const isAuthed = !!token;
 
   return (
@@ -52,7 +55,10 @@ export const RootNavigator: React.FC = () => {
       <Stack.Navigator
         screenOptions={{ headerShown: false, animation: 'slide_from_right' }}
       >
-        {!isAuthed ? (
+        {!isPaired ? (
+          // Sin pairing: obligar a vincular con código de empresa (WhatsApp/QR).
+          <Stack.Screen name="VincularEmpresa" component={VincularEmpresaScreen} />
+        ) : !isAuthed ? (
           <Stack.Screen name="Login" component={LoginScreen} />
         ) : (
           <>

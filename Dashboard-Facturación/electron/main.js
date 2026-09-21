@@ -158,35 +158,48 @@ ipcMain.handle('entitlements:get', async () => {
   return consultarEntitlements();
 });
 
-// POST JSON con Bearer JWT — para llamar a endpoints de Lumen que exigen
-// autenticación por entitlements del CRM.
-function httpPostJsonBearer(url, jwt, timeoutMs = 15000) {
+// HTTP con Bearer JWT — para llamar a endpoints de Lumen que exigen
+// autenticación por entitlements del CRM. Acepta método (GET/POST/PUT).
+function httpJsonBearer(method, url, jwt, timeoutMs = 15000) {
   return new Promise((resolve, reject) => {
-    const client = new URL(url).protocol === 'https:' ? https : http;
-    const req = client.request(url, {
-      method: 'POST',
-      headers: {
-        'Accept': 'application/json',
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer ' + jwt,
-        'Content-Length': 0,
-      },
-    }, (res) => {
+    const isHttps = new URL(url).protocol === 'https:';
+    const client = isHttps ? https : http;
+    const headers = {
+      'Accept': 'application/json',
+      'Authorization': 'Bearer ' + jwt,
+    };
+    // Solo mandar Content-Type/Length si va a haber body. Un GET con
+    // Content-Length: 0 puede ser rechazado por proxies/LiteSpeed/Cloudflare.
+    if (method !== 'GET' && method !== 'HEAD') {
+      headers['Content-Type'] = 'application/json';
+      headers['Content-Length'] = 0;
+    }
+    console.log('[lumen] ' + method + ' ' + url + ' (jwt.len=' + (jwt ? jwt.length : 0) + ')');
+    const req = client.request(url, { method, headers }, (res) => {
       let data = '';
       res.on('data', (chunk) => { data += chunk; });
       res.on('end', () => {
+        console.log('[lumen] ← ' + res.statusCode + ' (' + data.length + ' bytes)');
         try {
           const clean = stripBom(data);
           resolve({ status: res.statusCode, body: clean ? JSON.parse(clean) : null });
         } catch (e) {
-          reject(new Error('JSON inválido: ' + String(data).slice(0, 200)));
+          // Body no es JSON — devolvemos el status y el body crudo (útil para
+          // detectar respuestas HTML de error del servidor).
+          resolve({ status: res.statusCode, body: { _raw: String(data).slice(0, 400) } });
         }
       });
     });
-    req.on('error', reject);
-    req.setTimeout(timeoutMs, () => req.destroy(new Error('Timeout')));
+    req.on('error', (err) => {
+      console.error('[lumen] ✗ ' + method + ' ' + url + ' → ' + (err?.code || '') + ' ' + (err?.message || err));
+      reject(err);
+    });
+    req.setTimeout(timeoutMs, () => req.destroy(new Error('Timeout tras ' + timeoutMs + 'ms')));
     req.end();
   });
+}
+function httpPostJsonBearer(url, jwt, timeoutMs = 15000) {
+  return httpJsonBearer('POST', url, jwt, timeoutMs);
 }
 
 // Handshake de activación con Lumen: el desktop envía su JWT del CRM,
@@ -194,19 +207,41 @@ function httpPostJsonBearer(url, jwt, timeoutMs = 15000) {
 // existe y devuelve `id_empresa` + `token_api` que el desktop usará para
 // autenticar los siguientes push/pull.
 ipcMain.handle('empresas:activar', async (_e, { apiUrlLumen }) => {
+  console.log('[activar-empresa] inicio, url=' + apiUrlLumen);
   const ent = await consultarEntitlements();
-  if (!ent.ok || !ent.modulos?.vendedor_movil?.activo) {
+  if (!ent.ok) {
+    console.log('[activar-empresa] entitlements falló:', ent.reason);
+    return { ok: false, reason: 'crm-inaccesible', message: 'No se pudo verificar la suscripción con el CRM: ' + (ent.reason || 'sin razón') };
+  }
+  if (!ent.modulos?.vendedor_movil?.activo) {
+    console.log('[activar-empresa] vendedor_movil NO activo en CRM');
     return { ok: false, reason: 'modulo-no-activo-crm' };
   }
   const cfg = readConfig();
   const jwt = cfg._entitlements_cache?.jwt;
-  if (!jwt) return { ok: false, reason: 'jwt-no-en-cache' };
+  if (!jwt) {
+    console.log('[activar-empresa] JWT no está en cache');
+    return { ok: false, reason: 'jwt-no-en-cache' };
+  }
+  console.log('[activar-empresa] módulo activo + JWT en cache (' + jwt.length + ' chars) → pegando al hub');
 
   const url = (apiUrlLumen || '').replace(/\/$/, '') + '/api/empresas/activar';
   try {
-    const { status, body } = await httpPostJsonBearer(url, jwt);
+    // El hub Lumen (api-movil-contaft) expone /api/empresas/activar como POST
+    // con middleware `entitlement:vendedor_movil` que valida el JWT del CRM
+    // y auto-provisiona la empresa si no existe (ver EntitlementsAuth.php).
+    const { status, body } = await httpJsonBearer('POST', url, jwt);
+    console.log('[activar-empresa] status=' + status + ' body=', body);
     if (status !== 200 || body?.error) {
-      return { ok: false, reason: body?.code || 'error-lumen', status, message: body?.mensaje };
+      const rawSample = body?._raw || (body ? JSON.stringify(body).slice(0, 300) : '(sin body)');
+      const message = body?.mensaje || body?.message || body?.error || rawSample;
+      return {
+        ok: false,
+        reason: body?.code || 'error-lumen',
+        status,
+        message,
+        body_debug: rawSample,
+      };
     }
     return {
       ok: true,
@@ -215,11 +250,43 @@ ipcMain.handle('empresas:activar', async (_e, { apiUrlLumen }) => {
       empresa: body.empresa,
       nit: body.nit,
       modulo: body.modulo,
+      cliente_id_crm: body.cliente_id_crm,
+    };
+  } catch (e) {
+    return { ok: false, reason: 'sin-red', message: (e?.code ? '[' + e.code + '] ' : '') + (e?.message || String(e)) };
+  }
+});
+
+// Renovación del código_pairing en el hub. Como es una acción admin, el hub
+// exige el JWT del CRM (mismo middleware que empresas:activar). Devuelve el
+// nuevo `codigo_pairing` que el desktop mostrará al admin para compartir por
+// WhatsApp al vendedor.
+ipcMain.handle('empresas:renovarCodigoPairing', async (_e, { apiUrlLumen }) => {
+  console.log('[renovar-codigo] inicio, url=' + apiUrlLumen);
+  const ent = await consultarEntitlements();
+  if (!ent.ok) return { ok: false, reason: 'crm-inaccesible', message: ent.reason };
+  if (!ent.modulos?.vendedor_movil?.activo) return { ok: false, reason: 'modulo-no-activo-crm' };
+  const cfg = readConfig();
+  const jwt = cfg._entitlements_cache?.jwt;
+  if (!jwt) return { ok: false, reason: 'jwt-no-en-cache' };
+
+  const url = (apiUrlLumen || '').replace(/\/$/, '') + '/api/empresa/renovar-codigo';
+  try {
+    const { status, body } = await httpJsonBearer('POST', url, jwt);
+    console.log('[renovar-codigo] status=' + status + ' body=', body);
+    if (status !== 200 || body?.error) {
+      return { ok: false, reason: body?.code || 'error-lumen', status, message: body?.mensaje || body?.message };
+    }
+    return {
+      ok: true,
+      codigo_pairing: body.codigo_pairing,
+      codigo_pairing_expira: body.codigo_pairing_expira,
     };
   } catch (e) {
     return { ok: false, reason: 'sin-red', message: e?.message };
   }
 });
+
 // Secreto compartido con el CRM para firmar/verificar códigos offline.
 // Si se rota, el CRM debe generarlo igual y los códigos antiguos quedan inválidos.
 const OFFLINE_SECRET = 'CONTA_FT_OFFLINE_2026_INV_DIGITAL';

@@ -8,6 +8,7 @@ export type MainTabsParamList = {
 };
 
 export type RootStackParamList = {
+  VincularEmpresa: undefined;
   Login: undefined;
   Main: NavigatorScreenParams<MainTabsParamList>;
   CreateOrder: undefined;

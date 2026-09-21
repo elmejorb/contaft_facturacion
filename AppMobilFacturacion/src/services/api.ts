@@ -52,11 +52,13 @@ export interface LoginResponse {
 }
 
 export const authApi = {
-  login: async (email: string, password: string): Promise<LoginResponse> => {
-    const { data } = await api().post<LoginResponse>('/api/auth/login', {
-      email,
-      password,
-    });
+  login: async (email: string, password: string, id_empresa?: number): Promise<LoginResponse> => {
+    // Si el APK está vinculado a una empresa (pairing previo), enviamos id_empresa
+    // para que el hub desambigüe cuando haya vendedores con el mismo email en
+    // distintas empresas. Backward-compat: sin id_empresa el login sigue funcionando.
+    const body: Record<string, any> = { email, password };
+    if (typeof id_empresa === 'number' && id_empresa > 0) body.id_empresa = id_empresa;
+    const { data } = await api().post<LoginResponse>('/api/auth/login', body);
     return data;
   },
 
@@ -72,6 +74,33 @@ export const authApi = {
 
   logout: async (): Promise<void> => {
     await api().post('/api/auth/logout');
+  },
+};
+
+// ============== Empresa (pareo APK ↔ empresa por código WhatsApp / QR) ==============
+
+export interface EmpresaVincularResponse {
+  error: boolean;
+  id_empresa: number;
+  nombre_empresa: string;
+  nit: string | null;
+  token_api: string;
+  codigo_pairing: string | null;
+  codigo_pairing_expira: string | null;
+  modo_pedidos: boolean;
+  modo_factura_pos: boolean;
+  modo_factura_electronica: boolean;
+  factura_electronica_activa: boolean;
+}
+
+export const empresaApi = {
+  /**
+   * Valida un código de pareo (7 chars corto o token largo por QR) contra el hub
+   * y devuelve los datos de la empresa. Idempotente — no consume el código.
+   */
+  vincular: async (codigo: string): Promise<EmpresaVincularResponse> => {
+    const { data } = await api().post<EmpresaVincularResponse>('/api/empresa/vincular', { codigo });
+    return data;
   },
 };
 

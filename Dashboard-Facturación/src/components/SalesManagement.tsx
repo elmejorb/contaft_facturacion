@@ -3,7 +3,7 @@ import { AgGridReact } from 'ag-grid-react';
 import { AllCommunityModule, ModuleRegistry, ColDef } from 'ag-grid-community';
 import {
   Search, RefreshCw, TrendingUp, DollarSign, CreditCard, Wallet,
-  Eye, X, Printer, Copy, Ban
+  Eye, X, Printer, Copy, Ban, FileText
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { getConfigImpresion, getEmpresaCache } from './ConfiguracionSistema';
@@ -231,6 +231,41 @@ export function SalesManagement({ onNavigate }: Props = {}) {
     finally { setAnulando(false); }
   };
 
+  /**
+   * Rescate de POS que debió ser FE: anula la venta POS + crea un electronic_document
+   * en 'borrador' con los mismos datos. El usuario después la completa y envía
+   * a DIAN desde Facturación Electrónica → Borradores.
+   *
+   * Útil para las POS "consumidor final" que quedaron mal creadas por el bug
+   * pre-4.4.7 (cuando FE fallaba por red, la POS quedaba huérfana).
+   */
+  const [convirtiendoFE, setConvirtiendoFE] = useState(false);
+  const convertirAElectronica = async (factN: number) => {
+    const ok = await confirmar({
+      title: 'Convertir a Factura Electrónica',
+      message: `Se anulará la venta POS FV-${factN} (revirtiendo stock) y se creará un borrador de Factura Electrónica con los mismos datos.\n\nDespués deberás abrirlo en Facturación Electrónica → Borradores, ajustar el cliente si aplica y enviarlo a DIAN.\n\n¿Continuar?`,
+      type: 'warning',
+      confirmText: 'Sí, convertir',
+    });
+    if (!ok) return;
+    setConvirtiendoFE(true);
+    try {
+      const r = await fetch('http://localhost:80/conta-app-backend/api/facturacion-electronica/enviar.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'convertir_a_borrador', factura_n: factN, doc_local_id: 0 }),
+      });
+      const d = await r.json();
+      if (d.success) {
+        toast.success(d.message || 'Convertido a borrador FE', { duration: 6000 });
+        cargar();
+      } else {
+        toast.error(d.message || 'No se pudo convertir');
+      }
+    } catch (e) { toast.error('Error de conexión al convertir'); }
+    setConvirtiendoFE(false);
+  };
+
   const filtrados = ventas.filter(v => {
     if (busqueda) {
       const b = busqueda.toLowerCase();
@@ -289,7 +324,7 @@ export function SalesManagement({ onNavigate }: Props = {}) {
     },
     { headerName: 'Medio', field: 'MedioPago', width: 110,
       cellRenderer: (p: any) => <span style={{ fontSize: 11, padding: '1px 6px', borderRadius: 4, background: '#f3f4f6' }}>{p.value}</span> },
-    { headerName: '', width: 128, sortable: false,
+    { headerName: '', width: 160, sortable: false,
       cellStyle: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 },
       cellRenderer: (p: any) => {
         const anulada = p.data?.EstadoFact === 'Anulada';
@@ -307,6 +342,16 @@ export function SalesManagement({ onNavigate }: Props = {}) {
               style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 3 }}>
               <Copy size={15} color="#16a34a" />
             </button>
+            {!anulada && (
+              <button
+                title="Convertir a Factura Electrónica (crea un borrador FE con estos datos y anula la POS)"
+                onClick={() => convertirAElectronica(p.data.Factura_N)}
+                disabled={convirtiendoFE}
+                style={{ background: 'none', border: 'none', cursor: convirtiendoFE ? 'wait' : 'pointer', padding: 3, opacity: convirtiendoFE ? 0.5 : 1 }}
+              >
+                <FileText size={15} color="#d97706" />
+              </button>
+            )}
             {!anulada && (
               <button
                 title="Anular factura"

@@ -553,11 +553,22 @@ try {
         exit;
     }
 
-    // Step 1: Login (todas las demás acciones requieren DIAN)
-    $login = loginFE($db, $API_BASE);
-    if (!$login['success']) { echo json_encode($login); exit; }
-    $token = $login['token'];
-    $companyId = $login['company_id'];
+    // Acciones puramente locales (BD del cliente, no llaman a DIAN).
+    // Estas NO deben exigir credenciales de FE — un cliente sin FE activa
+    // debe poder rescatar sus POS igual.
+    $LOCAL_ACTIONS = ['convertir_a_borrador', 'guardar_borrador', 'cargar_borrador', 'listar_borradores', 'eliminar_borrador'];
+
+    if (in_array($action, $LOCAL_ACTIONS, true)) {
+        // Salta al switch sin login DIAN. Los case usan solo $db.
+        $token = null;
+        $companyId = null;
+    } else {
+        // Step 1: Login (todas las demás acciones requieren DIAN)
+        $login = loginFE($db, $API_BASE);
+        if (!$login['success']) { echo json_encode($login); exit; }
+        $token = $login['token'];
+        $companyId = $login['company_id'];
+    }
 
     switch ($action) {
         case 'login':
@@ -1284,45 +1295,90 @@ try {
             ], JSON_UNESCAPED_UNICODE);
             break;
 
-        // Convertir a borrador — se llama cuando el usuario intento emitir FE,
-        // DIAN fallo, y el usuario decide NO reintentar ni ir a contingencia.
-        // Objetivo: NO dejar la venta POS creada como si fuera una venta real.
+        // Convertir a borrador — se llama en dos situaciones:
+        //   A) Recién ahora falló la emisión FE: el usuario decide NO reintentar.
+        //      Objetivo: NO dejar la venta POS creada como si fuera real.
+        //   B) Rescate de una POS "vieja" que debió ser FE pero quedó como POS
+        //      (bug 4.4.6 y anteriores cuando la API DIAN estaba caída).
         //
         // Que hace:
         //   1. Anula la venta POS asociada (EstadoFact='Anulada', revierte stock).
-        //   2. Cambia el status del electronic_document de 'rechazado' a 'borrador'.
-        //   3. El usuario puede volver a intentarlo desde Facturacion Electronica.
+        //   2. Si YA existe electronic_document (doc_local_id > 0) → lo cambia a 'borrador'.
+        //   3. Si NO existe (doc_local_id vacío = FE nunca alcanzó la API) → CREA uno
+        //      nuevo en 'borrador' con los datos de la venta (cabecera + líneas).
+        //   4. El usuario puede reenviarlo desde Facturacion Electronica > Borradores.
         //
-        // Body: { factura_n, doc_local_id }
+        // Body: { factura_n, doc_local_id? }
         case 'convertir_a_borrador':
             $factN = intval($data['factura_n'] ?? 0);
             $docId = intval($data['doc_local_id'] ?? 0);
-            if (!$factN || !$docId) {
-                echo json_encode(['success' => false, 'message' => 'factura_n y doc_local_id requeridos']);
+            if (!$factN) {
+                echo json_encode(['success' => false, 'message' => 'factura_n requerido']);
                 exit;
             }
 
             $db->beginTransaction();
             try {
-                // 1. Leer detalle de la venta para revertir stock
-                $stmtDet = $db->prepare("SELECT Items, Cantidad FROM tbldetalle_venta WHERE Factura_N = ?");
+                // 0. Cargar cabecera de la venta (para reconstruir el borrador si es necesario)
+                $stmtVta = $db->prepare("SELECT * FROM tblventas WHERE Factura_N = ?");
+                $stmtVta->execute([$factN]);
+                $venta = $stmtVta->fetch();
+                if (!$venta) {
+                    $db->rollBack();
+                    echo json_encode(['success' => false, 'message' => "Venta FV-$factN no encontrada"]);
+                    exit;
+                }
+                if ($venta['EstadoFact'] === 'Anulada') {
+                    $db->rollBack();
+                    echo json_encode(['success' => false, 'message' => "La venta FV-$factN ya está anulada"]);
+                    exit;
+                }
+
+                // Bloquear si ya existe un electronic_document VÁLIDO (con CUFE
+                // aprobado en DIAN). En ese caso la venta ya es FE emitida — no
+                // se puede "reconvertir" a borrador; sería duplicar la factura.
+                $stmtChk = $db->prepare("SELECT id, status, cufe FROM electronic_documents
+                                          WHERE cod_cliente IS NOT NULL
+                                            AND status IN ('aprobado','aceptado','valida','pendiente_dian')
+                                            AND cufe IS NOT NULL AND cufe != ''
+                                            AND (id = ? OR id_venta_pos = ?)
+                                          LIMIT 1");
+                // Nota: id_venta_pos puede no existir en la tabla — el try/catch
+                // captura si es el caso.
+                try {
+                    $stmtChk->execute([$docId, $factN]);
+                    $emitida = $stmtChk->fetch();
+                    if ($emitida) {
+                        $db->rollBack();
+                        echo json_encode(['success' => false, 'message' => "La factura FV-$factN ya tiene FE emitida a DIAN (CUFE " . substr($emitida['cufe'], 0, 12) . "…). No se puede reconvertir."]);
+                        exit;
+                    }
+                } catch (\Throwable $chkE) {
+                    // Si id_venta_pos no existe, seguimos — el otro filtro por id_local ya cubrió el caso principal.
+                }
+
+                // 1. Leer detalle de la venta (para revertir stock + reconstruir borrador)
+                $stmtDet = $db->prepare("SELECT * FROM tbldetalle_venta WHERE Factura_N = ?");
                 $stmtDet->execute([$factN]);
                 $lineas = $stmtDet->fetchAll();
 
                 // 2. Revertir stock + registrar entrada en kardex (regla: kardex inmutable)
                 $stmtStock = $db->prepare("UPDATE tblarticulos SET Existencia = Existencia + ? WHERE Items = ?");
-                $stmtArt = $db->prepare("SELECT Existencia, Precio_Costo FROM tblarticulos WHERE Items = ?");
+                $stmtArt = $db->prepare("SELECT Existencia, Precio_Costo, Servicio FROM tblarticulos WHERE Items = ?");
                 $mesNombre = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'][intval(date('n')) - 1];
                 $stmtKardex = $db->prepare("INSERT INTO tblkardex (Fecha, Mes, Items, Detalle, C_D, Cant_Ent, Cost_Ent, Cant_Sal, Cost_Sal, Cant_Saldo, Cost_Saldo, Cost_Unit) VALUES (NOW(), ?, ?, ?, 1, ?, ?, 0, 0, ?, ?, ?)");
                 foreach ($lineas as $l) {
                     $items = intval($l['Items']);
                     $cant  = floatval($l['Cantidad']);
-                    $stmtStock->execute([$cant, $items]);
                     $stmtArt->execute([$items]);
                     $art = $stmtArt->fetch();
-                    if ($art) {
+                    // Servicios (Servicio='S') no manejan stock — no revertir
+                    if ($art && ($art['Servicio'] ?? 'N') !== 'S') {
+                        $stmtStock->execute([$cant, $items]);
+                        $art2 = $db->prepare("SELECT Existencia FROM tblarticulos WHERE Items = ?");
+                        $art2->execute([$items]);
                         $costo = floatval($art['Precio_Costo']);
-                        $exNueva = floatval($art['Existencia']);
+                        $exNueva = floatval($art2->fetchColumn());
                         $stmtKardex->execute([
                             $mesNombre, $items, "Conversion FV-$factN a borrador FE",
                             $cant, $cant * $costo, $exNueva, $exNueva * $costo, $costo
@@ -1334,15 +1390,82 @@ try {
                 $db->prepare("UPDATE tblventas SET EstadoFact = 'Anulada', Saldo = 0 WHERE Factura_N = ?")
                    ->execute([$factN]);
 
-                // 4. Convertir el electronic_document de 'rechazado' a 'borrador'
-                $db->prepare("UPDATE electronic_documents SET status = 'borrador', number = 0 WHERE id = ?")
-                   ->execute([$docId]);
+                // 4A. Si YA existe electronic_document, solo cambiarlo a borrador
+                if ($docId > 0) {
+                    $db->prepare("UPDATE electronic_documents SET status = 'borrador', number = 0 WHERE id = ?")
+                       ->execute([$docId]);
+                    $borradorId = $docId;
+                } else {
+                    // 4B. FE nunca alcanzó la API — construir electronic_document desde tblventas
+                    $medio = intval($venta['id_mediopago'] ?? 10);
+                    $tipoV = $venta['Tipo'] ?? 'Contado';
+                    $paymentFormLocal   = ($tipoV === 'Contado') ? 1 : 2;
+                    $paymentDueDaysLocal = ($paymentFormLocal === 2) ? intval($venta['Dias'] ?? 0) : 0;
+                    $paymentMethodLocal = ($medio === 1) ? 14 : (($medio >= 2) ? 30 : 10);
+                    $total = floatval($venta['Total'] ?? 0);
+                    $abono = floatval($venta['Abono'] ?? 0);
+                    $desct = floatval($venta['Descuento'] ?? 0);
+                    $codigoCli = intval($venta['CodigoCli'] ?? 0);
+                    $identCli  = $venta['Identificacion'] ?? '';
+                    $nombreCli = $venta['A_nombre'] ?? '';
+                    $idUsuario = intval($venta['Id_Usuario'] ?? 0);
+                    $comentario = $venta['Comentario'] ?? '';
+                    // Efectivo/valorpagado no están en tblventas — dejar en 0 (el usuario los ajusta al editar)
+
+                    $db->prepare("
+                        INSERT INTO electronic_documents
+                        (fecha, cod_cliente, customer_identification, customer_name, customer_email,
+                         type_document_id, prefix, number, status, total, cufe, dian_response,
+                         id_usuario, id_mediopago, efectivo, valorpagado1, pagada, EstadoFact,
+                         email_sent, nota, payment_form_id, payment_method_id, payment_due_days,
+                         abono, descuento)
+                        VALUES (?, ?, ?, ?, ?, 1, 'FCON', 0, 'borrador', ?, '', '{}',
+                                ?, ?, 0, 0, 'N', 1, 0, ?, ?, ?, ?, ?, ?)
+                    ")->execute([
+                        date('Y-m-d'), $codigoCli, $identCli, $nombreCli, null,
+                        $total, $idUsuario, $medio,
+                        $comentario, $paymentFormLocal, $paymentMethodLocal, $paymentDueDaysLocal,
+                        $abono, $desct,
+                    ]);
+                    $borradorId = intval($db->lastInsertId());
+
+                    // Líneas del borrador — copiar de tbldetalle_venta a detalle_document_electronic
+                    $stmtInsDet = $db->prepare("
+                        INSERT INTO detalle_document_electronic
+                        (factura_n, items, unit_measure_id, invoiced_quantity, line_extension_amount,
+                         free_of_charge_indicator, description, type_item_identification_id,
+                         price_amount, PrecioCosto, discount_amount, base_quantity,
+                         tax_id, tax_amount, taxable_amount, tax_percent)
+                        VALUES (?, ?, 70, ?, ?, 0, ?, 3, ?, ?, ?, ?, 1, ?, ?, ?)
+                    ");
+                    foreach ($lineas as $l) {
+                        $itemId  = intval($l['Items']);
+                        $cant    = floatval($l['Cantidad']);
+                        $precio  = floatval($l['PrecioV']);
+                        $ivaPct  = floatval($l['IVA'] ?? 0);
+                        $desc    = floatval($l['Descuento'] ?? 0);
+                        $costo   = floatval($l['PrecioC'] ?? 0);
+                        $descTmp = trim((string)($l['DescripcionTemp'] ?? ''));
+                        $nombre  = $descTmp;
+                        if ($nombre === '') {
+                            $stmtN = $db->prepare("SELECT Nombres_Articulo FROM tblarticulos WHERE Items = ?");
+                            $stmtN->execute([$itemId]);
+                            $nombre = (string)$stmtN->fetchColumn();
+                        }
+                        $subtotal = ($cant * $precio) - $desc;
+                        $ivaMonto = $ivaPct > 0 ? round($subtotal * $ivaPct / 100, 2) : 0;
+                        $stmtInsDet->execute([
+                            $borradorId, $itemId, $cant, $subtotal, $nombre,
+                            $precio, $costo, $desc, $cant, $ivaMonto, $subtotal, $ivaPct
+                        ]);
+                    }
+                }
 
                 $db->commit();
                 echo json_encode([
                     'success' => true,
-                    'message' => "Venta FV-$factN anulada y guardada como borrador FE. Puede reeditarlo desde Facturacion Electronica > Borradores.",
-                    'borrador_id' => $docId,
+                    'message' => "Venta FV-$factN anulada y guardada como borrador FE. Puede reeditarlo desde Facturación Electrónica > Borradores.",
+                    'borrador_id' => $borradorId,
                 ], JSON_UNESCAPED_UNICODE);
             } catch (\Throwable $e) {
                 $db->rollBack();

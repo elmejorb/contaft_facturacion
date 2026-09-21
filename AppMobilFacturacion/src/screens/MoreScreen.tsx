@@ -18,10 +18,31 @@ type Nav = NativeStackNavigationProp<RootStackParamList>;
 export const MoreScreen: React.FC = () => {
   const nav = useNavigation<Nav>();
   const clearSession = useAuthStore((s) => s.clearSession);
+  const clearPairing = useAuthStore((s) => s.clearPairing);
   const vendor = useAuthStore((s) => s.vendor);
   const company = useAuthStore((s) => s.company);
+  const pairing = useAuthStore((s) => s.pairing);
   const lastSyncAt = useSyncStore((s) => s.lastSyncAt);
   const [pendingCount, setPendingCount] = useState(0);
+
+  const cambiarEmpresa = () => {
+    Alert.alert(
+      'Cambiar empresa',
+      `Se cerrará tu sesión y tendrás que ingresar el código de otra empresa.\n\n¿Continuar?`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Cambiar empresa',
+          style: 'destructive',
+          onPress: async () => {
+            try { await authApi.logout(); } catch {}
+            await clearCatalogCache();
+            await clearPairing(); // borra pairing + sesión
+          },
+        },
+      ],
+    );
+  };
 
   const refreshPending = useCallback(async () => {
     if (!vendor) return;
@@ -83,6 +104,12 @@ export const MoreScreen: React.FC = () => {
         { icon: 'print-outline', label: 'Impresora Bluetooth', color: colors.textSecondary },
         { icon: 'notifications-outline', label: 'Notificaciones', color: colors.textSecondary },
         { icon: 'help-circle-outline', label: 'Ayuda y soporte', color: colors.textSecondary },
+        {
+          icon: 'business-outline',
+          label: pairing ? `Cambiar empresa (${pairing.nombre_empresa})` : 'Cambiar empresa',
+          color: colors.primary,
+          onPress: cambiarEmpresa,
+        },
       ],
     },
   ];

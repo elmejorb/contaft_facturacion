@@ -804,6 +804,19 @@ CREATE TABLE IF NOT EXISTS tbl_config_vendedores (
 );
 INSERT IGNORE INTO tbl_config_vendedores (id) VALUES (1);
 
+-- Columnas de "modos" — agregadas después de la creación inicial. Como el
+-- CREATE TABLE IF NOT EXISTS respeta la tabla legacy que ya existía en
+-- clientes anteriores (sin estas columnas), hay que hacer los ALTER
+-- explícitos para que todos las reciban.
+-- Bug reportado en Panificadora Granjeras: "Unknown column 'modo_pedidos'
+-- in 'field list'" al guardar config de Vendedores Móviles.
+ALTER TABLE tbl_config_vendedores
+  ADD COLUMN IF NOT EXISTS modo_pedidos TINYINT(1) NOT NULL DEFAULT 1;
+ALTER TABLE tbl_config_vendedores
+  ADD COLUMN IF NOT EXISTS modo_factura_pos TINYINT(1) NOT NULL DEFAULT 0;
+ALTER TABLE tbl_config_vendedores
+  ADD COLUMN IF NOT EXISTS modo_factura_electronica TINYINT(1) NOT NULL DEFAULT 0;
+
 CREATE TABLE IF NOT EXISTS tbl_vendedores_movil (
     id INT AUTO_INCREMENT PRIMARY KEY,
     id_remoto INT NULL,
