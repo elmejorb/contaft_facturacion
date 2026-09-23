@@ -129,6 +129,11 @@ try {
     // ────────────────────────────────────────────────────────────────────
     // 2. PRODUCTOS (artículos activos)
     // ────────────────────────────────────────────────────────────────────
+    // Filtro por etiqueta: solo suben "Producto Terminado" (Id_Etiqueta=2) y
+    // "Reventa" (Id_Etiqueta=3). Los "Insumos" (Id_Etiqueta=1) y productos sin
+    // etiqueta NO viajan al hub — no tiene sentido mostrarle al vendedor
+    // materias primas para producción. El cliente debe etiquetar bien sus
+    // artículos en Editar Producto → Etiqueta.
     $rows = $db->query("
         SELECT a.Items, a.Codigo, a.Nombres_Articulo, a.Precio_Costo, a.Precio_Venta,
                a.Precio_Venta2, a.Precio_Venta3, a.Existencia, a.Existencia_minima,
@@ -136,6 +141,7 @@ try {
         FROM tblarticulos a
         LEFT JOIN tblcategoria c ON c.Id_Categoria = a.Id_Categoria
         WHERE a.Estado = 1
+          AND a.Id_Etiqueta IN (2, 3)
         ORDER BY a.Items
     ")->fetchAll(PDO::FETCH_ASSOC);
     $registros = array_map(fn($r) => [
