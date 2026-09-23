@@ -5,6 +5,72 @@ Visible solo para administradores desde **Configuración → Acerca de → Ver h
 
 ---
 
+## 4.5.0 — 2026-09-23
+
+### Nuevo — Sistema de pestañas (tabs) estilo Chrome
+
+Rediseño completo del Dashboard: cada módulo ahora se abre como una pestaña con estado vivo en memoria. Ya **no se pierde el trabajo al cambiar de sección** — armar una venta larga y consultar el inventario sin miedo.
+
+- **Múltiples ventas y compras en paralelo**: menú Ventas → Nueva Venta varias veces = pestañas `Nueva Venta #1`, `#2`, `#3`, cada una con su propio carrito. Igual para Nueva Compra.
+- **Módulos singleton**: Inventario, Clientes, Cartera, Configuración, etc. abren una sola vez y se activan al re-clickearlas.
+- **Estado vivo**: cambiar de pestaña ya no desmonta el componente; los filtros aplicados, la búsqueda escrita, los checkboxes seleccionados permanecen.
+- **Atajos de teclado**: `Ctrl+Tab` / `Ctrl+Shift+Tab` para navegar entre pestañas, `Ctrl+W` para cerrar la activa, click medio del mouse para cerrar.
+- **Menú contextual** en cada pestaña (click derecho): Cerrar / Cerrar otras / Cerrar todas a la derecha.
+
+### Nuevo — Buscador de módulos (Ctrl+K)
+
+Presiona **Ctrl+K** en cualquier momento para abrir un buscador estilo VS Code/Notion: escribe "invent", "caja", "gasto", "reten" y filtra los 49 módulos con su ruta ("Inventario › Categorías"). Enter abre pestaña, Esc cierra.
+
+### Mejora — Sidebar más limpio y compacto
+
+- Todos los módulos padre visibles sin scroll (antes se hacía largo al expandir Inventario con sus 12 hijos).
+- **Fly-out flotante**: al pasar el mouse sobre un módulo padre (Inventario, Ventas, Compras, etc.) aparece un panel a la derecha con sus hijos. Sin árbol expandido, sin scroll molesto.
+- Items compactados (menos altura, misma legibilidad) y auto-colapsan al elegir un ítem.
+
+### Rediseño — Vistas con look homogéneo
+
+Se unificó el estilo de varios módulos para que se vean consistentes entre sí (mismo AG Grid, mismos KPIs con ícono, filtros pill compactos):
+- **Inventario**: header compacto, filtro por etiqueta (Producto Terminado / Reventa / Insumos / etc.) con color propio.
+- **Stock Bajo**: nueva vista con KPIs (bajo mínimo · sin existencia · reposición estimada $), filtro por proveedor (dropdown filtrable), y para **Farmacia** columna extra "Faltan (cajas)" que muestra "1 caja · ×300" para saber cuántas cajas comprar sin hacer la cuenta.
+- **Historial de Cajas**: header + KPIs + filtros consistentes con Inventario.
+- **Pagos de Clientes** y **Pagos a Proveedores**: mismo tratamiento.
+- **Gastos**: header, KPIs (Total Gastos + Total Valor) y pills por categoría.
+
+### Nuevo — "Comprar" desde Stock Bajo
+
+Selecciona uno o varios productos con stock bajo, presiona **Crear Nueva Compra** en la barra flotante inferior y se abre una pestaña de Nueva Compra con los productos precargados y la **cantidad sugerida** (mínimo − existencia) ya calculada. Menos click, menos error.
+
+### Fix — Precio empaque farmacia (regla desde 4.4.10)
+
+Producto con `Precio_Venta` = 400 (tableta) y `Precio_Venta_Empaque` = 3500 (caja): al alternar 📦 CAJA → 🔹 UND el sistema mostraba 175 (= 3500/20) en vez de restaurar los $400. Ahora restaura el precio unidad original de la lista activa (P1/P2/P3).
+
+### Fix — Actualizaciones automáticas ya no se bloquean por "caja abierta"
+
+Al presionar "Instalar actualización" desde la notificación del updater, el modal "Caja abierta sin cerrar" **ya no aparece**. Antes, si el usuario cancelaba por miedo, la actualización quedaba a medio aplicar y la app seguía viva ("actualicé y no cambió nada"). En cierres normales con la X el aviso sigue apareciendo — sigue protegiendo contra cerrar por accidente con caja abierta.
+
+### Fix — Botón "Convertir a Electrónica" removido
+
+El flujo de conversión POS→FE fue fuente de bugs recurrentes (duplicados, inventario descuadrado). El botón se elimina del listado de Ventas; queda solo el de "Copiar" para crear una FE desde cero basada en una POS existente.
+
+### Fix — Layout con ventana chica
+
+El header y la barra de tabs ya no se superponen al reducir la ventana de la app.
+
+### Interno — Módulo Cargue-Descargue (Sprint 1)
+
+Nuevo módulo para clientes con **Vendedores Móviles** activo: el vendedor arma su cargue del día en el APK, el admin aprueba desde desktop, y al final del día el vendedor cierra reportando devueltos/dañados/dinero. Ver menú **Vendedores → Cargues del día**. Requiere APK v1.2.0.
+
+---
+
+## 4.4.10 — 2026-09-22
+
+Publicado como hotfix intermedio antes de 4.5.0. Los fixes están incluidos en 4.5.0.
+
+- Fix precio empaque: toggle CAJA → UND ya no divide el precio manual.
+- Mejora UI Inventario: header compacto, pills de etiqueta.
+
+---
+
 ## 4.4.9 — 2026-09-21
 
 ### Hotfix — botón "Convertir a Electrónica" fallaba con Duplicate entry 'FCON-0'
