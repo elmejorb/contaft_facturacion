@@ -5,6 +5,25 @@ Visible solo para administradores desde **Configuración → Acerca de → Ver h
 
 ---
 
+## 4.4.10 — 2026-09-22
+
+### Fix — Precio empaque: toggle 📦 CAJA → 🔹 UND ya no divide el precio manual
+
+- **Reportado (Oasis Farmacia)**: producto con `Precio_Venta` = 400 (tableta) y `Precio_Venta_Empaque` = 3500 (caja de 20). Al alternar el toggle desde 📦 CAJA a 🔹 UND, el precio unidad quedaba en **175** (= 3500 / 20) en vez de restaurar los **$400** originales.
+- **Causa**: la fórmula anterior dividía el precio actual (que ya era el precio caja manual) por el factor de conversión. Cuando `Precio_Venta_Empaque` no es un múltiplo exacto de `Precio_Venta`, esto destruye el precio unidad original.
+- **Fix**: al pasar EMP → UND restaurar el precio unidad de la lista activa (`PrecioVentaLista1/2/3`) guardado cuando se agregó el producto. Fallback al comportamiento viejo si la lista no viene (compat con productos ya en carrito de sesiones abiertas).
+- Afecta solo clientes Farmacia/Droguería con productos que tengan `Precio_Venta_Empaque > 0`.
+
+### Mejora — Interfaz Inventario más compacta
+
+- Header reducido a 18px, subtítulo removido.
+- Tarjetas KPI compactadas (padding 8px, ícono 32px, valor + subtítulo en línea).
+- Botones a tamaño sm (altura 28px) para ganar espacio útil de la grilla.
+- Nuevo filtro por etiqueta (pills con color propio: Producto Terminado, Reventa, Insumos, etc.). Permite filtrar rápidamente sin abrir el buscador.
+- Grid con más filas visibles en pantallas de portátil (14"–15").
+
+---
+
 ## 4.4.9 — 2026-09-21
 
 ### Hotfix — botón "Convertir a Electrónica" fallaba con Duplicate entry 'FCON-0'
