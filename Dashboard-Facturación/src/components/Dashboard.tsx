@@ -958,8 +958,11 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
             Los módulos NO tab-supported ocupan la barra pero sin resaltado (activeTabId=null). */}
         <div style={{
           display: 'flex', alignItems: 'flex-end', gap: 2,
-          padding: '6px 8px 0', background: '#e5e7eb',
-          borderBottom: '1px solid #d1d5db', overflowX: 'auto', minHeight: 34,
+          padding: '6px 8px 0',
+          background: 'linear-gradient(180deg, rgba(30,27,75,0.95) 0%, rgba(30,27,75,0.85) 100%)',
+          borderBottom: '1px solid rgba(255,255,255,0.08)',
+          overflowX: 'auto', overflowY: 'hidden',
+          height: 34, flexShrink: 0,
         }}>
           {tabs.map(t => {
             const activo = activeTabId === t.id;
@@ -981,17 +984,18 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
                 title={t.titulo}
                 style={{
                   display: 'flex', alignItems: 'center', gap: 6,
-                  padding: '4px 10px 5px', maxWidth: 200, minWidth: 100,
-                  background: activo ? '#f9fafb' : '#d1d5db',
+                  padding: '4px 10px 5px', maxWidth: 200, minWidth: 100, height: 26,
+                  background: activo ? '#f9fafb' : 'rgba(255,255,255,0.08)',
                   borderRadius: '8px 8px 0 0',
-                  borderTop: activo ? '2px solid #7c3aed' : '2px solid transparent',
-                  borderLeft: '1px solid #cbd5e1',
-                  borderRight: '1px solid #cbd5e1',
+                  borderTop: activo ? '2px solid #a78bfa' : '2px solid transparent',
+                  borderLeft: activo ? '1px solid rgba(0,0,0,0.05)' : '1px solid transparent',
+                  borderRight: activo ? '1px solid rgba(0,0,0,0.05)' : '1px solid transparent',
                   cursor: 'pointer',
                   fontSize: 12, fontWeight: activo ? 600 : 500,
-                  color: activo ? '#1f2937' : '#4b5563',
+                  color: activo ? '#1f2937' : '#cbd5e1',
                   marginBottom: activo ? -1 : 0,
                   position: 'relative', zIndex: activo ? 2 : 1,
+                  transition: 'background 120ms ease',
                 }}>
                 <Ico size={13} />
                 <span style={{
@@ -1004,11 +1008,12 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
                     title="Cerrar pestaña"
                     style={{
                       width: 16, height: 16, borderRadius: 3, border: 'none',
-                      background: 'transparent', cursor: 'pointer', color: '#6b7280',
+                      background: 'transparent', cursor: 'pointer',
+                      color: activo ? '#6b7280' : '#94a3b8',
                       display: 'flex', alignItems: 'center', justifyContent: 'center',
                       padding: 0,
                     }}
-                    onMouseEnter={(e) => (e.currentTarget.style.background = '#e5e7eb')}
+                    onMouseEnter={(e) => (e.currentTarget.style.background = activo ? '#e5e7eb' : 'rgba(255,255,255,0.15)')}
                     onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}>
                     <X size={11} />
                   </button>
@@ -1020,7 +1025,7 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
           {activeTabId === null && (
             <div style={{
               display: 'flex', alignItems: 'center', padding: '4px 10px',
-              fontSize: 11, color: '#6b7280', fontStyle: 'italic',
+              fontSize: 11, color: '#94a3b8', fontStyle: 'italic',
             }}>
               (módulo abierto sin pestaña)
             </div>
