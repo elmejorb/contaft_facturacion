@@ -21,4 +21,5 @@ export type RootStackParamList = {
   Clients: undefined;
   ClientPicker: { onSelect?: string };
   Sync: undefined;
+  MiCargue: undefined;
 };

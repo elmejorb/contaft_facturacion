@@ -106,6 +106,7 @@ const ComprasTabs = lazy(() => import('./ComprasTabs').then(m => ({ default: m.C
 const UsuariosManagement = lazy(() => import('./UsuariosManagement').then(m => ({ default: m.UsuariosManagement })));
 const VendedoresMovil = lazy(() => import('./VendedoresMovil').then(m => ({ default: m.VendedoresMovil })));
 const VendedoresPedidos = lazy(() => import('./VendedoresPedidos').then(m => ({ default: m.VendedoresPedidos })));
+const CarguesVendedor = lazy(() => import('./CarguesVendedor').then(m => ({ default: m.CarguesVendedor })));
 const CuentasPorCobrar = lazy(() => import('./CuentasPorCobrar').then(m => ({ default: m.CuentasPorCobrar })));
 const TopClientes = lazy(() => import('./TopClientes').then(m => ({ default: m.TopClientes })));
 const CumpleanosClientes = lazy(() => import('./CumpleanosClientes').then(m => ({ default: m.CumpleanosClientes })));
@@ -133,7 +134,7 @@ interface DashboardProps {
   user?: UserData | null;
 }
 
-type View = 'overview' | 'products' | 'customers' | 'suppliers' | 'purchases' | 'sales' | 'inventario' | 'diagnostico' | 'auditoria' | 'categorias' | 'conteo' | 'configuracion' | 'cuentas-cobrar' | 'top-clientes' | 'cumpleanos' | 'cuentas-pagar' | 'productos-proveedor' | 'nueva-venta' | 'ventas-tipo-pago' | 'datos-empresa' | 'usuarios' | 'nueva-compra' | 'facturacion-electronica' | 'facturas-recibidas' | 'caja' | 'caja-historial' | 'pagos-clientes' | 'pagos-proveedores' | 'gastos' | 'bancos' | 'config-categorias-gasto' | 'config-cajas' | 'config-servidor' | 'config-permisos' | 'familias' | 'distribuir' | 'stock-bajo' | 'config-retenciones' | 'informes-hub' | 'notas-articulo' | 'lotes-vencer' | 'inicio' | 'config-etiquetas' | 'vendedores-gestion' | 'vendedores-pedidos' | 'vendedores-informe' | 'ordenes-compra' | 'financiaciones' | 'backup-bd' | 'mantenimiento-bd' | 'anticipos-clientes' | 'movs-directos';
+type View = 'overview' | 'products' | 'customers' | 'suppliers' | 'purchases' | 'sales' | 'inventario' | 'diagnostico' | 'auditoria' | 'categorias' | 'conteo' | 'configuracion' | 'cuentas-cobrar' | 'top-clientes' | 'cumpleanos' | 'cuentas-pagar' | 'productos-proveedor' | 'nueva-venta' | 'ventas-tipo-pago' | 'datos-empresa' | 'usuarios' | 'nueva-compra' | 'facturacion-electronica' | 'facturas-recibidas' | 'caja' | 'caja-historial' | 'pagos-clientes' | 'pagos-proveedores' | 'gastos' | 'bancos' | 'config-categorias-gasto' | 'config-cajas' | 'config-servidor' | 'config-permisos' | 'familias' | 'distribuir' | 'stock-bajo' | 'config-retenciones' | 'informes-hub' | 'notas-articulo' | 'lotes-vencer' | 'inicio' | 'config-etiquetas' | 'vendedores-gestion' | 'vendedores-pedidos' | 'vendedores-cargues' | 'vendedores-informe' | 'ordenes-compra' | 'financiaciones' | 'backup-bd' | 'mantenimiento-bd' | 'anticipos-clientes' | 'movs-directos';
 
 interface MenuItem {
   id: string;
@@ -355,6 +356,7 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
       children: [
         { id: 'vendedores-gestion', label: 'Gestión de Vendedores', view: 'vendedores-gestion' as View },
         { id: 'vendedores-pedidos', label: 'Pedidos de Campo', view: 'vendedores-pedidos' as View },
+        { id: 'vendedores-cargues', label: 'Cargues del día', view: 'vendedores-cargues' as View },
         { id: 'vendedores-informe', label: 'Ranking de Vendedores', view: 'vendedores-informe' as View },
       ]
     },
@@ -793,6 +795,7 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
           {currentView === 'usuarios' && <UsuariosManagement />}
           {currentView === 'vendedores-gestion' && <VendedoresMovil />}
           {currentView === 'vendedores-pedidos' && <VendedoresPedidos onNavigate={(v) => setCurrentView(v as View)} />}
+          {currentView === 'vendedores-cargues' && <CarguesVendedor />}
           {currentView === 'vendedores-informe' && <InformeVendedores />}
           {currentView === 'cuentas-cobrar' && <CuentasPorCobrar />}
           {currentView === 'top-clientes' && <TopClientes />}

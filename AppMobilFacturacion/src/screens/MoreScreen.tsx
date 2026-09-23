@@ -95,6 +95,12 @@ export const MoreScreen: React.FC = () => {
           onPress: () => nav.navigate('Sync'),
           badge: pendingCount > 0 ? String(pendingCount) : undefined,
         },
+        {
+          icon: 'car-outline',
+          label: 'Mi cargue del día',
+          color: colors.warningDark,
+          onPress: () => nav.navigate('MiCargue'),
+        },
       ],
     },
     {

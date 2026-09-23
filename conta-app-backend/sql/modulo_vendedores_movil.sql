@@ -77,7 +77,67 @@ SET @sql = IF(@col_mfe = 0,
   'SELECT 1');
 PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
 
-SELECT '✓ Migración módulo móvil aplicada (lado desktop)' AS resultado;
+-- ================================================================
+-- CARGUES DE VENDEDORES (Sprint 1 — panaderías / distribuidoras)
+-- ================================================================
+-- El vendedor registra en la APK los productos que va a llevar hoy en su
+-- ruta. Queda 'pendiente'. Admin lo aprueba desde Desktop → descuenta stock
+-- + kardex. Vendedor factura durante el día. Al final registra devueltos +
+-- dañados + dinero recibido → 'cerrado'. Desktop cuadra.
+--
+-- Estados: pendiente → aprobado → cerrado (o rechazado desde admin).
+--
+-- Diseño self-service del vendedor: el vendedor propone, el admin aprueba.
+-- Compatible con el ritmo real de una panadería (vendedor sale rápido en la
+-- mañana sin depender del admin).
+
+SET @tab_car = (SELECT COUNT(*) FROM information_schema.TABLES
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tbl_cargues_vendedor');
+SET @sql = IF(@tab_car = 0,
+    'CREATE TABLE tbl_cargues_vendedor (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        id_vendedor_movil INT NOT NULL COMMENT "FK a tbl_vendedores_movil.id (id local desktop)",
+        id_cargue_hub INT NULL COMMENT "id de la fila espejo en el hub Lumen — para sync",
+        fecha DATE NOT NULL,
+        estado VARCHAR(20) NOT NULL DEFAULT "pendiente" COMMENT "pendiente | aprobado | cerrado | rechazado",
+        total_valor_cargue DECIMAL(19,4) NOT NULL DEFAULT 0,
+        total_valor_devuelto DECIMAL(19,4) NOT NULL DEFAULT 0,
+        total_valor_danado DECIMAL(19,4) NOT NULL DEFAULT 0,
+        dinero_recibido DECIMAL(19,4) NOT NULL DEFAULT 0,
+        notas_vendedor TEXT NULL,
+        notas_admin TEXT NULL,
+        aprobado_por INT NULL COMMENT "Id_Usuario que aprobó",
+        aprobado_at DATETIME NULL,
+        cerrado_at DATETIME NULL,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_vendedor_fecha (id_vendedor_movil, fecha),
+        INDEX idx_estado (estado),
+        INDEX idx_hub (id_cargue_hub)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+    'SELECT 1');
+PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
+
+SET @tab_det = (SELECT COUNT(*) FROM information_schema.TABLES
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tbl_cargues_vendedor_detalle');
+SET @sql = IF(@tab_det = 0,
+    'CREATE TABLE tbl_cargues_vendedor_detalle (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        id_cargue INT NOT NULL,
+        items INT NOT NULL COMMENT "FK a tblarticulos.Items",
+        cant_cargue DECIMAL(19,4) NOT NULL DEFAULT 0 COMMENT "Cantidad entregada al vendedor",
+        cant_devuelta DECIMAL(19,4) NOT NULL DEFAULT 0 COMMENT "Cantidad devuelta al cerrar",
+        cant_danada DECIMAL(19,4) NOT NULL DEFAULT 0 COMMENT "Cantidad reportada como dañada",
+        precio_venta_unitario DECIMAL(19,4) NOT NULL DEFAULT 0 COMMENT "Snapshot del precio al momento del cargue",
+        precio_costo_unitario DECIMAL(19,4) NOT NULL DEFAULT 0 COMMENT "Snapshot del costo",
+        INDEX idx_cargue (id_cargue),
+        INDEX idx_items (items),
+        CONSTRAINT fk_cargue_detalle FOREIGN KEY (id_cargue) REFERENCES tbl_cargues_vendedor(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+    'SELECT 1');
+PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
+
+SELECT '✓ Migración módulo móvil aplicada (lado desktop, incluye cargues)' AS resultado;
 
 
 -- ================================================================

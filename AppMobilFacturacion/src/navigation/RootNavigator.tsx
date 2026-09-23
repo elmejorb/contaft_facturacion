@@ -18,6 +18,7 @@ import { InvoiceDetailScreen } from '../screens/InvoiceDetailScreen';
 import { ProductsScreen } from '../screens/ProductsScreen';
 import { ClientsScreen } from '../screens/ClientsScreen';
 import { SyncScreen } from '../screens/SyncScreen';
+import { MiCargueScreen } from '../screens/MiCargueScreen';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -72,6 +73,7 @@ export const RootNavigator: React.FC = () => {
             <Stack.Screen name="Products" component={ProductsScreen} />
             <Stack.Screen name="Clients" component={ClientsScreen} />
             <Stack.Screen name="Sync" component={SyncScreen} />
+            <Stack.Screen name="MiCargue" component={MiCargueScreen} />
           </>
         )}
       </Stack.Navigator>

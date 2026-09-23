@@ -339,3 +339,54 @@ export const ventasApi = {
     return data.venta;
   },
 };
+
+// ============== Cargues (Cargue-Descargue) ==============
+
+export interface CargueLinea {
+  id?: number; // presente cuando el hub devuelve el detalle (cargues_detalle.id)
+  item_id?: number; // presente al enviar (create)
+  items?: number; // presente al leer (mi-actual)
+  nombre_producto: string;
+  cantidad?: number; // enviar
+  cant_cargue?: number; // leer
+  cant_devuelta?: number;
+  cant_danada?: number;
+  precio_venta?: number;
+  precio_venta_unitario?: number;
+  precio_costo?: number;
+}
+
+export interface CargueDTO {
+  id: number;
+  fecha: string;
+  estado: 'pendiente' | 'aprobado' | 'cerrado' | 'rechazado';
+  total_valor_cargue: number;
+  notas_vendedor: string | null;
+  notas_admin: string | null;
+  aprobado_at: string | null;
+  items: CargueLinea[];
+}
+
+export const carguesApi = {
+  crear: async (input: { lineas: CargueLinea[]; notas?: string }): Promise<{ cargue_id: number; estado: string; total: number }> => {
+    const { data } = await api().post('/api/cargues/mi-cargue', input);
+    if (data.error) throw new Error(data.mensaje || 'Error');
+    return { cargue_id: data.cargue_id, estado: data.estado, total: data.total };
+  },
+
+  miActual: async (): Promise<CargueDTO | null> => {
+    const { data } = await api().get('/api/cargues/mi-actual');
+    if (data.error) throw new Error(data.mensaje || 'Error');
+    return data.cargue;
+  },
+
+  cerrar: async (id: number, input: {
+    items: { id: number; cant_devuelta: number; cant_danada: number }[];
+    dinero_recibido: number;
+    notas?: string;
+  }): Promise<{ total_devuelto: number; total_danado: number; dinero_recibido: number }> => {
+    const { data } = await api().post(`/api/cargues/cerrar/${id}`, input);
+    if (data.error) throw new Error(data.mensaje || 'Error');
+    return data;
+  },
+};
