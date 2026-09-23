@@ -1,10 +1,11 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { AgGridReact } from 'ag-grid-react';
 import { AllCommunityModule, ModuleRegistry, ColDef, themeQuartz } from 'ag-grid-community';
-import { AlertTriangle, RefreshCw, Package, ShoppingCart, DollarSign, Boxes } from 'lucide-react';
+import { AlertTriangle, RefreshCw, Package, ShoppingCart, DollarSign, Boxes, Edit2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { esFarmacia } from './ConfiguracionSistema';
 import { AG_GRID_LOCALE_ES } from '../utils/agGridLocaleEs';
+import { EditarArticuloModal } from './EditarArticuloModal';
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
@@ -65,6 +66,7 @@ export function StockBajo({ onNavigate }: Props) {
   const [provOpen, setProvOpen] = useState(false);
   const provInputRef = useRef<HTMLInputElement | null>(null);
   const [seleccionados, setSeleccionados] = useState<Set<number>>(new Set());
+  const [editarProducto, setEditarProducto] = useState<any | null>(null);
   const farmacia = esFarmacia();
 
   const cargar = async () => {
@@ -218,12 +220,6 @@ export function StockBajo({ onNavigate }: Props) {
         : <span style={{ color: '#d1d5db', fontSize: 10 }}>—</span>,
     },
     {
-      headerName: 'Familia', field: 'Familia_Nombre', width: 130,
-      cellRenderer: (p: any) => p.value
-        ? <span style={{ color: '#6b7280', fontSize: 11 }}>{p.value}</span>
-        : <span style={{ color: '#d1d5db', fontSize: 10 }}>—</span>,
-    },
-    {
       headerName: 'Existencia', field: 'Existencia', width: 100, sortable: true,
       type: 'numericColumn',
       cellRenderer: (p: any) => {
@@ -281,18 +277,20 @@ export function StockBajo({ onNavigate }: Props) {
       </span>,
     },
     {
-      headerName: 'Acción', width: 100, pinned: 'right',
+      headerName: '', width: 50, pinned: 'right', colId: 'acciones',
       cellRenderer: (p: any) => (
         <button
-          onClick={() => enviarACompra(p.data.Items)}
-          title="Agregar a una nueva compra"
+          onClick={() => setEditarProducto(p.data)}
+          title="Editar producto"
           style={{
-            padding: '3px 8px', height: 24, borderRadius: 4,
-            border: '1px solid #86efac', background: '#f0fdf4', color: '#166534',
-            cursor: 'pointer', fontSize: 11, fontWeight: 600,
-            display: 'inline-flex', alignItems: 'center', gap: 4,
-          }}>
-          <ShoppingCart size={11} /> Comprar
+            width: 26, height: 24, borderRadius: 4,
+            border: '1px solid #e5e7eb', background: '#fff', color: '#7c3aed',
+            cursor: 'pointer',
+            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = '#f3e8ff'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = '#fff'; }}>
+          <Edit2 size={12} />
         </button>
       ),
     },
@@ -567,6 +565,34 @@ export function StockBajo({ onNavigate }: Props) {
           </div>
         </div>
       )}
+
+      {/* Modal editar producto — abre desde el botón lápiz de la fila.
+          Al guardar, refresca el listado para reflejar cambios (p. ej. si
+          ajustó el stock mínimo, el producto puede salir de la vista). */}
+      <EditarArticuloModal
+        isOpen={!!editarProducto}
+        onClose={() => setEditarProducto(null)}
+        articulo={editarProducto ? {
+          // Mapeamos las columnas de StockBajo al shape que espera el modal
+          // (que espera 'Descripcion', 'Precio1' etc de Inventario).
+          Items: editarProducto.Items,
+          Codigo: editarProducto.Codigo,
+          Descripcion: editarProducto.Nombres_Articulo,
+          Nombres_Articulo: editarProducto.Nombres_Articulo,
+          Existencia: editarProducto.Existencia,
+          Existencia_minima: editarProducto.Stock_Minimo,
+          Precio_Venta: editarProducto.Precio_Venta,
+          Precio_Costo: editarProducto.Precio_Costo,
+          Iva: editarProducto.Iva,
+          Id_Etiqueta: editarProducto.Id_Etiqueta,
+          FactorConversion: editarProducto.FactorConversion,
+          NombreEmpaque: editarProducto.NombreEmpaque,
+          Precio_Venta_Empaque: editarProducto.precio_venta_empaque,
+          CodigoPro: editarProducto.CodigoPro,
+        } : null}
+        onGuardado={cargar}
+        modo="editar"
+      />
     </div>
   );
 }
