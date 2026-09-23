@@ -1413,7 +1413,7 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
               {t.view === 'conteo' && <ConteoInventario />}
               {t.view === 'familias' && <FamiliasProducto />}
               {t.view === 'distribuir' && <DistribuirProductos />}
-              {t.view === 'stock-bajo' && <StockBajo />}
+              {t.view === 'stock-bajo' && <StockBajo onNavigate={(v) => abrirEnTab(v as View)} />}
               {t.view === 'notas-articulo' && <NotasArticulo />}
               {t.view === 'lotes-vencer' && <LotesPorVencer />}
               {t.view === 'movs-directos' && <MovsDirectos />}

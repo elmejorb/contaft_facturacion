@@ -21,6 +21,11 @@ const LS_KEY = 'compras_tabs';
 // ComprasTabs lo lee al montar y abre esa compra en un tab NUEVO (sin
 // destruir tabs existentes).
 const LS_PENDING_EDIT = 'compras_pending_edit_id';
+// Puente desde StockBajo — cuando el usuario selecciona productos con stock
+// bajo y clickea "Crear Nueva Compra", los items se guardan aquí como array
+// JSON. ComprasTabs los detecta al montar, abre un tab nuevo y precarga las
+// líneas con cantidad_sugerida (mínimo - existencia, redondeado hacia arriba).
+const LS_PRECARGA_COMPRA = 'precarga_compra_stockbajo';
 
 interface Tab {
   id: string;
@@ -106,6 +111,32 @@ export function ComprasTabs() {
     if (!pendingId || isNaN(pendingId)) return;
     localStorage.removeItem(LS_PENDING_EDIT);
     abrirCompraEnTab(pendingId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Al montar, revisar si viene una precarga desde StockBajo. Si sí, crear
+  // tab nuevo con esos productos ya cargados como líneas. Nueva Compra recibe
+  // la precarga a través de la prop `initialProducts` en su tabState.
+  const [precargaPendiente, setPrecargaPendiente] = useState<any[] | null>(null);
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(LS_PRECARGA_COMPRA);
+      if (!raw) return;
+      const arr = JSON.parse(raw);
+      if (!Array.isArray(arr) || arr.length === 0) return;
+      localStorage.removeItem(LS_PRECARGA_COMPRA);
+      // Crear tab nuevo etiquetado y guardar la precarga para el hijo
+      tabCounter.current++;
+      const newTab: Tab = {
+        id: newTabId(),
+        label: `Reposición (${arr.length})`,
+        state: defaultState(),
+      };
+      setTabs(prev => [...prev, newTab]);
+      setActiveTabId(newTab.id);
+      setPrecargaPendiente(arr);
+      toast.success(`${arr.length} productos precargados en Nueva Compra`);
+    } catch (e) {}
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -270,6 +301,8 @@ export function ComprasTabs() {
           onStateChange={onStateChange}
           pedidoEditar={activeTab.pedidoN}
           borradorInicialId={activeTab.borradorId ?? null}
+          precargaProductos={precargaPendiente || undefined}
+          onPrecargaConsumida={() => setPrecargaPendiente(null)}
           onClose={onCompraGuardada}
         />
       )}

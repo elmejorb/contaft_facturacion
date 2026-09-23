@@ -75,9 +75,15 @@ interface NuevaCompraProps {
   // Cuando != null, "Guardar borrador" hace UPDATE (no INSERT) y al guardar
   // la compra real con exito, el borrador se elimina de la BD.
   borradorInicialId?: number | null;
+  // Productos a precargar como líneas al montar (viene de StockBajo).
+  // Cada elemento debe tener las columnas de tblarticulos (mínimo: Items,
+  // Codigo, Nombres_Articulo, Existencia, Precio_Costo, Iva, factor_conversion).
+  // Opcional: cantidad_sugerida para poner esa cant. en vez de 1.
+  precargaProductos?: any[];
+  onPrecargaConsumida?: () => void;
 }
 
-export function NuevaCompra({ pedidoEditar, onClose, initialState, onStateChange, borradorInicialId }: NuevaCompraProps = {}) {
+export function NuevaCompra({ pedidoEditar, onClose, initialState, onStateChange, borradorInicialId, precargaProductos, onPrecargaConsumida }: NuevaCompraProps = {}) {
   const { user } = useAuth();
   // Si el negocio NO maneja lotes/vencimientos (boutique, ferretería, accesorios),
   // ignoramos completamente el flag requiere_lote del catálogo: no se muestra
@@ -188,6 +194,31 @@ export function NuevaCompra({ pedidoEditar, onClose, initialState, onStateChange
       setModoEdicion(true);
     });
   }, [pedidoEditar]);
+
+  // Precarga de productos desde StockBajo (u otro origen). Se ejecuta una sola
+  // vez al montar; el padre limpia el estado local vía onPrecargaConsumida.
+  useEffect(() => {
+    if (!precargaProductos || precargaProductos.length === 0) return;
+    if (pedidoEditar) return; // no interferir con edición
+    for (const p of precargaProductos) {
+      // agregarProducto ya maneja duplicados (suma cantidad). Cada iteración
+      // solo agrega 1, así que después seteamos la cantidad sugerida directo
+      // sobre esa línea recién creada.
+      agregarProducto(p);
+    }
+    // Ajustar cantidades sugeridas después de agregar. setTimeout para dejar
+    // que las setStates de agregarProducto se apliquen antes de sobrescribir.
+    setTimeout(() => {
+      setLineas(prev => prev.map(l => {
+        const src = precargaProductos.find(p => Number(p.Items) === Number(l.Items));
+        if (!src || !src.cantidad_sugerida) return l;
+        const cant = Number(src.cantidad_sugerida);
+        return { ...l, Cantidad: cant, Subtotal: cant * l.CostoConIva };
+      }));
+      onPrecargaConsumida?.();
+    }, 50);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const buscarProducto = (q: string) => {
     setBuscarProd(q);
