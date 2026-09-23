@@ -152,9 +152,107 @@ interface SubMenuItem {
   view?: View;
 }
 
+// === Sistema de tabs múltiples (Fase 0) ===
+// Refactor incremental estilo Chrome — solo las views listadas aquí se
+// comportan como tabs (viven en memoria con display:block/none). El resto
+// sigue con el switch viejo controlado por currentView. Ver PLAN-TABS-MULTIPLES.md.
+interface Tab {
+  id: string;              // 'inicio' o 'nueva-venta-{n}' o view (singleton)
+  view: View;              // qué renderizar
+  titulo: string;          // texto de la pestaña
+  cerrable: boolean;       // inicio siempre queda
+}
+
+// Views que participan del sistema de tabs. Cualquier otra usa el switch viejo.
+const TAB_SUPPORTED_VIEWS: ReadonlySet<View> = new Set<View>(['inicio', 'nueva-venta', 'inventario']);
+
+// Views que pueden abrirse en múltiples pestañas (creadores). Las demás
+// tab-supported son singleton — si ya existe la pestaña, activarla en vez de duplicar.
+const MULTI_INSTANCE_VIEWS: ReadonlySet<View> = new Set<View>(['nueva-venta']);
+
+// Nombre por defecto que se muestra en la pestaña según la view.
+const TITULO_POR_VIEW: Partial<Record<View, string>> = {
+  'inicio': 'Inicio',
+  'nueva-venta': 'Nueva Venta',
+  'inventario': 'Inventario',
+};
+
+// Ícono por view (usa lucide, ya importados arriba).
+const ICONO_POR_VIEW: Partial<Record<View, any>> = {
+  'inicio': Home,
+  'nueva-venta': ShoppingCart,
+  'inventario': Boxes,
+};
+
 export function Dashboard({ onLogout, user }: DashboardProps) {
   const [currentView, setCurrentView] = useState<View>('inicio');
   const [empresa, setEmpresa] = useState<any>(null);
+
+  // === Estado de tabs (Fase 0) ===
+  // Al arrancar, Inicio está siempre presente como tab base. activeTabId=null
+  // significa que el usuario navegó a un módulo NO tab-supported (usando el
+  // switch viejo con currentView). Al hacer click en un tab, activeTabId
+  // vuelve a apuntar a ese tab y el switch viejo se oculta.
+  const [tabs, setTabs] = useState<Tab[]>(() => [
+    { id: 'inicio', view: 'inicio', titulo: 'Inicio', cerrable: false },
+  ]);
+  const [activeTabId, setActiveTabId] = useState<string | null>('inicio');
+  const [nuevaVentaCounter, setNuevaVentaCounter] = useState(1);
+
+  // Abre una view en el sistema de tabs (o cae al comportamiento viejo si no es supported).
+  // - Views multi-instancia: cada llamada crea una pestaña nueva
+  // - Views singleton: reutiliza la existente si ya está abierta
+  // - Views NO tab-supported: setCurrentView(view) + activeTabId=null (muestra switch viejo)
+  const abrirEnTab = (view: View) => {
+    if (!TAB_SUPPORTED_VIEWS.has(view)) {
+      setCurrentView(view);
+      setActiveTabId(null);
+      return;
+    }
+    if (MULTI_INSTANCE_VIEWS.has(view)) {
+      const n = nuevaVentaCounter;
+      const nuevoId = `${view}-${n}`;
+      setTabs(prev => [...prev, {
+        id: nuevoId, view,
+        titulo: `${TITULO_POR_VIEW[view] || view} #${n}`,
+        cerrable: true,
+      }]);
+      setActiveTabId(nuevoId);
+      setNuevaVentaCounter(n + 1);
+      setCurrentView(view);
+      return;
+    }
+    // Singleton
+    const existente = tabs.find(t => t.view === view);
+    if (existente) {
+      setActiveTabId(existente.id);
+    } else {
+      setTabs(prev => [...prev, {
+        id: view, view,
+        titulo: TITULO_POR_VIEW[view] || view,
+        cerrable: view !== 'inicio',
+      }]);
+      setActiveTabId(view);
+    }
+    setCurrentView(view);
+  };
+
+  const cerrarTab = (tabId: string) => {
+    const t = tabs.find(x => x.id === tabId);
+    if (!t || !t.cerrable) return;
+    const idx = tabs.findIndex(x => x.id === tabId);
+    const nuevos = tabs.filter(x => x.id !== tabId);
+    setTabs(nuevos);
+    // Si estabas mirando el que se cierra, activa el anterior (o el primero).
+    if (activeTabId === tabId) {
+      const siguiente = nuevos[idx - 1] || nuevos[0] || null;
+      if (siguiente) {
+        setActiveTabId(siguiente.id);
+        setCurrentView(siguiente.view);
+      }
+    }
+  };
+
 
   useEffect(() => {
     fetch('http://localhost:80/conta-app-backend/api/empresa/datos.php')
@@ -187,7 +285,7 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
   // Cada N minutos según sync_intervalo_pull_min de la config.
   useAutoSyncVendedores();
   const [notifOpen, setNotifOpen] = useState(false);
-  const irA = (v: View) => { setCurrentView(v); setNotifOpen(false); };
+  const irA = (v: View) => { abrirEnTab(v); setNotifOpen(false); };
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [expandedMenus, setExpandedMenus] = useState<string[]>([]);
 
@@ -443,7 +541,7 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
 
   const handleMenuClick = (item: MenuItem | SubMenuItem) => {
     if ('view' in item && item.view) {
-      setCurrentView(item.view);
+      abrirEnTab(item.view);
     }
   };
 
@@ -766,9 +864,72 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
 
         {/* Notificaciones emergentes de sugerencias — flotan sobre cualquier vista.
             Aparecen una a una en el tiempo, dan efecto "app viva" descubriendo cosas. */}
-        <NotificacionEmergente onNavigate={(v) => setCurrentView(v as View)} esAdmin={esAdmin} />
+        <NotificacionEmergente onNavigate={(v) => abrirEnTab(v as View)} esAdmin={esAdmin} />
 
-        <div className={currentView === 'inicio' ? 'flex-1 min-h-0' : 'p-6 flex-1 min-h-0 overflow-auto'}>
+        {/* Barra de tabs estilo Chrome (Fase 0 — solo Inicio, Nueva Venta e Inventario).
+            Los módulos NO tab-supported ocupan la barra pero sin resaltado (activeTabId=null). */}
+        <div style={{
+          display: 'flex', alignItems: 'flex-end', gap: 2,
+          padding: '6px 8px 0', background: '#e5e7eb',
+          borderBottom: '1px solid #d1d5db', overflowX: 'auto', minHeight: 34,
+        }}>
+          {tabs.map(t => {
+            const activo = activeTabId === t.id;
+            const Ico = ICONO_POR_VIEW[t.view] || Home;
+            return (
+              <div key={t.id}
+                onClick={() => { setActiveTabId(t.id); setCurrentView(t.view); }}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 6,
+                  padding: '4px 10px 5px', maxWidth: 200, minWidth: 100,
+                  background: activo ? '#f9fafb' : '#d1d5db',
+                  borderRadius: '8px 8px 0 0',
+                  borderTop: activo ? '2px solid #7c3aed' : '2px solid transparent',
+                  borderLeft: '1px solid #cbd5e1',
+                  borderRight: '1px solid #cbd5e1',
+                  cursor: 'pointer',
+                  fontSize: 12, fontWeight: activo ? 600 : 500,
+                  color: activo ? '#1f2937' : '#4b5563',
+                  marginBottom: activo ? -1 : 0,
+                  position: 'relative', zIndex: activo ? 2 : 1,
+                }}>
+                <Ico size={13} />
+                <span style={{
+                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                  flex: 1, minWidth: 0,
+                }}>{t.titulo}</span>
+                {t.cerrable && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); cerrarTab(t.id); }}
+                    title="Cerrar pestaña"
+                    style={{
+                      width: 16, height: 16, borderRadius: 3, border: 'none',
+                      background: 'transparent', cursor: 'pointer', color: '#6b7280',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      padding: 0,
+                    }}
+                    onMouseEnter={(e) => (e.currentTarget.style.background = '#e5e7eb')}
+                    onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}>
+                    <X size={11} />
+                  </button>
+                )}
+              </div>
+            );
+          })}
+          {/* Indicador de "estás en módulo no-tab" cuando activeTabId=null */}
+          {activeTabId === null && (
+            <div style={{
+              display: 'flex', alignItems: 'center', padding: '4px 10px',
+              fontSize: 11, color: '#6b7280', fontStyle: 'italic',
+            }}>
+              (módulo abierto sin pestaña)
+            </div>
+          )}
+        </div>
+
+        <div className={activeTabId === 'inicio' ? 'flex-1 min-h-0' : 'p-6 flex-1 min-h-0 overflow-auto'}>
+          {/* TABS VIVOS — cada uno mantiene su estado en memoria aunque no esté activo.
+              Fase 0: solo Inicio, Nueva Venta e Inventario. Ver PLAN-TABS-MULTIPLES.md. */}
           <Suspense fallback={
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh', color: '#6b7280', fontSize: 13 }}>
               <div style={{ width: 22, height: 22, border: '3px solid #e5e7eb', borderTopColor: '#7c3aed', borderRadius: '50%', animation: 'sp 0.8s linear infinite', marginRight: 10 }} />
@@ -776,9 +937,29 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
               <style>{`@keyframes sp { to { transform: rotate(360deg) } }`}</style>
             </div>
           }>
-          {currentView === 'inicio' && <PantallaInicio user={user} onNavigate={(v) => setCurrentView(v as View)} esAdmin={esAdmin} esVendedor={esVendedor} />}
+          {tabs.map(t => (
+            <div key={t.id} style={{
+              display: activeTabId === t.id ? 'block' : 'none',
+              height: activeTabId === t.id ? '100%' : 0,
+            }}>
+              {t.view === 'inicio' && <PantallaInicio user={user} onNavigate={(v) => abrirEnTab(v as View)} esAdmin={esAdmin} esVendedor={esVendedor} />}
+              {t.view === 'nueva-venta' && <VentasTabs />}
+              {t.view === 'inventario' && <InventarioManagement />}
+            </div>
+          ))}
+          </Suspense>
+
+          {/* SWITCH VIEJO — módulos NO tab-supported. Solo se renderiza cuando el
+              usuario navegó a uno de estos (activeTabId=null). */}
+          {activeTabId === null && (
+          <Suspense fallback={
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh', color: '#6b7280', fontSize: 13 }}>
+              <div style={{ width: 22, height: 22, border: '3px solid #e5e7eb', borderTopColor: '#7c3aed', borderRadius: '50%', animation: 'sp 0.8s linear infinite', marginRight: 10 }} />
+              Cargando módulo…
+              <style>{`@keyframes sp { to { transform: rotate(360deg) } }`}</style>
+            </div>
+          }>
           {currentView === 'overview' && (esVendedor ? <DashboardVendedor user={user} /> : <IncomeOverview />)}
-          {currentView === 'inventario' && <InventarioManagement />}
           {currentView === 'diagnostico' && <DiagnosticoInventario />}
           {currentView === 'auditoria' && <AuditoriaInventario />}
           {currentView === 'categorias' && <CategoriasManagement />}
@@ -794,7 +975,7 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
           {currentView === 'datos-empresa' && <DatosEmpresa />}
           {currentView === 'usuarios' && <UsuariosManagement />}
           {currentView === 'vendedores-gestion' && <VendedoresMovil />}
-          {currentView === 'vendedores-pedidos' && <VendedoresPedidos onNavigate={(v) => setCurrentView(v as View)} />}
+          {currentView === 'vendedores-pedidos' && <VendedoresPedidos onNavigate={(v) => abrirEnTab(v as View)} />}
           {currentView === 'vendedores-cargues' && <CarguesVendedor />}
           {currentView === 'vendedores-informe' && <InformeVendedores />}
           {currentView === 'cuentas-cobrar' && <CuentasPorCobrar />}
@@ -805,13 +986,12 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
           {currentView === 'suppliers' && <ProveedoresManagement />}
           {currentView === 'productos-proveedor' && <ProductosProveedor />}
           {currentView === 'cuentas-pagar' && <ProveedoresManagement modoCxP />}
-          {currentView === 'purchases' && <PurchasesManagement onNavigate={(v) => setCurrentView(v as View)} />}
+          {currentView === 'purchases' && <PurchasesManagement onNavigate={(v) => abrirEnTab(v as View)} />}
           {currentView === 'nueva-compra' && <ComprasTabs />}
           {currentView === 'ordenes-compra' && <OrdenesCompraManagement />}
-          {currentView === 'sales' && <SalesManagement onNavigate={(v) => setCurrentView(v as View)} />}
+          {currentView === 'sales' && <SalesManagement onNavigate={(v) => abrirEnTab(v as View)} />}
           {currentView === 'ventas-tipo-pago' && <VentasPorTipoPago />}
-          {currentView === 'nueva-venta' && <VentasTabs />}
-          {currentView === 'facturacion-electronica' && <FacturacionElectronica onNavigate={(v) => setCurrentView(v as View)} />}
+          {currentView === 'facturacion-electronica' && <FacturacionElectronica onNavigate={(v) => abrirEnTab(v as View)} />}
           {currentView === 'facturas-recibidas' && <FacturasRecibidas />}
           {currentView === 'caja' && <CajaRegistradora />}
           {currentView === 'caja-historial' && <HistorialCajas />}
@@ -830,6 +1010,7 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
           {currentView === 'mantenimiento-bd' && <MantenimientoBD />}
           {currentView === 'anticipos-clientes' && <AnticiposClientes />}
           </Suspense>
+          )}
         </div>
       </main>
 
