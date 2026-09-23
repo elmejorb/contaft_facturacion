@@ -70,6 +70,8 @@ export function InventarioManagement() {
   // Útil para el negocio que vende servicios mezclados con productos: si
   // quiere ver solo sus servicios cargados en catálogo, los filtra arriba.
   const [filtroTipo, setFiltroTipo] = useState<'todos' | 'producto' | 'servicio'>('todos');
+  // Filtro por etiqueta: null = todas, 0 = sin etiqueta, N = etiqueta con id N
+  const [filtroEtiqueta, setFiltroEtiqueta] = useState<number | null>(null);
   const [estado, setEstado] = useState('Activos');
   const [kardexModal, setKardexModal] = useState<{ isOpen: boolean; producto: Articulo | null }>({
     isOpen: false,
@@ -415,14 +417,21 @@ export function InventarioManagement() {
   // lo contienen. Sin búsqueda, conserva el orden recibido del backend.
   // El filtro de tipo (producto/servicio) se aplica ANTES del orden.
   const articulosOrdenados = useMemo(() => {
-    // 1) Filtrar por tipo
-    const tipoFiltrado = filtroTipo === 'todos'
+    // 1) Filtrar por tipo (producto / servicio)
+    let filtrados = filtroTipo === 'todos'
       ? articulos
       : articulos.filter(a => filtroTipo === 'servicio' ? !!a.Servicio : !a.Servicio);
 
-    // 2) Ordenar inteligente por búsqueda
+    // 2) Filtrar por etiqueta (0 = sin etiqueta, N = etiqueta N, null = todas)
+    if (filtroEtiqueta !== null) {
+      filtrados = filtroEtiqueta === 0
+        ? filtrados.filter(a => !a.Id_Etiqueta)
+        : filtrados.filter(a => a.Id_Etiqueta === filtroEtiqueta);
+    }
+
+    // 3) Ordenar inteligente por búsqueda
     const term = (busqueda || '').toLowerCase().trim();
-    if (!term) return tipoFiltrado;
+    if (!term) return filtrados;
     const rank = (a: Articulo) => {
       const cod = (a.Codigo || '').toLowerCase();
       const desc = (a.Descripcion || '').toLowerCase();
@@ -430,16 +439,41 @@ export function InventarioManagement() {
       if (cod.includes(term) || desc.includes(term)) return 1;
       return 2;
     };
-    return [...tipoFiltrado].sort((a, b) => {
+    return [...filtrados].sort((a, b) => {
       const ra = rank(a), rb = rank(b);
       if (ra !== rb) return ra - rb;
       return (a.Descripcion || '').localeCompare(b.Descripcion || '');
     });
-  }, [articulos, busqueda, filtroTipo]);
+  }, [articulos, busqueda, filtroTipo, filtroEtiqueta]);
 
   // Conteos para mostrar en los botones del filtro
   const totalProductos = useMemo(() => articulos.filter(a => !a.Servicio).length, [articulos]);
   const totalServicios = useMemo(() => articulos.filter(a => !!a.Servicio).length, [articulos]);
+
+  // Etiquetas presentes en el inventario (deriva de los datos, con conteo y color).
+  // Se calcula sobre el resultado de filtroTipo para que los conteos coincidan con
+  // el pill activo (si estás en "Productos" y hay 3 Insumos entre productos, muestra 3).
+  const etiquetasDisponibles = useMemo(() => {
+    const base = filtroTipo === 'todos'
+      ? articulos
+      : articulos.filter(a => filtroTipo === 'servicio' ? !!a.Servicio : !a.Servicio);
+    const mapa = new Map<number, { id: number; nombre: string; color: string; count: number }>();
+    let sinEtiqueta = 0;
+    base.forEach(a => {
+      if (!a.Id_Etiqueta) { sinEtiqueta++; return; }
+      const key = a.Id_Etiqueta;
+      const prev = mapa.get(key);
+      if (prev) prev.count++;
+      else mapa.set(key, {
+        id: key,
+        nombre: a.Etiqueta || `Etiqueta ${key}`,
+        color: a.Etiqueta_Color || '#7c3aed',
+        count: 1,
+      });
+    });
+    const lista = Array.from(mapa.values()).sort((a, b) => a.id - b.id);
+    return { lista, sinEtiqueta };
+  }, [articulos, filtroTipo]);
 
   // Exporta el inventario filtrado a un archivo .xlsx real (no CSV).
   // Las columnas numéricas quedan como números (no strings) — Excel les aplica
@@ -531,15 +565,12 @@ export function InventarioManagement() {
     : '0';
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div>
-        <h1 className="text-2xl font-semibold text-gray-900">Inventario de Artículos</h1>
-        <p className="text-sm text-gray-500 mt-1">Gestiona el inventario de productos</p>
-      </div>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      {/* Header compacto — una sola línea, sin subtítulo (era obvio) */}
+      <h1 style={{ fontSize: 18, fontWeight: 700, color: '#111827', margin: 0 }}>Inventario de Artículos</h1>
 
-      {/* Stats Cards (estilo compacto, igual que CustomersManagement) */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 16 }}>
+      {/* Stats Cards compactas — dato al lado del icono en una línea */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
         {[
           { label: 'Total Artículos', value: articulos.length, sub: `${conStock} con stock`, icon: Package, bg: '#f3e8ff', color: '#7c3aed' },
           { label: 'Valor Inventario', value: formatearMoneda(totalInventario), icon: DollarSign, bg: '#cffafe', color: '#0891b2', isText: true },
@@ -548,99 +579,151 @@ export function InventarioManagement() {
         ].map((s, i) => {
           const Icon = s.icon;
           return (
-            <div key={i} style={{ background: '#fff', borderRadius: 12, padding: '16px 20px', boxShadow: '0 1px 3px rgba(0,0,0,0.08)', display: 'flex', alignItems: 'center', gap: 12 }}>
-              <div style={{ width: 40, height: 40, borderRadius: 10, background: s.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                <Icon size={20} color={s.color} />
+            <div key={i} style={{ background: '#fff', borderRadius: 10, padding: '8px 12px', boxShadow: '0 1px 3px rgba(0,0,0,0.06)', display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{ width: 32, height: 32, borderRadius: 8, background: s.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <Icon size={16} color={s.color} />
               </div>
-              <div style={{ minWidth: 0 }}>
-                <div style={{ fontSize: 11, color: '#6b7280' }}>{s.label}</div>
-                <div style={{ fontSize: (s as any).isText ? 16 : 20, fontWeight: 700, color: (s as any).danger ? '#dc2626' : '#111827', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.value}</div>
-                {s.sub && <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 2 }}>{s.sub}</div>}
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ fontSize: 10, color: '#6b7280', lineHeight: 1.2 }}>{s.label}</div>
+                <div style={{ fontSize: (s as any).isText ? 13 : 16, fontWeight: 700, color: (s as any).danger ? '#dc2626' : '#111827', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', lineHeight: 1.2 }}>
+                  {s.value}
+                  {s.sub && <span style={{ fontSize: 10, color: '#9ca3af', fontWeight: 400, marginLeft: 6 }}>· {s.sub}</span>}
+                </div>
               </div>
             </div>
           );
         })}
       </div>
 
-      {/* Filtros */}
-      <div className="bg-white rounded-xl shadow-sm p-4">
-        {/* Filtro por tipo: Todos / Productos / Servicios. Solo aparece si el
-            negocio tiene al menos un servicio en catálogo (si no hay servicios,
-            ocultarlo evita ruido visual para negocios que solo venden productos). */}
-        {totalServicios > 0 && (
-          <div style={{ display: 'flex', gap: 4, marginBottom: 10, flexWrap: 'wrap' }}>
-            {[
+      {/* Filtros compactos (sm) */}
+      <div style={{ background: '#fff', borderRadius: 10, boxShadow: '0 1px 3px rgba(0,0,0,0.06)', padding: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {/* Fila 1: pills de tipo (solo si hay servicios) + pills de etiqueta */}
+        {(totalServicios > 0 || etiquetasDisponibles.lista.length > 0) && (
+          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
+            {totalServicios > 0 && [
               { val: 'todos', label: 'Todos', count: totalProductos + totalServicios },
               { val: 'producto', label: 'Productos', count: totalProductos },
               { val: 'servicio', label: 'Servicios', count: totalServicios },
             ].map(opt => {
               const active = filtroTipo === opt.val;
               return (
-                <button
-                  key={opt.val}
-                  type="button"
-                  onClick={() => setFiltroTipo(opt.val as any)}
+                <button key={opt.val} type="button" onClick={() => setFiltroTipo(opt.val as any)}
                   style={{
-                    height: 32, padding: '0 14px', borderRadius: 8,
+                    height: 26, padding: '0 10px', borderRadius: 6,
                     border: `1px solid ${active ? '#7c3aed' : '#e5e7eb'}`,
                     background: active ? '#7c3aed' : '#fff',
                     color: active ? '#fff' : '#374151',
-                    fontSize: 12, fontWeight: 600, cursor: 'pointer',
-                    display: 'flex', alignItems: 'center', gap: 6,
+                    fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                    display: 'flex', alignItems: 'center', gap: 5,
                   }}>
                   <span>{opt.label}</span>
                   <span style={{
-                    fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 10,
+                    fontSize: 10, fontWeight: 700, padding: '0 5px', borderRadius: 8, lineHeight: '15px',
                     background: active ? 'rgba(255,255,255,0.25)' : '#f3f4f6',
                     color: active ? '#fff' : '#6b7280',
                   }}>{opt.count}</span>
                 </button>
               );
             })}
+
+            {/* Separador si hay ambas filas */}
+            {totalServicios > 0 && etiquetasDisponibles.lista.length > 0 && (
+              <div style={{ width: 1, height: 20, background: '#e5e7eb', margin: '0 4px' }} />
+            )}
+
+            {/* Pills de etiquetas (con color propio) */}
+            {etiquetasDisponibles.lista.length > 0 && (
+              <>
+                <button type="button" onClick={() => setFiltroEtiqueta(null)}
+                  style={{
+                    height: 26, padding: '0 10px', borderRadius: 6,
+                    border: `1px solid ${filtroEtiqueta === null ? '#7c3aed' : '#e5e7eb'}`,
+                    background: filtroEtiqueta === null ? '#7c3aed' : '#fff',
+                    color: filtroEtiqueta === null ? '#fff' : '#374151',
+                    fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                  }}>
+                  Todas etiquetas
+                </button>
+                {etiquetasDisponibles.lista.map(e => {
+                  const active = filtroEtiqueta === e.id;
+                  return (
+                    <button key={e.id} type="button" onClick={() => setFiltroEtiqueta(active ? null : e.id)}
+                      style={{
+                        height: 26, padding: '0 10px', borderRadius: 6,
+                        border: `1px solid ${active ? e.color : '#e5e7eb'}`,
+                        background: active ? e.color : '#fff',
+                        color: active ? '#fff' : '#374151',
+                        fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                        display: 'flex', alignItems: 'center', gap: 5,
+                      }}>
+                      <span style={{ width: 6, height: 6, borderRadius: '50%', background: active ? '#fff' : e.color }} />
+                      <span>{e.nombre}</span>
+                      <span style={{
+                        fontSize: 10, fontWeight: 700, padding: '0 5px', borderRadius: 8, lineHeight: '15px',
+                        background: active ? 'rgba(255,255,255,0.25)' : '#f3f4f6',
+                        color: active ? '#fff' : '#6b7280',
+                      }}>{e.count}</span>
+                    </button>
+                  );
+                })}
+                {etiquetasDisponibles.sinEtiqueta > 0 && (() => {
+                  const active = filtroEtiqueta === 0;
+                  return (
+                    <button type="button" onClick={() => setFiltroEtiqueta(active ? null : 0)}
+                      style={{
+                        height: 26, padding: '0 10px', borderRadius: 6,
+                        border: `1px dashed ${active ? '#9ca3af' : '#d1d5db'}`,
+                        background: active ? '#9ca3af' : '#fff',
+                        color: active ? '#fff' : '#6b7280',
+                        fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                        display: 'flex', alignItems: 'center', gap: 5,
+                      }}>
+                      <span>Sin etiqueta</span>
+                      <span style={{
+                        fontSize: 10, fontWeight: 700, padding: '0 5px', borderRadius: 8, lineHeight: '15px',
+                        background: active ? 'rgba(255,255,255,0.25)' : '#f3f4f6',
+                        color: active ? '#fff' : '#6b7280',
+                      }}>{etiquetasDisponibles.sinEtiqueta}</span>
+                    </button>
+                  );
+                })()}
+              </>
+            )}
           </div>
         )}
-        <div className="flex flex-wrap items-center gap-2">
+
+        {/* Fila 2: búsqueda + estado + botones (todos altura sm=28) */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
           <div style={{ position: 'relative', flex: 1, minWidth: 200 }}>
-            <Search style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', width: 16, height: 16, color: '#9ca3af', pointerEvents: 'none' }} />
+            <Search style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', width: 14, height: 14, color: '#9ca3af', pointerEvents: 'none' }} />
             <input
               type="text"
               placeholder="Buscar por código, nombre, categoría o proveedor..."
               value={busqueda}
               onChange={onFilterTextChange}
-              style={{ width: '100%', height: 36, paddingLeft: 34, paddingRight: 12, fontSize: 13, border: '1px solid #e5e7eb', borderRadius: 8, background: '#f9fafb', outline: 'none', boxSizing: 'border-box' }}
+              style={{ width: '100%', height: 28, paddingLeft: 28, paddingRight: 10, fontSize: 12, border: '1px solid #e5e7eb', borderRadius: 6, background: '#f9fafb', outline: 'none', boxSizing: 'border-box' }}
             />
           </div>
-          <select
-            value={estado}
-            onChange={(e) => setEstado(e.target.value)}
-            className="h-9 px-3 bg-gray-50 border border-gray-200 rounded-lg text-sm"
-          >
+          <select value={estado} onChange={(e) => setEstado(e.target.value)}
+            style={{ height: 28, padding: '0 8px', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 12, cursor: 'pointer' }}>
             <option value="Activos">Activos</option>
             <option value="Inactivos">Inactivos</option>
             <option value="Todos">Todos</option>
           </select>
-          <Button
-            onClick={cargarArticulos}
-            disabled={loading}
-            className="h-9 px-4 bg-purple-600 hover:bg-purple-700 text-sm rounded-lg"
-          >
-            <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+          <button onClick={cargarArticulos} disabled={loading}
+            style={{ height: 28, padding: '0 12px', background: '#7c3aed', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: loading ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
+            <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
             Refrescar
-          </Button>
-          <button
-            onClick={exportarExcel}
-            disabled={loading || articulos.length === 0}
-            title="Exporta los productos del inventario (respeta el filtro de búsqueda actual) a un archivo CSV que Excel abre directamente"
-            style={{ height: 36, padding: '0 16px', background: '#0891b2', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: loading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 6, opacity: loading ? 0.6 : 1 }}
-          >
-            <Download size={16} />
-            Exportar a Excel
           </button>
-          <button
-            onClick={() => setEditarModal({ isOpen: true, producto: null })}
-            style={{ height: 36, padding: '0 16px', background: '#16a34a', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+          <button onClick={exportarExcel} disabled={loading || articulos.length === 0}
+            title="Exporta el inventario a Excel (respeta filtros)"
+            style={{ height: 28, padding: '0 12px', background: '#0891b2', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: loading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 5, opacity: loading ? 0.6 : 1 }}>
+            <Download size={13} />
+            Excel
+          </button>
+          <button onClick={() => setEditarModal({ isOpen: true, producto: null })}
+            style={{ height: 28, padding: '0 12px', background: '#16a34a', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
             Nuevo Producto
           </button>
         </div>
@@ -658,7 +741,7 @@ export function InventarioManagement() {
           <Button onClick={cargarArticulos} variant="outline">Reintentar</Button>
         </div>
       ) : (
-        <div className="bg-white rounded-xl shadow-sm overflow-hidden" style={{ height: 'calc(100vh - 480px)', minHeight: '380px' }}>
+        <div className="bg-white rounded-xl shadow-sm overflow-hidden" style={{ height: 'calc(100vh - 340px)', minHeight: '380px' }}>
           <AgGridReact
             theme={myTheme}
             localeText={AG_GRID_LOCALE_ES}
