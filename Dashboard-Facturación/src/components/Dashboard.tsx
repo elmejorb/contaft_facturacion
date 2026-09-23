@@ -1,4 +1,4 @@
-import { useState, useEffect, lazy, Suspense } from 'react';
+import { useState, useEffect, useRef, useMemo, lazy, Suspense } from 'react';
 import { Button } from './ui/button';
 import toast from 'react-hot-toast';
 import appIcon from '../assets/icon.png';
@@ -445,6 +445,34 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
     };
   }, [ctxMenu]);
 
+  // === Command Palette (Ctrl+K) ===
+  // Buscador que aplana todo el menú y permite ir a cualquier módulo escribiendo
+  // su nombre. Enter en el primer resultado. Esc cierra. Estilo VS Code/Notion.
+  const [palOpen, setPalOpen] = useState(false);
+  const [palQuery, setPalQuery] = useState('');
+  const [palIdx, setPalIdx] = useState(0);
+  const palInputRef = useRef<HTMLInputElement | null>(null);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      // Ctrl+K abre/cierra
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setPalOpen(o => !o);
+        setPalQuery('');
+        setPalIdx(0);
+      }
+      if (e.key === 'Escape' && palOpen) {
+        e.preventDefault();
+        setPalOpen(false);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [palOpen]);
+  useEffect(() => {
+    if (palOpen) setTimeout(() => palInputRef.current?.focus(), 30);
+  }, [palOpen]);
+
 
   useEffect(() => {
     fetch('http://localhost:80/conta-app-backend/api/empresa/datos.php')
@@ -731,6 +759,53 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
     );
   };
 
+  // === Fly-out flotante para submenús ===
+  // Al hover en un item con children, mostramos un panel flotante a la derecha
+  // del sidebar con los hijos. Reduce drásticamente el scroll del sidebar
+  // cuando hay muchos submenús. Se cierra al salir del padre y del panel
+  // (con delay corto para permitir traversar el mouse sin frustración).
+  const [flyout, setFlyout] = useState<{ id: string; top: number; items: SubMenuItem[]; padreLabel: string } | null>(null);
+  const flyoutTimerRef = useRef<any>(null);
+  const abrirFlyout = (padre: MenuItem, e: React.MouseEvent) => {
+    if (flyoutTimerRef.current) { clearTimeout(flyoutTimerRef.current); flyoutTimerRef.current = null; }
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    setFlyout({
+      id: padre.id,
+      top: rect.top,
+      items: padre.children || [],
+      padreLabel: padre.label,
+    });
+  };
+  const cerrarFlyoutConDelay = () => {
+    flyoutTimerRef.current = setTimeout(() => setFlyout(null), 180);
+  };
+  const cancelarCierre = () => {
+    if (flyoutTimerRef.current) { clearTimeout(flyoutTimerRef.current); flyoutTimerRef.current = null; }
+  };
+
+  // Lista aplanada de todos los items abribles del sidebar — alimenta el Ctrl+K.
+  // Cada entrada tiene {label, view, ruta} para mostrar "Inventario › Categorías".
+  const modulosAplanados = useMemo(() => {
+    const out: { label: string; ruta: string; view: View }[] = [];
+    for (const item of menuItems) {
+      if (item.view) out.push({ label: item.label, ruta: item.label, view: item.view });
+      if (item.children) {
+        for (const c of item.children) {
+          if (c.view) out.push({ label: c.label, ruta: `${item.label} › ${c.label}`, view: c.view });
+        }
+      }
+    }
+    return out;
+  }, [menuItems]);
+
+  const palResultados = useMemo(() => {
+    const q = palQuery.trim().toLowerCase();
+    if (!q) return modulosAplanados.slice(0, 12);
+    return modulosAplanados
+      .filter(m => m.label.toLowerCase().includes(q) || m.ruta.toLowerCase().includes(q))
+      .slice(0, 20);
+  }, [modulosAplanados, palQuery]);
+
   const handleMenuClick = (item: MenuItem | SubMenuItem) => {
     if ('view' in item && item.view) {
       abrirEnTab(item.view);
@@ -781,8 +856,21 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
         </div>
         
         <nav className="flex-1 overflow-y-auto p-4">
-          <div className="mb-4">
-            <p className="text-xs uppercase text-gray-500 px-3 mb-2">Principal</p>
+          {/* Botón buscador — atajo visible al Ctrl+K */}
+          <button
+            onClick={() => { setPalOpen(true); setPalQuery(''); setPalIdx(0); }}
+            className="w-full flex items-center justify-between px-3 py-1.5 rounded-lg mb-3 text-gray-400 hover:bg-gray-800/50 hover:text-white transition-all border border-gray-700/40"
+            title="Buscar cualquier módulo (Ctrl+K)"
+          >
+            <div className="flex items-center gap-2">
+              <span style={{ fontSize: 14 }}>🔍</span>
+              <span className="text-xs">Buscar módulo...</span>
+            </div>
+            <span style={{ fontSize: 9, padding: '1px 5px', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 3, color: '#94a3b8' }}>Ctrl K</span>
+          </button>
+
+          <div className="mb-3">
+            <p className="text-xs uppercase text-gray-500 px-3 mb-1">Principal</p>
           </div>
           
           <ul className="space-y-1">
@@ -794,15 +882,19 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
               return (
                 <li key={item.id}>
                   <button
-                    onClick={() => {
+                    onMouseEnter={hasChildren ? (e) => abrirFlyout(item, e as any) : undefined}
+                    onMouseLeave={hasChildren ? cerrarFlyoutConDelay : undefined}
+                    onClick={(e) => {
                       if (hasChildren) {
-                        toggleMenu(item.id);
+                        // Toggle fly-out con click (útil en pantallas táctiles)
+                        if (flyout?.id === item.id) setFlyout(null);
+                        else abrirFlyout(item, e as any);
                       } else {
                         handleMenuClick(item);
                       }
                     }}
-                    className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg transition-all ${
-                      currentView === item.view && !hasChildren
+                    className={`w-full flex items-center justify-between px-3 py-1.5 rounded-lg transition-all ${
+                      (currentView === item.view && !hasChildren) || flyout?.id === item.id
                         ? 'bg-gray-800 text-white'
                         : 'text-gray-400 hover:bg-gray-800/50 hover:text-white'
                     }`}
@@ -825,34 +917,10 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
                         </Badge>
                       )}
                       {hasChildren && (
-                        isExpanded ? (
-                          <ChevronDown className="w-4 h-4" />
-                        ) : (
-                          <ChevronRight className="w-4 h-4" />
-                        )
+                        <ChevronRight className="w-4 h-4" />
                       )}
                     </div>
                   </button>
-                  
-                  {hasChildren && isExpanded && (
-                    <ul className="mt-1 ml-8 space-y-1 submenu-enter overflow-hidden">
-                      {item.children!.map((child) => (
-                        <li key={child.id}>
-                          <button
-                            onClick={() => handleMenuClick(child)}
-                            className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-all flex items-center gap-2 ${
-                              currentView === child.view
-                                ? 'bg-gray-800 text-white'
-                                : 'text-gray-400 hover:bg-gray-800/50 hover:text-white'
-                            }`}
-                          >
-                            <span className="w-1.5 h-1.5 rounded-full bg-gray-400 flex-shrink-0"></span>
-                            {child.label}
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
                 </li>
               );
             })}
@@ -870,6 +938,62 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
           </Button>
         </div>
       </aside>
+
+      {/* Panel FLY-OUT — muestra los hijos del item padre al hacer hover en el sidebar.
+          Position fixed a la derecha del sidebar, alineado con el item padre. */}
+      {flyout && (
+        <div
+          onMouseEnter={cancelarCierre}
+          onMouseLeave={cerrarFlyoutConDelay}
+          style={{
+            position: 'fixed',
+            left: sidebarOpen ? 260 : 8,
+            top: Math.max(8, Math.min(flyout.top, window.innerHeight - 80 - flyout.items.length * 32)),
+            zIndex: 250,
+            minWidth: 240, maxWidth: 320,
+            background: 'rgb(17, 28, 67)',
+            border: '1px solid rgba(255,255,255,0.08)',
+            borderRadius: 10,
+            boxShadow: '8px 8px 32px rgba(0,0,0,0.35)',
+            padding: 6,
+            animation: 'flyout-in 120ms ease-out',
+          }}>
+          <style>{`
+            @keyframes flyout-in {
+              from { opacity: 0; transform: translateX(-8px); }
+              to { opacity: 1; transform: translateX(0); }
+            }
+          `}</style>
+          <div style={{ padding: '4px 10px 6px', fontSize: 10, fontWeight: 600, color: '#a5b4fc', letterSpacing: 1, textTransform: 'uppercase', borderBottom: '1px solid rgba(255,255,255,0.08)', marginBottom: 4 }}>
+            {flyout.padreLabel}
+          </div>
+          {flyout.items.map((child) => {
+            const activo = currentView === child.view;
+            return (
+              <button
+                key={child.id}
+                onClick={() => {
+                  if (child.view) abrirEnTab(child.view);
+                  setFlyout(null);
+                }}
+                style={{
+                  width: '100%', textAlign: 'left',
+                  padding: '7px 12px', borderRadius: 6, border: 'none',
+                  background: activo ? 'rgba(124, 58, 237, 0.25)' : 'transparent',
+                  color: activo ? '#fff' : '#cbd5e1',
+                  fontSize: 12, fontWeight: activo ? 600 : 500,
+                  cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8,
+                  transition: 'background 100ms',
+                }}
+                onMouseEnter={(e) => { if (!activo) (e.currentTarget.style.background = 'rgba(255,255,255,0.06)'); }}
+                onMouseLeave={(e) => { if (!activo) (e.currentTarget.style.background = 'transparent'); }}>
+                <span style={{ width: 4, height: 4, borderRadius: '50%', background: activo ? '#a78bfa' : '#64748b', flexShrink: 0 }} />
+                {child.label}
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {/* Main Content */}
       <main className="flex-1 overflow-auto flex flex-col">
@@ -1135,6 +1259,83 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
             </div>
           )}
         </div>
+
+        {/* Command Palette (Ctrl+K) — buscador global de módulos */}
+        {palOpen && (
+          <div
+            onClick={() => setPalOpen(false)}
+            style={{
+              position: 'fixed', inset: 0, zIndex: 300,
+              background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(2px)',
+              display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
+              paddingTop: '10vh',
+            }}>
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                width: 'min(600px, 90vw)', background: '#fff',
+                borderRadius: 10, boxShadow: '0 20px 60px rgba(0,0,0,0.35)',
+                overflow: 'hidden',
+              }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 16px', borderBottom: '1px solid #e5e7eb' }}>
+                <span style={{ fontSize: 16, color: '#9ca3af' }}>🔍</span>
+                <input
+                  ref={palInputRef}
+                  value={palQuery}
+                  onChange={e => { setPalQuery(e.target.value); setPalIdx(0); }}
+                  onKeyDown={e => {
+                    if (e.key === 'ArrowDown') { e.preventDefault(); setPalIdx(i => Math.min(i + 1, palResultados.length - 1)); }
+                    else if (e.key === 'ArrowUp') { e.preventDefault(); setPalIdx(i => Math.max(i - 1, 0)); }
+                    else if (e.key === 'Enter') {
+                      e.preventDefault();
+                      const r = palResultados[palIdx];
+                      if (r) { abrirEnTab(r.view); setPalOpen(false); }
+                    }
+                  }}
+                  placeholder="Buscar módulo... (Enter para abrir, Esc para cerrar)"
+                  style={{
+                    flex: 1, border: 'none', outline: 'none', fontSize: 15,
+                    fontWeight: 500, color: '#111827', background: 'transparent',
+                  }}
+                />
+                <span style={{ fontSize: 10, color: '#9ca3af', border: '1px solid #d1d5db', borderRadius: 4, padding: '2px 6px' }}>Ctrl+K</span>
+              </div>
+              <div style={{ maxHeight: '50vh', overflowY: 'auto' }}>
+                {palResultados.length === 0 ? (
+                  <div style={{ padding: '24px 16px', color: '#9ca3af', fontSize: 13, textAlign: 'center' }}>
+                    Sin resultados para "{palQuery}"
+                  </div>
+                ) : palResultados.map((r, i) => {
+                  const activo = i === palIdx;
+                  return (
+                    <div
+                      key={r.view + '-' + i}
+                      onMouseEnter={() => setPalIdx(i)}
+                      onClick={() => { abrirEnTab(r.view); setPalOpen(false); }}
+                      style={{
+                        padding: '10px 16px', cursor: 'pointer',
+                        background: activo ? '#f3e8ff' : 'transparent',
+                        borderLeft: activo ? '3px solid #7c3aed' : '3px solid transparent',
+                        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
+                      }}>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: '#111827' }}>{r.label}</div>
+                        {r.ruta !== r.label && (
+                          <div style={{ fontSize: 11, color: '#6b7280', marginTop: 1 }}>{r.ruta}</div>
+                        )}
+                      </div>
+                      {activo && <span style={{ fontSize: 10, color: '#7c3aed', fontWeight: 600 }}>Enter ↵</span>}
+                    </div>
+                  );
+                })}
+              </div>
+              <div style={{ padding: '6px 16px', borderTop: '1px solid #e5e7eb', background: '#fafafa', fontSize: 10, color: '#6b7280', display: 'flex', justifyContent: 'space-between' }}>
+                <span>{modulosAplanados.length} módulos disponibles</span>
+                <span>↑↓ navegar · Enter abrir · Esc cerrar</span>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Menú contextual click-derecho en tab */}
         {ctxMenu && (() => {
