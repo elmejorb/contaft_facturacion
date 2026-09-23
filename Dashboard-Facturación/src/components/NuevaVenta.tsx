@@ -318,6 +318,72 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
     const ext = (initialState as any)?.tipoDocumento;
     if (ext && ext !== tipoDocumento) setTipoDocumento(ext);
   }, [(initialState as any)?.tipoDocumento]);
+
+  // === Cliente genérico según tipo de documento ===
+  // Regla del negocio:
+  //   - POS/Cotización → cliente "VENTAS AL CONTADO" (NIT='0' — genérico local)
+  //   - Factura Electrónica / Doc. Soporte → "CONSUMIDOR FINAL" (NIT='222222222', estándar DIAN)
+  //   La DIAN NO acepta NIT='0' en FE/DS, y usar CONSUMIDOR FINAL en POS confunde
+  //   al cliente real. Ambos son excluyentes.
+  //
+  //   Los CodigoClien varían entre BDs — NO se puede hardcodear el id. Se detecta
+  //   por NIT: '0' = contado, '222222222' = consumidor final DIAN.
+  const esClienteContadoGenerico = (c: any) => String(c?.nit || '').trim() === '0';
+  const esClienteConsumidorFinalGenerico = (c: any) => String(c?.nit || '').trim() === '222222222';
+
+  // Cache del CONSUMIDOR FINAL (buscado por NIT 222222222). Se llena la primera
+  // vez que se necesita, para no re-fetchear en cada toggle de tipoDocumento.
+  const [consumidorFinalCache, setConsumidorFinalCache] = useState<any | null>(null);
+
+  useEffect(() => {
+    const esFE = tipoDocumento === 'electronica' || tipoDocumento === 'soporte';
+    if (esFE && esClienteContadoGenerico(cliente)) {
+      // Cambiar a CONSUMIDOR FINAL. Si ya lo tenemos en cache, usarlo.
+      if (consumidorFinalCache) {
+        setCliente(consumidorFinalCache);
+        return;
+      }
+      // Buscar por NIT 222222222 (estándar DIAN). Si el backend tiene varios
+      // con ese NIT, tomamos el primero.
+      fetch(`${API_CLIENTES}?q=222222222`)
+        .then(r => r.json())
+        .then(d => {
+          const cf = (d.clientes || []).find((c: any) => String(c.Identificacion || '').trim() === '222222222');
+          if (cf) {
+            const email = cf.Email || '';
+            const obj = {
+              id: cf.CodigoClien, nombre: cf.Nombre_Cliente || 'CONSUMIDOR FINAL',
+              nit: cf.Identificacion || '222222222',
+              tel: cf.Telefono || '0', dir: cf.Direccion || '-',
+              cupo: parseFloat(cf.Cupo) || 0, esCliente: true, email,
+            };
+            setConsumidorFinalCache(obj);
+            setCliente(obj);
+          } else {
+            // BD sin CONSUMIDOR FINAL configurado — usar fallback y avisar.
+            toast('⚠ No hay cliente "CONSUMIDOR FINAL" (NIT 222222222) en la BD. Créalo desde Clientes para poder facturar electrónicamente sin cliente específico.', { duration: 8000, icon: 'ℹ️' });
+            const obj = {
+              id: 0, nombre: 'CONSUMIDOR FINAL', nit: '222222222',
+              tel: '0', dir: '-', cupo: 0, esCliente: false, email: '',
+            };
+            setCliente(obj);
+          }
+        })
+        .catch(() => {
+          setCliente({
+            id: 0, nombre: 'CONSUMIDOR FINAL', nit: '222222222',
+            tel: '0', dir: '-', cupo: 0, esCliente: false, email: '',
+          });
+        });
+    } else if (!esFE && esClienteConsumidorFinalGenerico(cliente)) {
+      // Volver a VENTAS AL CONTADO — genérico local, no requiere fetch.
+      setCliente({
+        id: 130500, nombre: 'VENTAS AL CONTADO', nit: '0',
+        tel: '0', dir: '-', cupo: 0, esCliente: false, email: '',
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tipoDocumento]);
   // Fecha de la venta. Default = hoy. Solo se muestra/edita si Configuración →
   // Reglas de Venta → "Permitir cambiar la fecha de la venta" está activo.
   const hoyISO = () => new Date().toISOString().slice(0, 10);
@@ -1067,6 +1133,19 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
     if (tipoDocumento === 'cotizacion') {
       setError('');
       await onCotizar?.();
+      return;
+    }
+    // Bloqueo cruzado tipoDocumento ↔ cliente genérico:
+    //   POS con CONSUMIDOR FINAL (NIT 222222222) → error (para eso está VENTAS AL CONTADO)
+    //   FE/DS con VENTAS AL CONTADO (NIT 0) → error (DIAN no acepta NIT=0)
+    // Con el auto-toggle de tipoDocumento esto casi nunca ocurre, pero es
+    // guarda-rail por si el usuario abre una pestaña vieja o edita a mano.
+    if (tipoDocumento === 'pos' && esClienteConsumidorFinalGenerico(cliente)) {
+      setError('En Factura POS el cliente por defecto es "VENTAS AL CONTADO", no "CONSUMIDOR FINAL". Cambie el cliente o el tipo de documento.');
+      return;
+    }
+    if ((tipoDocumento === 'electronica' || tipoDocumento === 'soporte') && esClienteContadoGenerico(cliente)) {
+      setError('En Factura Electrónica / Doc. Soporte el cliente por defecto es "CONSUMIDOR FINAL" (NIT 222222222), no "VENTAS AL CONTADO" (NIT 0). La DIAN no acepta NIT=0. Cambie el cliente o el tipo de documento.');
       return;
     }
     // Credito con consumidor final — hay dos escenarios distintos:
