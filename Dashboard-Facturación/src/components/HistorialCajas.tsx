@@ -1,13 +1,29 @@
 import { useState, useEffect, useRef } from 'react';
 import { AgGridReact } from 'ag-grid-react';
-import { AllCommunityModule, ModuleRegistry, ColDef } from 'ag-grid-community';
-import { RefreshCw, Eye, Plus, ArrowUpRight, ArrowDownRight, FileText, DollarSign, X, Printer } from 'lucide-react';
+import { AllCommunityModule, ModuleRegistry, ColDef, themeQuartz } from 'ag-grid-community';
+import { RefreshCw, Eye, ArrowUpRight, ArrowDownRight, DollarSign, X, Printer, Calendar, Wallet } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../contexts/AuthContext';
 import { getConfigImpresion } from './ConfiguracionSistema';
 import { hoyLocal, inicioMesLocal } from '../utils/fecha';
+import { AG_GRID_LOCALE_ES } from '../utils/agGridLocaleEs';
 
 ModuleRegistry.registerModules([AllCommunityModule]);
+
+// Mismo tema que Inventario/StockBajo — mantiene coherencia visual.
+const myTheme = themeQuartz.withParams({
+  headerBackgroundColor: '#f3e8ff',
+  headerTextColor: '#6b21a8',
+  headerFontSize: 12,
+  headerFontWeight: 600,
+  fontSize: 12,
+  rowBorder: { color: '#f3f4f6', width: 1 },
+  borderColor: '#e5e7eb',
+  borderRadius: 8,
+  rowHoverColor: '#faf5ff',
+  selectedRowBackgroundColor: '#f3e8ff',
+  spacing: 6,
+});
 
 const API = 'http://localhost:80/conta-app-backend/api/caja/movimientos.php';
 const fmtMon = (v: number) => '$ ' + Math.round(v).toLocaleString('es-CO');
@@ -267,55 +283,72 @@ export function HistorialCajas() {
   ];
 
   return (
-    <div>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-        <div>
-          <h2 style={{ fontSize: 22, fontWeight: 700, color: '#1f2937', margin: 0 }}>Historial de Cajas</h2>
-          <p style={{ fontSize: 13, color: '#6b7280', margin: '2px 0 0' }}>Sesiones, movimientos, ingresos y egresos</p>
+    <div style={{ padding: 12 }}>
+      {/* Header compacto — mismo estilo que Inventario/StockBajo */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Wallet size={20} color="#7c3aed" />
+          <h2 style={{ fontSize: 18, fontWeight: 700, margin: 0, color: '#1f2937' }}>Historial de Cajas</h2>
         </div>
         <div style={{ display: 'flex', gap: 6 }}>
           <button onClick={() => { setShowNuevoMov('ingreso'); setMovCaja(cajas.find(c => c.Tipo === 'principal')?.Id_Caja || 1); }}
-            style={{ height: 30, padding: '0 10px', background: '#dcfce7', color: '#16a34a', border: '1px solid #16a34a', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
-            <ArrowUpRight size={13} /> Ingreso
+            style={{ height: 28, padding: '0 12px', background: '#dcfce7', color: '#166534', border: '1px solid #86efac', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+            <ArrowUpRight size={14} /> Ingreso
           </button>
           <button onClick={() => { setShowNuevoMov('egreso'); setMovCaja(cajas.find(c => c.Tipo === 'principal')?.Id_Caja || 1); }}
-            style={{ height: 30, padding: '0 10px', background: '#fee2e2', color: '#dc2626', border: '1px solid #dc2626', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
-            <ArrowDownRight size={13} /> Egreso
+            style={{ height: 28, padding: '0 12px', background: '#fee2e2', color: '#991b1b', border: '1px solid #fca5a5', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+            <ArrowDownRight size={14} /> Egreso
           </button>
-          <button onClick={cargar}
-            style={{ height: 30, padding: '0 10px', background: '#7c3aed', color: '#fff', border: 'none', borderRadius: 6, fontSize: 11, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
-            <RefreshCw size={13} /> Refrescar
+          <button onClick={cargar} disabled={loading}
+            style={{ height: 28, padding: '0 12px', background: '#7c3aed', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5, opacity: loading ? 0.6 : 1 }}>
+            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> {loading ? 'Cargando...' : 'Refrescar'}
           </button>
         </div>
       </div>
 
-      {/* Stats */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 16 }}>
+      {/* KPIs compactos */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 10 }}>
         {[
-          { label: 'Sesiones', value: resumen.total_sesiones || 0, color: '#7c3aed' },
-          { label: 'Ventas Efectivo', value: fmtMon(resumen.total_ventas || 0), color: '#16a34a', text: true },
-          { label: 'Pagos Recibidos', value: fmtMon(resumen.total_pagos || 0), color: '#2563eb', text: true },
-          { label: 'Egresos', value: fmtMon(resumen.total_egresos || 0), color: '#dc2626', text: true },
+          { label: 'Sesiones', value: String(resumen.total_sesiones || 0), color: '#7c3aed', bg: '#f3e8ff', Ico: Calendar },
+          { label: 'Ventas Efectivo', value: fmtMon(resumen.total_ventas || 0), color: '#166534', bg: '#dcfce7', Ico: ArrowUpRight },
+          { label: 'Pagos Recibidos', value: fmtMon(resumen.total_pagos || 0), color: '#1e40af', bg: '#dbeafe', Ico: DollarSign },
+          { label: 'Egresos', value: fmtMon(resumen.total_egresos || 0), color: '#991b1b', bg: '#fee2e2', Ico: ArrowDownRight },
         ].map((s, i) => (
-          <div key={i} style={{ background: '#fff', borderRadius: 10, padding: '10px 14px', boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
-            <div style={{ fontSize: 10, color: '#6b7280' }}>{s.label}</div>
-            <div style={{ fontSize: s.text ? 15 : 22, fontWeight: 800, color: s.color }}>{s.value}</div>
+          <div key={i} style={{ padding: 8, background: s.bg, borderRadius: 6, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ width: 32, height: 32, borderRadius: 6, background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', color: s.color }}>
+              <s.Ico size={18} />
+            </div>
+            <div>
+              <div style={{ fontSize: 15, fontWeight: 700, lineHeight: 1, color: s.color }}>{s.value}</div>
+              <div style={{ fontSize: 10, color: s.color, opacity: 0.8 }}>{s.label}</div>
+            </div>
           </div>
         ))}
       </div>
 
       {/* Filtros */}
-      <div style={{ background: '#fff', borderRadius: 10, padding: '8px 14px', marginBottom: 12, boxShadow: '0 1px 3px rgba(0,0,0,0.08)', display: 'flex', alignItems: 'center', gap: 10 }}>
-        <input type="date" value={desde} onChange={e => setDesde(e.target.value)} style={{ height: 28, border: '1px solid #d1d5db', borderRadius: 6, fontSize: 12, padding: '0 6px' }} />
-        <span style={{ fontSize: 12, color: '#6b7280' }}>a</span>
-        <input type="date" value={hasta} onChange={e => setHasta(e.target.value)} style={{ height: 28, border: '1px solid #d1d5db', borderRadius: 6, fontSize: 12, padding: '0 6px' }} />
+      <div style={{ display: 'flex', gap: 8, marginBottom: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 11, color: '#6b7280', fontWeight: 600 }}>Desde:</span>
+        <input type="date" value={desde} onChange={e => setDesde(e.target.value)}
+          style={{ height: 26, border: '1px solid #d1d5db', borderRadius: 6, fontSize: 11, padding: '0 8px', outline: 'none' }} />
+        <span style={{ fontSize: 11, color: '#6b7280', fontWeight: 600 }}>Hasta:</span>
+        <input type="date" value={hasta} onChange={e => setHasta(e.target.value)}
+          style={{ height: 26, border: '1px solid #d1d5db', borderRadius: 6, fontSize: 11, padding: '0 8px', outline: 'none' }} />
+        <span style={{ fontSize: 11, color: '#6b7280', fontWeight: 600, marginLeft: 4 }}>Caja:</span>
         <select value={filtroCaja} onChange={e => setFiltroCaja(e.target.value)}
-          style={{ height: 28, border: '1px solid #d1d5db', borderRadius: 6, fontSize: 12, padding: '0 6px' }}>
+          style={{
+            height: 26, borderRadius: 6, fontSize: 11, padding: '0 8px', fontWeight: 600,
+            border: `1px solid ${filtroCaja ? '#7c3aed' : '#d1d5db'}`,
+            background: filtroCaja ? '#f3e8ff' : '#fff',
+            color: filtroCaja ? '#6b21a8' : '#374151',
+          }}>
           <option value="">Todas las cajas</option>
           {cajas.map(c => <option key={c.Id_Caja} value={c.Id_Caja}>{c.Nombre}</option>)}
         </select>
         <div style={{ flex: 1 }} />
-        <span style={{ fontSize: 12, color: '#6b7280' }}>{sesiones.length} sesiones | {movimientos.length} movimientos</span>
+        <span style={{ fontSize: 11, color: '#6b7280' }}>
+          <b>{sesiones.length}</b> sesiones · <b>{movimientos.length}</b> movimientos
+        </span>
       </div>
 
       {/* Sesiones o Resumen de Caja Principal */}
@@ -355,20 +388,47 @@ export function HistorialCajas() {
 
         // Cajas normales: mostrar grid de sesiones
         return (
-          <div style={{ background: '#fff', borderRadius: 10, overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.08)', marginBottom: 12 }}>
-            <div style={{ padding: '6px 14px', borderBottom: '1px solid #e5e7eb', fontSize: 13, fontWeight: 600 }}>Sesiones de Caja ({sesiones.length})</div>
-            <div style={{ height: 280 }}>
-              <AgGridReact rowData={sesiones} columnDefs={colsSesiones} loading={loading} animateRows defaultColDef={{ resizable: true, sortable: true }} rowHeight={34} headerHeight={34} getRowId={p => String(p.data.Id_Sesion)} />
+          <div style={{ marginBottom: 10 }}>
+            <div style={{ fontSize: 11, color: '#6b21a8', fontWeight: 700, marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.5, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Calendar size={12} /> Sesiones de Caja ({sesiones.length})
+            </div>
+            <div style={{ height: 280, width: '100%' }}>
+              <AgGridReact
+                theme={myTheme}
+                rowData={sesiones}
+                columnDefs={colsSesiones}
+                localeText={AG_GRID_LOCALE_ES}
+                loading={loading}
+                animateRows
+                defaultColDef={{ resizable: true, sortable: true }}
+                rowHeight={32}
+                headerHeight={32}
+                getRowId={p => String(p.data.Id_Sesion)}
+                overlayNoRowsTemplate="<span style='padding:20px;color:#6b7280'>Sin sesiones en el período</span>"
+              />
             </div>
           </div>
         );
       })()}
 
       {/* Movimientos */}
-      <div style={{ background: '#fff', borderRadius: 10, overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
-        <div style={{ padding: '6px 14px', borderBottom: '1px solid #e5e7eb', fontSize: 13, fontWeight: 600 }}>Movimientos de Caja</div>
-        <div style={{ height: 250 }}>
-          <AgGridReact rowData={movimientos} columnDefs={colsMovimientos} animateRows defaultColDef={{ resizable: true, sortable: true }} rowHeight={34} headerHeight={34} getRowId={p => String(p.data.Id_Mov)} />
+      <div>
+        <div style={{ fontSize: 11, color: '#6b21a8', fontWeight: 700, marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.5, display: 'flex', alignItems: 'center', gap: 6 }}>
+          <DollarSign size={12} /> Movimientos de Caja ({movimientos.length})
+        </div>
+        <div style={{ height: 250, width: '100%' }}>
+          <AgGridReact
+            theme={myTheme}
+            rowData={movimientos}
+            columnDefs={colsMovimientos}
+            localeText={AG_GRID_LOCALE_ES}
+            animateRows
+            defaultColDef={{ resizable: true, sortable: true }}
+            rowHeight={32}
+            headerHeight={32}
+            getRowId={p => String(p.data.Id_Mov)}
+            overlayNoRowsTemplate="<span style='padding:20px;color:#6b7280'>Sin movimientos en el período</span>"
+          />
         </div>
       </div>
 
