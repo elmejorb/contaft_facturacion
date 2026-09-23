@@ -996,13 +996,14 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
       )}
 
       {/* Main Content */}
-      <main className="flex-1 overflow-auto flex flex-col">
+      <main className="flex-1 flex flex-col overflow-hidden min-w-0">
         <header style={{
           background: 'linear-gradient(135deg, #1e1b4b 0%, oklch(.424 .199 265.638) 60%, oklch(.42 .26 295) 100%)',
           borderBottom: '1px solid rgba(255,255,255,0.08)',
           padding: '8px 16px',
           position: 'relative',
           overflow: 'hidden',
+          flexShrink: 0,
         }}>
           {/* Glow decorativo del top bar */}
           <div style={{
@@ -1379,7 +1380,7 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
           );
         })()}
 
-        <div className={activeTabId === 'inicio' ? 'flex-1 min-h-0' : 'p-6 flex-1 min-h-0 overflow-auto'}>
+        <div className={activeTabId === 'inicio' ? 'flex-1 min-h-0 overflow-auto' : 'p-6 flex-1 min-h-0 overflow-auto'}>
           {/* TABS VIVOS — cada uno mantiene su estado en memoria aunque no esté activo.
               Fase 0: solo Inicio, Nueva Venta e Inventario. Ver PLAN-TABS-MULTIPLES.md. */}
           <Suspense fallback={
