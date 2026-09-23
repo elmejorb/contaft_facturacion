@@ -164,16 +164,36 @@ interface Tab {
 }
 
 // Views que participan del sistema de tabs. Cualquier otra usa el switch viejo.
+// Fase 2-3: cobertura completa — todas las views operativas son tab-supported.
 const TAB_SUPPORTED_VIEWS: ReadonlySet<View> = new Set<View>([
-  'inicio',
+  'inicio', 'overview',
   // Ventas / Compras — flujos frecuentes que el cajero abre en paralelo
-  'nueva-venta', 'sales', 'nueva-compra', 'purchases',
+  'nueva-venta', 'sales', 'nueva-compra', 'purchases', 'ventas-tipo-pago',
+  'facturacion-electronica', 'facturas-recibidas',
   // Inventario / catálogos
-  'inventario', 'products',
-  // Cartera / cuentas
-  'cuentas-cobrar', 'cuentas-pagar',
-  // Clientes / proveedores — consultas mientras se factura
-  'customers', 'suppliers',
+  'inventario', 'products', 'diagnostico', 'auditoria', 'categorias',
+  'conteo', 'familias', 'distribuir', 'stock-bajo', 'notas-articulo',
+  'lotes-vencer', 'movs-directos', 'config-etiquetas',
+  // Cartera / cuentas / pagos
+  'cuentas-cobrar', 'cuentas-pagar', 'pagos-clientes', 'pagos-proveedores',
+  'anticipos-clientes', 'financiaciones',
+  // Clientes / proveedores
+  'customers', 'suppliers', 'productos-proveedor', 'top-clientes', 'cumpleanos',
+  // Ordenes de compra
+  'ordenes-compra',
+  // Caja
+  'caja', 'caja-historial',
+  // Gastos / Bancos
+  'gastos', 'bancos',
+  // Informes
+  'informes-hub',
+  // Vendedores móviles (solo aparecen si el módulo está activo)
+  'vendedores-gestion', 'vendedores-pedidos', 'vendedores-cargues', 'vendedores-informe',
+  // Configuración / administración
+  'configuracion', 'datos-empresa', 'usuarios',
+  'config-categorias-gasto', 'config-retenciones', 'config-cajas',
+  'config-servidor', 'config-permisos',
+  'backup-bd', 'mantenimiento-bd',
 ]);
 
 // Views que pueden abrirse en múltiples pestañas (creadores). Las demás
@@ -183,25 +203,109 @@ const MULTI_INSTANCE_VIEWS: ReadonlySet<View> = new Set<View>(['nueva-venta', 'n
 // Nombre por defecto que se muestra en la pestaña según la view.
 const TITULO_POR_VIEW: Partial<Record<View, string>> = {
   'inicio': 'Inicio',
+  'overview': 'Panel de Ingresos',
   'nueva-venta': 'Nueva Venta',
   'sales': 'Ventas',
   'nueva-compra': 'Nueva Compra',
   'purchases': 'Compras',
+  'ventas-tipo-pago': 'Ventas por Tipo de Pago',
+  'facturacion-electronica': 'Facturación Electrónica',
+  'facturas-recibidas': 'Facturas Recibidas',
   'inventario': 'Inventario',
   'products': 'Productos',
+  'diagnostico': 'Diagnóstico',
+  'auditoria': 'Auditoría',
+  'categorias': 'Categorías',
+  'conteo': 'Conteo de Inventario',
+  'familias': 'Familias',
+  'distribuir': 'Distribuir Productos',
+  'stock-bajo': 'Stock Bajo',
+  'notas-articulo': 'Notas de Artículo',
+  'lotes-vencer': 'Lotes por Vencer',
+  'movs-directos': 'Entradas y Salidas',
+  'config-etiquetas': 'Etiquetas',
   'cuentas-cobrar': 'Cartera clientes',
   'cuentas-pagar': 'Cartera proveedores',
+  'pagos-clientes': 'Pagos Clientes',
+  'pagos-proveedores': 'Pagos Proveedores',
+  'anticipos-clientes': 'Anticipos Clientes',
+  'financiaciones': 'Financiaciones',
   'customers': 'Clientes',
   'suppliers': 'Proveedores',
+  'productos-proveedor': 'Productos × Proveedor',
+  'top-clientes': 'Top Clientes',
+  'cumpleanos': 'Cumpleaños',
+  'ordenes-compra': 'Órdenes de Compra',
+  'caja': 'Caja Registradora',
+  'caja-historial': 'Historial de Cajas',
+  'gastos': 'Gastos',
+  'bancos': 'Bancos',
+  'informes-hub': 'Informes',
+  'vendedores-gestion': 'Gestión Vendedores',
+  'vendedores-pedidos': 'Pedidos de Campo',
+  'vendedores-cargues': 'Cargues del día',
+  'vendedores-informe': 'Ranking Vendedores',
+  'configuracion': 'Configuración',
+  'datos-empresa': 'Datos de Empresa',
+  'usuarios': 'Usuarios',
+  'config-categorias-gasto': 'Categorías de Gasto',
+  'config-retenciones': 'Retenciones',
+  'config-cajas': 'Cajas',
+  'config-servidor': 'Servidor',
+  'config-permisos': 'Permisos',
+  'backup-bd': 'Respaldos',
+  'mantenimiento-bd': 'Mantenimiento BD',
 };
 
 // Ícono por view (usa lucide, ya importados arriba).
 const ICONO_POR_VIEW: Partial<Record<View, any>> = {
   'inicio': Home,
+  'overview': LayoutDashboard,
   'nueva-venta': ShoppingCart,
   'sales': Receipt,
   'nueva-compra': Truck,
   'purchases': Truck,
+  'ventas-tipo-pago': Receipt,
+  'facturacion-electronica': Send,
+  'facturas-recibidas': Inbox,
+  'diagnostico': TrendingUp,
+  'auditoria': ClipboardList,
+  'categorias': Tags,
+  'conteo': Hash,
+  'familias': List,
+  'distribuir': Boxes,
+  'stock-bajo': AlertTriangle,
+  'notas-articulo': FileText,
+  'lotes-vencer': CalendarClock,
+  'movs-directos': Package,
+  'config-etiquetas': Tags,
+  'pagos-clientes': Wallet,
+  'pagos-proveedores': Wallet,
+  'anticipos-clientes': DollarSign,
+  'financiaciones': CreditCard,
+  'productos-proveedor': Package,
+  'top-clientes': Crown,
+  'cumpleanos': Cake,
+  'ordenes-compra': ClipboardList,
+  'caja': Wallet,
+  'caja-historial': CalendarDays,
+  'gastos': DollarSign,
+  'bancos': CreditCard,
+  'informes-hub': FileText,
+  'vendedores-gestion': Smartphone,
+  'vendedores-pedidos': ClipboardList,
+  'vendedores-cargues': Truck,
+  'vendedores-informe': TrendingUp,
+  'configuracion': Settings,
+  'datos-empresa': User,
+  'usuarios': Users,
+  'config-categorias-gasto': Tags,
+  'config-retenciones': DollarSign,
+  'config-cajas': Wallet,
+  'config-servidor': Settings,
+  'config-permisos': Lock,
+  'backup-bd': Package,
+  'mantenimiento-bd': Settings,
   'inventario': Boxes,
   'products': Package,
   'cuentas-cobrar': DollarSign,
@@ -1090,74 +1194,68 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
               height: activeTabId === t.id ? '100%' : 0,
             }}>
               {t.view === 'inicio' && <PantallaInicio user={user} onNavigate={(v) => abrirEnTab(v as View)} esAdmin={esAdmin} esVendedor={esVendedor} />}
+              {t.view === 'overview' && (esVendedor ? <DashboardVendedor user={user} /> : <IncomeOverview />)}
+              {/* Ventas / Compras */}
               {t.view === 'nueva-venta' && <VentasTabs />}
               {t.view === 'sales' && <SalesManagement onNavigate={(v) => abrirEnTab(v as View)} />}
               {t.view === 'nueva-compra' && <ComprasTabs />}
               {t.view === 'purchases' && <PurchasesManagement onNavigate={(v) => abrirEnTab(v as View)} />}
+              {t.view === 'ventas-tipo-pago' && <VentasPorTipoPago />}
+              {t.view === 'facturacion-electronica' && <FacturacionElectronica onNavigate={(v) => abrirEnTab(v as View)} />}
+              {t.view === 'facturas-recibidas' && <FacturasRecibidas />}
+              {/* Inventario / catálogos */}
               {t.view === 'inventario' && <InventarioManagement />}
               {t.view === 'products' && <ProductsManagement />}
+              {t.view === 'diagnostico' && <DiagnosticoInventario />}
+              {t.view === 'auditoria' && <AuditoriaInventario />}
+              {t.view === 'categorias' && <CategoriasManagement />}
+              {t.view === 'conteo' && <ConteoInventario />}
+              {t.view === 'familias' && <FamiliasProducto />}
+              {t.view === 'distribuir' && <DistribuirProductos />}
+              {t.view === 'stock-bajo' && <StockBajo />}
+              {t.view === 'notas-articulo' && <NotasArticulo />}
+              {t.view === 'lotes-vencer' && <LotesPorVencer />}
+              {t.view === 'movs-directos' && <MovsDirectos />}
+              {t.view === 'config-etiquetas' && <ConfigEtiquetas />}
+              {/* Cartera / cuentas / pagos */}
               {t.view === 'cuentas-cobrar' && <CuentasPorCobrar />}
               {t.view === 'cuentas-pagar' && <ProveedoresManagement modoCxP />}
+              {t.view === 'pagos-clientes' && <ListadoPagosClientes />}
+              {t.view === 'pagos-proveedores' && <ListadoPagosProveedores />}
+              {t.view === 'anticipos-clientes' && <AnticiposClientes />}
+              {t.view === 'financiaciones' && <FinanciacionesManagement />}
+              {/* Clientes / proveedores */}
               {t.view === 'customers' && <CustomersManagement />}
               {t.view === 'suppliers' && <ProveedoresManagement />}
+              {t.view === 'productos-proveedor' && <ProductosProveedor />}
+              {t.view === 'top-clientes' && <TopClientes />}
+              {t.view === 'cumpleanos' && <CumpleanosClientes />}
+              {/* Órdenes / Caja / Gastos / Bancos / Informes */}
+              {t.view === 'ordenes-compra' && <OrdenesCompraManagement />}
+              {t.view === 'caja' && <CajaRegistradora />}
+              {t.view === 'caja-historial' && <HistorialCajas />}
+              {t.view === 'gastos' && <GastosManagement />}
+              {t.view === 'bancos' && <BancosManagement />}
+              {t.view === 'informes-hub' && <InformesHub />}
+              {/* Vendedores móviles */}
+              {t.view === 'vendedores-gestion' && <VendedoresMovil />}
+              {t.view === 'vendedores-pedidos' && <VendedoresPedidos onNavigate={(v) => abrirEnTab(v as View)} />}
+              {t.view === 'vendedores-cargues' && <CarguesVendedor />}
+              {t.view === 'vendedores-informe' && <InformeVendedores />}
+              {/* Configuración */}
+              {t.view === 'configuracion' && <ConfiguracionSistema />}
+              {t.view === 'datos-empresa' && <DatosEmpresa />}
+              {t.view === 'usuarios' && <UsuariosManagement />}
+              {t.view === 'config-categorias-gasto' && <ConfigCategoriasGasto />}
+              {t.view === 'config-retenciones' && <ConfigRetenciones />}
+              {t.view === 'config-cajas' && <ConfigCajas />}
+              {t.view === 'config-servidor' && <ConfigServidor />}
+              {t.view === 'config-permisos' && <ConfigPermisos />}
+              {t.view === 'backup-bd' && <BackupBD />}
+              {t.view === 'mantenimiento-bd' && <MantenimientoBD />}
             </div>
           ))}
           </Suspense>
-
-          {/* SWITCH VIEJO — módulos NO tab-supported. Solo se renderiza cuando el
-              usuario navegó a uno de estos (activeTabId=null). */}
-          {activeTabId === null && (
-          <Suspense fallback={
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh', color: '#6b7280', fontSize: 13 }}>
-              <div style={{ width: 22, height: 22, border: '3px solid #e5e7eb', borderTopColor: '#7c3aed', borderRadius: '50%', animation: 'sp 0.8s linear infinite', marginRight: 10 }} />
-              Cargando módulo…
-              <style>{`@keyframes sp { to { transform: rotate(360deg) } }`}</style>
-            </div>
-          }>
-          {currentView === 'overview' && (esVendedor ? <DashboardVendedor user={user} /> : <IncomeOverview />)}
-          {currentView === 'diagnostico' && <DiagnosticoInventario />}
-          {currentView === 'auditoria' && <AuditoriaInventario />}
-          {currentView === 'categorias' && <CategoriasManagement />}
-          {currentView === 'conteo' && <ConteoInventario />}
-          {currentView === 'familias' && <FamiliasProducto />}
-          {currentView === 'distribuir' && <DistribuirProductos />}
-          {currentView === 'stock-bajo' && <StockBajo />}
-          {currentView === 'notas-articulo' && <NotasArticulo />}
-          {currentView === 'lotes-vencer' && <LotesPorVencer />}
-          {currentView === 'movs-directos' && <MovsDirectos />}
-          {currentView === 'config-etiquetas' && <ConfigEtiquetas />}
-          {currentView === 'configuracion' && <ConfiguracionSistema />}
-          {currentView === 'datos-empresa' && <DatosEmpresa />}
-          {currentView === 'usuarios' && <UsuariosManagement />}
-          {currentView === 'vendedores-gestion' && <VendedoresMovil />}
-          {currentView === 'vendedores-pedidos' && <VendedoresPedidos onNavigate={(v) => abrirEnTab(v as View)} />}
-          {currentView === 'vendedores-cargues' && <CarguesVendedor />}
-          {currentView === 'vendedores-informe' && <InformeVendedores />}
-          {currentView === 'top-clientes' && <TopClientes />}
-          {currentView === 'cumpleanos' && <CumpleanosClientes />}
-          {currentView === 'productos-proveedor' && <ProductosProveedor />}
-          {currentView === 'ordenes-compra' && <OrdenesCompraManagement />}
-          {currentView === 'ventas-tipo-pago' && <VentasPorTipoPago />}
-          {currentView === 'facturacion-electronica' && <FacturacionElectronica onNavigate={(v) => abrirEnTab(v as View)} />}
-          {currentView === 'facturas-recibidas' && <FacturasRecibidas />}
-          {currentView === 'caja' && <CajaRegistradora />}
-          {currentView === 'caja-historial' && <HistorialCajas />}
-          {currentView === 'informes-hub' && <InformesHub />}
-          {currentView === 'pagos-clientes' && <ListadoPagosClientes />}
-          {currentView === 'pagos-proveedores' && <ListadoPagosProveedores />}
-          {currentView === 'gastos' && <GastosManagement />}
-          {currentView === 'bancos' && <BancosManagement />}
-          {currentView === 'config-categorias-gasto' && <ConfigCategoriasGasto />}
-          {currentView === 'config-retenciones' && <ConfigRetenciones />}
-          {currentView === 'config-cajas' && <ConfigCajas />}
-          {currentView === 'config-servidor' && <ConfigServidor />}
-          {currentView === 'config-permisos' && <ConfigPermisos />}
-          {currentView === 'financiaciones' && <FinanciacionesManagement />}
-          {currentView === 'backup-bd' && <BackupBD />}
-          {currentView === 'mantenimiento-bd' && <MantenimientoBD />}
-          {currentView === 'anticipos-clientes' && <AnticiposClientes />}
-          </Suspense>
-          )}
         </div>
       </main>
 
