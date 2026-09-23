@@ -29,12 +29,29 @@ interface OC {
   lineas: number;
 }
 
+// Puente desde Stock Bajo — array de productos con cantidad sugerida.
+const LS_PRECARGA_OC = 'precarga_oc_stockbajo';
+
 export function OrdenesCompraManagement() {
   const { user } = useAuth();
   const [ordenes, setOrdenes] = useState<OC[]>([]);
   const [resumen, setResumen] = useState<Record<string, { n: number; monto: number }>>({});
   const [cargando, setCargando] = useState(false);
   const [modo, setModo] = useState<'lista' | 'nueva'>('lista');
+  // Productos precargados desde Stock Bajo. Se lee al montar y si viene se
+  // salta directo a modo 'nueva' con los productos ya cargados.
+  const [precargaPendiente, setPrecargaPendiente] = useState<any[] | null>(() => {
+    try {
+      const raw = localStorage.getItem(LS_PRECARGA_OC);
+      if (!raw) return null;
+      const arr = JSON.parse(raw);
+      if (Array.isArray(arr) && arr.length > 0) {
+        localStorage.removeItem(LS_PRECARGA_OC);
+        return arr;
+      }
+    } catch (e) {}
+    return null;
+  });
   const [filtroEstado, setFiltroEstado] = useState('');
   const [fechaDesde, setFechaDesde] = useState('');
   const [fechaHasta, setFechaHasta] = useState('');
@@ -74,8 +91,20 @@ export function OrdenesCompraManagement() {
     setOcDetalle(d);
   };
 
+  // Si tenemos precarga y aún estamos en modo lista, activar 'nueva' automáticamente
+  useEffect(() => {
+    if (precargaPendiente && precargaPendiente.length > 0 && modo === 'lista') {
+      setModo('nueva');
+      toast.success(`${precargaPendiente.length} producto${precargaPendiente.length > 1 ? 's' : ''} precargado${precargaPendiente.length > 1 ? 's' : ''} desde Stock Bajo`);
+    }
+  }, [precargaPendiente, modo]);
+
   if (modo === 'nueva') {
-    return <NuevaOrdenCompra onClose={() => { setModo('lista'); cargar(); }} />;
+    return <NuevaOrdenCompra
+      onClose={() => { setModo('lista'); cargar(); }}
+      precargaProductos={precargaPendiente || undefined}
+      onPrecargaConsumida={() => setPrecargaPendiente(null)}
+    />;
   }
 
   const filtradas = buscar

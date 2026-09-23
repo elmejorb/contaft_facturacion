@@ -10,8 +10,12 @@ import { EditarArticuloModal } from './EditarArticuloModal';
 ModuleRegistry.registerModules([AllCommunityModule]);
 
 const API = 'http://localhost:80/conta-app-backend/api/familias/stock-bajo.php';
-// Llave que Nueva Compra lee al montar para precargar productos desde este módulo.
-const LS_PRECARGA_COMPRA = 'precarga_compra_stockbajo';
+// Llave que Órdenes de Compra lee al montar para precargar productos.
+// Los productos van a OC (no a Compra directa) porque en ese momento aún no
+// hay factura del proveedor — solo se le está pidiendo la mercancía. Cuando
+// llegue la factura, el operador entra a Órdenes de Compra → Recibir y ahí
+// la OC se convierte en compra real (tblpedidos + kardex).
+const LS_PRECARGA_OC = 'precarga_oc_stockbajo';
 
 // Mismo tema que Inventario — mantiene coherencia visual en todo el módulo.
 const myTheme = themeQuartz.withParams({
@@ -143,23 +147,24 @@ export function StockBajo({ onNavigate }: Props) {
     else setSeleccionados(new Set(productosFiltrados.map(p => p.Items)));
   };
 
-  // Enviar productos seleccionados a Nueva Compra
-  const enviarACompra = (unSoloItem?: number) => {
+  // Enviar productos seleccionados a Orden de Compra (no a Compra directa).
+  // Regla del negocio: la OC es lo que se le envía al proveedor pidiendo la
+  // mercancía. Cuando llega la factura, se entra a Órdenes de Compra → Recibir
+  // y ahí se convierte en compra real. Aquí NO hay factura de compra todavía.
+  const enviarAOrdenCompra = (unSoloItem?: number) => {
     const lista = unSoloItem !== undefined
       ? productos.filter(p => p.Items === unSoloItem)
       : productos.filter(p => seleccionados.has(p.Items));
     if (lista.length === 0) { toast.error('No hay productos para enviar'); return; }
-    // Guardar en localStorage y navegar. Nueva Compra al montar detecta la clave
-    // y precarga las líneas con la cantidad sugerida (faltan = mínimo - existencia).
     try {
       const payload = lista.map(p => ({
         ...p,
         cantidad_sugerida: Math.max(1, Math.ceil(Number(p.Stock_Minimo) - Number(p.Existencia))),
       }));
-      localStorage.setItem(LS_PRECARGA_COMPRA, JSON.stringify(payload));
-      toast.success(`${lista.length} producto${lista.length > 1 ? 's' : ''} enviado${lista.length > 1 ? 's' : ''} a Nueva Compra`);
+      localStorage.setItem(LS_PRECARGA_OC, JSON.stringify(payload));
+      toast.success(`${lista.length} producto${lista.length > 1 ? 's' : ''} enviado${lista.length > 1 ? 's' : ''} a Orden de Compra`);
       setSeleccionados(new Set());
-      if (onNavigate) onNavigate('nueva-compra');
+      if (onNavigate) onNavigate('ordenes-compra');
     } catch (e: any) { toast.error('Error: ' + e.message); }
   };
 
@@ -553,14 +558,14 @@ export function StockBajo({ onNavigate }: Props) {
                 border: 'none', borderRadius: 6, color: 'white',
                 fontSize: 12, fontWeight: 600, cursor: 'pointer',
               }}>Cancelar</button>
-            <button onClick={() => enviarACompra()}
+            <button onClick={() => enviarAOrdenCompra()}
               style={{
                 display: 'inline-flex', alignItems: 'center', gap: 6,
                 padding: '6px 12px', height: 28, background: 'white',
                 color: '#7c3aed', border: 'none', borderRadius: 6,
                 fontSize: 12, fontWeight: 700, cursor: 'pointer',
               }}>
-              <ShoppingCart size={14} /> Crear Nueva Compra
+              <ShoppingCart size={14} /> Crear Orden de Compra
             </button>
           </div>
         </div>

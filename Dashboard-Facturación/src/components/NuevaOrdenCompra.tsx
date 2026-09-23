@@ -32,7 +32,16 @@ function loadSaved() {
   return null;
 }
 
-export function NuevaOrdenCompra({ onClose }: { onClose?: () => void } = {}) {
+interface NuevaOrdenCompraProps {
+  onClose?: () => void;
+  // Productos precargados (viene de Stock Bajo). Cada uno debe tener las columnas
+  // de tblarticulos (mínimo: Items, Codigo, Nombres_Articulo, Existencia,
+  // Precio_Costo, Iva). Opcional: cantidad_sugerida para poner esa cant. en vez de 1.
+  precargaProductos?: any[];
+  onPrecargaConsumida?: () => void;
+}
+
+export function NuevaOrdenCompra({ onClose, precargaProductos, onPrecargaConsumida }: NuevaOrdenCompraProps = {}) {
   const { user } = useAuth();
   const saved = loadSaved();
   const [fecha, setFecha] = useState<string>(saved?.fecha || new Date().toISOString().slice(0, 10));
@@ -60,6 +69,23 @@ export function NuevaOrdenCompra({ onClose }: { onClose?: () => void } = {}) {
   useEffect(() => {
     fetch(`${API_COMPRAS}?proveedores=1`).then(r => r.json())
       .then(d => { if (d.success) setProveedores(d.proveedores); });
+  }, []);
+
+  // Precarga desde Stock Bajo: se agrega cada producto y luego se sobrescribe
+  // la cantidad con la sugerida (mínimo − existencia, redondeada hacia arriba).
+  useEffect(() => {
+    if (!precargaProductos || precargaProductos.length === 0) return;
+    for (const p of precargaProductos) agregarProducto(p);
+    setTimeout(() => {
+      setLineas(prev => prev.map(l => {
+        const src = precargaProductos.find(p => Number(p.Items) === Number(l.Items));
+        if (!src || !src.cantidad_sugerida) return l;
+        const cant = Number(src.cantidad_sugerida);
+        return { ...l, Cantidad: cant, Subtotal: cant * l.PrecioC - l.Descuento };
+      }));
+      onPrecargaConsumida?.();
+    }, 50);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const buscarProducto = (q: string) => {
