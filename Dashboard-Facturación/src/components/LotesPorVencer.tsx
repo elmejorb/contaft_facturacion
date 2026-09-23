@@ -1,12 +1,28 @@
 import { useState, useEffect, useRef } from 'react';
 import { AgGridReact } from 'ag-grid-react';
-import { AllCommunityModule, ModuleRegistry, ColDef } from 'ag-grid-community';
-import { CalendarClock, AlertTriangle, RefreshCw, X, Save, Trash2, Plus, Search } from 'lucide-react';
+import { AllCommunityModule, ModuleRegistry, ColDef, themeQuartz } from 'ag-grid-community';
+import { CalendarClock, AlertTriangle, RefreshCw, X, Save, Trash2, Plus, Search, Package, Clock } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { triggerNotifRefresh } from '../hooks/useNotificaciones';
 import { useAuth } from '../contexts/AuthContext';
+import { AG_GRID_LOCALE_ES } from '../utils/agGridLocaleEs';
 
 ModuleRegistry.registerModules([AllCommunityModule]);
+
+// Mismo tema que Inventario/StockBajo/HistorialCajas/Pagos/Gastos.
+const myTheme = themeQuartz.withParams({
+  headerBackgroundColor: '#f3e8ff',
+  headerTextColor: '#6b21a8',
+  headerFontSize: 12,
+  headerFontWeight: 600,
+  fontSize: 12,
+  rowBorder: { color: '#f3f4f6', width: 1 },
+  borderColor: '#e5e7eb',
+  borderRadius: 8,
+  rowHoverColor: '#faf5ff',
+  selectedRowBackgroundColor: '#f3e8ff',
+  spacing: 6,
+});
 
 const API = 'http://localhost:80/conta-app-backend/api/lotes';
 const API_PROD = 'http://localhost:80/conta-app-backend/api/familias/buscar-producto.php';
@@ -108,65 +124,85 @@ export function LotesPorVencer() {
       ) },
   ];
 
-  const card = (label: string, valor: number | string, color: string, activo: boolean, onClick: () => void, sub?: string) => (
+  // Pill compacto para filtro por rango de días (mismo patrón que Inventario/StockBajo).
+  const pill = (label: string, valor: number | string, color: string, bg: string, activo: boolean, onClick: () => void, sub?: string) => (
     <button onClick={onClick}
-      style={{ flex: 1, background: activo ? color : '#fff', color: activo ? '#fff' : '#1f2937', border: `2px solid ${color}`, borderRadius: 8, padding: '10px 12px', cursor: 'pointer', textAlign: 'left', transition: 'all .15s' }}>
-      <div style={{ fontSize: 11, fontWeight: 600, opacity: activo ? 0.9 : 0.7, textTransform: 'uppercase' }}>{label}</div>
-      <div style={{ fontSize: 22, fontWeight: 800, marginTop: 2 }}>{valor}</div>
-      {sub && <div style={{ fontSize: 10, opacity: 0.8, marginTop: 2 }}>{sub}</div>}
+      style={{
+        padding: 8, background: activo ? color : bg, borderRadius: 6,
+        border: activo ? `1px solid ${color}` : '1px solid transparent',
+        display: 'flex', alignItems: 'center', gap: 8,
+        cursor: 'pointer', textAlign: 'left', transition: 'all .15s',
+      }}>
+      <div style={{
+        width: 32, height: 32, borderRadius: 6, background: '#fff',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', color,
+        flexShrink: 0,
+      }}>
+        <Clock size={18} />
+      </div>
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontSize: 15, fontWeight: 700, lineHeight: 1, color: activo ? '#fff' : color }}>{valor}</div>
+        <div style={{ fontSize: 10, color: activo ? 'rgba(255,255,255,0.9)' : color, opacity: activo ? 1 : 0.8 }}>{label}</div>
+        {sub && <div style={{ fontSize: 9, color: activo ? 'rgba(255,255,255,0.75)' : color, opacity: 0.7, marginTop: 1 }}>{sub}</div>}
+      </div>
     </button>
   );
 
   return (
-    <div style={{ padding: 16 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-        <div>
-          <h2 style={{ fontSize: 18, fontWeight: 700, margin: 0, color: '#1f2937', display: 'flex', alignItems: 'center', gap: 8 }}>
-            <CalendarClock size={20} color="#dc2626" /> Productos por Vencer
-          </h2>
-          <p style={{ fontSize: 12, color: '#6b7280', margin: '2px 0 0' }}>
-            Lotes activos con stock — agrupados por urgencia. Da de baja los vencidos para descontarlos del inventario y registrarlos en kardex.
-          </p>
+    <div style={{ padding: 12 }}>
+      {/* Header compacto */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <CalendarClock size={20} color="#dc2626" />
+          <h2 style={{ fontSize: 18, fontWeight: 700, margin: 0, color: '#1f2937' }}>Productos por Vencer</h2>
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 6 }}>
           <button onClick={cargar} disabled={loading}
-            style={{ background: '#f3f4f6', color: '#374151', border: '1px solid #e5e7eb', borderRadius: 6, padding: '7px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            <RefreshCw size={14} className={loading ? 'spin' : ''} /> Refrescar
+            style={{ height: 28, padding: '0 12px', background: '#f3f4f6', color: '#374151', border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+            <RefreshCw size={14} className={loading ? 'spin' : ''} /> {loading ? 'Cargando...' : 'Refrescar'}
           </button>
           <button onClick={() => setShowCrear(true)}
-            style={{ background: '#7c3aed', color: '#fff', border: 'none', borderRadius: 6, padding: '7px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            style={{ height: 28, padding: '0 12px', background: '#7c3aed', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
             <Plus size={14} /> Nuevo Lote
           </button>
         </div>
       </div>
 
+      {/* KPIs / pills de filtro por rango */}
       {resumen && (
-        <div style={{ display: 'flex', gap: 10, marginBottom: 14 }}>
-          {card('Todos', resumen.total, '#6b7280', filtro === 'todos', () => setFiltro('todos'), fmt(resumen.valor_total))}
-          {card('Vencidos', resumen.vencidos, '#dc2626', filtro === 'vencidos', () => setFiltro('vencidos'))}
-          {card('≤ 30 días', resumen.d_30, '#ea580c', filtro === '30', () => setFiltro('30'))}
-          {card('31–60 días', resumen.d_60, '#ca8a04', filtro === '60', () => setFiltro('60'))}
-          {card('61–90 días', resumen.d_90, '#2563eb', filtro === '90', () => setFiltro('90'))}
-          {card('> 90 días', resumen.mas_90, '#16a34a', filtro === 'mas', () => setFiltro('mas'))}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 8, marginBottom: 10 }}>
+          {pill('Todos',      resumen.total,    '#374151', '#f3f4f6', filtro === 'todos',    () => setFiltro('todos'), fmt(resumen.valor_total))}
+          {pill('Vencidos',   resumen.vencidos, '#991b1b', '#fee2e2', filtro === 'vencidos', () => setFiltro('vencidos'))}
+          {pill('≤ 30 días',  resumen.d_30,     '#9a3412', '#ffedd5', filtro === '30',       () => setFiltro('30'))}
+          {pill('31–60 días', resumen.d_60,     '#854d0e', '#fef9c3', filtro === '60',       () => setFiltro('60'))}
+          {pill('61–90 días', resumen.d_90,     '#1e40af', '#dbeafe', filtro === '90',       () => setFiltro('90'))}
+          {pill('> 90 días',  resumen.mas_90,   '#166534', '#dcfce7', filtro === 'mas',      () => setFiltro('mas'))}
         </div>
       )}
 
+      {/* Aviso si estás viendo vencidos */}
       {filtro === 'vencidos' && resumen && resumen.vencidos > 0 && (
-        <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 6, padding: 10, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
-          <AlertTriangle size={18} color="#dc2626" />
-          <span style={{ fontSize: 12, color: '#7f1d1d' }}>
+        <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 6, padding: 8, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <AlertTriangle size={16} color="#dc2626" />
+          <span style={{ fontSize: 11, color: '#7f1d1d' }}>
             <b>Atención:</b> Hay {resumen.vencidos} lote(s) vencido(s) con stock. Da de baja para que no afecten el inventario disponible.
           </span>
         </div>
       )}
 
-      <div className="ag-theme-quartz" style={{ height: 'calc(100vh - 270px)', width: '100%' }}>
+      {/* Grid con theme custom */}
+      <div style={{ height: 'calc(100vh - 260px)', width: '100%' }}>
         <AgGridReact
+          theme={myTheme}
           rowData={filtrados}
           columnDefs={cols}
+          localeText={AG_GRID_LOCALE_ES}
           defaultColDef={{ sortable: true, filter: true, resizable: true }}
           rowHeight={32}
-          headerHeight={34}
+          headerHeight={32}
+          overlayNoRowsTemplate={filtro === 'todos'
+            ? "<span style='padding:20px;color:#6b7280'>Sin lotes con vencimiento registrado</span>"
+            : "<span style='padding:20px;color:#6b7280'>Sin lotes en este rango</span>"}
         />
       </div>
 
