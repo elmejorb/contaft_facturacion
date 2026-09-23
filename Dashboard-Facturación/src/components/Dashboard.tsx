@@ -164,24 +164,50 @@ interface Tab {
 }
 
 // Views que participan del sistema de tabs. Cualquier otra usa el switch viejo.
-const TAB_SUPPORTED_VIEWS: ReadonlySet<View> = new Set<View>(['inicio', 'nueva-venta', 'inventario']);
+const TAB_SUPPORTED_VIEWS: ReadonlySet<View> = new Set<View>([
+  'inicio',
+  // Ventas / Compras — flujos frecuentes que el cajero abre en paralelo
+  'nueva-venta', 'sales', 'nueva-compra', 'purchases',
+  // Inventario / catálogos
+  'inventario', 'products',
+  // Cartera / cuentas
+  'cuentas-cobrar', 'cuentas-pagar',
+  // Clientes / proveedores — consultas mientras se factura
+  'customers', 'suppliers',
+]);
 
 // Views que pueden abrirse en múltiples pestañas (creadores). Las demás
 // tab-supported son singleton — si ya existe la pestaña, activarla en vez de duplicar.
-const MULTI_INSTANCE_VIEWS: ReadonlySet<View> = new Set<View>(['nueva-venta']);
+const MULTI_INSTANCE_VIEWS: ReadonlySet<View> = new Set<View>(['nueva-venta', 'nueva-compra']);
 
 // Nombre por defecto que se muestra en la pestaña según la view.
 const TITULO_POR_VIEW: Partial<Record<View, string>> = {
   'inicio': 'Inicio',
   'nueva-venta': 'Nueva Venta',
+  'sales': 'Ventas',
+  'nueva-compra': 'Nueva Compra',
+  'purchases': 'Compras',
   'inventario': 'Inventario',
+  'products': 'Productos',
+  'cuentas-cobrar': 'Cartera clientes',
+  'cuentas-pagar': 'Cartera proveedores',
+  'customers': 'Clientes',
+  'suppliers': 'Proveedores',
 };
 
 // Ícono por view (usa lucide, ya importados arriba).
 const ICONO_POR_VIEW: Partial<Record<View, any>> = {
   'inicio': Home,
   'nueva-venta': ShoppingCart,
+  'sales': Receipt,
+  'nueva-compra': Truck,
+  'purchases': Truck,
   'inventario': Boxes,
+  'products': Package,
+  'cuentas-cobrar': DollarSign,
+  'cuentas-pagar': DollarSign,
+  'customers': Users,
+  'suppliers': Users,
 };
 
 export function Dashboard({ onLogout, user }: DashboardProps) {
@@ -252,6 +278,68 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
       }
     }
   };
+
+  // Menú contextual (click derecho en tab): Cerrar / Cerrar otras / Cerrar todas a la derecha
+  const [ctxMenu, setCtxMenu] = useState<{ tabId: string; x: number; y: number } | null>(null);
+  const cerrarOtras = (tabId: string) => {
+    const t = tabs.find(x => x.id === tabId);
+    if (!t) return;
+    // Deja solo el que se clickeó + los no cerrables (Inicio).
+    setTabs(prev => prev.filter(x => x.id === tabId || !x.cerrable));
+    setActiveTabId(tabId);
+    setCurrentView(t.view);
+  };
+  const cerrarDerecha = (tabId: string) => {
+    const idx = tabs.findIndex(x => x.id === tabId);
+    if (idx < 0) return;
+    // Corta a la derecha, respeta no cerrables (los mantiene).
+    setTabs(prev => prev.filter((x, i) => i <= idx || !x.cerrable));
+    // Si el activo quedó fuera, activar el clickeado.
+    const activoIdx = tabs.findIndex(x => x.id === activeTabId);
+    if (activoIdx > idx) {
+      setActiveTabId(tabId);
+      const t = tabs[idx];
+      if (t) setCurrentView(t.view);
+    }
+  };
+
+  // Atajos de teclado: Ctrl+Tab (siguiente), Ctrl+Shift+Tab (anterior), Ctrl+W (cerrar activo)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return;
+      // Ctrl+W → cerrar tab activo
+      if (e.key.toLowerCase() === 'w' && activeTabId) {
+        e.preventDefault();
+        cerrarTab(activeTabId);
+        return;
+      }
+      // Ctrl+Tab / Ctrl+Shift+Tab → navegar entre tabs
+      if (e.key === 'Tab') {
+        e.preventDefault();
+        if (tabs.length === 0) return;
+        const idx = tabs.findIndex(t => t.id === activeTabId);
+        const dir = e.shiftKey ? -1 : 1;
+        const nuevoIdx = ((idx < 0 ? 0 : idx) + dir + tabs.length) % tabs.length;
+        const nueva = tabs[nuevoIdx];
+        setActiveTabId(nueva.id);
+        setCurrentView(nueva.view);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [tabs, activeTabId]);
+
+  // Cerrar menú contextual al hacer click en cualquier lado
+  useEffect(() => {
+    if (!ctxMenu) return;
+    const off = () => setCtxMenu(null);
+    window.addEventListener('click', off);
+    window.addEventListener('scroll', off, true);
+    return () => {
+      window.removeEventListener('click', off);
+      window.removeEventListener('scroll', off, true);
+    };
+  }, [ctxMenu]);
 
 
   useEffect(() => {
@@ -879,6 +967,18 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
             return (
               <div key={t.id}
                 onClick={() => { setActiveTabId(t.id); setCurrentView(t.view); }}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  setCtxMenu({ tabId: t.id, x: e.clientX, y: e.clientY });
+                }}
+                onMouseDown={(e) => {
+                  // Botón central del mouse = cerrar tab (patrón Chrome)
+                  if (e.button === 1 && t.cerrable) {
+                    e.preventDefault();
+                    cerrarTab(t.id);
+                  }
+                }}
+                title={t.titulo}
                 style={{
                   display: 'flex', alignItems: 'center', gap: 6,
                   padding: '4px 10px 5px', maxWidth: 200, minWidth: 100,
@@ -927,6 +1027,48 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
           )}
         </div>
 
+        {/* Menú contextual click-derecho en tab */}
+        {ctxMenu && (() => {
+          const t = tabs.find(x => x.id === ctxMenu.tabId);
+          if (!t) return null;
+          const idx = tabs.findIndex(x => x.id === ctxMenu.tabId);
+          const hayOtrasCerrables = tabs.some(x => x.id !== ctxMenu.tabId && x.cerrable);
+          const hayDerechaCerrables = tabs.slice(idx + 1).some(x => x.cerrable);
+          const item: React.CSSProperties = {
+            padding: '6px 14px', fontSize: 12, cursor: 'pointer',
+            borderRadius: 4, whiteSpace: 'nowrap',
+          };
+          const disabled: React.CSSProperties = { ...item, color: '#9ca3af', cursor: 'not-allowed' };
+          return (
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                position: 'fixed', top: ctxMenu.y, left: ctxMenu.x, zIndex: 200,
+                background: '#fff', border: '1px solid #d1d5db', borderRadius: 6,
+                boxShadow: '0 6px 20px rgba(0,0,0,0.15)', padding: 4, minWidth: 180,
+              }}>
+              <div style={t.cerrable ? item : disabled}
+                onMouseEnter={(e) => t.cerrable && (e.currentTarget.style.background = '#f3f4f6')}
+                onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                onClick={() => { if (t.cerrable) { cerrarTab(ctxMenu.tabId); setCtxMenu(null); } }}>
+                Cerrar pestaña
+              </div>
+              <div style={hayOtrasCerrables ? item : disabled}
+                onMouseEnter={(e) => hayOtrasCerrables && (e.currentTarget.style.background = '#f3f4f6')}
+                onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                onClick={() => { if (hayOtrasCerrables) { cerrarOtras(ctxMenu.tabId); setCtxMenu(null); } }}>
+                Cerrar otras
+              </div>
+              <div style={hayDerechaCerrables ? item : disabled}
+                onMouseEnter={(e) => hayDerechaCerrables && (e.currentTarget.style.background = '#f3f4f6')}
+                onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                onClick={() => { if (hayDerechaCerrables) { cerrarDerecha(ctxMenu.tabId); setCtxMenu(null); } }}>
+                Cerrar todas a la derecha
+              </div>
+            </div>
+          );
+        })()}
+
         <div className={activeTabId === 'inicio' ? 'flex-1 min-h-0' : 'p-6 flex-1 min-h-0 overflow-auto'}>
           {/* TABS VIVOS — cada uno mantiene su estado en memoria aunque no esté activo.
               Fase 0: solo Inicio, Nueva Venta e Inventario. Ver PLAN-TABS-MULTIPLES.md. */}
@@ -944,7 +1086,15 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
             }}>
               {t.view === 'inicio' && <PantallaInicio user={user} onNavigate={(v) => abrirEnTab(v as View)} esAdmin={esAdmin} esVendedor={esVendedor} />}
               {t.view === 'nueva-venta' && <VentasTabs />}
+              {t.view === 'sales' && <SalesManagement onNavigate={(v) => abrirEnTab(v as View)} />}
+              {t.view === 'nueva-compra' && <ComprasTabs />}
+              {t.view === 'purchases' && <PurchasesManagement onNavigate={(v) => abrirEnTab(v as View)} />}
               {t.view === 'inventario' && <InventarioManagement />}
+              {t.view === 'products' && <ProductsManagement />}
+              {t.view === 'cuentas-cobrar' && <CuentasPorCobrar />}
+              {t.view === 'cuentas-pagar' && <ProveedoresManagement modoCxP />}
+              {t.view === 'customers' && <CustomersManagement />}
+              {t.view === 'suppliers' && <ProveedoresManagement />}
             </div>
           ))}
           </Suspense>
@@ -978,18 +1128,10 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
           {currentView === 'vendedores-pedidos' && <VendedoresPedidos onNavigate={(v) => abrirEnTab(v as View)} />}
           {currentView === 'vendedores-cargues' && <CarguesVendedor />}
           {currentView === 'vendedores-informe' && <InformeVendedores />}
-          {currentView === 'cuentas-cobrar' && <CuentasPorCobrar />}
           {currentView === 'top-clientes' && <TopClientes />}
           {currentView === 'cumpleanos' && <CumpleanosClientes />}
-          {currentView === 'products' && <ProductsManagement />}
-          {currentView === 'customers' && <CustomersManagement />}
-          {currentView === 'suppliers' && <ProveedoresManagement />}
           {currentView === 'productos-proveedor' && <ProductosProveedor />}
-          {currentView === 'cuentas-pagar' && <ProveedoresManagement modoCxP />}
-          {currentView === 'purchases' && <PurchasesManagement onNavigate={(v) => abrirEnTab(v as View)} />}
-          {currentView === 'nueva-compra' && <ComprasTabs />}
           {currentView === 'ordenes-compra' && <OrdenesCompraManagement />}
-          {currentView === 'sales' && <SalesManagement onNavigate={(v) => abrirEnTab(v as View)} />}
           {currentView === 'ventas-tipo-pago' && <VentasPorTipoPago />}
           {currentView === 'facturacion-electronica' && <FacturacionElectronica onNavigate={(v) => abrirEnTab(v as View)} />}
           {currentView === 'facturas-recibidas' && <FacturasRecibidas />}
