@@ -2039,11 +2039,21 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
                                 // Precio_Venta_Empaque cargado (Farmacia), se usa ese
                                 // en vez de PrecioVenta × factor — sirve para
                                 // "tableta $10, caja $912" sin decimales.
+                                // Al pasar a modo UNIDAD, restaurar el precio unidad
+                                // original de la lista activa (no dividir el precio
+                                // caja actual por el factor — eso pierde el precio
+                                // original cuando Precio_Venta_Empaque es manual y
+                                // no es un múltiplo exacto del precio unidad).
+                                const precioListaUnd = listaPrecio === 2
+                                  ? (x.PrecioVentaLista2 || x.PrecioVentaLista1 || 0)
+                                  : listaPrecio === 3
+                                    ? (x.PrecioVentaLista3 || x.PrecioVentaLista1 || 0)
+                                    : (x.PrecioVentaLista1 || 0);
                                 const nuevoPrecio = yaEsEmp
-                                  ? Math.round(x.PrecioVenta / f)
+                                  ? Math.round(precioListaUnd > 0 ? precioListaUnd : x.PrecioVenta / f)
                                   : (x.PrecioVentaEmpaque && x.PrecioVentaEmpaque > 0
                                       ? Math.round(x.PrecioVentaEmpaque)
-                                      : Math.round(x.PrecioVenta * f));
+                                      : Math.round((precioListaUnd > 0 ? precioListaUnd : x.PrecioVenta) * f));
                                 return {
                                   ...x,
                                   VenderComoEmpaque: nuevoModo,
