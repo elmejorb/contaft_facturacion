@@ -522,7 +522,13 @@ async function checkUpdatesGuarded() {
 
 ipcMain.handle('updater:check', () => checkUpdatesGuarded());
 ipcMain.handle('updater:install', () => {
-  if (autoUpdater) autoUpdater.quitAndInstall();
+  if (!autoUpdater) return;
+  // Marcar el cierre como aceptado ANTES de disparar quitAndInstall.
+  // Sin esto, el 'close' handler pregunta por caja abierta y si el usuario
+  // cancela por error, la actualización queda a medio aplicar y el proceso
+  // sigue vivo — típico de "actualicé y no cambió nada".
+  cierreConfirmado = true;
+  autoUpdater.quitAndInstall();
 });
 ipcMain.handle('subscription:check', () => validateForUsage());
 ipcMain.handle('subscription:checkUpdate', () => validateForUpdate());
