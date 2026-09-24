@@ -48,7 +48,6 @@ export interface ConfigImpresion {
   usarCotizaciones: boolean;
   usarConteoInventario: boolean;
   usarLotes: boolean; // activa el manejo de fechas de vencimiento / lotes para productos perecederos (farmacias, alimentos)
-  ordenesCompra: boolean; // habilita el flujo Orden de Compra → Recepción (crear la OC antes de que llegue la mercancía)
   usarFinanciaciones: boolean; // activa el módulo de financiaciones (crédito con cuotas) — típico venta de motos
   tasaMoraMensual: number; // % mensual sobre valor de cuota vencida. 0 = no cobra mora
   usarAnticipos: boolean; // activa el módulo de anticipos (saldo a favor del cliente para futuras compras)
@@ -105,7 +104,6 @@ const defaultConfig: ConfigImpresion = {
   usarCotizaciones: true,
   usarConteoInventario: true,
   usarLotes: false,
-  ordenesCompra: false,
   usarFinanciaciones: false,
   tasaMoraMensual: 0,
   usarAnticipos: false,
@@ -921,7 +919,10 @@ export function ConfiguracionSistema() {
         </div>
       </div>
 
-      {/* Adaptaciones (solo root) — módulos que no cobran, sirven para adaptar el sistema */}
+      {/* Adaptaciones (solo root) — módulos que no cobran, sirven para adaptar el sistema.
+          Antes contenía el toggle 'Órdenes de Compra' pero desde 4.5.1 se activa siempre
+          por defecto (era el único toggle del bloque). Bloque comentado para uso futuro. */}
+      {false && (
       <div style={{ background: '#fff', borderRadius: 12, padding: 20, boxShadow: '0 1px 3px rgba(0,0,0,0.08)', marginTop: 16 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
           <Settings size={20} color="#7c3aed" />
@@ -934,9 +935,9 @@ export function ConfiguracionSistema() {
 
         {[
           {
-            key: 'ordenesCompra',
-            label: 'Órdenes de Compra',
-            desc: 'Habilita el flujo Orden de Compra → Recepción. Útil cuando el cliente hace pedidos al proveedor antes de que llegue la mercancía y necesita ver qué está pendiente de recibir.'
+            key: '__placeholder__' as any,
+            label: '',
+            desc: ''
           },
         ].map(m => {
           const currentValue = (config as any)[m.key];
@@ -975,6 +976,7 @@ export function ConfiguracionSistema() {
           );
         })}
       </div>
+      )}
 
       {/* Vendedores Móviles */}
       <div style={{ background: '#fff', borderRadius: 12, padding: 20, boxShadow: '0 1px 3px rgba(0,0,0,0.08)', marginTop: 16 }}>

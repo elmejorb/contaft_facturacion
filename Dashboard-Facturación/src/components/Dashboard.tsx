@@ -625,9 +625,10 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
       children: [
         { id: 'new-purchase', label: 'Nueva Compra', view: 'nueva-compra' as View },
         { id: 'purchase-list', label: 'Listado de Compras', view: 'purchases' },
-        ...(getConfigImpresion().ordenesCompra ? [
-          { id: 'ordenes-compra', label: 'Órdenes de Compra', view: 'ordenes-compra' as View }
-        ] : []),
+        // Órdenes de Compra: siempre visible desde 4.5.1 (antes detrás de toggle
+        // 'ordenesCompra' root-only). Ahora es flujo estándar — se usa por default
+        // desde Stock Bajo → Crear Orden de Compra.
+        { id: 'ordenes-compra', label: 'Órdenes de Compra', view: 'ordenes-compra' as View },
         { id: 'received-invoices', label: 'Facturas Recibidas (FE)', view: 'facturas-recibidas' as View },
       ]
     },
