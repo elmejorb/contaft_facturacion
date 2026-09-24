@@ -88,22 +88,39 @@ export function ReciboImpresion({ pago, cliente, formato, onClose, tipoTercero =
   const imprimir = () => {
     const content = printRef.current;
     if (!content) return;
-    const win = window.open('', '_blank', 'width=800,height=600');
-    if (!win) return;
     const esTirilla = formato === 'tirilla';
+    // Ventana con toolbar + botón imprimir manual — mismo patrón de
+    // ImpresionFactura. Antes usaba window.onload -> print() -> close()
+    // automático, pero en impresoras térmicas o de red lentas el close()
+    // corría ANTES de que el diálogo terminara y salía hoja en blanco o
+    // no imprimía. Ahora el usuario controla cuándo imprimir y cerrar.
+    const winWidth = esTirilla ? 360 : 720;
+    const winHeight = esTirilla ? 620 : 700;
+    const win = window.open('', '_blank', `width=${winWidth},height=${winHeight}`);
+    if (!win) return;
+    const titulo = `${tipoTercero === 'proveedor' ? 'Comprobante Egreso' : 'Recibo Pago'} #${pago.RecCajaN}`;
     win.document.write(`
-      <html><head><title>Recibo #${pago.RecCajaN}</title>
+      <!DOCTYPE html>
+      <html><head><title>${titulo}</title>
       <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: ${esTirilla ? "'Courier New', monospace" : "Arial, sans-serif"}; }
-        @media print { body { margin: 0; } }
-        @page { size: ${esTirilla ? '80mm auto' : 'letter'}; margin: ${esTirilla ? '2mm' : '15mm'}; }
+        body { font-family: ${esTirilla ? "'Courier New', monospace" : "Arial, sans-serif"}; padding-top: 44px; }
+        @media print {
+          body { margin: 0; padding: 0 !important; }
+          #print-toolbar { display: none !important; }
+          @page { size: ${esTirilla ? '80mm auto' : 'letter'}; margin: ${esTirilla ? '2mm' : '15mm'}; }
+        }
       </style></head><body>
+      <div id="print-toolbar" style="position:fixed;top:0;left:0;right:0;background:#7c3aed;padding:6px 16px;display:flex;align-items:center;gap:10px;z-index:9999;box-shadow:0 2px 8px rgba(0,0,0,0.2);font-family:Arial,sans-serif;">
+        <button onclick="document.getElementById('print-toolbar').style.display='none';window.print();setTimeout(function(){document.getElementById('print-toolbar').style.display='flex';},500);" style="height:30px;padding:0 16px;background:#fff;color:#7c3aed;border:none;border-radius:6px;font-size:13px;font-weight:700;cursor:pointer;">🖨️ Imprimir</button>
+        <button onclick="window.close();" style="height:30px;padding:0 12px;background:rgba(255,255,255,0.2);color:#fff;border:none;border-radius:6px;font-size:12px;cursor:pointer;">✕ Cerrar</button>
+        <span style="color:rgba(255,255,255,0.7);font-size:12px;margin-left:auto;">${titulo} — Vista previa</span>
+      </div>
       ${content.innerHTML}
-      <script>window.onload = function() { window.print(); window.close(); }<\/script>
       </body></html>
     `);
     win.document.close();
+    win.focus();
   };
 
   const fecha = new Date(pago.Fecha);
