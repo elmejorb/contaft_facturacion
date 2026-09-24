@@ -42,7 +42,8 @@ import {
   AlertTriangle,
   Gift,
   Smartphone,
-  CalendarDays
+  CalendarDays,
+  Warehouse
 } from 'lucide-react';
 // LIGEROS (necesarios en el arranque) — imports estáticos
 import { PantallaInicio } from './PantallaInicio';
@@ -112,6 +113,7 @@ const TopClientes = lazy(() => import('./TopClientes').then(m => ({ default: m.T
 const CumpleanosClientes = lazy(() => import('./CumpleanosClientes').then(m => ({ default: m.CumpleanosClientes })));
 const InformeVendedores = lazy(() => import('./InformeVendedores').then(m => ({ default: m.InformeVendedores })));
 const OrdenesCompraManagement = lazy(() => import('./OrdenesCompraManagement').then(m => ({ default: m.OrdenesCompraManagement })));
+const BodegasManagement = lazy(() => import('./BodegasManagement').then(m => ({ default: m.BodegasManagement })));
 import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
 import {
   DropdownMenu,
@@ -134,7 +136,7 @@ interface DashboardProps {
   user?: UserData | null;
 }
 
-type View = 'overview' | 'products' | 'customers' | 'suppliers' | 'purchases' | 'sales' | 'inventario' | 'diagnostico' | 'auditoria' | 'categorias' | 'conteo' | 'configuracion' | 'cuentas-cobrar' | 'top-clientes' | 'cumpleanos' | 'cuentas-pagar' | 'productos-proveedor' | 'nueva-venta' | 'ventas-tipo-pago' | 'datos-empresa' | 'usuarios' | 'nueva-compra' | 'facturacion-electronica' | 'facturas-recibidas' | 'caja' | 'caja-historial' | 'pagos-clientes' | 'pagos-proveedores' | 'gastos' | 'bancos' | 'config-categorias-gasto' | 'config-cajas' | 'config-servidor' | 'config-permisos' | 'familias' | 'distribuir' | 'stock-bajo' | 'config-retenciones' | 'informes-hub' | 'notas-articulo' | 'lotes-vencer' | 'inicio' | 'config-etiquetas' | 'vendedores-gestion' | 'vendedores-pedidos' | 'vendedores-cargues' | 'vendedores-informe' | 'ordenes-compra' | 'financiaciones' | 'backup-bd' | 'mantenimiento-bd' | 'anticipos-clientes' | 'movs-directos';
+type View = 'overview' | 'products' | 'customers' | 'suppliers' | 'purchases' | 'sales' | 'inventario' | 'diagnostico' | 'auditoria' | 'categorias' | 'conteo' | 'configuracion' | 'cuentas-cobrar' | 'top-clientes' | 'cumpleanos' | 'cuentas-pagar' | 'productos-proveedor' | 'nueva-venta' | 'ventas-tipo-pago' | 'datos-empresa' | 'usuarios' | 'nueva-compra' | 'facturacion-electronica' | 'facturas-recibidas' | 'caja' | 'caja-historial' | 'pagos-clientes' | 'pagos-proveedores' | 'gastos' | 'bancos' | 'config-categorias-gasto' | 'config-cajas' | 'config-servidor' | 'config-permisos' | 'familias' | 'distribuir' | 'stock-bajo' | 'config-retenciones' | 'informes-hub' | 'notas-articulo' | 'lotes-vencer' | 'inicio' | 'config-etiquetas' | 'vendedores-gestion' | 'vendedores-pedidos' | 'vendedores-cargues' | 'vendedores-informe' | 'ordenes-compra' | 'financiaciones' | 'backup-bd' | 'mantenimiento-bd' | 'anticipos-clientes' | 'movs-directos' | 'bodegas';
 
 interface MenuItem {
   id: string;
@@ -173,7 +175,7 @@ const TAB_SUPPORTED_VIEWS: ReadonlySet<View> = new Set<View>([
   // Inventario / catálogos
   'inventario', 'products', 'diagnostico', 'auditoria', 'categorias',
   'conteo', 'familias', 'distribuir', 'stock-bajo', 'notas-articulo',
-  'lotes-vencer', 'movs-directos', 'config-etiquetas',
+  'lotes-vencer', 'movs-directos', 'config-etiquetas', 'bodegas',
   // Cartera / cuentas / pagos
   'cuentas-cobrar', 'cuentas-pagar', 'pagos-clientes', 'pagos-proveedores',
   'anticipos-clientes', 'financiaciones',
@@ -224,6 +226,7 @@ const TITULO_POR_VIEW: Partial<Record<View, string>> = {
   'lotes-vencer': 'Lotes por Vencer',
   'movs-directos': 'Entradas y Salidas',
   'config-etiquetas': 'Etiquetas',
+  'bodegas': 'Bodegas',
   'cuentas-cobrar': 'Cartera clientes',
   'cuentas-pagar': 'Cartera proveedores',
   'pagos-clientes': 'Pagos Clientes',
@@ -279,6 +282,7 @@ const ICONO_POR_VIEW: Partial<Record<View, any>> = {
   'lotes-vencer': CalendarClock,
   'movs-directos': Package,
   'config-etiquetas': Tags,
+  'bodegas': Warehouse,
   'pagos-clientes': Wallet,
   'pagos-proveedores': Wallet,
   'anticipos-clientes': DollarSign,
@@ -574,6 +578,7 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
       badgeVariant: 'destructive',
       children: [
         { id: 'inventario-list', label: 'Listado de Artículos', view: 'inventario' },
+        { id: 'inventario-bodegas', label: 'Bodegas', view: 'bodegas' as View },
         { id: 'inventario-etiquetas', label: 'Etiquetas', view: 'config-etiquetas' as View },
         { id: 'inventario-categorias', label: 'Categorías', view: 'categorias' as View },
         { id: 'inventario-familias', label: 'Familias de Productos', view: 'familias' as View },
@@ -710,6 +715,7 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
     'inventario-conteo': 'inventario_conteo',
     'inventario-familias': 'inventario', 'inventario-distribuir': 'inventario', 'inventario-stock-bajo': 'inventario',
     'inventario-notas': 'inventario', 'inventario-lotes': 'inventario', 'inventario-etiquetas': 'inventario',
+    'inventario-bodegas': 'inventario',
     'customers-list': 'clientes', 'top-clientes': 'clientes_top', 'cumpleanos': 'clientes', 'anticipos-clientes': 'clientes',
     'accounts-receivable': 'clientes_cartera', 'accounts-payable': 'proveedores_pagar',
     'suppliers': 'proveedores', 'supplier-list': 'proveedores', 'supplier-products': 'proveedores',
@@ -1420,6 +1426,7 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
               {t.view === 'lotes-vencer' && <LotesPorVencer />}
               {t.view === 'movs-directos' && <MovsDirectos />}
               {t.view === 'config-etiquetas' && <ConfigEtiquetas />}
+              {t.view === 'bodegas' && <BodegasManagement />}
               {/* Cartera / cuentas / pagos */}
               {t.view === 'cuentas-cobrar' && <CuentasPorCobrar />}
               {t.view === 'cuentas-pagar' && <ProveedoresManagement modoCxP />}

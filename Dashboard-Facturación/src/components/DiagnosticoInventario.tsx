@@ -61,7 +61,7 @@ const getDiagColor = (raw: any) => {
 
 export function DiagnosticoInventario() {
   const [datos, setDatos] = useState<DiagnosticoItem[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busqueda, setBusqueda] = useState('');
   const [filtroActivo, setFiltroActivo] = useState('todos');

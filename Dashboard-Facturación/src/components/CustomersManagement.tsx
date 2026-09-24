@@ -74,7 +74,7 @@ const fmtMon = (v: number) => '$ ' + Math.round(v).toLocaleString('es-CO');
 export function CustomersManagement() {
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [resumen, setResumen] = useState<any>({});
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [busqueda, setBusqueda] = useState('');
   const [filtro, setFiltro] = useState('todos');
   const [modal, setModal] = useState<'cerrado' | 'ver' | 'editar' | 'crear'>('cerrado');

@@ -36,7 +36,7 @@ interface Filtros {
 
 export function ProductsManagement() {
   const [productos, setProductos] = useState<Producto[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busqueda, setBusqueda] = useState('');
   const [filtros, setFiltros] = useState<Filtros>({

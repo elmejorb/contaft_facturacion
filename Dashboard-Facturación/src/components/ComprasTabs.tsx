@@ -337,7 +337,7 @@ interface ModalBorradoresProps {
 
 function ModalBorradores({ onClose, onCargar }: ModalBorradoresProps) {
   const [borradores, setBorradores] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [cargandoId, setCargandoId] = useState<number | null>(null);
 
   const cargarLista = async () => {

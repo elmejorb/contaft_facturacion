@@ -8,7 +8,7 @@ const meses = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto'
 export function CumpleanosClientes() {
   const [clientes, setClientes] = useState<any[]>([]);
   const [cumpleHoy, setCumpleHoy] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [mes, setMes] = useState(new Date().getMonth() + 1);
   const [busqueda, setBusqueda] = useState('');
 

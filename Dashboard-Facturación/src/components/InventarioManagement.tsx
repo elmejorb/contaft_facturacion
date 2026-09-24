@@ -63,7 +63,7 @@ const myTheme = themeQuartz.withParams({
 
 export function InventarioManagement() {
   const [articulos, setArticulos] = useState<Articulo[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busqueda, setBusqueda] = useState('');
   // Filtro de tipo: 'todos' (default) | 'producto' | 'servicio'.

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { AgGridReact } from 'ag-grid-react';
-import { AllCommunityModule, ModuleRegistry, ColDef } from 'ag-grid-community';
+import { AllCommunityModule, ModuleRegistry, ColDef, themeQuartz } from 'ag-grid-community';
+import { AG_GRID_LOCALE_ES } from '../utils/agGridLocaleEs';
 import {
   Search, RefreshCw, FileText, CheckCircle, XCircle, AlertTriangle,
   Clock, Send, Eye, Printer, Globe, Mail, MailCheck, MailOpen, MailX, FileMinus, X, Copy, Trash2, Pencil
@@ -12,6 +13,20 @@ import { imprimirFactura, DatosFactura } from './ImpresionFactura';
 import { confirmar } from './ConfirmDialog';
 
 ModuleRegistry.registerModules([AllCommunityModule]);
+
+const myTheme = themeQuartz.withParams({
+  headerBackgroundColor: '#f3e8ff',
+  headerTextColor: '#6b21a8',
+  headerFontSize: 12,
+  headerFontWeight: 600,
+  fontSize: 12,
+  rowBorder: { color: '#f3f4f6', width: 1 },
+  borderColor: '#e5e7eb',
+  borderRadius: 8,
+  rowHoverColor: '#faf5ff',
+  selectedRowBackgroundColor: '#f3e8ff',
+  spacing: 6,
+});
 
 const API = 'http://localhost:80/conta-app-backend/api/facturacion-electronica';
 const fmtMon = (v: number) => '$ ' + Math.round(v).toLocaleString('es-CO');
@@ -111,7 +126,7 @@ export function FacturacionElectronica({ onNavigate }: Props = {}) {
   const [filtroTipo, setFiltroTipo] = useState('todos');
   const [filtroOrigen, setFiltroOrigen] = useState('todos');
   const [busqueda, setBusqueda] = useState('');
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [resoluciones, setResoluciones] = useState<any[]>([]);
   const [showResoluciones, setShowResoluciones] = useState(false);
   const [detalle, setDetalle] = useState<any>(null);
@@ -219,7 +234,7 @@ export function FacturacionElectronica({ onNavigate }: Props = {}) {
         setAnios(d.anios || []);
       }
     } catch (e) { console.error(e); }
-    setLoading(false);
+    finally { setLoading(false); }
   };
 
   const cargarResoluciones = async () => {
@@ -874,43 +889,47 @@ export function FacturacionElectronica({ onNavigate }: Props = {}) {
       </div>
 
       {/* Grid documentos electrónicos */}
-      <div style={{ background: '#fff', borderRadius: 12, overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.08)', marginBottom: 16 }}>
-        <div style={{ padding: '8px 16px', borderBottom: '1px solid #e5e7eb', fontSize: 13, fontWeight: 600, color: '#374151' }}>
-          Documentos Electrónicos ({docsFiltrados.length})
-        </div>
-        <div style={{ height: 350 }}>
-          <AgGridReact
-            ref={gridRef}
-            rowData={docsFiltrados}
-            columnDefs={cols}
-            loading={loading}
-            animateRows
-            defaultColDef={{ resizable: true }}
-            rowHeight={36}
-            headerHeight={36}
-            getRowId={p => String(p.data.id)}
-          />
-        </div>
+      <div style={{ fontSize: 11, color: '#6b21a8', fontWeight: 700, marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.5, display: 'flex', alignItems: 'center', gap: 6 }}>
+        <FileText size={12} /> Documentos Electrónicos ({docsFiltrados.length})
+      </div>
+      <div style={{ height: 350, marginBottom: 12 }}>
+        <AgGridReact
+          theme={myTheme}
+          ref={gridRef}
+          rowData={docsFiltrados}
+          columnDefs={cols}
+          loading={loading}
+          localeText={AG_GRID_LOCALE_ES}
+          animateRows
+          defaultColDef={{ resizable: true }}
+          rowHeight={32}
+          headerHeight={32}
+          getRowId={p => String(p.data.id)}
+          overlayNoRowsTemplate="<span style='padding:20px;color:#6b7280'>Sin documentos electrónicos</span>"
+        />
       </div>
 
       {/* Ventas marcadas como DIAN */}
       {ventasDian.length > 0 && (
-        <div style={{ background: '#fff', borderRadius: 12, overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
-          <div style={{ padding: '8px 16px', borderBottom: '1px solid #e5e7eb', fontSize: 13, fontWeight: 600, color: '#374151' }}>
-            Ventas enviadas a DIAN ({ventasDian.length})
+        <>
+          <div style={{ fontSize: 11, color: '#6b21a8', fontWeight: 700, marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.5, display: 'flex', alignItems: 'center', gap: 6 }}>
+            <Send size={12} /> Ventas enviadas a DIAN ({ventasDian.length})
           </div>
           <div style={{ height: 250 }}>
             <AgGridReact
+              theme={myTheme}
               rowData={ventasDian}
               columnDefs={colsVentasPendientes}
+              localeText={AG_GRID_LOCALE_ES}
               animateRows
               defaultColDef={{ resizable: true }}
-              rowHeight={34}
-              headerHeight={34}
+              rowHeight={32}
+              headerHeight={32}
               getRowId={p => String(p.data.Factura_N)}
+              overlayNoRowsTemplate="<span style='padding:20px;color:#6b7280'>Sin ventas enviadas a DIAN</span>"
             />
           </div>
-        </div>
+        </>
       )}
 
       {/* Modal resoluciones */}

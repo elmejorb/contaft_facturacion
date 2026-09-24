@@ -72,7 +72,7 @@ interface ClienteCartera {
 export function CuentasPorCobrar() {
   const [clientes, setClientes] = useState<ClienteCartera[]>([]);
   const [resumen, setResumen] = useState<any>({});
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [busqueda, setBusqueda] = useState('');
   const [filtro, setFiltro] = useState('todos');
   const [detalleId, setDetalleId] = useState<number | null>(null);

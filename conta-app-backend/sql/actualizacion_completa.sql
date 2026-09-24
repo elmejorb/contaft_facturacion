@@ -1982,6 +1982,68 @@ SELECT
         AND TABLE_NAME IN ('vw_diagnostico_inventario_30d','vw_auditoria_inventario_90d','vw_productos_stock_bajo','vw_lotes_por_vencer'))
     AS vistas_creadas;
 
+-- ================================================================
+-- BODEGAS (v5.8 — 2026-09-24)
+-- Modelo mono-bodega: cada artículo pertenece a UNA bodega (columna
+-- tblarticulos.Id_Bodega con default = bodega principal = id 1).
+-- Traslados registran cambio de Id_Bodega del producto entero (100%).
+-- Compatible retroactivamente: default = 1 asigna todo el inventario
+-- existente a la Bodega Principal sin migración adicional.
+-- ================================================================
+
+-- Tabla de bodegas
+CREATE TABLE IF NOT EXISTS tblbodegas (
+    Id_Bodega   INT AUTO_INCREMENT PRIMARY KEY,
+    Nombre      VARCHAR(80) NOT NULL,
+    Direccion   VARCHAR(200) DEFAULT NULL,
+    Telefono    VARCHAR(50)  DEFAULT NULL,
+    Principal   TINYINT(1)   NOT NULL DEFAULT 0 COMMENT "1 = bodega principal (default de nuevos productos)",
+    Activa      TINYINT(1)   NOT NULL DEFAULT 1,
+    FechaMod    DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uq_nombre (Nombre)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Seed: garantizar que exista Bodega Principal con id=1
+INSERT IGNORE INTO tblbodegas (Id_Bodega, Nombre, Principal, Activa)
+VALUES (1, 'Bodega Principal', 1, 1);
+
+-- Solo puede haber UNA bodega marcada como Principal — snapshot cuidadoso:
+-- si por casualidad hay más de una, dejar solo la de menor id.
+UPDATE tblbodegas SET Principal = 0
+WHERE Principal = 1
+  AND Id_Bodega NOT IN (SELECT Id_Bodega FROM (SELECT MIN(Id_Bodega) AS Id_Bodega FROM tblbodegas WHERE Principal = 1) t);
+
+-- Agregar columna Id_Bodega a tblarticulos con default 1 (Bodega Principal)
+SET @col := (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tblarticulos' AND COLUMN_NAME = 'Id_Bodega');
+SET @sql := IF(@col = 0,
+    'ALTER TABLE tblarticulos ADD COLUMN Id_Bodega INT NOT NULL DEFAULT 1 COMMENT "FK tblbodegas — bodega actual del producto (modelo mono-bodega)"',
+    'SELECT 1');
+PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
+
+-- Índice para filtrar por bodega rápido
+SET @idx := (SELECT COUNT(*) FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tblarticulos' AND INDEX_NAME = 'idx_id_bodega');
+SET @sql := IF(@idx = 0,
+    'ALTER TABLE tblarticulos ADD INDEX idx_id_bodega (Id_Bodega)',
+    'SELECT 1');
+PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
+
+-- Tabla de historial de traslados (trazabilidad)
+CREATE TABLE IF NOT EXISTS tbl_traslados_bodega (
+    Id_Traslado  INT AUTO_INCREMENT PRIMARY KEY,
+    Fecha        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    Id_Bodega_Origen  INT NOT NULL,
+    Id_Bodega_Destino INT NOT NULL,
+    Items        INT NOT NULL COMMENT "FK tblarticulos.Items — producto trasladado",
+    Cantidad     DECIMAL(19,4) NOT NULL COMMENT "Existencia al momento del traslado (snapshot informativo)",
+    Comentario   VARCHAR(300) DEFAULT NULL,
+    Id_Usuario   INT DEFAULT NULL,
+    INDEX idx_items (Items),
+    INDEX idx_bodegas (Id_Bodega_Origen, Id_Bodega_Destino),
+    INDEX idx_fecha (Fecha)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- ============================================================
 -- NIT empresa: normalizar (solo digitos base, sin puntos, sin guion, sin DV)
 -- ============================================================

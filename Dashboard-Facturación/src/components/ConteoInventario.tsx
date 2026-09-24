@@ -200,7 +200,7 @@ export function ConteoInventario() {
   const [conteos, setConteos] = useState<Conteo[]>([]);
   const [detalle, setDetalle] = useState<DetalleItem[]>([]);
   const [conteoActual, setConteoActual] = useState<Conteo | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [busqueda, setBusqueda] = useState('');
   const [filtro, setFiltro] = useState('todos'); // todos, pendientes, contados, diferencias
   const [error, setError] = useState('');

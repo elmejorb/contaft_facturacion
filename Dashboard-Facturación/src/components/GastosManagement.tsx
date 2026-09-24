@@ -36,7 +36,7 @@ export function GastosManagement() {
   const [gastos, setGastos] = useState<any[]>([]);
   const [resumen, setResumen] = useState<any>({});
   const [anios, setAnios] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [anio, setAnio] = useState(new Date().getFullYear());
   const [mes, setMes] = useState(new Date().getMonth() + 1);
   const [busqueda, setBusqueda] = useState('');

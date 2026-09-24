@@ -14,7 +14,7 @@ export function BancosManagement() {
   const [cuentas, setCuentas] = useState<any[]>([]);
   const [cajas, setCajas] = useState<any[]>([]);
   const [totalSaldo, setTotalSaldo] = useState(0);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [cuentaSel, setCuentaSel] = useState<any>(null);
   const [movimientos, setMovimientos] = useState<any[]>([]);
   const [resumenMov, setResumenMov] = useState<any>({});

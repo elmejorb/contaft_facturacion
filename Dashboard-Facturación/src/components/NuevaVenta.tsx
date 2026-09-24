@@ -1152,7 +1152,7 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
     //   1. Cliente GENERICO (130500 "VENTAS AL CONTADO" o ocasional sin id):
     //      SIEMPRE bloqueado en credito, sea Factura POS, FE o Doc. Soporte.
     //      Motivo: no hay a quien cobrarle — la deuda no cuadra en CxC.
-    //   2. Cliente identificado como CONSUMIDOR FINAL DIAN (NIT 222222222222):
+    //   2. Cliente identificado como CONSUMIDOR FINAL DIAN (NIT 222222222):
     //      Solo bloqueado en FE / Doc. Soporte (DIAN rechaza FE a credito sin
     //      cliente identificado, art. 616-1 ET / Res. 165/2023).
     //
@@ -1161,7 +1161,7 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
     if (tipo === 'Crédito') {
       const nitLimpio = (cliente.nit || '').replace(/[^0-9]/g, '');
       const esGenerico = cliente.id === 130500 || cliente.id === 0 || !cliente.esCliente;
-      const esConsumidorFinalDIAN = nitLimpio === '222222222222';
+      const esConsumidorFinalDIAN = nitLimpio === '222222222';
 
       if (esGenerico) {
         setError('El cliente genérico "VENTAS AL CONTADO" no puede usarse en ventas a crédito. Seleccione un cliente real para que la deuda aparezca en Cuentas por Cobrar.');
@@ -1521,6 +1521,20 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
       const d = await r.json();
       if (d.success) {
         const factN = d.Factura_N;
+
+        // Si veníamos de "Editar borrador FE", el borrador ya no aplica: sus datos
+        // se acaban de materializar en tblventas como venta nueva. Lo eliminamos
+        // antes de intentar DIAN para que el listado FE no quede con la fila
+        // huérfana. Best-effort: si falla, no bloquea el flujo (peor caso: el
+        // usuario borra el borrador manualmente).
+        if (editandoBorradorId) {
+          try {
+            await fetch(API_FE, {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ action: 'eliminar_borrador', id: editandoBorradorId })
+            });
+          } catch { /* silenciar — no afecta la venta */ }
+        }
 
         // Si es factura electrónica, enviar a DIAN
         let dianDocId: number | null = null;

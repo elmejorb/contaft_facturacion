@@ -76,7 +76,7 @@ export function ListadoPagosClientes() {
   const [resumen, setResumen] = useState<any>({});
   const [anios, setAnios] = useState<any[]>([]);
   const [medios, setMedios] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [anio, setAnio] = useState(new Date().getFullYear());
   const [mes, setMes] = useState(new Date().getMonth() + 1);
   const [filtroMedio, setFiltroMedio] = useState('');
@@ -282,7 +282,7 @@ export function ListadoPagosProveedores() {
   const [resumen, setResumen] = useState<any>({});
   const [anios, setAnios] = useState<any[]>([]);
   const [medios, setMedios] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [anio, setAnio] = useState(new Date().getFullYear());
   const [mes, setMes] = useState(new Date().getMonth() + 1);
   const [filtroEstado, setFiltroEstado] = useState('Valida');

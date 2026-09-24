@@ -34,7 +34,7 @@ export function HistorialCajas() {
   const [movimientos, setMovimientos] = useState<any[]>([]);
   const [cajas, setCajas] = useState<any[]>([]);
   const [resumen, setResumen] = useState<any>({});
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [filtroCaja, setFiltroCaja] = useState('');
   const [desde, setDesde] = useState(inicioMesLocal());
   const [hasta, setHasta] = useState(hoyLocal());

@@ -16,7 +16,7 @@ interface Categoria {
 
 export function CategoriasManagement() {
   const [categorias, setCategorias] = useState<Categoria[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [busqueda, setBusqueda] = useState('');
   const [editando, setEditando] = useState<number | null>(null);
   const [editNombre, setEditNombre] = useState('');

@@ -27,7 +27,7 @@ export function VentasPorTipoPago() {
   const [filtroMedio, setFiltroMedio] = useState<string>('');
   const [filtroTipo, setFiltroTipo] = useState<string>(''); // '' = todos, 'Contado', 'Crédito'
   const [totalGeneral, setTotalGeneral] = useState(0);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const gridRef = useRef<AgGridReact>(null);
 
   const cargar = async () => {

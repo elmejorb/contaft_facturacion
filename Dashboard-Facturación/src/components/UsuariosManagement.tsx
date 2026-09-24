@@ -15,7 +15,7 @@ export function UsuariosManagement() {
   const [usuarios, setUsuarios] = useState<any[]>([]);
   const [tipos, setTipos] = useState<any[]>([]);
   const [cajas, setCajas] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [showPassModal, setShowPassModal] = useState(false);
   const [editando, setEditando] = useState<any>(null);

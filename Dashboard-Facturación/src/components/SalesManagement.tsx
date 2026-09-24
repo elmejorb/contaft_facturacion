@@ -60,7 +60,7 @@ export function SalesManagement({ onNavigate }: Props = {}) {
   const [autorizacionAnul, setAutorizacionAnul] = useState<{ factN: number; motivo: string } | null>(null);
   const [anulando, setAnulando] = useState(false);
   const [resumen, setResumen] = useState<any>({});
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [busqueda, setBusqueda] = useState('');
   const [anio, setAnio] = useState(new Date().getFullYear());
   const [mes, setMes] = useState(new Date().getMonth() + 1);
@@ -92,7 +92,7 @@ export function SalesManagement({ onNavigate }: Props = {}) {
         setAniosDisp(d.anios_disponibles);
       }
     } catch (e) { console.error(e); }
-    setLoading(false);
+    finally { setLoading(false); }
   };
 
   useEffect(() => { cargar(); }, [anio, mes, dia, filtroEstado]);

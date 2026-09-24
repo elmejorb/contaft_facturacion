@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AgGridReact } from 'ag-grid-react';
 import { AllCommunityModule, ModuleRegistry, themeQuartz } from 'ag-grid-community';
-import { Smartphone, Plus, RefreshCw, Save, X, Eye, EyeOff, CheckCircle, AlertCircle, UserPlus, Link, Pencil, Users, Hash, Mail, Lock, Phone, CreditCard, MapPin, Shield, QrCode, Copy, MessageCircle, RotateCw } from 'lucide-react';
+import { Smartphone, Plus, RefreshCw, Save, X, Eye, EyeOff, CheckCircle, AlertCircle, UserPlus, Link, Pencil, Users, Hash, Mail, Lock, Phone, CreditCard, MapPin, Shield, QrCode, Copy, MessageCircle, RotateCw, Upload } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import toast from 'react-hot-toast';
 import { useVendedoresConfig } from '../hooks/useVendedoresConfig';
@@ -341,6 +341,35 @@ export function VendedoresMovil() {
     setSyncing(false);
   };
 
+  // Sube catálogos completos (categorías + productos + clientes + vendedores)
+  // al hub. Necesario cuando el admin agrega productos/clientes nuevos y
+  // quiere que aparezcan en la APK.
+  const [subiendo, setSubiendo] = useState(false);
+  const subirCatalogos = async () => {
+    setSubiendo(true);
+    const tid = toast.loading('Subiendo catálogos al hub...');
+    try {
+      const r = await fetch('http://localhost:80/conta-app-backend/api/vendedores/push-all.php', { method: 'POST' });
+      const d = await r.json();
+      toast.dismiss(tid);
+      if (d.success) {
+        const s = d.secciones || {};
+        toast.success(
+          `Subido — Cat: ${s.categorias?.enviados ?? 0} · Prod: ${s.productos?.enviados ?? 0} · Cli: ${s.clientes?.enviados ?? 0} · Vend: ${s.vendedores?.enviados ?? 0}`,
+          { duration: 6000 }
+        );
+        cargar();
+        refetch();
+      } else {
+        toast.error(d.message || 'Error subiendo al hub');
+      }
+    } catch (e) {
+      toast.dismiss(tid);
+      toast.error('Error de conexión al subir');
+    }
+    setSubiendo(false);
+  };
+
   const toggleActivo = async (id: number) => {
     // Si se está pasando de inactivo → activo, verificar cupo primero
     const actual = vendedores.find(v => v.id === id);
@@ -487,6 +516,7 @@ export function VendedoresMovil() {
         padding: '14px 18px', borderRadius: 12,
         background: 'linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)',
         boxShadow: '0 4px 12px rgba(124,58,237,0.25)',
+        flexWrap: 'wrap', gap: 12,
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
           <div style={{
@@ -521,56 +551,67 @@ export function VendedoresMovil() {
             </div>
           )}
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
           <button onClick={abrirPairing}
             title="Genera un código para vincular la app de un vendedor con esta empresa (compartir por WhatsApp)"
             style={{
-              height: 38, padding: '0 14px',
+              height: 28, padding: '0 10px',
               background: 'rgba(255,255,255,0.15)', color: '#fff',
-              border: '1px solid rgba(255,255,255,0.3)', borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: 'pointer',
-              display: 'flex', alignItems: 'center', gap: 6,
+              border: '1px solid rgba(255,255,255,0.3)', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+              display: 'flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap',
             }}>
-            <QrCode size={14} /> Código empresa
+            <QrCode size={12} /> Código empresa
+          </button>
+          <button onClick={subirCatalogos} disabled={subiendo}
+            title="Sube al hub móvil todos los catálogos actuales (categorías, productos, clientes y vendedores) para que estén disponibles en la APK"
+            style={{
+              height: 28, padding: '0 10px',
+              background: subiendo ? 'rgba(16, 185, 129, 0.55)' : '#10b981', color: '#fff',
+              border: '1px solid rgba(255,255,255,0.3)', borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: subiendo ? 'wait' : 'pointer',
+              display: 'flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap',
+            }}>
+            <Upload size={12} className={subiendo ? 'animate-pulse' : ''} /> {subiendo ? 'Subiendo…' : 'Subir catálogos'}
           </button>
           <button onClick={sincronizar} disabled={syncing}
+            title="Sube al hub solo los vendedores nuevos o modificados (más rápido — no toca productos)"
             style={{
-              height: 38, padding: '0 14px',
+              height: 28, padding: '0 10px',
               background: 'rgba(255,255,255,0.15)', color: '#fff',
-              border: '1px solid rgba(255,255,255,0.3)', borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: 'pointer',
-              display: 'flex', alignItems: 'center', gap: 6,
+              border: '1px solid rgba(255,255,255,0.3)', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+              display: 'flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap',
             }}>
-            <RefreshCw size={14} className={syncing ? 'animate-spin' : ''} /> {syncing ? 'Sync...' : 'Sincronizar'}
+            <RefreshCw size={12} className={syncing ? 'animate-spin' : ''} /> {syncing ? 'Sync...' : 'Sincronizar'}
           </button>
           <button onClick={abrirPickerEmpleados}
             disabled={cupoLleno}
-            title={cupoLleno ? `Cupo lleno (${cupoMax} vendedores). Desactiva uno o contrata más en Innovación Digital.` : ''}
+            title={cupoLleno ? `Cupo lleno (${cupoMax} vendedores). Desactiva uno o contrata más en Innovación Digital.` : 'Vincula un empleado ya existente (tblempleados) como vendedor móvil'}
             style={{
-              height: 38, padding: '0 14px', background: '#fff', color: cupoLleno ? '#9ca3af' : '#7c3aed',
-              border: 'none', borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: cupoLleno ? 'not-allowed' : 'pointer',
-              display: 'flex', alignItems: 'center', gap: 6,
-              boxShadow: '0 2px 8px rgba(0,0,0,0.12)',
+              height: 28, padding: '0 10px', background: '#fff', color: cupoLleno ? '#9ca3af' : '#7c3aed',
+              border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: cupoLleno ? 'not-allowed' : 'pointer',
+              display: 'flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap',
+              boxShadow: '0 2px 6px rgba(0,0,0,0.12)',
               opacity: cupoLleno ? 0.55 : 1,
             }}>
-            <Link size={14} /> Habilitar empleado existente
+            <Link size={12} /> Habilitar empleado
           </button>
           <button onClick={abrirCrear}
             disabled={cupoLleno}
-            title={cupoLleno ? `Cupo lleno (${cupoMax} vendedores). Desactiva uno o contrata más en Innovación Digital.` : ''}
+            title={cupoLleno ? `Cupo lleno (${cupoMax} vendedores). Desactiva uno o contrata más en Innovación Digital.` : 'Crear un vendedor móvil nuevo'}
             style={{
-              height: 38, padding: '0 14px',
+              height: 28, padding: '0 10px',
               background: 'rgba(255,255,255,0.15)', color: '#fff',
-              border: '1px solid rgba(255,255,255,0.3)', borderRadius: 10, fontSize: 13, fontWeight: 600,
+              border: '1px solid rgba(255,255,255,0.3)', borderRadius: 6, fontSize: 12, fontWeight: 600,
               cursor: cupoLleno ? 'not-allowed' : 'pointer',
-              display: 'flex', alignItems: 'center', gap: 6,
+              display: 'flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap',
               opacity: cupoLleno ? 0.5 : 1,
             }}>
-            <Plus size={14} /> Nuevo
+            <Plus size={12} /> Nuevo
           </button>
         </div>
       </div>
 
       {/* Tarjetas resumen */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 16 }}>
         {[
           { label: 'TOTAL VENDEDORES', value: String(vendedores.length), color: '#7c3aed', bg: '#f5f3ff', Icon: Smartphone },
           { label: 'ACTIVOS', value: String(totalActivos), color: '#16a34a', bg: '#f0fdf4', Icon: CheckCircle },

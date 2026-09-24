@@ -63,7 +63,7 @@ interface Props {
 
 export function StockBajo({ onNavigate }: Props) {
   const [productos, setProductos] = useState<Producto[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [filtroEtiqueta, setFiltroEtiqueta] = useState<number | null>(null);
   const [filtroProveedor, setFiltroProveedor] = useState<string>(''); // '' = todos, o CodigoPro string
   const [provQuery, setProvQuery] = useState('');

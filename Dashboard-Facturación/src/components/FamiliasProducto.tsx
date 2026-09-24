@@ -34,7 +34,7 @@ interface Familia {
 export function FamiliasProducto() {
   const [familias, setFamilias] = useState<Familia[]>([]);
   const [search, setSearch] = useState('');
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [editando, setEditando] = useState<Familia | null>(null);
   const [detalle, setDetalle] = useState<Familia | null>(null);
   const [showAgregarProducto, setShowAgregarProducto] = useState(false);

@@ -11,7 +11,7 @@ const fmtMon = (v: number) => '$ ' + Math.round(v).toLocaleString('es-CO');
 
 export function TopClientes() {
   const [data, setData] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [anio, setAnio] = useState(new Date().getFullYear());
   const [detalleId, setDetalleId] = useState<number | null>(null);
   const gridRef = useRef<AgGridReact>(null);

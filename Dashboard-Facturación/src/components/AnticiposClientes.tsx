@@ -387,7 +387,7 @@ function DetalleAnticipo({ id, onVolver }: { id: number; onVolver: () => void })
   const { user } = useAuth();
   const esAdmin = user?.tipoUsuario === 1 || user?.tipoUsuario === '1';
   const [data, setData] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [showDevolver, setShowDevolver] = useState(false);
   const [devValor, setDevValor] = useState(0);
   const [devMedio, setDevMedio] = useState(0);
