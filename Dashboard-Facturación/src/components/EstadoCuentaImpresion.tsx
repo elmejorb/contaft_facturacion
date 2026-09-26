@@ -1,5 +1,4 @@
-import { useRef } from 'react';
-import { Printer, X } from 'lucide-react';
+import { useRef, useEffect } from 'react';
 import { getEmpresaCache } from './ConfiguracionSistema';
 
 // Impresión del estado de cuenta de un cliente: listado de facturas
@@ -59,6 +58,17 @@ export function EstadoCuentaImpresion({ cliente, facturas, formato, onClose }: P
     return Math.floor((hoy.getTime() - d.getTime()) / (1000 * 60 * 60 * 24));
   };
 
+  // Al montar el componente, inmediatamente abrir la ventana externa con
+  // el HTML listo para imprimir y cerrar el "modal" React. Sin vista previa
+  // intermedia — así el usuario ve un solo diálogo (el del picker) y luego
+  // directo la ventana de impresión con su propio botón Imprimir.
+  useEffect(() => {
+    // Timeout 0 para asegurar que printRef ya está montado
+    const t = setTimeout(() => { imprimir(); onClose(); }, 0);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const imprimir = () => {
     const content = printRef.current;
     if (!content) return;
@@ -94,27 +104,13 @@ export function EstadoCuentaImpresion({ cliente, facturas, formato, onClose }: P
 
   const esTirilla = formato === 'tirilla';
 
+  // Sin modal visible — solo un contenedor oculto con el contenido para
+  // que el useEffect lo copie a la ventana externa. Ver comentario en el
+  // useEffect de arriba.
   return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 99999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.5)' }} onClick={onClose} />
-      <div style={{ position: 'relative', background: '#fff', borderRadius: 12, maxWidth: esTirilla ? 400 : 780, width: '100%', maxHeight: '90vh', overflow: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
-        {/* Toolbar */}
-        <div style={{ padding: '10px 16px', borderBottom: '1px solid #e5e7eb', display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'sticky', top: 0, background: '#fff', zIndex: 1 }}>
-          <span style={{ fontSize: 14, fontWeight: 700 }}>Estado de cuenta — {esTirilla ? 'Tirilla' : 'Media Carta'}</span>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={imprimir} style={{
-              height: 30, padding: '0 14px', background: '#7c3aed', color: '#fff',
-              border: 'none', borderRadius: 8, fontSize: 13, cursor: 'pointer',
-              display: 'flex', alignItems: 'center', gap: 6,
-            }}>
-              <Printer size={14} /> Imprimir
-            </button>
-            <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer' }}><X size={18} /></button>
-          </div>
-        </div>
-
-        {/* Preview */}
-        <div style={{ padding: 20 }}>
+    <div style={{ position: 'fixed', left: -99999, top: -99999, visibility: 'hidden' }}>
+      <div>
+        <div>
           <div ref={printRef}>
             {!esTirilla ? (
               /* ==================== MEDIA CARTA ==================== */
