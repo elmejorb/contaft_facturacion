@@ -52,6 +52,11 @@ try {
         : '';
     $selEtiq      = in_array('tbletiquetas', $tblExists) ? "COALESCE(e.Nombre, '')" : "''";
     $selEtiqColor = in_array('tbletiquetas', $tblExists) ? "COALESCE(e.Color, '')"  : "''";
+    // Bodegas defensivo — igual criterio que articulos.php
+    $hasBodegas   = in_array('tblbodegas', $tblExists) && in_array('Id_Bodega', $artCols);
+    $joinBodega   = $hasBodegas ? 'LEFT JOIN tblbodegas b ON a.Id_Bodega = b.Id_Bodega' : '';
+    $selIdBodega  = $hasBodegas ? 'COALESCE(a.Id_Bodega, 1)' : '1';
+    $selBodegaNom = $hasBodegas ? "COALESCE(b.Nombre, '')" : "''";
 
     $sql = "
         SELECT
@@ -76,19 +81,31 @@ try {
             COALESCE(fi.Id_Familia, 0) AS Id_Familia,
             COALESCE(f.Nombre, '')     AS Familia_Nombre,
             $selCodProv                AS CodigoPro,
-            $selNomProv                AS Proveedor_Nombre
+            $selNomProv                AS Proveedor_Nombre,
+            $selIdBodega               AS Id_Bodega,
+            $selBodegaNom              AS Nombre_Bodega
         FROM tblarticulos a
         LEFT JOIN tblfamilia_items fi ON a.Items = fi.Items
         LEFT JOIN tblfamilias_producto f ON fi.Id_Familia = f.Id_Familia
         $joinEtiq
         $joinProv
+        $joinBodega
         WHERE a.Estado = 1
           AND a.Existencia_minima > 0
           AND a.Existencia < a.Existencia_minima
-        ORDER BY (a.Existencia_minima - a.Existencia) DESC
     ";
 
-    $rows = $db->query($sql)->fetchAll(PDO::FETCH_ASSOC);
+    $bodegaFilter = isset($_GET['bodega']) ? intval($_GET['bodega']) : 0;
+    $params = [];
+    if ($bodegaFilter > 0 && $hasBodegas) {
+        $sql .= ' AND a.Id_Bodega = :bodega';
+        $params[':bodega'] = $bodegaFilter;
+    }
+    $sql .= ' ORDER BY (a.Existencia_minima - a.Existencia) DESC';
+
+    $stmt = $db->prepare($sql);
+    $stmt->execute($params);
+    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
     echo json_encode([
         'success' => true,
         'total' => count($rows),

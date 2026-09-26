@@ -25,6 +25,56 @@ header('Content-Type: application/json; charset=utf-8');
 const API_DIAN = 'https://api-electronica.innovacion-digital.com/public/api/consulta-adquiriente';
 const API_LOGIN = 'https://api-electronica.innovacion-digital.com/public/login';
 
+/**
+ * Extrae el nombre útil de la razón social larga que devuelve DIAN.
+ *
+ * DIAN registra en un solo string legal la razón social + todos los nombres
+ * abreviados y alternos autorizados, separados por texto libre en español (no
+ * hay separador estructurado). Recortamos en la primera de estas señales:
+ *   - " Y PODRÁ UTILIZAR ..."       (introduce nombres alternos)
+ *   - " PODRÁ UTILIZAR ..."
+ *   - " DENOMINACIÓN ABREVIADA ..." (a veces sin "Y podrá")
+ *   - ". LA COOPERATIVA ..."         (frase legal de cooperativas)
+ *   - "SIGUIENTES NOMBRES ..."       (lista de alias)
+ * Fallback: si nada matchea y el nombre supera 100 caracteres, cortar y "…".
+ *
+ * Idempotente y case-insensitive (tolera tildes con/sin).
+ */
+function limpiarRazonSocialDIAN(string $name): string {
+    $name = trim(preg_replace('/\s+/u', ' ', $name));
+    if ($name === '') return $name;
+
+    // Patrones ordenados de más específico a más genérico.
+    $patrones = [
+        '/\s+Y\s+PODR[ÁA]\s+UTILIZAR\b.*$/iu',
+        '/\s+PODR[ÁA]\s+UTILIZAR\b.*$/iu',
+        '/\s+DENOMINACI[ÓO]N\s+ABREVIADA\b.*$/iu',
+        '/\.\s+LA\s+COOPERATIVA\b.*$/iu',
+        '/\s+SIGUIENTES\s+NOMBRES\b.*$/iu',
+    ];
+    foreach ($patrones as $p) {
+        $recortado = preg_replace($p, '', $name);
+        if ($recortado !== null && $recortado !== $name) {
+            // Solo quitamos separadores obvios; el punto final se conserva
+            // porque puede ser parte de una abreviatura legítima (S.A., LTDA.).
+            $name = trim(rtrim($recortado, ",; \t"));
+            break;
+        }
+    }
+
+    // Fallback duro: si aun así queda largo, cortar en el primer punto y
+    // limitar a 100 caracteres (evita meter párrafos en tblclientes.Nombre_Cliente).
+    if (mb_strlen($name) > 100) {
+        $pos = mb_strpos($name, '. ');
+        if ($pos !== false && $pos <= 100) {
+            $name = mb_substr($name, 0, $pos);
+        } else {
+            $name = mb_substr($name, 0, 100) . '…';
+        }
+    }
+    return trim($name);
+}
+
 function httpJson(string $url, string $method, ?array $body = null, ?string $bearer = null): array {
     $ch = curl_init($url);
     $headers = ['Content-Type: application/json', 'Accept: application/json'];
@@ -124,7 +174,17 @@ try {
         exit;
     }
 
-    // Propagar la respuesta tal cual (200/404/500) al frontend
+    // Sanitizar name — DIAN devuelve la razón social + todos los nombres
+    // autorizados en un solo string (ej. COLANTA NIT 890904478 devuelve
+    // "COOPERATIVA COLANTA Y PODRÁ UTILIZAR LA DENOMINACIÓN ABREVIADA
+    // COLANTA. LA COOPERATIVA PODRÁ UTILIZAR ADEMÁS LOS SIGUIENTES
+    // NOMBRES: ..."). Nos quedamos solo con el primer nombre útil.
+    if (!empty($res['data']) && is_array($res['data']) && !empty($res['data']['name'])) {
+        $res['data']['name'] = limpiarRazonSocialDIAN($res['data']['name']);
+        $res['raw'] = json_encode($res['data'], JSON_UNESCAPED_UNICODE);
+    }
+
+    // Propagar la respuesta (200/404/500) al frontend
     http_response_code($res['_code'] ?: 500);
     echo $res['raw'] ?: json_encode(['success' => false, 'message' => 'Respuesta vacía del proveedor']);
 

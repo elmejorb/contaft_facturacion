@@ -45,6 +45,15 @@ interface Articulo {
   FactorConversion?: number;
   NombreEmpaque?: string | null;
   Precio_Venta_Empaque?: number | null;
+  Id_Bodega?: number;
+  Nombre_Bodega?: string;
+}
+
+interface Bodega {
+  Id_Bodega: number;
+  Nombre: string;
+  Principal: number;
+  Activa: number;
 }
 
 const myTheme = themeQuartz.withParams({
@@ -72,6 +81,10 @@ export function InventarioManagement() {
   const [filtroTipo, setFiltroTipo] = useState<'todos' | 'producto' | 'servicio'>('todos');
   // Filtro por etiqueta: null = todas, 0 = sin etiqueta, N = etiqueta con id N
   const [filtroEtiqueta, setFiltroEtiqueta] = useState<number | null>(null);
+  // Bodegas — se cargan del backend para que aparezcan TODAS las bodegas
+  // activas (aunque no tengan productos). Filtro null = todas.
+  const [bodegas, setBodegas] = useState<Bodega[]>([]);
+  const [filtroBodega, setFiltroBodega] = useState<number | null>(null);
   const [estado, setEstado] = useState('Activos');
   const [kardexModal, setKardexModal] = useState<{ isOpen: boolean; producto: Articulo | null }>({
     isOpen: false,
@@ -153,6 +166,16 @@ export function InventarioManagement() {
   useEffect(() => {
     cargarArticulos();
   }, [estado]);
+
+  // Cargar bodegas activas para el filtro. Silencioso: si el backend aún
+  // no tiene el módulo (BD sin tblbodegas) simplemente queda vacío y el
+  // filtro no se muestra.
+  useEffect(() => {
+    fetch('http://localhost:80/conta-app-backend/api/bodegas/')
+      .then(r => r.json())
+      .then(d => { if (d?.success) setBodegas((d.bodegas || []).filter((b: Bodega) => b.Activa)); })
+      .catch(() => { /* silencio */ });
+  }, []);
 
   // Aplicar filtros pendientes provenientes del Panel de Sugerencias o
   // NotificacionEmergente. Ej.: sugerencia "Top producto" envía el código
@@ -334,6 +357,20 @@ export function InventarioManagement() {
       valueFormatter: (params: { value: string }) => params.value || '-',
     },
     {
+      headerName: 'Bodega',
+      field: 'Nombre_Bodega' as keyof Articulo,
+      width: 130,
+      hide: bodegas.length <= 1,
+      cellRenderer: (params: { value: string }) => (
+        params.value
+          ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, color: '#4b5563' }}>
+              <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#7c3aed' }} />
+              {params.value}
+            </span>
+          : <span style={{ color: '#d1d5db', fontSize: 11 }}>—</span>
+      ),
+    },
+    {
       headerName: 'Estado',
       field: 'Estado' as keyof Articulo,
       width: 90,
@@ -429,6 +466,11 @@ export function InventarioManagement() {
         : filtrados.filter(a => a.Id_Etiqueta === filtroEtiqueta);
     }
 
+    // 2b) Filtrar por bodega (null = todas, N = bodega con id N)
+    if (filtroBodega !== null) {
+      filtrados = filtrados.filter(a => Number(a.Id_Bodega ?? 1) === filtroBodega);
+    }
+
     // 3) Ordenar inteligente por búsqueda
     const term = (busqueda || '').toLowerCase().trim();
     if (!term) return filtrados;
@@ -444,7 +486,7 @@ export function InventarioManagement() {
       if (ra !== rb) return ra - rb;
       return (a.Descripcion || '').localeCompare(b.Descripcion || '');
     });
-  }, [articulos, busqueda, filtroTipo, filtroEtiqueta]);
+  }, [articulos, busqueda, filtroTipo, filtroEtiqueta, filtroBodega]);
 
   // Conteos para mostrar en los botones del filtro
   const totalProductos = useMemo(() => articulos.filter(a => !a.Servicio).length, [articulos]);
@@ -689,6 +731,45 @@ export function InventarioManagement() {
                 })()}
               </>
             )}
+          </div>
+        )}
+
+        {/* Pills de bodegas (solo si el cliente tiene más de una) */}
+        {bodegas.length > 1 && (
+          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
+            <button type="button" onClick={() => setFiltroBodega(null)}
+              style={{
+                height: 26, padding: '0 10px', borderRadius: 6,
+                border: `1px solid ${filtroBodega === null ? '#7c3aed' : '#e5e7eb'}`,
+                background: filtroBodega === null ? '#7c3aed' : '#fff',
+                color: filtroBodega === null ? '#fff' : '#374151',
+                fontSize: 11, fontWeight: 600, cursor: 'pointer',
+              }}>
+              Todas bodegas
+            </button>
+            {bodegas.map(b => {
+              const active = filtroBodega === b.Id_Bodega;
+              const count = articulos.filter(a => Number(a.Id_Bodega ?? 1) === b.Id_Bodega).length;
+              return (
+                <button key={b.Id_Bodega} type="button" onClick={() => setFiltroBodega(active ? null : b.Id_Bodega)}
+                  style={{
+                    height: 26, padding: '0 10px', borderRadius: 6,
+                    border: `1px solid ${active ? '#7c3aed' : '#e5e7eb'}`,
+                    background: active ? '#7c3aed' : '#fff',
+                    color: active ? '#fff' : '#374151',
+                    fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                    display: 'flex', alignItems: 'center', gap: 5,
+                  }}>
+                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: active ? '#fff' : '#7c3aed' }} />
+                  <span>{b.Nombre}{b.Principal ? ' ★' : ''}</span>
+                  <span style={{
+                    fontSize: 10, fontWeight: 700, padding: '0 5px', borderRadius: 8, lineHeight: '15px',
+                    background: active ? 'rgba(255,255,255,0.25)' : '#f3f4f6',
+                    color: active ? '#fff' : '#6b7280',
+                  }}>{count}</span>
+                </button>
+              );
+            })}
           </div>
         )}
 

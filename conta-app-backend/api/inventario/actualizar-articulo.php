@@ -48,6 +48,7 @@ try {
     $tieneVenderEmp = in_array('VenderComoEmpaque', $cols);
     $tieneComprarEmp = in_array('ComprarComoEmpaque', $cols);
     $tienePrecioEmp = in_array('Precio_Venta_Empaque', $cols);
+    $tieneBodega = in_array('Id_Bodega', $cols);
 
     // Notas defensivas:
     //   - `Servicio` y `requiere_lote`: `!empty()` funciona bien para 0/1
@@ -116,6 +117,10 @@ try {
         // Vacio o 0 → NULL (deja que se calcule Precio_Venta × Factor)
         $val = $input['Precio_Venta_Empaque'] ?? null;
         $params[':precioEmp'] = ($val === null || $val === '' || floatval($val) <= 0) ? null : floatval($val);
+    }
+    if ($tieneBodega && isset($input['Id_Bodega'])) {
+        $sets[] = 'Id_Bodega = :idBodega';
+        $params[':idBodega'] = max(1, intval($input['Id_Bodega']));
     }
     $sets[] = 'FechaMod = NOW()';
 

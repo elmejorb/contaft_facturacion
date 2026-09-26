@@ -67,6 +67,12 @@ try {
     $joinEtiq     = in_array('tbletiquetas', $tblExists) ? 'LEFT JOIN tbletiquetas e ON a.Id_Etiqueta = e.Id_Etiqueta' : '';
     $selEtiq      = in_array('tbletiquetas', $tblExists) ? "COALESCE(e.Nombre, '')" : "''";
     $selEtiqColor = in_array('tbletiquetas', $tblExists) ? "COALESCE(e.Color, '')" : "''";
+    // Bodegas — defensivo: si el cliente no ha corrido actualizacion_completa,
+    // no rompemos el listado; devolvemos Id_Bodega=1 (Principal) y nombre vacío.
+    $hasBodegas   = in_array('tblbodegas', $tblExists) && in_array('Id_Bodega', $artCols);
+    $joinBodega   = $hasBodegas ? 'LEFT JOIN tblbodegas b ON a.Id_Bodega = b.Id_Bodega' : '';
+    $selIdBodega  = $hasBodegas ? 'COALESCE(a.Id_Bodega, 1)' : '1';
+    $selBodegaNom = $hasBodegas ? "COALESCE(b.Nombre, '')" : "''";
 
     // Construir la consulta SQL con LEFT JOIN para obtener nombres de categoría y proveedor
     $query = "SELECT
@@ -97,24 +103,34 @@ try {
                 $selNombreEmp AS NombreEmpaque,
                 $selVenderEmp AS VenderComoEmpaque,
                 $selComprarEmp AS ComprarComoEmpaque,
-                $selPrecioEmp AS Precio_Venta_Empaque
+                $selPrecioEmp AS Precio_Venta_Empaque,
+                $selIdBodega AS Id_Bodega,
+                $selBodegaNom AS Nombre_Bodega
               FROM tblArticulos a
               LEFT JOIN tblcategoria c ON a.Id_Categoria = c.Id_Categoria
               $joinProv
-              $joinEtiq";
+              $joinEtiq
+              $joinBodega";
 
     // Filtro por Items (traer un solo producto — usado por Editar Producto
     // desde Nueva Compra sin salir de la pantalla).
     $itemsFilter = isset($_GET['items']) ? intval($_GET['items']) : 0;
+    $bodegaFilter = isset($_GET['bodega']) ? intval($_GET['bodega']) : 0;
     $params = [];
+    $wheres = [];
     if ($itemsFilter > 0) {
-        $query .= " WHERE a.Items = :items";
+        $wheres[] = 'a.Items = :items';
         $params[':items'] = $itemsFilter;
     } elseif ($estado === 'Activos') {
-        $query .= " WHERE a.Estado = 1";
+        $wheres[] = 'a.Estado = 1';
     } elseif ($estado === 'Inactivos') {
-        $query .= " WHERE a.Estado = 0";
+        $wheres[] = 'a.Estado = 0';
     }
+    if ($bodegaFilter > 0 && $hasBodegas) {
+        $wheres[] = 'a.Id_Bodega = :bodega';
+        $params[':bodega'] = $bodegaFilter;
+    }
+    if ($wheres) $query .= ' WHERE ' . implode(' AND ', $wheres);
 
     // Agregar ordenamiento
     $query .= " ORDER BY a.$ordenarPorReal $orden";
@@ -134,6 +150,7 @@ try {
         $articulo['Precio3'] = floatval($articulo['Precio3']);
         $articulo['PrecioMinimo'] = floatval($articulo['PrecioMinimo']);
         $articulo['Iva'] = intval($articulo['Iva']);
+        $articulo['Id_Bodega'] = intval($articulo['Id_Bodega'] ?? 1);
     }
 
     http_response_code(200);

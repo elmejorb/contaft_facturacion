@@ -3,6 +3,7 @@ import { AgGridReact } from 'ag-grid-react';
 import { AllCommunityModule, ModuleRegistry, ColDef } from 'ag-grid-community';
 import { X, FileText, ShoppingBag, BarChart3, DollarSign, Receipt, CreditCard, Wallet, Save, CheckCircle, Search, Ban, Pencil, Printer, MapPin } from 'lucide-react';
 import { ReciboImpresion } from './ReciboImpresion';
+import { EstadoCuentaImpresion } from './EstadoCuentaImpresion';
 import { DetalleFacturaModal } from './DetalleFacturaModal';
 import { getConfigImpresion } from './ConfiguracionSistema';
 import { confirmar } from './ConfirmDialog';
@@ -40,6 +41,8 @@ export function ClienteDetalle({ clienteId, onClose, tabInicial = 'ventas' }: Pr
   const [medioPago, setMedioPago] = useState(0);
   const [fechaPago, setFechaPago] = useState(hoyLocal());
   const [reciboImprimir, setReciboImprimir] = useState<any>(null);
+  const [pickerEstadoCuenta, setPickerEstadoCuenta] = useState(false);
+  const [estadoCuentaFormato, setEstadoCuentaFormato] = useState<'media-carta' | 'tirilla' | null>(null);
   const [pagoGlobal, setPagoGlobal] = useState('');
   const [descuentoGlobal, setDescuentoGlobal] = useState('');
   const [guardandoPago, setGuardandoPago] = useState(false);
@@ -410,6 +413,21 @@ export function ClienteDetalle({ clienteId, onClose, tabInicial = 'ventas' }: Pr
             </button>
           )}
 
+          {pendientes.length > 0 && (
+            <button onClick={() => setPickerEstadoCuenta(true)}
+              title="Imprimir estado de cuenta del cliente (listado de facturas pendientes)"
+              style={{
+                height: 32, padding: '0 12px', display: 'flex', alignItems: 'center', gap: 6,
+                background: '#f3e8ff', color: '#6b21a8',
+                border: '1px solid #c4b5fd', borderRadius: 8, cursor: 'pointer',
+                fontSize: 12, fontWeight: 600,
+              }}
+              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#e9d5ff'; }}
+              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = '#f3e8ff'; }}
+            >
+              <Printer size={14} /> Estado de cuenta
+            </button>
+          )}
           <select
             value={anio}
             onChange={e => setAnio(parseInt(e.target.value))}
@@ -422,11 +440,21 @@ export function ClienteDetalle({ clienteId, onClose, tabInicial = 'ventas' }: Pr
         </div>
 
         {/* Stats */}
+        {(() => {
+          // Saldo Pendiente = suma de las facturas del tab Pagar (todas las
+          // pendientes del cliente, SIN filtrar año), para que coincida con
+          // el "Saldo Total" que muestra el módulo Cartera. Antes usaba
+          // resumen.saldo_pendiente que solo cuenta las del año seleccionado
+          // — desincronizaba el header con la lista de abajo.
+          const saldoTotalPendiente = pendientes.reduce(
+            (s: number, f: any) => s + (Number(f.Saldo) || 0), 0
+          );
+          return (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, padding: '12px 20px', flexShrink: 0 }}>
           {[
             { label: 'Facturas', value: resumen.total_facturas || 0, icon: Receipt, bg: '#f3e8ff', color: '#7c3aed' },
             { label: `Ventas ${anio}`, value: fmtMon(resumen.monto_total || 0), icon: DollarSign, bg: '#dcfce7', color: '#16a34a', isText: true },
-            { label: 'Saldo Pendiente', value: fmtMon(resumen.saldo_pendiente || 0), icon: CreditCard, bg: resumen.saldo_pendiente > 0 ? '#fee2e2' : '#dcfce7', color: resumen.saldo_pendiente > 0 ? '#dc2626' : '#16a34a', isText: true },
+            { label: 'Saldo Pendiente', value: fmtMon(saldoTotalPendiente), icon: CreditCard, bg: saldoTotalPendiente > 0 ? '#fee2e2' : '#dcfce7', color: saldoTotalPendiente > 0 ? '#dc2626' : '#16a34a', isText: true },
           ].map((s, i) => {
             const Icon = s.icon;
             return (
@@ -442,6 +470,8 @@ export function ClienteDetalle({ clienteId, onClose, tabInicial = 'ventas' }: Pr
             );
           })}
         </div>
+          );
+        })()}
 
         {/* Tabs */}
         <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid #e5e7eb', padding: '0 20px', flexShrink: 0 }}>
@@ -946,6 +976,70 @@ export function ClienteDetalle({ clienteId, onClose, tabInicial = 'ventas' }: Pr
             factN={previewFactN}
             onClose={() => setPreviewFactN(null)}
             onUpdate={() => { cargar(anio); cargarPagos(); }}
+          />
+        </div>
+      )}
+
+      {/* Picker de formato para el estado de cuenta */}
+      {pickerEstadoCuenta && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 12000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.5)' }} onClick={() => setPickerEstadoCuenta(false)} />
+          <div style={{ position: 'relative', background: '#fff', borderRadius: 12, width: 420, boxShadow: '0 20px 60px rgba(0,0,0,0.3)', overflow: 'hidden' }}>
+            <div style={{ background: '#7c3aed', color: '#fff', padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: 14, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <Printer size={16} /> Formato del estado de cuenta
+              </span>
+              <button onClick={() => setPickerEstadoCuenta(false)} style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer' }}><X size={18} /></button>
+            </div>
+            <div style={{ padding: 16, display: 'grid', gap: 10 }}>
+              <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>
+                Elija cómo imprimir el estado de cuenta del cliente {cliente?.Razon_Social || ''} ({pendientes.length} facturas pendientes).
+              </div>
+              <button onClick={() => { setEstadoCuentaFormato('media-carta'); setPickerEstadoCuenta(false); }}
+                style={{ padding: 14, background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 8, cursor: 'pointer', textAlign: 'left', display: 'flex', gap: 12, alignItems: 'center' }}
+                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#f3e8ff'; (e.currentTarget as HTMLElement).style.borderColor = '#c4b5fd'; }}
+                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = '#f9fafb'; (e.currentTarget as HTMLElement).style.borderColor = '#e5e7eb'; }}>
+                <div style={{ width: 40, height: 50, border: '2px solid #7c3aed', borderRadius: 4, flexShrink: 0, background: '#fff' }} />
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#1f2937' }}>Carta / Media Carta</div>
+                  <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>Formato formal en hoja para archivo, correo o entrega en papel.</div>
+                </div>
+              </button>
+              <button onClick={() => { setEstadoCuentaFormato('tirilla'); setPickerEstadoCuenta(false); }}
+                style={{ padding: 14, background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 8, cursor: 'pointer', textAlign: 'left', display: 'flex', gap: 12, alignItems: 'center' }}
+                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#f3e8ff'; (e.currentTarget as HTMLElement).style.borderColor = '#c4b5fd'; }}
+                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = '#f9fafb'; (e.currentTarget as HTMLElement).style.borderColor = '#e5e7eb'; }}>
+                <div style={{ width: 22, height: 50, border: '2px solid #7c3aed', borderRadius: 3, flexShrink: 0, background: '#fff' }} />
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#1f2937' }}>Tirilla POS (80mm)</div>
+                  <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>Impresión rápida en la impresora térmica del mostrador.</div>
+                </div>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Vista previa del estado de cuenta con opción imprimir */}
+      {estadoCuentaFormato && cliente && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 12500 }}>
+          <EstadoCuentaImpresion
+            cliente={{
+              CodigoClien: clienteId,
+              Razon_Social: cliente.Razon_Social || '',
+              Nit: cliente.Nit || '',
+              Telefonos: cliente.Telefonos || '',
+            }}
+            facturas={pendientes.map((f: any) => ({
+              Factura_N: f.Factura_N,
+              Fecha: f.Fecha,
+              Total: Number(f.Total) || 0,
+              Saldo: Number(f.Saldo) || 0,
+              Tipo: f.Tipo,
+              DiasVencimiento: f.DiasVencimiento,
+            }))}
+            formato={estadoCuentaFormato}
+            onClose={() => setEstadoCuentaFormato(null)}
           />
         </div>
       )}

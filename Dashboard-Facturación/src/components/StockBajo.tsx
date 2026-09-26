@@ -55,6 +55,15 @@ interface Producto {
   Familia_Nombre: string;
   CodigoPro: number | null;
   Proveedor_Nombre: string;
+  Id_Bodega?: number;
+  Nombre_Bodega?: string;
+}
+
+interface Bodega {
+  Id_Bodega: number;
+  Nombre: string;
+  Principal: number;
+  Activa: number;
 }
 
 interface Props {
@@ -66,6 +75,8 @@ export function StockBajo({ onNavigate }: Props) {
   const [loading, setLoading] = useState(false);
   const [filtroEtiqueta, setFiltroEtiqueta] = useState<number | null>(null);
   const [filtroProveedor, setFiltroProveedor] = useState<string>(''); // '' = todos, o CodigoPro string
+  const [bodegas, setBodegas] = useState<Bodega[]>([]);
+  const [filtroBodega, setFiltroBodega] = useState<number | null>(null);
   const [provQuery, setProvQuery] = useState('');
   const [provOpen, setProvOpen] = useState(false);
   const provInputRef = useRef<HTMLInputElement | null>(null);
@@ -85,6 +96,13 @@ export function StockBajo({ onNavigate }: Props) {
   };
 
   useEffect(() => { cargar(); }, []);
+
+  useEffect(() => {
+    fetch('http://localhost:80/conta-app-backend/api/bodegas/')
+      .then(r => r.json())
+      .then(d => { if (d?.success) setBodegas((d.bodegas || []).filter((b: Bodega) => b.Activa)); })
+      .catch(() => { /* silencio */ });
+  }, []);
 
   // Etiquetas disponibles (deriva de los datos, con conteo y color)
   const etiquetasDisponibles = useMemo(() => {
@@ -116,13 +134,14 @@ export function StockBajo({ onNavigate }: Props) {
     return Array.from(mapa.values()).sort((a, b) => b.count - a.count);
   }, [productos]);
 
-  // Filtrar por etiqueta + proveedor
+  // Filtrar por etiqueta + proveedor + bodega
   const productosFiltrados = useMemo(() => {
     let arr = productos;
     if (filtroEtiqueta !== null) arr = arr.filter(a => a.Id_Etiqueta === filtroEtiqueta);
     if (filtroProveedor) arr = arr.filter(a => String(a.CodigoPro || '') === filtroProveedor);
+    if (filtroBodega !== null) arr = arr.filter(a => Number(a.Id_Bodega ?? 1) === filtroBodega);
     return arr;
-  }, [productos, filtroEtiqueta, filtroProveedor]);
+  }, [productos, filtroEtiqueta, filtroProveedor, filtroBodega]);
 
   // KPIs
   const kpis = useMemo(() => {
@@ -354,8 +373,28 @@ export function StockBajo({ onNavigate }: Props) {
         </div>
       </div>
 
-      {/* Filtros: proveedor (combobox filtrable) + etiqueta (pills) */}
+      {/* Filtros: bodega (select) + proveedor (combobox) + etiqueta (pills) */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+        {bodegas.length > 1 && (
+          <>
+            <span style={{ fontSize: 11, color: '#6b7280', fontWeight: 600 }}>Bodega:</span>
+            <select value={filtroBodega ?? ''}
+              onChange={(e) => setFiltroBodega(e.target.value === '' ? null : Number(e.target.value))}
+              style={{
+                height: 26, padding: '0 8px', borderRadius: 6,
+                border: `1px solid ${filtroBodega !== null ? '#7c3aed' : '#d1d5db'}`,
+                background: filtroBodega !== null ? '#f3e8ff' : '#fff',
+                color: filtroBodega !== null ? '#6b21a8' : '#374151',
+                fontSize: 11, fontWeight: 600, cursor: 'pointer', outline: 'none',
+              }}>
+              <option value="">Todas ({productos.length})</option>
+              {bodegas.map(b => {
+                const count = productos.filter(p => Number(p.Id_Bodega ?? 1) === b.Id_Bodega).length;
+                return <option key={b.Id_Bodega} value={b.Id_Bodega}>{b.Nombre}{b.Principal ? ' ★' : ''} ({count})</option>;
+              })}
+            </select>
+          </>
+        )}
         {proveedoresDisponibles.length > 0 && (
           <>
             <span style={{ fontSize: 11, color: '#6b7280', fontWeight: 600 }}>Proveedor:</span>

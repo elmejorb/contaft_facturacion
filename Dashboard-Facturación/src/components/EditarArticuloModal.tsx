@@ -17,7 +17,10 @@ interface Articulo {
   VenderComoEmpaque?: number | boolean;
   ComprarComoEmpaque?: number | boolean;
   Precio_Venta_Empaque?: number | string | null;
+  Id_Bodega?: number;
 }
+
+interface BodegaOpt { Id_Bodega: number; Nombre: string; Principal: number; Activa: number; }
 
 interface Props {
   isOpen: boolean; onClose: () => void; articulo: Articulo | null; onGuardado: (producto?: any) => void;
@@ -38,6 +41,7 @@ export function EditarArticuloModal({ isOpen, onClose, articulo, onGuardado, mod
     Id_Categoria: 0, CodigoPro: 0, Estante: '', Estado: 1, requiere_lote: 0, Servicio: 0, Id_Etiqueta: 0,
     FactorConversion: 1, NombreEmpaque: '', VenderComoEmpaque: 0, ComprarComoEmpaque: 0,
     Precio_Venta_Empaque: 0,
+    Id_Bodega: 1, // Por default: Bodega Principal
   };
 
   const formDesdeArticulo = (a: Articulo) => ({
@@ -61,6 +65,7 @@ export function EditarArticuloModal({ isOpen, onClose, articulo, onGuardado, mod
     VenderComoEmpaque: Number(a.VenderComoEmpaque) === 1 ? 1 : 0,
     ComprarComoEmpaque: Number(a.ComprarComoEmpaque) === 1 ? 1 : 0,
     Precio_Venta_Empaque: a.Precio_Venta_Empaque != null ? Number(a.Precio_Venta_Empaque) : 0,
+    Id_Bodega: Number(a.Id_Bodega) || 1,
   });
 
   // Inicializar form directamente desde props (no useEffect)
@@ -70,6 +75,7 @@ export function EditarArticuloModal({ isOpen, onClose, articulo, onGuardado, mod
   const [categorias, setCategorias] = useState<CatOpt[]>([]);
   const [proveedores, setProveedores] = useState<ProvOpt[]>([]);
   const [etiquetasOpt, setEtiquetasOpt] = useState<EtiquetaOpt[]>([]);
+  const [bodegas, setBodegas] = useState<BodegaOpt[]>([]);
   const [guardando, setGuardando] = useState(false);
   const [mensaje, setMensaje] = useState<{ tipo: 'ok' | 'error'; texto: string } | null>(null);
   const [showComponentes, setShowComponentes] = useState(false);
@@ -87,6 +93,9 @@ export function EditarArticuloModal({ isOpen, onClose, articulo, onGuardado, mod
       }).catch(() => {});
       fetch('http://localhost:80/conta-app-backend/api/etiquetas/index.php').then(r => r.json()).then(d => {
         if (d.success) setEtiquetasOpt(d.etiquetas || []);
+      }).catch(() => {});
+      fetch('http://localhost:80/conta-app-backend/api/bodegas/').then(r => r.json()).then(d => {
+        if (d?.success) setBodegas((d.bodegas || []).filter((b: BodegaOpt) => b.Activa));
       }).catch(() => {});
     }
   }, [isOpen]);
@@ -290,6 +299,18 @@ export function EditarArticuloModal({ isOpen, onClose, articulo, onGuardado, mod
                   {etiquetasOpt.map(et => <option key={et.Id_Etiqueta} value={et.Id_Etiqueta}>{et.Nombre}</option>)}
                 </select>
               </div>
+              {bodegas.length > 0 && !form.Servicio && (
+                <div>
+                  <label style={s.label} title="Bodega donde reside este producto. Para mover un producto entre bodegas, usa el módulo Bodegas → Trasladar Producto.">Bodega</label>
+                  <select value={form.Id_Bodega || 1} onChange={e => set('Id_Bodega', parseInt(e.target.value))} style={s.select}>
+                    {bodegas.map(b => (
+                      <option key={b.Id_Bodega} value={b.Id_Bodega}>
+                        {b.Nombre}{b.Principal ? ' ★' : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
               {!form.Servicio && (
                 <div>
                   <label style={s.label} title="Ubicación física del producto en la bodega (opcional)">Estante</label>
