@@ -528,7 +528,13 @@ ipcMain.handle('updater:install', () => {
   // cancela por error, la actualización queda a medio aplicar y el proceso
   // sigue vivo — típico de "actualicé y no cambió nada".
   cierreConfirmado = true;
-  autoUpdater.quitAndInstall();
+  // isSilent=true → pasa /S al instalador NSIS, sin wizard visible.
+  // isForceRunAfter=true → relanza la app al terminar la instalación.
+  // Sin isSilent, con oneClick:false el wizard queda en la pantalla "Ready
+  // to install" esperando click; el usuario no lo ve, cierra la ventana y
+  // queda con la versión vieja desinstalada + la nueva NO instalada
+  // (bug reportado por múltiples clientes 2026-09-30).
+  autoUpdater.quitAndInstall(true, true);
 });
 ipcMain.handle('subscription:check', () => validateForUsage());
 ipcMain.handle('subscription:checkUpdate', () => validateForUpdate());

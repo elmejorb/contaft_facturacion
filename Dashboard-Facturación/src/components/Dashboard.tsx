@@ -200,7 +200,11 @@ const TAB_SUPPORTED_VIEWS: ReadonlySet<View> = new Set<View>([
 
 // Views que pueden abrirse en múltiples pestañas (creadores). Las demás
 // tab-supported son singleton — si ya existe la pestaña, activarla en vez de duplicar.
-const MULTI_INSTANCE_VIEWS: ReadonlySet<View> = new Set<View>(['nueva-venta', 'nueva-compra']);
+// Nota: 'nueva-venta' y 'nueva-compra' YA manejan multi-factura con sub-tabs
+// internos (Factura 1, Factura 2, ...) — no necesitan también multi-instance
+// arriba. Antes generaba 2 tabs "Nueva Venta #1" y "Nueva Venta #2" con
+// sub-tabs cada una, y el operador se perdía entre ambos niveles.
+const MULTI_INSTANCE_VIEWS: ReadonlySet<View> = new Set<View>([]);
 
 // Nombre por defecto que se muestra en la pestaña según la view.
 const TITULO_POR_VIEW: Partial<Record<View, string>> = {
