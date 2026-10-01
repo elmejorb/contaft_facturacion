@@ -2190,14 +2190,21 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
                       onKeyDown={e => {
                         soloNum(e);
                         if (e.key === 'Enter') {
+                          // IMPORTANTE: cerrar sobre el <table> ANTES del blur.
+                          // El blur remueve focus y closest() se puede resolver
+                          // sobre un target detached; capturamos el contenedor
+                          // primero para búsqueda local (evita saltar al input
+                          // de OTRA factura/tab abierta con display:none).
+                          const table = (e.target as HTMLInputElement).closest('table');
                           (e.target as HTMLInputElement).blur();
-                          // Va al campo configurado como predeterminado
+                          // Va al campo configurado como predeterminado, DENTRO
+                          // de la misma tabla de esta factura (no global).
                           setTimeout(() => {
                             const cfg = getConfigImpresion();
                             const sel = cfg.campoPredeterminado === 'nombre'
                               ? 'input[data-venta-nombre-input]'
                               : 'input[data-venta-codigo-input]';
-                            const next = document.querySelector(sel) as HTMLInputElement | null;
+                            const next = (table?.querySelector(sel) || document.querySelector(sel)) as HTMLInputElement | null;
                             next?.focus(); next?.select();
                           }, 50);
                         }
@@ -2236,15 +2243,17 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
                           onKeyDown={e => {
                             soloNum(e);
                             if (e.key === 'Enter') {
+                              // Ver comentario en el Enter de Cantidad (más arriba):
+                              // buscamos dentro de la misma <table> para no saltar
+                              // al input de OTRA factura abierta con display:none.
+                              const table = (e.target as HTMLInputElement).closest('table');
                               (e.target as HTMLInputElement).blur();
-                              // Pasa a la fila de entrada — al campo configurado
-                              // como "predeterminado" (codigo o nombre).
                               setTimeout(() => {
                                 const cfg = getConfigImpresion();
                                 const sel = cfg.campoPredeterminado === 'nombre'
                                   ? 'input[data-venta-nombre-input]'
                                   : 'input[data-venta-codigo-input]';
-                                const next = document.querySelector(sel) as HTMLInputElement | null;
+                                const next = (table?.querySelector(sel) || document.querySelector(sel)) as HTMLInputElement | null;
                                 next?.focus(); next?.select();
                               }, 50);
                             }
@@ -2310,10 +2319,13 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
                           const d = await r.json();
                           if (d.success && d.articulos.length > 0) {
                             agregarProducto(d.articulos[0]);
+                            const table = (e.target as HTMLInputElement).closest('table');
                             (e.target as HTMLInputElement).value = '';
-                            // Focus cantidad of last added line
+                            // Focus cantidad de la última línea agregada DENTRO
+                            // de la tabla de ESTA factura (no global — evita
+                            // saltar al input de otra factura abierta).
                             setTimeout(() => {
-                              const cants = document.querySelectorAll('input[data-venta-cant]');
+                              const cants = (table || document).querySelectorAll('input[data-venta-cant]');
                               const last = cants[cants.length - 1] as HTMLInputElement;
                               last?.focus(); last?.select();
                             }, 50);
@@ -2347,10 +2359,12 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
                       if (e.key === 'Enter' && productoResults.length > 0) {
                         const idx = (window as any).__prodIdx ?? 0;
                         agregarProducto(productoResults[idx]);
+                        const table = (e.target as HTMLInputElement).closest('table');
                         (e.target as HTMLInputElement).value = '';
                         (window as any).__prodIdx = 0;
+                        // Focus dentro de la misma tabla — no en otro tab oculto.
                         setTimeout(() => {
-                          const cants = document.querySelectorAll('input[data-venta-cant]');
+                          const cants = (table || document).querySelectorAll('input[data-venta-cant]');
                           const last = cants[cants.length - 1] as HTMLInputElement;
                           last?.focus(); last?.select();
                         }, 50);
@@ -2653,7 +2667,7 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
                     <input type="text" placeholder="$ 0" value={pagoTransferencia}
                       onChange={e => setPagoTransferencia(e.target.value.replace(/[^0-9]/g, ''))}
                       autoFocus
-                      onKeyDown={e => { if (e.key === 'Enter') { const next = document.querySelector('[data-pago-efectivo]') as HTMLInputElement; next?.focus(); next?.select(); } }}
+                      onKeyDown={e => { if (e.key === 'Enter') { const scope = (e.target as HTMLInputElement).closest('[role="dialog"], form, .modal') || document; const next = scope.querySelector('[data-pago-efectivo]') as HTMLInputElement | null; next?.focus(); next?.select(); } }}
                       style={{ width: 130, height: 32, textAlign: 'right', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 14, fontWeight: 700, padding: '0 10px', outline: 'none' }} />
                   </div>
 
