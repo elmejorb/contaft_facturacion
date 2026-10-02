@@ -137,6 +137,12 @@ try {
     $efectivo = floatval($data->efectivo ?? 0);
     $valorPagado = floatval($data->valor_pagado ?? 0);
     $abono = floatval($data->abono ?? 0);
+    // tipo_documento: 'pos' (default) | 'electronica' | 'soporte' | 'cotizacion'
+    // POS → tblventas (consecutivo propio). FE/DS → electronic_documents
+    // (consecutivo DIAN propio). Son flujos SEPARADOS: una FE no gasta
+    // Factura_N de POS, igual que en el sistema VB6 original.
+    $tipoDocumento = $data->tipo_documento ?? 'pos';
+    $esFE = in_array($tipoDocumento, ['electronica', 'soporte'], true);
 
     // Régimen + IvaIncluido. Si NO es Responsable de IVA → IVA=0 siempre.
     // IvaIncluido=1 (default) → el precio del catálogo YA incluye IVA, hay
@@ -223,6 +229,176 @@ try {
     }
     $hora = date('H:i');
 
+    // ============================================================
+    // ROUTING FE/DS — si es Factura Electrónica o Documento Soporte,
+    // va DIRECTO a electronic_documents (no toca tblventas). Es el
+    // mismo modelo del sistema VB6 original: FE y POS en tablas
+    // separadas, con consecutivos propios. Al terminar hace commit
+    // y return; el flujo POS de abajo NO se ejecuta.
+    // ============================================================
+    if ($esFE) {
+        // Fecha para FE: electronic_documents.fecha es DATE (no DATETIME).
+        $fechaFE = $fechaCustom ?: date('Y-m-d');
+
+        // Metadata de pago (DIAN):
+        //   payment_form_id: 1=Contado, 2=Crédito
+        //   payment_method_id: catálogo DIAN (10=Efectivo, 14=Tarjeta, 30=Transferencia)
+        $payForm = ($tipo === 'Contado') ? 1 : 2;
+        $payDueDays = ($payForm === 2) ? intval($dias) : 0;
+        $payMethod = ($medioPago === 1) ? 14 : (($medioPago >= 2) ? 30 : 10);
+
+        // type_document_id: 1 = Factura Electrónica, 11 = Doc. Soporte Electrónico
+        $typeDocId = ($tipoDocumento === 'soporte') ? 11 : 1;
+        $prefijo = ($tipoDocumento === 'soporte') ? 'DS' : 'FCON';
+
+        // Insertar con number provisional 0; status='borrador'. Si choca con
+        // otro borrador en (prefix, 0) movemos los existentes a 9e9+id.
+        // Mismo mecanismo que ya usa enviar.php antes de enviar a DIAN.
+        $db->prepare("
+            UPDATE electronic_documents
+            SET number = 9000000000 + id
+            WHERE prefix = ? AND number = 0 AND status IN ('borrador', 'pendiente', 'rechazado')
+        ")->execute([$prefijo]);
+
+        $saldoFE = $tipo === 'Contado' ? 0 : max($total - $abono, 0);
+        $pagadaFE = $tipo === 'Contado' ? 'S' : ($saldoFE <= 0 ? 'S' : 'N');
+
+        // Columna 'saldo' no está en todas las BDs (existe en distrisalsa, no
+        // en innovacion). Chequeo defensivo para INSERT compatible.
+        $tieneSaldo = (int)$db->query("SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='electronic_documents' AND COLUMN_NAME='saldo'")->fetchColumn() > 0;
+        $colSaldo = $tieneSaldo ? ', saldo' : '';
+        $valSaldo = $tieneSaldo ? ', ?' : '';
+
+        $stmtFE = $db->prepare("
+            INSERT INTO electronic_documents
+            (fecha, cod_cliente, customer_identification, customer_name,
+             type_document_id, prefix, number, status, payment_due_days, descuento, total,
+             payment_form_id, payment_method_id, id_usuario, abono, codigoEmp,
+             id_mediopago, efectivo, valorpagado1, pagada, nota, EstadoFact $colSaldo)
+            VALUES (?, ?, ?, ?, ?, ?, 0, 'borrador', ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, 1 $valSaldo)
+        ");
+        $paramsFE = [
+            $fechaFE, $clienteId, $clienteIdent, $clienteNombre,
+            $typeDocId, $prefijo, $payDueDays, $totalDescuento, $total,
+            $payForm, $payMethod, $vendedor, $abono,
+            $medioPago, $efectivo, $valorPagado, $pagadaFE, $comentario
+        ];
+        if ($tieneSaldo) $paramsFE[] = $saldoFE;
+        $stmtFE->execute($paramsFE);
+        $docElecId = (int)$db->lastInsertId();
+
+        // Loop items: detalle_document_electronic + stock + kardex
+        $stmtDetFE = $db->prepare("
+            INSERT INTO detalle_document_electronic
+            (factura_n, items, unit_measure_id, invoiced_quantity, line_extension_amount,
+             free_of_charge_indicator, description, type_item_identification_id,
+             price_amount, PrecioCosto, discount_amount, base_quantity,
+             tax_id, tax_amount, taxable_amount, tax_percent)
+            VALUES (?, ?, ?, ?, ?, 0, ?, 3, ?, ?, ?, ?, 1, ?, ?, ?)
+        ");
+        $stmtStockFE = $db->prepare("UPDATE tblarticulos SET Existencia = Existencia - :cant WHERE Items = :items");
+        $stmtKardexFE = $db->prepare("
+            INSERT INTO tblkardex (Fecha, Mes, Items, Detalle, C_D, Cant_Ent, Cost_Ent, Cant_Sal, Cost_Sal, Cant_Saldo, Cost_Saldo, Cost_Unit)
+            VALUES (NOW(), :mes, :items, :det, 2, 0, 0, :cant, :cost_sal, :saldo_cant, :saldo_cost, :cost_unit)
+        ");
+        $mesNombreFE = (['','Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'])[$mesActual] ?? '';
+        $refKardex = "$prefijo-$docElecId"; // provisional; cuando DIAN autoriza queda prefix+number real
+
+        foreach ($data->items as $item) {
+            $itemId = intval($item->items);
+            $cant = floatval($item->cantidad);
+            $precioV = floatval($item->precio);
+            $precioC = floatval($item->precio_costo);
+            $desc = floatval($item->descuento ?? 0);
+            $iva = $esResponsableIVA ? floatval($item->iva ?? 0) : 0;
+            $esServicio = !empty($item->es_servicio);
+            if ($esServicio) {
+                $srv = $db->prepare("SELECT COALESCE(Servicio, 0) FROM tblarticulos WHERE Items = ?");
+                $srv->execute([$itemId]);
+                if (intval($srv->fetchColumn()) === 0) $esServicio = false;
+            }
+            $lineAmount = ($cant * $precioV) - $desc;
+            // IVA siempre incluido en el precio (regla del sistema): se extrae.
+            $lineaIva = $iva > 0 ? round($lineAmount * ($iva / (100 + $iva)), 2) : 0;
+            $baseAmount = $lineAmount - $lineaIva;
+
+            // Nombre del artículo para description
+            $nomSt = $db->prepare("SELECT Nombres_Articulo, unit_measure_id FROM tblarticulos WHERE Items = ?");
+            $nomSt->execute([$itemId]);
+            $art = $nomSt->fetch() ?: ['Nombres_Articulo' => 'Producto', 'unit_measure_id' => 70];
+            $descripcion = $esServicio && !empty($item->descripcion_temp)
+                ? $item->descripcion_temp
+                : ($art['Nombres_Articulo'] ?? 'Producto');
+            $unitMeasure = intval($art['unit_measure_id'] ?? 70);
+
+            $stmtDetFE->execute([
+                $docElecId, $itemId, $unitMeasure,
+                number_format($cant, 2, '.', ''), number_format($baseAmount, 2, '.', ''),
+                $descripcion,
+                number_format($precioV, 2, '.', ''),
+                number_format($precioC, 4, '.', ''),
+                number_format($desc, 2, '.', ''),
+                number_format($cant, 2, '.', ''),
+                number_format($lineaIva, 2, '.', ''),
+                number_format($baseAmount, 2, '.', ''),
+                number_format($iva, 2, '.', '')
+            ]);
+
+            // Servicios no mueven stock/kardex
+            if ($esServicio) continue;
+
+            // Stock + kardex (igual que POS, solo cambia el string Detalle)
+            $stmtStockFE->execute([':cant' => $cant, ':items' => $itemId]);
+            $exi = $db->prepare("SELECT Existencia, Precio_Costo FROM tblarticulos WHERE Items = ?");
+            $exi->execute([$itemId]);
+            $a = $exi->fetch();
+            if ($a) {
+                $costoUnit = floatval($a['Precio_Costo']);
+                $existActual = floatval($a['Existencia']);
+                $stmtKardexFE->execute([
+                    ':mes' => $mesNombreFE, ':items' => $itemId,
+                    ':det' => "Venta FE N° $refKardex",
+                    ':cant' => $cant, ':cost_sal' => $cant * $costoUnit,
+                    ':saldo_cant' => $existActual, ':saldo_cost' => $existActual * $costoUnit,
+                    ':cost_unit' => $costoUnit
+                ]);
+            }
+        }
+
+        // Abono inicial en FE a crédito → tblpagos con Nfact_electronica
+        // (NO Fact_N, para que no colisione con una venta POS del mismo número)
+        if ($tipo !== 'Contado' && $abono > 0) {
+            $rec = (int)$db->query("SELECT COALESCE(MAX(RecCajaN), 0) + 1 FROM tblpagos")->fetchColumn();
+            $db->prepare("
+                INSERT INTO tblpagos (RecCajaN, Codigo, Fact_N, ValorPago, Fecha, DetallePago,
+                    ValorFact, SaldoAct, Descuento, Retencion, Estado, Afectada, id_mediopago,
+                    NFactAnt, Nfact_electronica, FechaMod, id_usuario)
+                VALUES (?, ?, NULL, ?, NOW(), ?, ?, ?, 0, 0, 'Valida', '1110', ?, '', ?, NOW(), ?)
+            ")->execute([
+                $rec, $clienteId, $abono,
+                "Abono inicial FE $refKardex",
+                $total, max($total - $abono, 0),
+                $medioPago, $refKardex, $vendedor
+            ]);
+        }
+
+        $db->commit();
+
+        echo json_encode([
+            "success" => true,
+            "message" => "Documento FE #$docElecId creado (borrador, pendiente DIAN)",
+            "origen" => "FE",
+            "doc_elec_id" => $docElecId,
+            "prefix" => $prefijo,
+            "Total" => $total,
+            "Cambio" => $cambio
+        ], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+    // ============================================================
+    // FIN ROUTING FE — a partir de aquí, flujo POS clásico (tblventas)
+    // ============================================================
+
     // Insert factura (sin Factura_N — AUTO_INCREMENT lo genera)
     $stmt = $db->prepare("
         INSERT INTO tblventas (N_Mes, anio, Fecha, Tipo, Dias, CodigoCli, A_nombre,
@@ -233,7 +409,7 @@ try {
             :imp, :desc, :total, :saldo, 'Recibido', :com, 'Valida', :pago, :cambio, :hora,
             :usuario, :abono, :pagada, 0, :medio, :efectivo, :valorpagado)
     ");
-    $stmt->execute(array_merge([
+    $params = [
         ':mes' => $mesActual, ':anio' => $anioVenta,
         ':tipo' => $tipo, ':dias' => $dias, ':cli' => $clienteId,
         ':nombre' => $clienteNombre, ':ident' => $clienteIdent,
@@ -243,7 +419,8 @@ try {
         ':cambio' => $cambio, ':hora' => $hora, ':usuario' => $vendedor,
         ':abono' => $abono, ':pagada' => $pagada, ':medio' => $medioPago,
         ':efectivo' => $efectivo, ':valorpagado' => $valorPagado,
-    ], $fechaParams));
+    ];
+    $stmt->execute(array_merge($params, $fechaParams));
 
     $factN = $db->lastInsertId();
 
@@ -445,6 +622,7 @@ try {
     echo json_encode([
         "success" => true,
         "message" => "Factura #$factN creada exitosamente",
+        "origen" => "POS",
         "Factura_N" => $factN,
         "Total" => $total,
         "Cambio" => $cambio

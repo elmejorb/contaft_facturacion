@@ -14,6 +14,22 @@ import { confirmar } from './ConfirmDialog';
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
+// Parsea una fecha respetando el huso horario local. Clave para columnas tipo
+// DATE (YYYY-MM-DD) del backend: `new Date('2026-10-01')` lo lee como UTC
+// midnight, y en Colombia (UTC-5) retrocede al día anterior (30/9). Agregar
+// 'T00:00:00' fuerza interpretación local y mantiene la fecha correcta.
+// DATETIME completos (con 'T' o espacio) se parsean normal.
+const toDateLocal = (s: string | Date | null | undefined): Date | null => {
+  if (!s) return null;
+  if (s instanceof Date) return s;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return new Date(s + 'T00:00:00');
+  return new Date(s);
+};
+const fmtFechaLocal = (s: string | Date | null | undefined): string => {
+  const d = toDateLocal(s);
+  return d ? d.toLocaleDateString('es-CO') : '-';
+};
+
 const myTheme = themeQuartz.withParams({
   headerBackgroundColor: '#f3e8ff',
   headerTextColor: '#6b21a8',
@@ -565,7 +581,7 @@ export function FacturacionElectronica({ onNavigate }: Props = {}) {
       }
     },
     { headerName: 'Fecha', field: 'fecha', width: 105, sortable: true,
-      cellRenderer: (p: any) => p.value ? new Date(p.value).toLocaleDateString('es-CO') : '-'
+      cellRenderer: (p: any) => fmtFechaLocal(p.value)
     },
     { headerName: 'Cliente', field: 'cliente_nombre', flex: 1, minWidth: 160, sortable: true,
       cellRenderer: (p: any) => <span style={{ fontWeight: 500 }}>{p.value || '-'}</span>
@@ -752,7 +768,7 @@ export function FacturacionElectronica({ onNavigate }: Props = {}) {
   // Ventas no enviadas a DIAN
   const colsVentasPendientes: ColDef[] = [
     { headerName: 'Factura', field: 'Factura_N', width: 80, cellRenderer: (p: any) => <span style={{ color: '#7c3aed', fontWeight: 700 }}>{p.value}</span> },
-    { headerName: 'Fecha', field: 'Fecha', width: 100, cellRenderer: (p: any) => p.value ? new Date(p.value).toLocaleDateString('es-CO') : '-' },
+    { headerName: 'Fecha', field: 'Fecha', width: 100, cellRenderer: (p: any) => fmtFechaLocal(p.value) },
     { headerName: 'Cliente', field: 'A_nombre', flex: 1, minWidth: 150 },
     { headerName: 'Total', field: 'Total', width: 110, cellRenderer: (p: any) => <span style={{ fontWeight: 600 }}>{fmtMon(parseFloat(p.value) || 0)}</span> },
     { headerName: 'CUFE', field: 'cufe', width: 120, cellRenderer: (p: any) => p.value ? <span style={{ fontSize: 10, color: '#16a34a' }}>{p.value.substring(0, 15)}...</span> : '-' },

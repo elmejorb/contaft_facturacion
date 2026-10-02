@@ -576,24 +576,80 @@ try {
             break;
 
         case 'factura':
+            // Flujo nuevo (preferido): FE ya vive en electronic_documents desde
+            // nueva.php con status='borrador'. Pasamos doc_elec_id y leemos de
+            // allí. Mantiene flujo legacy con factura_n para compat con FE que
+            // todavía estén en tblventas (serán migradas por el script SQL).
+            $docElecIdInput = intval($data['doc_elec_id'] ?? 0);
             $factN = intval($data['factura_n'] ?? 0);
-            if (!$factN) { echo json_encode(['success' => false, 'message' => 'Factura requerida']); exit; }
+            $esFlujoNuevo = $docElecIdInput > 0;
 
-            // Get factura data
-            $stmt = $db->prepare("SELECT * FROM tblventas WHERE Factura_N = ?");
-            $stmt->execute([$factN]);
-            $factura = $stmt->fetch();
-            if (!$factura) { echo json_encode(['success' => false, 'message' => 'Factura no encontrada']); exit; }
+            if ($esFlujoNuevo) {
+                $stmt = $db->prepare("SELECT * FROM electronic_documents WHERE id = ?");
+                $stmt->execute([$docElecIdInput]);
+                $docElec = $stmt->fetch();
+                if (!$docElec) { echo json_encode(['success' => false, 'message' => 'Documento FE no encontrado']); exit; }
 
-            // Get items
-            $stmt = $db->prepare("
-                SELECT d.*, a.Codigo, a.Nombres_Articulo, a.unit_measure_id
-                FROM tbldetalle_venta d
-                LEFT JOIN tblarticulos a ON d.Items = a.Items
-                WHERE d.Factura_N = ?
-            ");
-            $stmt->execute([$factN]);
-            $items = $stmt->fetchAll();
+                $cliSt = $db->prepare("SELECT Direccion, Telefonos FROM tblclientes WHERE CodigoClien = ?");
+                $cliSt->execute([$docElec['cod_cliente']]);
+                $cliRow = $cliSt->fetch() ?: ['Direccion' => '-', 'Telefonos' => '0'];
+
+                // Normalizar al formato que buildInvoiceJSON espera (nombres tblventas)
+                $factura = [
+                    'Factura_N'     => $docElec['id'],
+                    'Fecha'         => $docElec['fecha'],
+                    'CodigoCli'     => $docElec['cod_cliente'],
+                    'Identificacion'=> $docElec['customer_identification'],
+                    'A_nombre'      => $docElec['customer_name'],
+                    'Telefono'      => $cliRow['Telefonos'] ?? '0',
+                    'Direccion'     => $cliRow['Direccion'] ?? '-',
+                    'Total'         => $docElec['total'],
+                    'Descuento'     => $docElec['descuento'],
+                    'Impuesto'      => 0,
+                    'Tipo'          => intval($docElec['payment_form_id']) === 1 ? 'Contado' : 'Crédito',
+                    'Dias'          => $docElec['payment_due_days'],
+                    'Abono'         => $docElec['abono'],
+                    'efectivo'      => $docElec['efectivo'],
+                    'valorpagado1'  => $docElec['valorpagado1'],
+                    'id_mediopago'  => $docElec['id_mediopago'],
+                    'pagada'        => $docElec['pagada'],
+                    'Id_Usuario'    => $docElec['id_usuario'],
+                    'Comentario'    => $docElec['nota'] ?: '-',
+                    'cufe'          => $docElec['cufe'] ?: '',
+                ];
+
+                $stmt = $db->prepare("
+                    SELECT d.items AS Items, a.Codigo, a.Nombres_Articulo,
+                           COALESCE(a.unit_measure_id, d.unit_measure_id, 70) AS unit_measure_id,
+                           d.invoiced_quantity AS Cantidad,
+                           d.price_amount AS PrecioV,
+                           d.PrecioCosto AS PrecioC,
+                           d.discount_amount AS Descuento,
+                           d.tax_percent AS IVA,
+                           d.description AS DescripcionTemp
+                    FROM detalle_document_electronic d
+                    LEFT JOIN tblarticulos a ON d.items = a.Items
+                    WHERE d.factura_n = ?
+                ");
+                $stmt->execute([$docElecIdInput]);
+                $items = $stmt->fetchAll();
+                $factN = $docElecIdInput; // alias para logs
+            } else {
+                if (!$factN) { echo json_encode(['success' => false, 'message' => 'Factura requerida']); exit; }
+                $stmt = $db->prepare("SELECT * FROM tblventas WHERE Factura_N = ?");
+                $stmt->execute([$factN]);
+                $factura = $stmt->fetch();
+                if (!$factura) { echo json_encode(['success' => false, 'message' => 'Factura no encontrada']); exit; }
+
+                $stmt = $db->prepare("
+                    SELECT d.*, a.Codigo, a.Nombres_Articulo, a.unit_measure_id
+                    FROM tbldetalle_venta d
+                    LEFT JOIN tblarticulos a ON d.Items = a.Items
+                    WHERE d.Factura_N = ?
+                ");
+                $stmt->execute([$factN]);
+                $items = $stmt->fetchAll();
+            }
 
             // Validar campos críticos ANTES de gastar el envío a DIAN. Si falta
             // algo, abortamos con un mensaje útil para el usuario en vez de
@@ -668,61 +724,54 @@ try {
             }
 
             // PASO 1: Guardar en local con status "pendiente" ANTES de enviar a DIAN.
-            // OJO: la tabla tiene UNIQUE (prefix, number) — uq_prefix_number. Si un
-            // envío anterior falló, su fila quedó en (FCON, 0, 'rechazado' o
-            // 'pendiente'); si el usuario dejó un borrador guardado también estará
-            // en (FCON, 0, 'borrador'). Para que sigan visibles en el listado FE (y
-            // el usuario pueda reintentar/editar/enviar cada uno) las movemos a un
-            // number alto fuera del rango de consecutivos DIAN (9000000000 + id
-            // local). NO las borramos. 9_000_000_000 es seguro: DIAN no asigna
-            // consecutivos cerca de ese rango.
-            // Bug histórico (fix 4.3.76): el filtro no incluía 'borrador' → un
-            // borrador guardado bloqueaba con UNIQUE VIOLATION cualquier intento
-            // posterior de enviar otra factura a DIAN.
-            $db->prepare("
-                UPDATE electronic_documents
-                SET number = 9000000000 + id
-                WHERE prefix = 'FCON' AND number = 0 AND status IN ('pendiente', 'rechazado', 'borrador')
-            ")->execute();
+            // En flujo NUEVO (doc_elec_id), la FE ya está en electronic_documents con
+            // status='borrador' desde nueva.php — no la volvemos a insertar. Solo
+            // la actualizamos a 'pendiente' con los metadatos del envío.
+            // En flujo LEGACY, se crea aquí la fila electronic_documents.
+            if (!$esFlujoNuevo) {
+                // OJO: UNIQUE (prefix, number) — uq_prefix_number. Movemos borradores
+                // existentes con number=0 fuera del rango DIAN para liberar el 0.
+                $db->prepare("
+                    UPDATE electronic_documents
+                    SET number = 9000000000 + id
+                    WHERE prefix = 'FCON' AND number = 0 AND status IN ('pendiente', 'rechazado', 'borrador')
+                ")->execute();
+            }
 
             $notaFactura = $factura['Comentario'] ?? '-';
-            // Recalculamos el total desde las líneas (respeta IvaIncluido y
-            // régimen) en lugar de leer tblventas.Total, que puede venir
-            // inflado en BDs migradas desde versiones <4.3.61.
             $totalDocFE = calcularTotalDocFE($db, $factura, $items);
-            // Metadata de pago que persiste en electronic_documents.
-            // Bug histórico: estos 3 campos quedaban NULL, lo que impedía
-            // saber si una factura era Contado/Crédito, con qué medio de
-            // pago, ni cuántos días de plazo. Sin esto, no funciona la
-            // consulta de eventos DIAN ni el listado tiene sentido.
             $paymentFormLocal   = ($factura['Tipo'] === 'Contado') ? 1 : 2;
             $paymentDueDaysLocal = ($paymentFormLocal === 2) ? intval($factura['Dias'] ?? 0) : 0;
-            // payment_method_id mapea id_mediopago local → catálogo DIAN:
-            // 0=Efectivo(10), 1=Tarjeta(14), 2+=Transferencia(30). Misma
-            // regla que usa buildInvoiceJSON al armar el JSON para DIAN.
             $medioPagoLocal = intval($factura['id_mediopago'] ?? 0);
             $paymentMethodLocal = ($medioPagoLocal === 1) ? 14
                                   : (($medioPagoLocal >= 2) ? 30 : 10);
-            $stmtDoc = $db->prepare("
-                INSERT INTO electronic_documents
-                (fecha, cod_cliente, customer_identification, customer_name, customer_email, type_document_id, prefix, number, status, total, cufe, dian_response, id_usuario, id_mediopago, efectivo, valorpagado1, pagada, EstadoFact, email_sent, nota, payment_form_id, payment_method_id, payment_due_days)
-                VALUES (?, ?, ?, ?, ?, 1, 'FCON', 0, 'pendiente', ?, '', '{}', ?, ?, ?, ?, ?, 1, 0, ?, ?, ?, ?)
-            ");
-            $stmtDoc->execute([
-                $factura['Fecha'], $factura['CodigoCli'], $factura['Identificacion'],
-                // customer_name/email — guardan los datos del comprador AUNQUE sea
-                // ocasional (CodigoCli=130500). Así la FE tiene registro completo
-                // sin depender de tblclientes.
-                $factura['A_nombre'], $customerEmailOverride ?: null,
-                $totalDocFE, $factura['Id_Usuario'],
-                $factura['id_mediopago'], $factura['efectivo'], $factura['valorpagado1'],
-                $factura['pagada'] ?: 'N', $notaFactura,
-                $paymentFormLocal, $paymentMethodLocal, $paymentDueDaysLocal
-            ]);
-            $docElecId = $db->lastInsertId();
 
-            // Guardar detalle en local — incluye PrecioCosto histórico para que el cierre
-            // de mes pueda calcular costo de mercancía vendida sin tener que aproximar.
+            if ($esFlujoNuevo) {
+                // Ya existe la fila en electronic_documents (status='borrador').
+                // Solo actualizamos status y refrescamos customer_email si llegó
+                // uno nuevo desde el modal de confirmación FE.
+                $docElecId = $docElecIdInput;
+                $db->prepare("UPDATE electronic_documents SET status = 'pendiente', customer_email = COALESCE(NULLIF(?, ''), customer_email) WHERE id = ?")
+                   ->execute([$customerEmailOverride ?: null, $docElecId]);
+            } else {
+                $stmtDoc = $db->prepare("
+                    INSERT INTO electronic_documents
+                    (fecha, cod_cliente, customer_identification, customer_name, customer_email, type_document_id, prefix, number, status, total, cufe, dian_response, id_usuario, id_mediopago, efectivo, valorpagado1, pagada, EstadoFact, email_sent, nota, payment_form_id, payment_method_id, payment_due_days)
+                    VALUES (?, ?, ?, ?, ?, 1, 'FCON', 0, 'pendiente', ?, '', '{}', ?, ?, ?, ?, ?, 1, 0, ?, ?, ?, ?)
+                ");
+                $stmtDoc->execute([
+                    $factura['Fecha'], $factura['CodigoCli'], $factura['Identificacion'],
+                    $factura['A_nombre'], $customerEmailOverride ?: null,
+                    $totalDocFE, $factura['Id_Usuario'],
+                    $factura['id_mediopago'], $factura['efectivo'], $factura['valorpagado1'],
+                    $factura['pagada'] ?: 'N', $notaFactura,
+                    $paymentFormLocal, $paymentMethodLocal, $paymentDueDaysLocal
+                ]);
+                $docElecId = $db->lastInsertId();
+            }
+
+            // Guardar detalle en local — SKIP en flujo nuevo (ya insertado por nueva.php).
+            if (!$esFlujoNuevo) {
             $stmtDet = $db->prepare("
                 INSERT INTO detalle_document_electronic
                 (factura_n, items, unit_measure_id, invoiced_quantity, line_extension_amount,
@@ -779,6 +828,7 @@ try {
                     number_format($baseAmount, 2, '.', ''), number_format($iva, 2, '.', '')
                 ]);
             }
+            } // fin if (!$esFlujoNuevo) — detalle_document_electronic
 
             // CAPTURA: guardar JSON enviado para análisis
             $logDir = __DIR__ . '/logs';
@@ -798,9 +848,11 @@ try {
                 $cufe = $result['cufe'] ?? '';
                 $consecutive = $result['consecutive'] ?? 0;
 
-                // Actualizar tblventas
-                $db->prepare("UPDATE tblventas SET enviada_dian = 1, fecha_envio_dian = NOW(), cufe = ? WHERE Factura_N = ?")
-                   ->execute([$cufe, $factN]);
+                // Flujo nuevo: la FE nunca existió en tblventas. Flujo legacy: sí.
+                if (!$esFlujoNuevo) {
+                    $db->prepare("UPDATE tblventas SET enviada_dian = 1, fecha_envio_dian = NOW(), cufe = ? WHERE Factura_N = ?")
+                       ->execute([$cufe, $factN]);
+                }
 
                 // Si se solicitó envío de email, llamar al endpoint dedicado de la API remota
                 // (send-v2 NO envía el correo aunque reciba send_email='S'; lo ignora).
@@ -861,41 +913,94 @@ try {
             break;
 
         case 'nota_credito':
+            $docElecIdInput = intval($data['doc_elec_id'] ?? 0);
             $factN = intval($data['factura_n'] ?? 0);
             $motivo = $data['motivo'] ?? 'Devolución parcial de mercancía';
             $conceptId = intval($data['concept_id'] ?? 2); // 1=dev parcial, 2=anulación, 3=rebaja, 4=ajuste precio, 5=otros
             $items = $data['items'] ?? []; // [{items, cantidad, precio}]
+            $esFlujoNuevo = $docElecIdInput > 0;
 
-            if (!$factN) { echo json_encode(['success' => false, 'message' => 'Factura original requerida']); exit; }
+            if ($esFlujoNuevo) {
+                // Flujo nuevo: la FE vive solo en electronic_documents. Carga directa.
+                $stmtEd = $db->prepare("SELECT * FROM electronic_documents WHERE id = ?");
+                $stmtEd->execute([$docElecIdInput]);
+                $edRow = $stmtEd->fetch();
+                if (!$edRow) { echo json_encode(['success' => false, 'message' => 'FE no encontrada en electronic_documents']); exit; }
+                if (empty($edRow['cufe'])) { echo json_encode(['success' => false, 'message' => 'La FE no tiene CUFE (no autorizada aún)']); exit; }
 
-            // Get original invoice CUFE
-            $stmt = $db->prepare("SELECT * FROM tblventas WHERE Factura_N = ?");
-            $stmt->execute([$factN]);
-            $factura = $stmt->fetch();
-            if (!$factura || !$factura['cufe']) {
-                echo json_encode(['success' => false, 'message' => 'La factura no tiene CUFE. Debe enviarse primero a la DIAN.']);
-                exit;
-            }
+                $cliSt = $db->prepare("SELECT Direccion, Telefonos FROM tblclientes WHERE CodigoClien = ?");
+                $cliSt->execute([$edRow['cod_cliente']]);
+                $cliRow = $cliSt->fetch() ?: ['Direccion' => '-', 'Telefonos' => '0'];
 
-            // Para ANULACIÓN (concept 2): cargar automáticamente todos los ítems originales completos
-            if ($conceptId === 2 || empty($items)) {
+                $factura = [
+                    'Factura_N'     => $edRow['id'],
+                    'Fecha'         => $edRow['fecha'],
+                    'CodigoCli'     => $edRow['cod_cliente'],
+                    'Identificacion'=> $edRow['customer_identification'],
+                    'A_nombre'      => $edRow['customer_name'],
+                    'Telefono'      => $cliRow['Telefonos'] ?? '0',
+                    'Direccion'     => $cliRow['Direccion'] ?? '-',
+                    'Total'         => $edRow['total'],
+                    'Descuento'     => $edRow['descuento'],
+                    'Impuesto'      => 0,
+                    'Tipo'          => intval($edRow['payment_form_id']) === 1 ? 'Contado' : 'Crédito',
+                    'Dias'          => $edRow['payment_due_days'],
+                    'Abono'         => $edRow['abono'],
+                    'efectivo'      => $edRow['efectivo'],
+                    'valorpagado1'  => $edRow['valorpagado1'],
+                    'id_mediopago'  => $edRow['id_mediopago'],
+                    'pagada'        => $edRow['pagada'],
+                    'Id_Usuario'    => $edRow['id_usuario'],
+                    'Comentario'    => $edRow['nota'] ?: '-',
+                    'cufe'          => $edRow['cufe'],
+                ];
+
+                // Items desde detalle_document_electronic (anulación → todos los ítems)
                 $stmtDet = $db->prepare("
-                    SELECT d.*, a.Codigo, a.Nombres_Articulo, a.unit_measure_id
-                    FROM tbldetalle_venta d
-                    LEFT JOIN tblarticulos a ON d.Items = a.Items
-                    WHERE d.Factura_N = ?
+                    SELECT d.items AS Items, a.Codigo, a.Nombres_Articulo,
+                           COALESCE(a.unit_measure_id, d.unit_measure_id, 70) AS unit_measure_id,
+                           d.invoiced_quantity AS Cantidad,
+                           d.price_amount AS PrecioV,
+                           d.PrecioCosto AS PrecioC,
+                           d.discount_amount AS Descuento,
+                           d.tax_percent AS IVA,
+                           d.description AS DescripcionTemp
+                    FROM detalle_document_electronic d
+                    LEFT JOIN tblarticulos a ON d.items = a.Items
+                    WHERE d.factura_n = ?
                 ");
-                $stmtDet->execute([$factN]);
+                $stmtDet->execute([$docElecIdInput]);
                 $items = $stmtDet->fetchAll();
-            }
+                $factN = $docElecIdInput;
+            } else {
+                if (!$factN) { echo json_encode(['success' => false, 'message' => 'Factura original requerida']); exit; }
 
-            // Buscar electronic_documents original para obtener los datos exactos que espera la API
-            $stmtEd = $db->prepare("SELECT * FROM electronic_documents WHERE cufe = ? ORDER BY id DESC LIMIT 1");
-            $stmtEd->execute([$factura['cufe']]);
-            $edRow = $stmtEd->fetch();
-            if (!$edRow) {
-                echo json_encode(['success' => false, 'message' => 'No se encontró el electronic_document original']);
-                exit;
+                $stmt = $db->prepare("SELECT * FROM tblventas WHERE Factura_N = ?");
+                $stmt->execute([$factN]);
+                $factura = $stmt->fetch();
+                if (!$factura || !$factura['cufe']) {
+                    echo json_encode(['success' => false, 'message' => 'La factura no tiene CUFE. Debe enviarse primero a la DIAN.']);
+                    exit;
+                }
+
+                if ($conceptId === 2 || empty($items)) {
+                    $stmtDet = $db->prepare("
+                        SELECT d.*, a.Codigo, a.Nombres_Articulo, a.unit_measure_id
+                        FROM tbldetalle_venta d
+                        LEFT JOIN tblarticulos a ON d.Items = a.Items
+                        WHERE d.Factura_N = ?
+                    ");
+                    $stmtDet->execute([$factN]);
+                    $items = $stmtDet->fetchAll();
+                }
+
+                $stmtEd = $db->prepare("SELECT * FROM electronic_documents WHERE cufe = ? ORDER BY id DESC LIMIT 1");
+                $stmtEd->execute([$factura['cufe']]);
+                $edRow = $stmtEd->fetch();
+                if (!$edRow) {
+                    echo json_encode(['success' => false, 'message' => 'No se encontró el electronic_document original']);
+                    exit;
+                }
             }
             $origNumber  = $edRow['number'];                           // consecutivo DIAN (ej. 59)
             $origPrefix  = $edRow['prefix'] ?? 'FCON';
@@ -998,10 +1103,13 @@ try {
                     WHERE factura_n = (SELECT id FROM electronic_documents WHERE cufe = ? LIMIT 1)
                 ")->execute([$ncDocId, $factura['cufe']]);
 
-                // 2) Si es anulación, marcar la factura original
+                // 2) Si es anulación, marcar la factura original.
+                // En flujo nuevo la FE ya NO existe en tblventas, solo UPDATE electronic_documents.
                 if ($conceptId === 2) {
-                    $db->prepare("UPDATE tblventas SET EstadoFact = 'Anulada' WHERE Factura_N = ?")
-                       ->execute([$factN]);
+                    if (!$esFlujoNuevo) {
+                        $db->prepare("UPDATE tblventas SET EstadoFact = 'Anulada' WHERE Factura_N = ?")
+                           ->execute([$factN]);
+                    }
                     $db->prepare("UPDATE electronic_documents SET status = 'anulado' WHERE cufe = ?")
                        ->execute([$factura['cufe']]);
                 }
@@ -1021,49 +1129,131 @@ try {
             break;
 
         case 'nota_debito':
+            $docElecIdInput = intval($data['doc_elec_id'] ?? 0);
             $factN = intval($data['factura_n'] ?? 0);
             $motivo = $data['motivo'] ?? 'Cobro de intereses';
             $valor = floatval($data['valor'] ?? 0);
             $descripcion = $data['descripcion'] ?? 'Ajuste';
+            $esFlujoNuevo = $docElecIdInput > 0;
 
-            if (!$factN || !$valor) { echo json_encode(['success' => false, 'message' => 'Factura y valor requeridos']); exit; }
+            if (!$valor) { echo json_encode(['success' => false, 'message' => 'Valor requerido']); exit; }
 
-            $stmt = $db->prepare("SELECT * FROM tblventas WHERE Factura_N = ?");
-            $stmt->execute([$factN]);
-            $factura = $stmt->fetch();
-            if (!$factura || !$factura['cufe']) {
-                echo json_encode(['success' => false, 'message' => 'La factura no tiene CUFE']);
-                exit;
+            if ($esFlujoNuevo) {
+                $stmt = $db->prepare("SELECT * FROM electronic_documents WHERE id = ?");
+                $stmt->execute([$docElecIdInput]);
+                $edRow = $stmt->fetch();
+                if (!$edRow || empty($edRow['cufe'])) {
+                    echo json_encode(['success' => false, 'message' => 'FE sin CUFE o no encontrada']); exit;
+                }
+                $cliSt = $db->prepare("SELECT Direccion, Telefonos FROM tblclientes WHERE CodigoClien = ?");
+                $cliSt->execute([$edRow['cod_cliente']]);
+                $cliRow = $cliSt->fetch() ?: ['Direccion' => '-', 'Telefonos' => '0'];
+                $factura = [
+                    'Factura_N'     => $edRow['id'],
+                    'Fecha'         => $edRow['fecha'],
+                    'CodigoCli'     => $edRow['cod_cliente'],
+                    'Identificacion'=> $edRow['customer_identification'],
+                    'A_nombre'      => $edRow['customer_name'],
+                    'Telefono'      => $cliRow['Telefonos'] ?? '0',
+                    'Direccion'     => $cliRow['Direccion'] ?? '-',
+                    'Total'         => $edRow['total'],
+                    'Tipo'          => intval($edRow['payment_form_id']) === 1 ? 'Contado' : 'Crédito',
+                    'Dias'          => $edRow['payment_due_days'],
+                    'Id_Usuario'    => $edRow['id_usuario'],
+                    'cufe'          => $edRow['cufe'],
+                ];
+                $factN = $docElecIdInput;
+            } else {
+                if (!$factN) { echo json_encode(['success' => false, 'message' => 'Factura requerida']); exit; }
+                $stmt = $db->prepare("SELECT * FROM tblventas WHERE Factura_N = ?");
+                $stmt->execute([$factN]);
+                $factura = $stmt->fetch();
+                if (!$factura || !$factura['cufe']) {
+                    echo json_encode(['success' => false, 'message' => 'La factura no tiene CUFE']);
+                    exit;
+                }
+                // Obtener el consecutivo DIAN real desde electronic_documents (por CUFE)
+                $stmt = $db->prepare("SELECT id, prefix, number FROM electronic_documents WHERE cufe = ? ORDER BY id DESC LIMIT 1");
+                $stmt->execute([$factura['cufe']]);
+                $edRow = $stmt->fetch();
+                if (!$edRow) {
+                    echo json_encode(['success' => false, 'message' => 'No se encontró electronic_document original']); exit;
+                }
             }
 
+            // Payload ND según spec DIAN:
+            //  - type_document_id: 5 (nota débito)
+            //  - billing_reference: formato que la NC usa (concatenado + scheme_name)
+            //  - discrepancy con description OFICIAL DIAN según correction_concept_id (DBF04):
+            //      1 = "Intereses", 2 = "Gastos por cobrar", 3 = "Cambio del valor", 4 = "Otros"
+            //  - invoice_period obligatorio para ND (DAE02, DAE04)
+            //  - payment_form como objeto propio
+            //  - invoice_lines con allowance_charges: []
+            $origPrefix = $edRow['prefix'] ?? 'FCON';
+            $origNumber = (string)$edRow['number'];
+
+            // Consecutivo ND propio
+            $nextNd = (int)$db->query("SELECT COALESCE(MAX(number), 0) + 1 FROM electronic_documents WHERE type_document_id = 5 AND prefix = 'NDBS'")->fetchColumn();
+
+            $conceptIdDiscrepancy = intval($data['correction_concept_id'] ?? 1);
+            $descripcionesOficiales = [
+                1 => 'Intereses',
+                2 => 'Gastos por cobrar',
+                3 => 'Cambio del valor',
+                4 => 'Otros',
+            ];
+            $descOficial = $descripcionesOficiales[$conceptIdDiscrepancy] ?? 'Otros';
+
             $ndJSON = [
-                'company_id' => $companyId,
+                'company_id'       => $companyId,
+                'number'           => $nextNd,
+                'type_document_id' => 5,
                 'billing_reference' => [
-                    'number' => $factura['Factura_N'],
-                    'uuid' => $factura['cufe'],
-                    'issue_date' => date('Y-m-d', strtotime($factura['Fecha']))
+                    'number'      => $origPrefix . $origNumber,
+                    'uuid'        => $factura['cufe'],
+                    'scheme_name' => 'CUFE-SHA384',
+                    'issue_date'  => date('Y-m-d', strtotime($factura['Fecha']))
                 ],
-                'discrepancy_response' => [
-                    'correction_concept_id' => 1,
-                    'description' => $motivo
+                'discrepancy' => [
+                    'reference_id'          => $origPrefix . $origNumber,
+                    'correction_concept_id' => (string)$conceptIdDiscrepancy,
+                    'description'           => $descOficial
+                ],
+                'invoice_period' => [
+                    'start_date' => date('Y-m-d', strtotime($factura['Fecha'])),
+                    'end_date'   => date('Y-m-d')
+                ],
+                'payment_form' => [
+                    'payment_form_id'   => 1,
+                    'payment_method_id' => 10,
+                    'payment_due_date'  => date('Y-m-d'),
+                    'duration_measure'  => '0'
                 ],
                 'invoice_lines' => [[
-                    'unit_measure_id' => 70,
-                    'invoiced_quantity' => '1.00',
-                    'line_extension_amount' => number_format($valor, 2, '.', ''),
-                    'free_of_charge_indicator' => false,
-                    'tax_totals' => [['tax_id' => 1, 'tax_amount' => '0.00', 'taxable_amount' => number_format($valor, 2, '.', ''), 'percent' => '0.00']],
-                    'description' => $descripcion,
-                    'code' => '1',
+                    'unit_measure_id'             => 70, // 70 = Unidad (compatible con NC exitosa)
+                    'invoiced_quantity'           => '1.00',
+                    'line_extension_amount'       => number_format($valor, 2, '.', ''),
+                    'free_of_charge_indicator'    => false,
+                    'allowance_charges'           => [],
+                    'tax_totals' => [[
+                        'tax_id'         => 1,
+                        'tax_amount'     => '0.00',
+                        'taxable_amount' => number_format($valor, 2, '.', ''),
+                        'percent'        => '0.00'
+                    ]],
+                    'description'                 => $descripcion,
+                    'code'                        => 'ND001',
                     'type_item_identification_id' => 3,
-                    'price_amount' => number_format($valor, 2, '.', ''),
-                    'base_quantity' => '1.00'
+                    'price_amount'                => number_format($valor, 2, '.', ''),
+                    'base_quantity'               => '1.00'
                 ]],
                 'legal_monetary_totals' => [
-                    'line_extension_amount' => number_format($valor, 2, '.', ''),
-                    'tax_exclusive_amount' => number_format($valor, 2, '.', ''),
-                    'tax_inclusive_amount' => number_format($valor, 2, '.', ''),
-                    'payable_amount' => number_format($valor, 2, '.', '')
+                    'line_extension_amount'  => number_format($valor, 2, '.', ''),
+                    'tax_exclusive_amount'   => number_format($valor, 2, '.', ''),
+                    'tax_inclusive_amount'   => number_format($valor, 2, '.', ''),
+                    'allowance_total_amount' => '0.00',
+                    'charge_total_amount'    => '0.00',
+                    'payable_amount'         => number_format($valor, 2, '.', '')
                 ],
                 'date' => date('Y-m-d'),
                 'time' => date('H:i:s')
@@ -1073,7 +1263,16 @@ try {
             $ncCustomer = buildInvoiceJSON($db, $factura, [], $companyId);
             $ndJSON['customer'] = $ncCustomer['customer'];
 
+            // Logging para diagnóstico (igual que NC)
+            $logDir = __DIR__ . '/logs';
+            if (!is_dir($logDir)) @mkdir($logDir, 0777, true);
+            $ts = date('Ymd_His');
+            $logBase = "$logDir/nd_{$factN}_{$ts}";
+            @file_put_contents("{$logBase}_request.json", json_encode($ndJSON, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+
             $result = apiRequest("$API_BASE/api/notas/debito/enviar", 'POST', $ndJSON, $token);
+
+            @file_put_contents("{$logBase}_response.json", json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
 
             echo json_encode([
                 'success' => $result['success'] ?? false,

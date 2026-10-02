@@ -1,6 +1,6 @@
 {
       "name": "dashboard-facturacion",
-      "version": "4.5.4",
+      "version": "4.6.0",
       "private": true,
       "main": "electron/main.js",
       "dependencies": {

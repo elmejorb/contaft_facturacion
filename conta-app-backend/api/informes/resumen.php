@@ -252,11 +252,13 @@ try {
     if ($tipo === 'cuadre_caja') {
         $fecha = $_GET['fecha'] ?? date('Y-m-d');
 
+        // POS vigentes (tblventas)
         $r = $db->prepare("
             SELECT
               v.Factura_N, v.Fecha, v.A_nombre, v.Total, v.Tipo,
               v.id_mediopago, v.efectivo, v.valorpagado1, v.EstadoFact,
-              COALESCE(m.nombre_medio, 'Efectivo') AS medio_pago
+              COALESCE(m.nombre_medio, 'Efectivo') AS medio_pago,
+              'POS' AS origen
             FROM tblventas v
             LEFT JOIN tblmedios_pago m ON m.id_mediopago = v.id_mediopago
             WHERE DATE(v.Fecha) = ?
@@ -264,6 +266,30 @@ try {
         ");
         $r->execute([$fecha]);
         $ventas = $r->fetchAll();
+
+        // FE autorizadas del día (electronic_documents) — solo si el cliente tiene módulo FE.
+        // Se agregan al mismo array `ventas` para que el frontend sume ambas sin cambios.
+        if ($tieneFE) {
+            $r = $db->prepare("
+                SELECT
+                  CONCAT(COALESCE(e.prefix,'FCON'), e.number) AS Factura_N,
+                  e.created_at AS Fecha,
+                  COALESCE(e.customer_name, c.Razon_Social, 'Comprador') AS A_nombre,
+                  e.total AS Total,
+                  CASE WHEN e.payment_form_id=1 THEN 'Contado' ELSE 'Crédito' END AS Tipo,
+                  e.id_mediopago, e.efectivo, e.valorpagado1,
+                  CASE WHEN e.status='anulado' THEN 'Anulada' ELSE 'Valida' END AS EstadoFact,
+                  COALESCE(m.nombre_medio, 'Efectivo') AS medio_pago,
+                  'FE' AS origen
+                FROM electronic_documents e
+                LEFT JOIN tblmedios_pago m ON m.id_mediopago = e.id_mediopago
+                LEFT JOIN tblclientes c ON c.CodigoClien = e.cod_cliente
+                WHERE DATE(e.fecha) = ? AND e.type_document_id = 1 AND e.status = 'autorizado'
+                ORDER BY e.created_at
+            ");
+            $r->execute([$fecha]);
+            $ventas = array_merge($ventas, $r->fetchAll());
+        }
 
         $r = $db->prepare("
             SELECT e.N_Comprobante, e.Fecha, COALESCE(p.RazonSocial, e.Orden) AS proveedor,

@@ -1,7 +1,7 @@
 <?php
 /**
- * Endpoint para obtener resumen del dashboard principal
- * Ventas del día, mes, cuentas por cobrar, productos, clientes
+ * Endpoint para obtener resumen del dashboard principal.
+ * Consolida POS (tblventas) + FE (electronic_documents) de forma transparente.
  */
 
 require_once '../config/database.php';
@@ -9,26 +9,38 @@ require_once '../config/database.php';
 $database = new Database();
 $db = $database->getConnection();
 
+// ¿La BD tiene módulo FE? Si no, solo lee tblventas.
+$tieneFE = (int)$db->query("SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='electronic_documents'")->fetchColumn() > 0;
+
+// Helper: suma (count, total) de POS + FE para un filtro de fecha dado.
+// $wherePos filtra tblventas; $whereFE filtra electronic_documents.
+function sumarVentas($db, $tieneFE, $wherePos, $whereFE) {
+    $pos = $db->query("SELECT COUNT(*) c, COALESCE(SUM(Total),0) t FROM tblventas WHERE $wherePos AND EstadoFact='Valida'")->fetch();
+    $cant = intval($pos['c']);
+    $total = floatval($pos['t']);
+    if ($tieneFE) {
+        $fe = $db->query("SELECT COUNT(*) c, COALESCE(SUM(total),0) t FROM electronic_documents WHERE $whereFE AND status='autorizado' AND type_document_id=1")->fetch();
+        $cant += intval($fe['c']);
+        $total += floatval($fe['t']);
+    }
+    return ['cantidad' => $cant, 'total' => $total];
+}
+
 try {
-    // Ventas del día
-    $stmt = $db->query("SELECT COUNT(*) as cantidad, COALESCE(SUM(Total),0) as total FROM tblventas WHERE DATE(Fecha) = CURDATE()");
-    $ventasHoy = $stmt->fetch();
+    $ventasHoy = sumarVentas($db, $tieneFE,
+        "DATE(Fecha) = CURDATE()",
+        "DATE(fecha) = CURDATE()"
+    );
+    $ventasMes = sumarVentas($db, $tieneFE,
+        "MONTH(Fecha) = MONTH(CURDATE()) AND YEAR(Fecha) = YEAR(CURDATE())",
+        "MONTH(fecha) = MONTH(CURDATE()) AND YEAR(fecha) = YEAR(CURDATE())"
+    );
+    $ventasMesAnterior = sumarVentas($db, $tieneFE,
+        "MONTH(Fecha) = MONTH(DATE_SUB(CURDATE(), INTERVAL 1 MONTH)) AND YEAR(Fecha) = YEAR(DATE_SUB(CURDATE(), INTERVAL 1 MONTH))",
+        "MONTH(fecha) = MONTH(DATE_SUB(CURDATE(), INTERVAL 1 MONTH)) AND YEAR(fecha) = YEAR(DATE_SUB(CURDATE(), INTERVAL 1 MONTH))"
+    );
 
-    // Ventas del mes actual
-    $stmt = $db->query("SELECT COUNT(*) as cantidad, COALESCE(SUM(Total),0) as total FROM tblventas WHERE MONTH(Fecha) = MONTH(CURDATE()) AND YEAR(Fecha) = YEAR(CURDATE())");
-    $ventasMes = $stmt->fetch();
-
-    // Ventas del mes anterior (para comparación)
-    $stmt = $db->query("
-        SELECT COUNT(*) as cantidad, COALESCE(SUM(Total),0) as total
-        FROM tblventas
-        WHERE MONTH(Fecha) = MONTH(DATE_SUB(CURDATE(), INTERVAL 1 MONTH))
-        AND YEAR(Fecha) = YEAR(DATE_SUB(CURDATE(), INTERVAL 1 MONTH))
-    ");
-    $ventasMesAnterior = $stmt->fetch();
-
-    // Cuentas por cobrar (saldo pendiente) — desde la vista que calcula
-    // dinámicamente desde tblpagos. No leer tblventas.Saldo cacheado.
+    // Cuentas por cobrar — ya calcula desde tblpagos (vista dinámica)
     $stmt = $db->query("
         SELECT COALESCE(SUM(Saldo), 0) AS total, COUNT(*) AS cantidad
         FROM vw_facturas_cliente_saldos
@@ -36,73 +48,77 @@ try {
     ");
     $cuentasPorCobrar = $stmt->fetch();
 
-    // Pagos recibidos hoy
-    $stmt = $db->query("SELECT COALESCE(SUM(ValorPago),0) as total, COUNT(*) as cantidad FROM tblpagos WHERE DATE(Fecha) = CURDATE()");
-    $pagosHoy = $stmt->fetch();
+    // Pagos recibidos (POS + FE comparten tblpagos)
+    $pagosHoy = $db->query("SELECT COALESCE(SUM(ValorPago),0) as total, COUNT(*) as cantidad FROM tblpagos WHERE DATE(Fecha) = CURDATE() AND Estado='Valida'")->fetch();
+    $pagosMes = $db->query("SELECT COALESCE(SUM(ValorPago),0) as total, COUNT(*) as cantidad FROM tblpagos WHERE MONTH(Fecha) = MONTH(CURDATE()) AND YEAR(Fecha) = YEAR(CURDATE()) AND Estado='Valida'")->fetch();
 
-    // Pagos recibidos del mes
-    $stmt = $db->query("SELECT COALESCE(SUM(ValorPago),0) as total, COUNT(*) as cantidad FROM tblpagos WHERE MONTH(Fecha) = MONTH(CURDATE()) AND YEAR(Fecha) = YEAR(CURDATE())");
-    $pagosMes = $stmt->fetch();
+    // Productos
+    $productos = $db->query("SELECT COUNT(*) as total FROM tblarticulos WHERE Estado = 1")->fetch();
+    $sinStock = $db->query("SELECT COUNT(*) as total FROM tblarticulos WHERE Estado = 1 AND Existencia <= 0")->fetch();
+    $valorInventario = $db->query("SELECT COALESCE(SUM(Existencia * Precio_Costo),0) as total FROM tblarticulos WHERE Estado = 1")->fetch();
 
-    // Total productos activos
-    $stmt = $db->query("SELECT COUNT(*) as total FROM tblarticulos WHERE Estado = 1");
-    $productos = $stmt->fetch();
+    // Top 5 productos del mes — UNION detalle POS + detalle FE autorizada
+    $topQuery = "
+        SELECT Items as Codigo, Nombres_Articulo as Descripcion, SUM(Cantidad) as CantidadVendida, SUM(Subtotal) as TotalVendido
+        FROM (
+            SELECT d.Items, a.Nombres_Articulo, d.Cantidad, d.Subtotal
+            FROM tbldetalle_venta d
+            INNER JOIN tblventas v ON d.Factura_N = v.Factura_N
+            LEFT JOIN tblarticulos a ON d.Items = a.Items
+            WHERE MONTH(v.Fecha) = MONTH(CURDATE()) AND YEAR(v.Fecha) = YEAR(CURDATE())
+              AND v.EstadoFact='Valida'
+    ";
+    if ($tieneFE) {
+        $topQuery .= "
+            UNION ALL
+            SELECT dd.items, a.Nombres_Articulo, dd.invoiced_quantity AS Cantidad,
+                   dd.line_extension_amount AS Subtotal
+            FROM detalle_document_electronic dd
+            INNER JOIN electronic_documents e ON e.id = dd.factura_n
+            LEFT JOIN tblarticulos a ON dd.items = a.Items
+            WHERE MONTH(e.fecha) = MONTH(CURDATE()) AND YEAR(e.fecha) = YEAR(CURDATE())
+              AND e.status='autorizado' AND e.type_document_id=1
+        ";
+    }
+    $topQuery .= ") x GROUP BY Items, Nombres_Articulo ORDER BY CantidadVendida DESC LIMIT 5";
+    $topProductos = $db->query($topQuery)->fetchAll();
 
-    // Productos sin stock
-    $stmt = $db->query("SELECT COUNT(*) as total FROM tblarticulos WHERE Estado = 1 AND Existencia <= 0");
-    $sinStock = $stmt->fetch();
+    // Ventas últimos 7 días — UNION POS + FE
+    $semQuery = "
+        SELECT fecha, SUM(cantidad) AS cantidad, SUM(total) AS total FROM (
+            SELECT DATE(Fecha) as fecha, COUNT(*) as cantidad, COALESCE(SUM(Total),0) as total
+            FROM tblventas
+            WHERE Fecha >= DATE_SUB(CURDATE(), INTERVAL 7 DAY) AND EstadoFact='Valida'
+            GROUP BY DATE(Fecha)
+    ";
+    if ($tieneFE) {
+        $semQuery .= "
+            UNION ALL
+            SELECT DATE(fecha) as fecha, COUNT(*) as cantidad, COALESCE(SUM(total),0) as total
+            FROM electronic_documents
+            WHERE fecha >= DATE_SUB(CURDATE(), INTERVAL 7 DAY) AND status='autorizado' AND type_document_id=1
+            GROUP BY DATE(fecha)
+        ";
+    }
+    $semQuery .= ") y GROUP BY fecha ORDER BY fecha ASC";
+    $ventasSemana = $db->query($semQuery)->fetchAll();
 
-    // Valor del inventario
-    $stmt = $db->query("SELECT COALESCE(SUM(Existencia * Precio_Costo),0) as total FROM tblarticulos WHERE Estado = 1");
-    $valorInventario = $stmt->fetch();
+    $empresa = $db->query("SELECT Empresa, Propietario, Nit FROM tbldatosempresa LIMIT 1")->fetch();
 
-    // Top 5 productos más vendidos del mes
-    $stmt = $db->query("
-        SELECT d.Items as Codigo, a.Nombres_Articulo as Descripcion, SUM(d.Cantidad) as CantidadVendida, SUM(d.Subtotal) as TotalVendido
-        FROM tbldetalle_venta d
-        INNER JOIN tblventas v ON d.Factura_N = v.Factura_N
-        LEFT JOIN tblarticulos a ON d.Items = a.Items
-        WHERE MONTH(v.Fecha) = MONTH(CURDATE()) AND YEAR(v.Fecha) = YEAR(CURDATE())
-        GROUP BY d.Items, a.Nombres_Articulo
-        ORDER BY CantidadVendida DESC
-        LIMIT 5
-    ");
-    $topProductos = $stmt->fetchAll();
-
-    // Ventas últimos 7 días
-    $stmt = $db->query("
-        SELECT DATE(Fecha) as fecha, COUNT(*) as cantidad, COALESCE(SUM(Total),0) as total
-        FROM tblventas
-        WHERE Fecha >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
-        GROUP BY DATE(Fecha)
-        ORDER BY fecha ASC
-    ");
-    $ventasSemana = $stmt->fetchAll();
-
-    // Datos de la empresa
-    $stmt = $db->query("SELECT Empresa, Propietario, Nit FROM tbldatosempresa LIMIT 1");
-    $empresa = $stmt->fetch();
-
-    // Clientes activos del mes
-    $stmt = $db->query("SELECT COUNT(DISTINCT CodigoCli) as total FROM tblventas WHERE MONTH(Fecha) = MONTH(CURDATE()) AND YEAR(Fecha) = YEAR(CURDATE())");
-    $clientesMes = $stmt->fetch();
+    // Clientes activos del mes — distinct de POS + FE
+    $cliQuery = "SELECT CodigoCli AS cli FROM tblventas WHERE MONTH(Fecha) = MONTH(CURDATE()) AND YEAR(Fecha) = YEAR(CURDATE()) AND EstadoFact='Valida'";
+    if ($tieneFE) {
+        $cliQuery .= " UNION SELECT cod_cliente AS cli FROM electronic_documents WHERE MONTH(fecha) = MONTH(CURDATE()) AND YEAR(fecha) = YEAR(CURDATE()) AND status='autorizado' AND type_document_id=1";
+    }
+    $clientesMes = $db->query("SELECT COUNT(DISTINCT cli) AS total FROM ($cliQuery) z")->fetch();
 
     http_response_code(200);
     echo json_encode([
         "success" => true,
         "resumen" => [
-            "ventasHoy" => [
-                "cantidad" => intval($ventasHoy['cantidad']),
-                "total" => floatval($ventasHoy['total'])
-            ],
-            "ventasMes" => [
-                "cantidad" => intval($ventasMes['cantidad']),
-                "total" => floatval($ventasMes['total'])
-            ],
-            "ventasMesAnterior" => [
-                "cantidad" => intval($ventasMesAnterior['cantidad']),
-                "total" => floatval($ventasMesAnterior['total'])
-            ],
+            "ventasHoy" => $ventasHoy,
+            "ventasMes" => $ventasMes,
+            "ventasMesAnterior" => $ventasMesAnterior,
             "cuentasPorCobrar" => [
                 "cantidad" => intval($cuentasPorCobrar['cantidad']),
                 "total" => floatval($cuentasPorCobrar['total'])

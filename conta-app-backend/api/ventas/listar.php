@@ -101,6 +101,9 @@ try {
         }
         $where = "v.Fecha >= :fecha_ini AND v.Fecha < :fecha_fin";
         $params = [':fecha_ini' => $fechaIni, ':fecha_fin' => $fechaFin];
+        // Excluir ventas marcadas como "pendientes FE" — son FE que iniciaron
+        // pero DIAN no autorizó. No deben aparecer como POS fantasma en el
+        // listado ni sumar en totales. Defensivo: si la columna no existe
         if ($tipo) {
             $where .= " AND v.Tipo = :tipo";
             $params[':tipo'] = $tipo;

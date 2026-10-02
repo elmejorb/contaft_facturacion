@@ -2056,3 +2056,48 @@ UPDATE tbldatosempresa
    SET Nit = REGEXP_REPLACE(SUBSTRING_INDEX(Nit, '-', 1), '[^0-9]', '')
  WHERE Id_Empresa = 1
    AND Nit REGEXP '[^0-9]';
+
+-- ============================================================
+-- v4.6 — Separar FE de tblventas (volver al modelo VB6 original)
+-- ============================================================
+-- En versiones <4.6, las FE se guardaban en tblventas Y en
+-- electronic_documents. Esto gastaba consecutivo POS y generaba
+-- "POS fantasma" cuando el envío a DIAN quedaba a medias.
+-- Desde v4.6: FE va solo a electronic_documents, POS solo a tblventas.
+-- Esta migración ANULA (sin borrar) las FE que ya existen en tblventas
+-- cuando tienen counterpart autorizado en electronic_documents.
+--
+-- NO destruye datos. NO toca caja. NO mueve inventario. Idempotente.
+
+-- Solo correr si existe electronic_documents (BDs sin módulo FE no aplican)
+SET @tiene_ed = (SELECT COUNT(*) FROM information_schema.TABLES
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'electronic_documents');
+
+-- Marcar como Anulada (preserva consecutivo tblventas) las FE que ya
+-- están autorizadas en electronic_documents (match por CUFE).
+SET @sql = IF(@tiene_ed > 0,
+    "UPDATE tblventas v
+     INNER JOIN electronic_documents ed
+        ON ed.cufe = v.cufe
+       AND ed.cufe IS NOT NULL AND ed.cufe <> ''
+     SET v.EstadoFact = 'Anulada',
+         v.Comentario = CONCAT('MIGRADO_FE_V46 -> electronic_documents.id=', ed.id, ' / ', COALESCE(ed.prefix,'FCON'), ed.number)
+     WHERE v.Enviada_dian = 1
+       AND v.cufe IS NOT NULL AND v.cufe <> ''
+       AND ed.status = 'autorizado'
+       AND v.EstadoFact = 'Valida'
+       AND (v.Comentario IS NULL OR v.Comentario NOT LIKE 'MIGRADO_FE_V46%')",
+    'SELECT 1');
+PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
+
+-- Reasignar pagos huérfanos: Fact_N (int) -> Nfact_electronica (varchar)
+SET @sql = IF(@tiene_ed > 0,
+    "UPDATE tblpagos p
+     INNER JOIN tblventas v ON p.Fact_N = v.Factura_N
+     INNER JOIN electronic_documents ed ON ed.cufe = v.cufe
+     SET p.Nfact_electronica = CONCAT(COALESCE(ed.prefix,'FCON'), ed.number),
+         p.Fact_N = NULL
+     WHERE v.Comentario LIKE 'MIGRADO_FE_V46%'
+       AND (p.Nfact_electronica IS NULL OR p.Nfact_electronica = '')",
+    'SELECT 1');
+PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;

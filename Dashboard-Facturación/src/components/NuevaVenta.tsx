@@ -651,6 +651,11 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
     setBuscarProducto('');
     setShowProductoDropdown(false);
     productoInputRef.current?.focus();
+    // Scroll a la fila de entrada (visible) para que el cajero vea el input
+    // sin tener que mover la barra manualmente. `block: 'end'` deja el input
+    // al borde inferior visible — pega abajo del todo que es donde queda la
+    // fila de código vacía después de agregar un ítem.
+    setTimeout(() => productoInputRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }), 50);
   };
 
   // actualizarLinea aplica reglas de venta antes de aceptar el cambio:
@@ -1488,6 +1493,7 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
       const body = {
         tipo, dias: tipo === 'Contado' ? 0 : dias,
         fecha: fechaPersonalizada,
+        tipo_documento: tipoDocumento,
         cliente_id: cliente.id, cliente_nombre: cliente.nombre,
         cliente_identificacion: cliente.nit, cliente_direccion: cliente.dir, cliente_telefono: cliente.tel,
         medio_pago: medioFinal, vendedor: user?.id || 0, descuento_global: descuentoGlobal, comentario: nota || '-',
@@ -1520,10 +1526,16 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
       });
       const d = await r.json();
       if (d.success) {
-        const factN = d.Factura_N;
+        // factN: para POS es tblventas.Factura_N; para FE es electronic_documents.id
+        // (routing en nueva.php según tipo_documento). Mantenemos variable factN
+        // por compatibilidad con el resto del flujo, pero cuando origen='FE'
+        // también guardamos doc_elec_id para pasárselo a enviar.php.
+        const esFE = d.origen === 'FE';
+        const factN = esFE ? d.doc_elec_id : d.Factura_N;
+        const docElecId = esFE ? d.doc_elec_id : null;
 
         // Si veníamos de "Editar borrador FE", el borrador ya no aplica: sus datos
-        // se acaban de materializar en tblventas como venta nueva. Lo eliminamos
+        // se acaban de materializar como venta nueva. Lo eliminamos
         // antes de intentar DIAN para que el listado FE no quede con la fila
         // huérfana. Best-effort: si falla, no bloquea el flujo (peor caso: el
         // usuario borra el borrador manualmente).
@@ -1566,12 +1578,14 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
             const rDian = await fetch(API_FE, {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
-                action: 'factura', factura_n: factN, send_email: enviarEmailFE,
-                // Email del comprador ocasional (traído de DIAN sin crear cliente).
-                // Va a electronic_documents.customer_email y al JSON DIAN, sin
-                // ensuciar tblventas ni tblclientes.
+                action: 'factura',
+                // doc_elec_id: ruta nueva (FE separada en electronic_documents).
+                // factura_n: ruta legacy (FE en tblventas) — se mantiene por
+                // si hay BDs sin migrar; backend usa doc_elec_id si viene.
+                doc_elec_id: docElecId,
+                factura_n: factN,
+                send_email: enviarEmailFE,
                 customer_email: cliente.email || '',
-                // Medio de pago DIAN confirmado en el modal (10/20/30/31/41/42/47/48/49...).
                 payment_method_id: medioDian,
               })
             });
@@ -2206,6 +2220,7 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
                               : 'input[data-venta-codigo-input]';
                             const next = (table?.querySelector(sel) || document.querySelector(sel)) as HTMLInputElement | null;
                             next?.focus(); next?.select();
+                            next?.scrollIntoView({ behavior: 'smooth', block: 'end' });
                           }, 50);
                         }
                       }}
@@ -2255,6 +2270,7 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
                                   : 'input[data-venta-codigo-input]';
                                 const next = (table?.querySelector(sel) || document.querySelector(sel)) as HTMLInputElement | null;
                                 next?.focus(); next?.select();
+                                next?.scrollIntoView({ behavior: 'smooth', block: 'end' });
                               }, 50);
                             }
                           }}
