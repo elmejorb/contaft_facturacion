@@ -2138,3 +2138,38 @@ SET @sql = IF(@t > 0 AND @col = 0,
     "ALTER TABLE detalle_document_electronic ADD COLUMN entregado VARCHAR(1) DEFAULT 'S', ADD COLUMN fecha_entrega DATETIME NULL, ADD COLUMN usuario_entrego INT NULL, ADD INDEX idx_entregado_fe (entregado)",
     'SELECT 1');
 PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
+
+-- ============================================================
+-- v4.7.1 — Entrega parcial por línea (modo Fabricación)
+-- ============================================================
+-- Caso: factura 10 camisas en una línea, entrega hoy 5, mañana 5.
+-- CantidadEntregada acumula lo entregado. Entregado='S' automático
+-- cuando CantidadEntregada >= Cantidad.
+
+SET @col = (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='tbldetalle_venta' AND COLUMN_NAME='CantidadEntregada');
+SET @sql = IF(@col=0,
+    'ALTER TABLE tbldetalle_venta ADD COLUMN CantidadEntregada FLOAT NOT NULL DEFAULT 0',
+    'SELECT 1');
+PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
+
+-- Backfill: líneas que ya estaban como Entregado='S' pasan a tener
+-- CantidadEntregada = Cantidad (asumimos entrega completa en el histórico).
+UPDATE tbldetalle_venta
+   SET CantidadEntregada = Cantidad
+ WHERE Entregado = 'S' AND CantidadEntregada = 0 AND Cantidad > 0;
+
+-- FE (si existe la tabla)
+SET @t = (SELECT COUNT(*) FROM information_schema.TABLES
+    WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='detalle_document_electronic');
+SET @c = (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='detalle_document_electronic' AND COLUMN_NAME='cantidad_entregada');
+SET @sql = IF(@t > 0 AND @c = 0,
+    'ALTER TABLE detalle_document_electronic ADD COLUMN cantidad_entregada DECIMAL(19,2) NOT NULL DEFAULT 0',
+    'SELECT 1');
+PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
+
+SET @sql = IF(@t > 0 AND @c = 0,
+    "UPDATE detalle_document_electronic SET cantidad_entregada = invoiced_quantity WHERE entregado = 'S' AND cantidad_entregada = 0 AND invoiced_quantity > 0",
+    'SELECT 1');
+PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;

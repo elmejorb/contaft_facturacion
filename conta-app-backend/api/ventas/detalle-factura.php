@@ -409,26 +409,31 @@ try {
             $mesNombre = $meses[intval(date('n'))] ?? '';
 
             foreach ($detalles as $det) {
-                // Línea con Entregado='N' (modo Fabricación, v4.7): nunca
-                // descontó stock, no hay nada que devolver ni asiento de
-                // kardex que crear. Se omite silenciosamente.
-                if (isset($det['Entregado']) && $det['Entregado'] === 'N') continue;
+                // Modo Fabricación (v4.7/v4.7.1): reversar SOLO lo que realmente
+                // se entregó (CantidadEntregada), no la Cantidad total facturada.
+                // - Línea nunca entregada (CantidadEntregada=0): no se descuenta nada.
+                // - Línea parcialmente entregada (ej. 5 de 10): se devuelven 5.
+                // - Línea entregada completa: se devuelve Cantidad (igual que antes).
+                $cantEntregada = isset($det['CantidadEntregada']) ? floatval($det['CantidadEntregada']) : floatval($det['Cantidad']);
+                // Si la línea nació como pendiente total (Entregado='N' y CantidadEntregada=0),
+                // nunca descontó → no hay nada que devolver.
+                if (isset($det['Entregado']) && $det['Entregado'] === 'N' && $cantEntregada <= 0) continue;
 
-                if ($det['Cantidad'] > 0) {
+                $cantAReversar = $cantEntregada > 0 ? $cantEntregada : floatval($det['Cantidad']);
+
+                if ($cantAReversar > 0) {
                     $db->prepare("UPDATE tblarticulos SET Existencia = Existencia + ? WHERE Items = ?")
-                       ->execute([$det['Cantidad'], $det['Items']]);
+                       ->execute([$cantAReversar, $det['Items']]);
 
                     $stmtExist = $db->prepare("SELECT Existencia, Precio_Costo FROM tblarticulos WHERE Items = ?");
                     $stmtExist->execute([$det['Items']]);
                     $art = $stmtExist->fetch();
-                    // Si el Items ya no existe en tblarticulos (ítem huérfano/legacy)
-                    // saltamos el asiento de kardex — la anulación sigue adelante.
                     if (!$art) continue;
 
                     $costoUnit = floatval($art['Precio_Costo']);
                     $existActual = floatval($art['Existencia']);
                     $db->prepare("INSERT INTO tblkardex (Fecha, Mes, Items, Detalle, C_D, Cant_Ent, Cost_Ent, Cant_Sal, Cost_Sal, Cant_Saldo, Cost_Saldo, Cost_Unit) VALUES (NOW(), ?, ?, ?, 1, ?, ?, 0, 0, ?, ?, ?)")
-                       ->execute([$mesNombre, $det['Items'], "Anulación Fra. N° $factN", $det['Cantidad'], $det['Cantidad'] * $costoUnit, $existActual, $existActual * $costoUnit, $costoUnit]);
+                       ->execute([$mesNombre, $det['Items'], "Anulación Fra. N° $factN", $cantAReversar, $cantAReversar * $costoUnit, $existActual, $existActual * $costoUnit, $costoUnit]);
                 }
             }
 

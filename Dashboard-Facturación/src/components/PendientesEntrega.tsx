@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
 import { AgGridReact } from 'ag-grid-react';
-import { ColDef, themeQuartz } from 'ag-grid-community';
-import { Package, CheckCircle, Calendar, RefreshCw, Download } from 'lucide-react';
+import { AllCommunityModule, ModuleRegistry, ColDef, themeQuartz } from 'ag-grid-community';
+import { Package, CheckCircle, Calendar, RefreshCw } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../contexts/AuthContext';
 import { getConfigImpresion } from './ConfiguracionSistema';
+
+ModuleRegistry.registerModules([AllCommunityModule]);
 
 const API = 'http://localhost:80/conta-app-backend/api/ventas';
 
@@ -19,9 +21,11 @@ interface PendienteRow {
   codigo_art: string | null;
   articulo: string;
   items: number;
-  cantidad: number;
+  cantidad: number;              // total facturado
+  cantidad_entregada: number;    // ya entregado acumulado
+  cantidad_faltante: number;     // lo que falta por entregar
   precio: number;
-  subtotal: number;
+  subtotal: number;              // precio × cantidad_faltante
   id_detalle: number;
   dias_transcurridos: number;
   dias_restantes: number;
@@ -48,6 +52,7 @@ export default function PendientesEntrega() {
   const [filtroSemaforo, setFiltroSemaforo] = useState<'todos' | 'rojo' | 'amarillo' | 'verde'>('todos');
   const [entregarRow, setEntregarRow] = useState<PendienteRow | null>(null);
   const [fechaEntrega, setFechaEntrega] = useState(new Date().toISOString().slice(0, 10));
+  const [cantidadAEntregar, setCantidadAEntregar] = useState<string>('');
   const [enviando, setEnviando] = useState(false);
 
   const cargar = async () => {
@@ -70,6 +75,12 @@ export default function PendientesEntrega() {
 
   const marcarEntregado = async () => {
     if (!entregarRow) return;
+    const cantNum = parseFloat(cantidadAEntregar) || 0;
+    if (cantNum <= 0) { toast.error('Cantidad debe ser mayor que 0'); return; }
+    if (cantNum > entregarRow.cantidad_faltante) {
+      toast.error(`Máximo ${entregarRow.cantidad_faltante} unidades (faltante)`);
+      return;
+    }
     setEnviando(true);
     try {
       const r = await fetch(`${API}/marcar-entregado.php`, {
@@ -78,12 +89,13 @@ export default function PendientesEntrega() {
           origen: entregarRow.origen,
           id_detalle: entregarRow.id_detalle,
           fecha_entrega: fechaEntrega,
+          cantidad_a_entregar: cantNum,
           usuario_id: user?.id || 0,
         }),
       });
       const d = await r.json();
       if (d.success) {
-        toast.success('Línea entregada ✓');
+        toast.success(d.message || 'Entregado ✓');
         setEntregarRow(null);
         cargar();
       } else toast.error(d.message || 'Error');
@@ -111,8 +123,11 @@ export default function PendientesEntrega() {
         <span>{p.value} {p.data?.codigo_art && <span style={{ color: '#9ca3af', fontSize: 10 }}>({p.data.codigo_art})</span>}</span>
       )
     },
-    { headerName: 'Cant', field: 'cantidad', width: 70, cellStyle: { textAlign: 'center', fontWeight: 600 } },
-    { headerName: 'Subtotal', field: 'subtotal', width: 110, cellStyle: { textAlign: 'right' },
+    { headerName: 'Cant.', field: 'cantidad', width: 65, cellStyle: { textAlign: 'center', color: '#6b7280' } },
+    { headerName: 'Entreg.', field: 'cantidad_entregada', width: 70, cellStyle: { textAlign: 'center', color: '#16a34a' },
+      cellRenderer: (p: any) => p.value > 0 ? String(p.value) : '-' },
+    { headerName: 'Faltan', field: 'cantidad_faltante', width: 75, cellStyle: { textAlign: 'center', fontWeight: 700, color: '#dc2626' } },
+    { headerName: 'Pendiente $', field: 'subtotal', width: 115, cellStyle: { textAlign: 'right' },
       cellRenderer: (p: any) => fmtMon(p.value || 0)
     },
     { headerName: 'Días', field: 'dias_transcurridos', width: 85, cellStyle: { textAlign: 'center' },
@@ -129,7 +144,11 @@ export default function PendientesEntrega() {
     },
     { headerName: '', width: 110, sortable: false,
       cellRenderer: (p: any) => (
-        <button onClick={() => { setEntregarRow(p.data); setFechaEntrega(new Date().toISOString().slice(0, 10)); }}
+        <button onClick={() => {
+          setEntregarRow(p.data);
+          setFechaEntrega(new Date().toISOString().slice(0, 10));
+          setCantidadAEntregar(String(p.data.cantidad_faltante));
+        }}
           style={{ height: 24, padding: '0 10px', background: '#7c3aed', color: '#fff', border: 'none', borderRadius: 4,
             fontSize: 11, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
           <CheckCircle size={12} /> Entregar
@@ -185,16 +204,28 @@ export default function PendientesEntrega() {
           <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 12, padding: 24, width: 420, boxShadow: '0 20px 40px rgba(0,0,0,0.2)' }}>
             <h3 style={{ fontSize: 18, fontWeight: 700, color: '#1f2937', marginBottom: 4 }}>Marcar como entregado</h3>
             <p style={{ fontSize: 13, color: '#6b7280', marginBottom: 16 }}>
-              <b>{entregarRow.articulo}</b> × {entregarRow.cantidad}<br/>
-              <span style={{ fontSize: 12 }}>{entregarRow.origen} {entregarRow.numero} · {entregarRow.cliente}</span>
+              <b>{entregarRow.articulo}</b><br/>
+              <span style={{ fontSize: 12 }}>{entregarRow.origen} {entregarRow.numero} · {entregarRow.cliente}</span><br/>
+              <span style={{ fontSize: 11, color: '#9ca3af' }}>Facturado: {entregarRow.cantidad} · Entregado: {entregarRow.cantidad_entregada} · Faltan: <b style={{ color: '#dc2626' }}>{entregarRow.cantidad_faltante}</b></span>
             </p>
+
+            <label style={{ fontSize: 12, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 6 }}>
+              Cantidad a entregar
+            </label>
+            <input type="text" inputMode="decimal" value={cantidadAEntregar}
+              onChange={e => setCantidadAEntregar(e.target.value.replace(/[^0-9.]/g, ''))}
+              style={{ width: '100%', height: 36, padding: '0 10px', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, textAlign: 'right', fontWeight: 700 }} />
+            <p style={{ fontSize: 11, color: '#9ca3af', marginTop: 4, marginBottom: 12 }}>
+              Máximo {entregarRow.cantidad_faltante}. Puede entregar en varias veces (ej: 5 hoy, 5 mañana).
+            </p>
+
             <label style={{ fontSize: 12, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 6 }}>
               <Calendar size={12} style={{ display: 'inline', marginRight: 4 }} />
               Fecha de entrega
             </label>
             <input type="date" value={fechaEntrega} onChange={e => setFechaEntrega(e.target.value)}
               style={{ width: '100%', height: 36, padding: '0 10px', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13 }} />
-            <p style={{ fontSize: 11, color: '#9ca3af', marginTop: 6 }}>Al confirmar: se descuenta el inventario con esta fecha y se registra en kardex.</p>
+            <p style={{ fontSize: 11, color: '#9ca3af', marginTop: 6 }}>Se descuenta el inventario con esta fecha y se registra en kardex.</p>
 
             <div style={{ display: 'flex', gap: 8, marginTop: 20, justifyContent: 'flex-end' }}>
               <button onClick={() => setEntregarRow(null)} disabled={enviando}

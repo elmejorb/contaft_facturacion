@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
 import { AgGridReact } from 'ag-grid-react';
-import { ColDef, themeQuartz } from 'ag-grid-community';
-import { Package2, Calendar, Download } from 'lucide-react';
+import { AllCommunityModule, ModuleRegistry, ColDef, themeQuartz } from 'ag-grid-community';
+import { Package2 } from 'lucide-react';
 import toast from 'react-hot-toast';
+
+ModuleRegistry.registerModules([AllCommunityModule]);
 
 const API = 'http://localhost:80/conta-app-backend/api/informes';
 

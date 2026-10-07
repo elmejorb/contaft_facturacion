@@ -17,7 +17,10 @@ try {
 
     $diasEstimados = (int)($db->query("SELECT COALESCE(dias_estimados_entrega, 7) FROM tbldatosempresa LIMIT 1")->fetchColumn() ?: 7);
 
-    // POS: tbldetalle_venta
+    // POS: tbldetalle_venta — mostrar líneas donde falta por entregar
+    //   cantidad_faltante = Cantidad - CantidadEntregada
+    // Incluye tanto Entregado='N' (pendiente total) como Entregado='S' con
+    // backfill (no debería pasar). El criterio REAL es cantidad_faltante > 0.
     $sqlPos = "
         SELECT 'POS' AS origen,
                v.Factura_N AS numero,
@@ -30,14 +33,17 @@ try {
                a.Nombres_Articulo AS articulo,
                d.Items AS items,
                d.Cantidad AS cantidad,
+               COALESCE(d.CantidadEntregada, 0) AS cantidad_entregada,
+               (d.Cantidad - COALESCE(d.CantidadEntregada, 0)) AS cantidad_faltante,
                d.PrecioV AS precio,
-               d.Subtotal AS subtotal,
+               (d.Cantidad - COALESCE(d.CantidadEntregada, 0)) * d.PrecioV AS subtotal,
                d.Id_DetalleVenta AS id_detalle,
                DATEDIFF(CURDATE(), DATE(v.Fecha)) AS dias_transcurridos
         FROM tbldetalle_venta d
         INNER JOIN tblventas v ON v.Factura_N = d.Factura_N
         LEFT JOIN tblarticulos a ON a.Items = d.Items
         WHERE d.Entregado = 'N'
+          AND (d.Cantidad - COALESCE(d.CantidadEntregada, 0)) > 0
           AND v.EstadoFact = 'Valida'
           AND DATE(v.Fecha) BETWEEN ? AND ?
     ";
@@ -64,8 +70,10 @@ try {
                    COALESCE(a.Nombres_Articulo, d.description) AS articulo,
                    d.items AS items,
                    d.invoiced_quantity AS cantidad,
+                   COALESCE(d.cantidad_entregada, 0) AS cantidad_entregada,
+                   (d.invoiced_quantity - COALESCE(d.cantidad_entregada, 0)) AS cantidad_faltante,
                    d.price_amount AS precio,
-                   d.line_extension_amount AS subtotal,
+                   (d.invoiced_quantity - COALESCE(d.cantidad_entregada, 0)) * d.price_amount AS subtotal,
                    d.id_detalle_document AS id_detalle,
                    DATEDIFF(CURDATE(), e.fecha) AS dias_transcurridos
             FROM detalle_document_electronic d
@@ -73,6 +81,7 @@ try {
             LEFT JOIN tblarticulos a ON a.Items = d.items
             LEFT JOIN tblclientes c ON c.CodigoClien = e.cod_cliente
             WHERE d.entregado = 'N'
+              AND (d.invoiced_quantity - COALESCE(d.cantidad_entregada, 0)) > 0
               AND e.status = 'autorizado'
               AND e.type_document_id = 1
               AND e.fecha BETWEEN ? AND ?
