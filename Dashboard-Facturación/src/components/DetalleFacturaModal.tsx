@@ -42,6 +42,44 @@ export function DetalleFacturaModal({ factN, onClose, onUpdate }: Props) {
   const [clienteBusqueda, setClienteBusqueda] = useState('');
   const [clienteResults, setClienteResults] = useState<any[]>([]);
   const searchTimer = useState<any>(null);
+  // Modo Fabricación (v4.7): entregar una línea pendiente
+  const [entregarLinea, setEntregarLinea] = useState<{ id: number; nombre: string; cant: number } | null>(null);
+  const [fechaEntregaLinea, setFechaEntregaLinea] = useState(new Date().toISOString().slice(0, 10));
+  const [entregandoLinea, setEntregandoLinea] = useState(false);
+
+  // Handler global que la tabla llama por `(window as any).__entregarLinea`.
+  // Patrón feo pero evita pasar prop por cada botón render.
+  useEffect(() => {
+    (window as any).__entregarLinea = (id: number, nombre: string, cant: number) => {
+      setEntregarLinea({ id, nombre, cant });
+      setFechaEntregaLinea(new Date().toISOString().slice(0, 10));
+    };
+    return () => { delete (window as any).__entregarLinea; };
+  }, []);
+
+  const confirmarEntrega = async () => {
+    if (!entregarLinea) return;
+    setEntregandoLinea(true);
+    try {
+      const r = await fetch('http://localhost:80/conta-app-backend/api/ventas/marcar-entregado.php', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          origen: 'POS',
+          id_detalle: entregarLinea.id,
+          fecha_entrega: fechaEntregaLinea,
+          usuario_id: user?.id || 0,
+        }),
+      });
+      const d = await r.json();
+      if (d.success) {
+        toast.success('Línea entregada');
+        setEntregarLinea(null);
+        cargar();
+        onUpdate?.();
+      } else toast.error(d.message || 'Error');
+    } catch (e) { toast.error('Error de red'); }
+    finally { setEntregandoLinea(false); }
+  };
 
   const buscarCliente = async (q: string) => {
     setClienteBusqueda(q);
@@ -375,6 +413,7 @@ export function DetalleFacturaModal({ factN, onClose, onUpdate }: Props) {
                     <th style={{ padding: '6px 8px', textAlign: 'right', width: 70, fontSize: 11 }}>Desc.</th>
                     <th style={{ padding: '6px 8px', textAlign: 'right', width: 90, fontSize: 11 }}>Subtotal</th>
                     <th style={{ padding: '6px 8px', textAlign: 'center', width: 40, fontSize: 11 }}>Dev</th>
+                    <th style={{ padding: '6px 8px', textAlign: 'center', width: 95, fontSize: 11 }}>Entrega</th>
                     {modo === 'devolucion' && <th style={{ padding: '6px 8px', textAlign: 'center', width: 70, fontSize: 11, color: '#dc2626' }}>Devolver</th>}
                   </tr>
                 </thead>
@@ -382,8 +421,9 @@ export function DetalleFacturaModal({ factN, onClose, onUpdate }: Props) {
                   {items.map((item: any) => {
                     const cant = parseFloat(item.Cantidad) || 0;
                     const dev = parseFloat(item.Dev) || 0;
+                    const pendiente = (item.Entregado || 'S') === 'N';
                     return (
-                      <tr key={item.Id_DetalleVenta} style={{ borderBottom: '1px solid #f3f4f6', background: cant === 0 ? '#fef2f2' : '' }}>
+                      <tr key={item.Id_DetalleVenta} style={{ borderBottom: '1px solid #f3f4f6', background: cant === 0 ? '#fef2f2' : (pendiente ? '#fef3c7' : '') }}>
                         <td style={{ padding: '4px 8px', color: '#6b7280', fontSize: 11 }}>{item.Codigo}</td>
                         <td style={{ padding: '4px 8px', fontWeight: 500 }}>{item.Nombres_Articulo}</td>
                         <td style={{ padding: '4px 8px', textAlign: 'center', fontWeight: 600, color: cant === 0 ? '#dc2626' : '#1f2937' }}>{cant}</td>
@@ -392,6 +432,21 @@ export function DetalleFacturaModal({ factN, onClose, onUpdate }: Props) {
                         <td style={{ padding: '4px 8px', textAlign: 'right', color: '#d97706' }}>{parseFloat(item.Descuento) > 0 ? fmtMon(parseFloat(item.Descuento)) : '-'}</td>
                         <td style={{ padding: '4px 8px', textAlign: 'right', fontWeight: 700 }}>{fmtMon(parseFloat(item.Subtotal) || 0)}</td>
                         <td style={{ padding: '4px 8px', textAlign: 'center', color: dev > 0 ? '#dc2626' : '#9ca3af', fontWeight: dev > 0 ? 700 : 400 }}>{dev > 0 ? dev : '-'}</td>
+                        <td style={{ padding: '4px 4px', textAlign: 'center' }}>
+                          {pendiente ? (
+                            <button onClick={() => (window as any).__entregarLinea?.(item.Id_DetalleVenta, item.Nombres_Articulo, cant)}
+                              title="Marcar como entregado (descuenta inventario con fecha)"
+                              style={{ height: 22, padding: '0 8px', background: '#16a34a', color: '#fff', border: 'none', borderRadius: 4, fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>
+                              Entregar
+                            </button>
+                          ) : item.FechaEntrega ? (
+                            <span style={{ fontSize: 10, color: '#16a34a', fontWeight: 600 }} title={`Entregado: ${item.FechaEntrega}`}>
+                              ✓ {String(item.FechaEntrega).slice(0,10).split('-').reverse().join('/')}
+                            </span>
+                          ) : (
+                            <span style={{ fontSize: 10, color: '#9ca3af' }}>-</span>
+                          )}
+                        </td>
                         {modo === 'devolucion' && (
                           <td style={{ padding: '3px 4px', textAlign: 'center' }}>
                             {cant > 0 && (
@@ -560,6 +615,33 @@ export function DetalleFacturaModal({ factN, onClose, onUpdate }: Props) {
             }, 100);
           }}
         />
+      )}
+
+      {/* Modal entregar línea (modo Fabricación v4.7) */}
+      {entregarLinea && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000 }}
+          onClick={() => setEntregarLinea(null)}>
+          <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 12, padding: 24, width: 420, boxShadow: '0 20px 40px rgba(0,0,0,0.2)' }}>
+            <h3 style={{ fontSize: 18, fontWeight: 700, color: '#1f2937', marginBottom: 4 }}>Marcar como entregado</h3>
+            <p style={{ fontSize: 13, color: '#6b7280', marginBottom: 16 }}>
+              <b>{entregarLinea.nombre}</b> × {entregarLinea.cant}
+            </p>
+            <label style={{ fontSize: 12, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 6 }}>
+              Fecha de entrega
+            </label>
+            <input type="date" value={fechaEntregaLinea} onChange={e => setFechaEntregaLinea(e.target.value)}
+              style={{ width: '100%', height: 36, padding: '0 10px', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13 }} />
+            <p style={{ fontSize: 11, color: '#9ca3af', marginTop: 6 }}>Se descuenta el inventario con esta fecha y se registra en kardex.</p>
+            <div style={{ display: 'flex', gap: 8, marginTop: 20, justifyContent: 'flex-end' }}>
+              <button onClick={() => setEntregarLinea(null)} disabled={entregandoLinea}
+                style={{ padding: '8px 16px', background: '#f3f4f6', color: '#374151', border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 13 }}>Cancelar</button>
+              <button onClick={confirmarEntrega} disabled={entregandoLinea || !fechaEntregaLinea}
+                style={{ padding: '8px 16px', background: '#16a34a', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600, opacity: entregandoLinea ? 0.5 : 1 }}>
+                {entregandoLinea ? 'Entregando...' : 'Confirmar entrega'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

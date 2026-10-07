@@ -409,6 +409,11 @@ try {
             $mesNombre = $meses[intval(date('n'))] ?? '';
 
             foreach ($detalles as $det) {
+                // Línea con Entregado='N' (modo Fabricación, v4.7): nunca
+                // descontó stock, no hay nada que devolver ni asiento de
+                // kardex que crear. Se omite silenciosamente.
+                if (isset($det['Entregado']) && $det['Entregado'] === 'N') continue;
+
                 if ($det['Cantidad'] > 0) {
                     $db->prepare("UPDATE tblarticulos SET Existencia = Existencia + ? WHERE Items = ?")
                        ->execute([$det['Cantidad'], $det['Items']]);

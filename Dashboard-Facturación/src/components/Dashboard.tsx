@@ -57,7 +57,7 @@ import { useStockBajoCount } from '../hooks/useStockBajoCount';
 import { useCumpleanosHoy } from '../hooks/useCumpleanosHoy';
 // Estos exports NO son componentes (funciones/consts) → deben ser estáticos.
 // Se usan en efectos y helpers fuera del área de rendering perezoso.
-import { saveEmpresaCache, getConfigImpresion, saveConfigImpresion } from './ConfiguracionSistema';
+import { saveEmpresaCache, getConfigImpresion, saveConfigImpresion, esFabricacion } from './ConfiguracionSistema';
 
 // PESADOS (usan AG Grid, xlsx, recharts, tabs enteros) — lazy con code-splitting.
 // Cada uno se descarga cuando el usuario navega a esa sección. Reduce el bundle
@@ -107,6 +107,8 @@ const ComprasTabs = lazy(() => import('./ComprasTabs').then(m => ({ default: m.C
 const UsuariosManagement = lazy(() => import('./UsuariosManagement').then(m => ({ default: m.UsuariosManagement })));
 const VendedoresMovil = lazy(() => import('./VendedoresMovil').then(m => ({ default: m.VendedoresMovil })));
 const VendedoresPedidos = lazy(() => import('./VendedoresPedidos').then(m => ({ default: m.VendedoresPedidos })));
+const PendientesEntrega = lazy(() => import('./PendientesEntrega').then(m => ({ default: m.default })));
+const InformeProduccionDia = lazy(() => import('./InformeProduccionDia').then(m => ({ default: m.default })));
 const CarguesVendedor = lazy(() => import('./CarguesVendedor').then(m => ({ default: m.CarguesVendedor })));
 const CuentasPorCobrar = lazy(() => import('./CuentasPorCobrar').then(m => ({ default: m.CuentasPorCobrar })));
 const TopClientes = lazy(() => import('./TopClientes').then(m => ({ default: m.TopClientes })));
@@ -136,7 +138,7 @@ interface DashboardProps {
   user?: UserData | null;
 }
 
-type View = 'overview' | 'products' | 'customers' | 'suppliers' | 'purchases' | 'sales' | 'inventario' | 'diagnostico' | 'auditoria' | 'categorias' | 'conteo' | 'configuracion' | 'cuentas-cobrar' | 'top-clientes' | 'cumpleanos' | 'cuentas-pagar' | 'productos-proveedor' | 'nueva-venta' | 'ventas-tipo-pago' | 'datos-empresa' | 'usuarios' | 'nueva-compra' | 'facturacion-electronica' | 'facturas-recibidas' | 'caja' | 'caja-historial' | 'pagos-clientes' | 'pagos-proveedores' | 'gastos' | 'bancos' | 'config-categorias-gasto' | 'config-cajas' | 'config-servidor' | 'config-permisos' | 'familias' | 'distribuir' | 'stock-bajo' | 'config-retenciones' | 'informes-hub' | 'notas-articulo' | 'lotes-vencer' | 'inicio' | 'config-etiquetas' | 'vendedores-gestion' | 'vendedores-pedidos' | 'vendedores-cargues' | 'vendedores-informe' | 'ordenes-compra' | 'financiaciones' | 'backup-bd' | 'mantenimiento-bd' | 'anticipos-clientes' | 'movs-directos' | 'bodegas';
+type View = 'overview' | 'products' | 'customers' | 'suppliers' | 'purchases' | 'sales' | 'inventario' | 'diagnostico' | 'auditoria' | 'categorias' | 'conteo' | 'configuracion' | 'cuentas-cobrar' | 'top-clientes' | 'cumpleanos' | 'cuentas-pagar' | 'productos-proveedor' | 'nueva-venta' | 'ventas-tipo-pago' | 'datos-empresa' | 'usuarios' | 'nueva-compra' | 'facturacion-electronica' | 'facturas-recibidas' | 'caja' | 'caja-historial' | 'pagos-clientes' | 'pagos-proveedores' | 'gastos' | 'bancos' | 'config-categorias-gasto' | 'config-cajas' | 'config-servidor' | 'config-permisos' | 'familias' | 'distribuir' | 'stock-bajo' | 'config-retenciones' | 'informes-hub' | 'notas-articulo' | 'lotes-vencer' | 'inicio' | 'config-etiquetas' | 'vendedores-gestion' | 'vendedores-pedidos' | 'vendedores-cargues' | 'vendedores-informe' | 'ordenes-compra' | 'financiaciones' | 'backup-bd' | 'mantenimiento-bd' | 'anticipos-clientes' | 'movs-directos' | 'bodegas' | 'pendientes-entrega' | 'produccion-dia';
 
 interface MenuItem {
   id: string;
@@ -188,7 +190,9 @@ const TAB_SUPPORTED_VIEWS: ReadonlySet<View> = new Set<View>([
   // Gastos / Bancos
   'gastos', 'bancos',
   // Informes
-  'informes-hub',
+  'informes-hub', 'produccion-dia',
+  // Fabricación (v4.7)
+  'pendientes-entrega',
   // Vendedores móviles (solo aparecen si el módulo está activo)
   'vendedores-gestion', 'vendedores-pedidos', 'vendedores-cargues', 'vendedores-informe',
   // Configuración / administración
@@ -248,6 +252,8 @@ const TITULO_POR_VIEW: Partial<Record<View, string>> = {
   'gastos': 'Gastos',
   'bancos': 'Bancos',
   'informes-hub': 'Informes',
+  'produccion-dia': 'Producción del Día',
+  'pendientes-entrega': 'Pendientes por Entregar',
   'vendedores-gestion': 'Gestión Vendedores',
   'vendedores-pedidos': 'Pedidos de Campo',
   'vendedores-cargues': 'Cargues del día',
@@ -300,6 +306,8 @@ const ICONO_POR_VIEW: Partial<Record<View, any>> = {
   'gastos': DollarSign,
   'bancos': CreditCard,
   'informes-hub': FileText,
+  'produccion-dia': Package,
+  'pendientes-entrega': Package,
   'vendedores-gestion': Smartphone,
   'vendedores-pedidos': ClipboardList,
   'vendedores-cargues': Truck,
@@ -616,15 +624,19 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
         { id: 'supplier-products', label: 'Productos Proveedor', view: 'productos-proveedor' as View },
       ]
     },
-    { 
-      id: 'sales', 
-      label: 'Ventas', 
+    {
+      id: 'sales',
+      label: 'Ventas',
       icon: TrendingUp,
       children: [
         { id: 'new-sale', label: 'Nueva Venta', view: 'nueva-venta' as View },
         { id: 'sales-list', label: 'Listado de Ventas', view: 'sales' },
         { id: 'sales-by-payment', label: 'Listado por Tipo de Pago', view: 'ventas-tipo-pago' as View },
         { id: 'fe-panel', label: 'Facturación Electrónica', view: 'facturacion-electronica' as View },
+        // Fabricación v4.7: solo visible si tipoNegocio contiene "fabricación"
+        ...(esFabricacion() ? [
+          { id: 'pendientes-entrega', label: 'Pendientes por Entregar', view: 'pendientes-entrega' as View },
+        ] : []),
       ]
     },
     { 
@@ -669,7 +681,15 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
         { id: 'bancos', label: 'Bancos', view: 'bancos' as View },
       ]
     },
-    {
+    esFabricacion() ? {
+      id: 'informes',
+      label: 'Informes',
+      icon: FileText,
+      children: [
+        { id: 'informes-hub', label: 'Panel de Informes', view: 'informes-hub' as View },
+        { id: 'produccion-dia', label: 'Producción del Día', view: 'produccion-dia' as View },
+      ]
+    } : {
       id: 'informes',
       label: 'Informes',
       icon: FileText,
@@ -1416,6 +1436,8 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
               {t.view === 'ventas-tipo-pago' && <VentasPorTipoPago />}
               {t.view === 'facturacion-electronica' && <FacturacionElectronica onNavigate={(v) => abrirEnTab(v as View)} />}
               {t.view === 'facturas-recibidas' && <FacturasRecibidas />}
+              {t.view === 'pendientes-entrega' && <PendientesEntrega />}
+              {t.view === 'produccion-dia' && <InformeProduccionDia />}
               {/* Inventario / catálogos */}
               {t.view === 'inventario' && <InventarioManagement />}
               {t.view === 'products' && <ProductsManagement />}

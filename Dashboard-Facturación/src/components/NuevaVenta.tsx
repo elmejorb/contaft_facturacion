@@ -4,7 +4,7 @@ import { HistorialPreciosVentaModal } from './HistorialPreciosVentaModal';
 import { KardexArticuloModal } from './KardexArticuloModal';
 import { EditarArticuloModal } from './EditarArticuloModal';
 import toast from 'react-hot-toast';
-import { getConfigImpresion, getEmpresaCache, saveEmpresaCache, esFarmacia } from './ConfiguracionSistema';
+import { getConfigImpresion, getEmpresaCache, saveEmpresaCache, esFarmacia, esFabricacion } from './ConfiguracionSistema';
 import { imprimirFactura, buildDatosFactura } from './ImpresionFactura';
 import { useAuth } from '../contexts/AuthContext';
 import { AutorizacionAdminModal, type AdminAutorizado } from './AutorizacionAdminModal';
@@ -269,6 +269,12 @@ interface LineaVenta {
   // se usa tal cual al vender en modo CAJA — sin multiplicar por Factor.
   // Sirve para casos como "tableta $10, caja $912" (no exactamente x100).
   PrecioVentaEmpaque?: number | null;
+  // Modo Fabricación (v4.7): 'S' entrega inmediata (descuenta stock); 'N'
+  // producto por fabricar (no descuenta, queda en Pendientes por Entregar).
+  // Default: 'N' si el producto tiene etiqueta "Producto Terminado"
+  // (Id_Etiqueta=2), 'S' en los demás casos.
+  Entregado?: 'S' | 'N';
+  IdEtiqueta?: number | null;
 }
 
 export interface TabState {
@@ -629,6 +635,11 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
       const precioFinal = empaqueDefault && factorArt > 1
         ? (precioEmpManual != null ? precioEmpManual : Math.round(precio * factorArt))
         : precio;
+      // Default Entregado: en modo Fabricación, los productos con etiqueta
+      // "Producto Terminado" (Id_Etiqueta=2) salen como 'N' (toca producir);
+      // los demás salen como 'S' (catálogo normal, entrega inmediata).
+      const idEtiqueta = (art as any).Id_Etiqueta ?? null;
+      const entregadoDefault: 'S' | 'N' = esFabricacion() && idEtiqueta === 2 ? 'N' : 'S';
       const nueva: LineaVenta = {
         id: ++lineaId, Items: art.Items, Codigo: art.Codigo, Nombre: art.Nombres_Articulo,
         Existencia: esServicio ? 0 : art.Existencia, Cantidad: cantInicial, PrecioCosto: art.Precio_Costo,
@@ -645,6 +656,8 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
         NombreEmpaque: art.nombre_empaque || null,
         VenderComoEmpaque: empaqueDefault,
         PrecioVentaEmpaque: precioEmpManual,
+        Entregado: entregadoDefault,
+        IdEtiqueta: idEtiqueta,
       };
       setLineas(prev => [...prev, nueva]);
     }
@@ -1100,6 +1113,7 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
               precio_costo: l.PrecioCosto, iva: l.Iva, descuento: l.Descuento,
               es_servicio: l.EsServicio ? 1 : 0,
               descripcion_temp: l.EsServicio ? (l.DescripcionTemp || l.Nombre) : null,
+              entregado: l.Entregado || 'S',
             };
           }),
           tipo, dias: tipo === 'Contado' ? 0 : dias,
@@ -1516,6 +1530,7 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
             precio_costo: l.PrecioCosto, iva: l.Iva, descuento: l.Descuento,
             es_servicio: l.EsServicio ? 1 : 0,
             descripcion_temp: l.EsServicio ? (l.DescripcionTemp || l.Nombre) : null,
+            entregado: l.Entregado || 'S',
           };
         }),
         retenciones: retencionesCalc,
@@ -2098,6 +2113,9 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
               <th style={{ padding: '8px 8px', textAlign: 'right', width: 95, fontSize: 11, color: '#374151', fontWeight: 700 }}>Precio</th>
               <th style={{ padding: '8px 8px', textAlign: 'right', width: 75, fontSize: 11, color: '#374151', fontWeight: 700 }}>Desc.</th>
               <th style={{ padding: '8px 8px', textAlign: 'center', width: 40, fontSize: 11, color: '#374151', fontWeight: 700 }}>IVA</th>
+              {esFabricacion() && (
+                <th style={{ padding: '8px 8px', textAlign: 'center', width: 70, fontSize: 11, color: '#374151', fontWeight: 700 }}>Entrega</th>
+              )}
               <th style={{ padding: '8px 8px', textAlign: 'right', width: 100, fontSize: 11, color: '#374151', fontWeight: 700 }}>Subtotal</th>
               <th style={{ padding: '8px 4px', width: esAdmin ? 82 : 60 }}></th>
             </tr>
@@ -2292,6 +2310,20 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
                       style={{ width: 60, height: 24, textAlign: 'right', border: '1px solid #d1d5db', borderRadius: 4, fontSize: 12, outline: 'none' }} />
                   </td>
                   <td style={{ padding: '4px 4px', textAlign: 'center', width: 40, color: '#6b7280', fontSize: 10 }}>{l.Iva}%</td>
+                  {esFabricacion() && (
+                    <td style={{ padding: '3px 4px', textAlign: 'center', width: 70 }}>
+                      <select value={l.Entregado || 'S'}
+                        disabled={!!l.EsServicio}
+                        onChange={e => setLineas(prev => prev.map(x => x.id === l.id ? { ...x, Entregado: e.target.value as 'S'|'N' } : x))}
+                        title={l.Entregado === 'N' ? 'Pendiente de producir — no descuenta inventario' : 'Entregado — descuenta inventario'}
+                        style={{ height: 24, width: 60, fontSize: 11, fontWeight: 600, border: '1px solid #d1d5db', borderRadius: 4,
+                          background: l.Entregado === 'N' ? '#fef3c7' : '#dcfce7',
+                          color: l.Entregado === 'N' ? '#92400e' : '#166534', outline: 'none', cursor: 'pointer' }}>
+                        <option value="S">Si</option>
+                        <option value="N">No</option>
+                      </select>
+                    </td>
+                  )}
                   <td style={{ padding: '4px 8px', textAlign: 'right', width: 100, fontWeight: 700 }}>{fmtMon(l.Subtotal)}</td>
                   <td style={{ padding: '4px 4px', width: esAdmin ? 82 : 60, whiteSpace: 'nowrap' }}>
                     <button onClick={() => setHistorialItems(l.Items)} title="Historial de precios de venta"

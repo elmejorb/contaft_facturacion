@@ -2101,3 +2101,40 @@ SET @sql = IF(@tiene_ed > 0,
        AND (p.Nfact_electronica IS NULL OR p.Nfact_electronica = '')",
     'SELECT 1');
 PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
+
+-- ============================================================
+-- v4.7 — Modo Fabricación: entrega diferida de productos terminados
+-- ============================================================
+-- Para negocios de fabricación/taller (uniformes, bordados, muebles):
+-- al vender un producto marcado con etiqueta "Producto Terminado"
+-- (Id_Etiqueta=2), el usuario puede indicar Entregado=S/N. Si N, la
+-- venta se registra sin descontar inventario; cuando se produce y
+-- entrega al cliente se marca como entregado (descuenta stock con
+-- esa fecha). Vista "Pendientes por entregar" lista los faltantes
+-- con semáforo según dias_estimados_entrega.
+
+-- Días estimados de entrega (config global de la empresa)
+SET @col = (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='tbldatosempresa' AND COLUMN_NAME='dias_estimados_entrega');
+SET @sql = IF(@col=0,
+    'ALTER TABLE tbldatosempresa ADD COLUMN dias_estimados_entrega INT NOT NULL DEFAULT 7',
+    'SELECT 1');
+PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
+
+-- Detalle venta POS: fecha de entrega + usuario que marca entregado
+SET @col = (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='tbldetalle_venta' AND COLUMN_NAME='FechaEntrega');
+SET @sql = IF(@col=0,
+    'ALTER TABLE tbldetalle_venta ADD COLUMN FechaEntrega DATETIME NULL, ADD COLUMN UsuarioEntrego INT NULL, ADD INDEX idx_entregado (Entregado)',
+    'SELECT 1');
+PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
+
+-- Detalle FE (si existe la tabla)
+SET @t = (SELECT COUNT(*) FROM information_schema.TABLES
+    WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='detalle_document_electronic');
+SET @col = (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='detalle_document_electronic' AND COLUMN_NAME='entregado');
+SET @sql = IF(@t > 0 AND @col = 0,
+    "ALTER TABLE detalle_document_electronic ADD COLUMN entregado VARCHAR(1) DEFAULT 'S', ADD COLUMN fecha_entrega DATETIME NULL, ADD COLUMN usuario_entrego INT NULL, ADD INDEX idx_entregado_fe (entregado)",
+    'SELECT 1');
+PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;

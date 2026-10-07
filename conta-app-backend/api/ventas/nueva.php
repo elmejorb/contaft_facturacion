@@ -36,6 +36,7 @@ try {
                 SELECT a.Items, a.Codigo, a.Nombres_Articulo, a.Existencia, a.Precio_Costo,
                        a.Precio_Venta, a.Precio_Venta2, a.Precio_Venta3, a.Iva, a.Precio_Minimo,
                        COALESCE(a.Servicio, 0) AS Servicio,
+                       a.Id_Etiqueta,
                        $selFactor AS factor_conversion,
                        $selNombreEmp AS nombre_empaque,
                        $selVenderEmp AS vender_como_empaque,
@@ -72,6 +73,7 @@ try {
             SELECT a.Items, a.Codigo, a.Nombres_Articulo, a.Existencia, a.Precio_Costo,
                    a.Precio_Venta, a.Precio_Venta2, a.Precio_Venta3, a.Iva, a.Precio_Minimo,
                    COALESCE(a.Servicio, 0) AS Servicio,
+                   a.Id_Etiqueta,
                    $selFactor AS factor_conversion,
                    $selNombreEmp AS nombre_empaque,
                    $selVenderEmp AS vender_como_empaque,
@@ -287,14 +289,20 @@ try {
         $stmtFE->execute($paramsFE);
         $docElecId = (int)$db->lastInsertId();
 
-        // Loop items: detalle_document_electronic + stock + kardex
+        // Loop items: detalle_document_electronic + stock + kardex.
+        // Columna 'entregado' defensiva — solo existe desde v4.7. Si no está
+        // (BD sin migrar) el INSERT se ejecuta sin ella y la columna queda
+        // en su default (que v4.7 definió como 'S').
+        $tieneEntregadoFE = (int)$db->query("SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='detalle_document_electronic' AND COLUMN_NAME='entregado'")->fetchColumn() > 0;
+        $colEntregadoFE = $tieneEntregadoFE ? ', entregado' : '';
+        $valEntregadoFE = $tieneEntregadoFE ? ', ?' : '';
         $stmtDetFE = $db->prepare("
             INSERT INTO detalle_document_electronic
             (factura_n, items, unit_measure_id, invoiced_quantity, line_extension_amount,
              free_of_charge_indicator, description, type_item_identification_id,
              price_amount, PrecioCosto, discount_amount, base_quantity,
-             tax_id, tax_amount, taxable_amount, tax_percent)
-            VALUES (?, ?, ?, ?, ?, 0, ?, 3, ?, ?, ?, ?, 1, ?, ?, ?)
+             tax_id, tax_amount, taxable_amount, tax_percent $colEntregadoFE)
+            VALUES (?, ?, ?, ?, ?, 0, ?, 3, ?, ?, ?, ?, 1, ?, ?, ? $valEntregadoFE)
         ");
         $stmtStockFE = $db->prepare("UPDATE tblarticulos SET Existencia = Existencia - :cant WHERE Items = :items");
         $stmtKardexFE = $db->prepare("
@@ -331,7 +339,8 @@ try {
                 : ($art['Nombres_Articulo'] ?? 'Producto');
             $unitMeasure = intval($art['unit_measure_id'] ?? 70);
 
-            $stmtDetFE->execute([
+            $entregadoFE = (isset($item->entregado) && $item->entregado === 'N') ? 'N' : 'S';
+            $paramsDetFE = [
                 $docElecId, $itemId, $unitMeasure,
                 number_format($cant, 2, '.', ''), number_format($baseAmount, 2, '.', ''),
                 $descripcion,
@@ -342,10 +351,15 @@ try {
                 number_format($lineaIva, 2, '.', ''),
                 number_format($baseAmount, 2, '.', ''),
                 number_format($iva, 2, '.', '')
-            ]);
+            ];
+            if ($tieneEntregadoFE) $paramsDetFE[] = $entregadoFE;
+            $stmtDetFE->execute($paramsDetFE);
 
             // Servicios no mueven stock/kardex
             if ($esServicio) continue;
+
+            // Línea pendiente (fabricación): no descuenta stock ni kardex.
+            if ($entregadoFE === 'N') continue;
 
             // Stock + kardex (igual que POS, solo cambia el string Detalle)
             $stmtStockFE->execute([':cant' => $cant, ':items' => $itemId]);
@@ -425,11 +439,13 @@ try {
     $factN = $db->lastInsertId();
 
     // Insert detail + update stock + kardex.
-    // Para servicios se incluye DescripcionTemp con el concepto editado en
-    // pantalla; para productos normales esa columna queda NULL.
+    // Entregado: 'S' default (descuenta inventario como siempre). En modo
+    // Fabricación (v4.7), el frontend puede mandar 'N' por línea → la línea
+    // se guarda como pendiente, NO descuenta stock ni mueve kardex hasta
+    // que se marque como entregada después desde DetalleFacturaModal.
     $stmtDetalle = $db->prepare("
         INSERT INTO tbldetalle_venta (Factura_N, Items, Cantidad, PrecioC, PrecioV, Impuesto, Subtotal, IVA, Descuento, Entregado, DescripcionTemp)
-        VALUES (:fact, :items, :cant, :pc, :pv, :imp, :sub, :iva, :desc, 'S', :desc_temp)
+        VALUES (:fact, :items, :cant, :pc, :pv, :imp, :sub, :iva, :desc, :entregado, :desc_temp)
     ");
 
     $stmtStock = $db->prepare("UPDATE tblarticulos SET Existencia = Existencia - :cant WHERE Items = :items");
@@ -468,6 +484,10 @@ try {
             }
         }
         $descTemp = $esServicio ? (string)($item->descripcion_temp ?? '') : null;
+        // Modo Fabricación: línea pendiente de producir — NO descuenta stock
+        // ni mueve kardex. Se marca con Entregado='N' y se desbloquea cuando
+        // el usuario la marque entregada desde DetalleFacturaModal.
+        $entregadoLinea = (isset($item->entregado) && $item->entregado === 'N') ? 'N' : 'S';
         $lineaSubtotal = ($cant * $precioV) - $desc;
         // Misma fórmula que arriba: respeta IvaIncluido para que el monto del
         // IMPUESTO no se infle cuando el precio ya trae IVA dentro.
@@ -481,12 +501,16 @@ try {
             ':fact' => $factN, ':items' => $itemId, ':cant' => $cant,
             ':pc' => $precioC, ':pv' => $precioV, ':imp' => $lineaIva,
             ':sub' => $lineaSubtotal, ':iva' => $iva, ':desc' => $desc,
+            ':entregado' => $entregadoLinea,
             ':desc_temp' => $descTemp,
         ]);
 
         // Servicios: saltar TODO el bloque de stock/kardex/componentes. Solo
         // se registra el detalle y se pasa al siguiente item.
         if ($esServicio) continue;
+
+        // Línea pendiente (fabricación): no descuenta stock ni kardex.
+        if ($entregadoLinea === 'N') continue;
 
         // ¿El producto tiene componentes? Si sí, descontar componentes en vez del padre.
         $stmtComp = $db->prepare("

@@ -51,7 +51,8 @@ export interface ConfigImpresion {
   usarFinanciaciones: boolean; // activa el módulo de financiaciones (crédito con cuotas) — típico venta de motos
   tasaMoraMensual: number; // % mensual sobre valor de cuota vencida. 0 = no cobra mora
   usarAnticipos: boolean; // activa el módulo de anticipos (saldo a favor del cliente para futuras compras)
-  tipoNegocio: string; // Tienda, Farmacia, Boutique, etc.
+  tipoNegocio: string; // Tienda, Farmacia, Boutique, Fabricación, etc.
+  diasEstimadosEntrega: number; // Solo aplica si tipoNegocio es "Fabricación / Taller". Default 7.
   // Seguridad — autorización admin para acciones sensibles
   autorizarDevoluciones: boolean;     // pide clave admin para devolver
   autorizarAnulaciones: boolean;      // pide clave admin para anular venta
@@ -108,6 +109,7 @@ const defaultConfig: ConfigImpresion = {
   tasaMoraMensual: 0,
   usarAnticipos: false,
   tipoNegocio: '',
+  diasEstimadosEntrega: 7,
   autorizarDevoluciones: false,
   autorizarAnulaciones: false,
   autorizarOverrideCupo: false,
@@ -134,6 +136,16 @@ export function getConfigImpresion(): ConfigImpresion {
 export function esFarmacia(): boolean {
   const t = (getConfigImpresion().tipoNegocio || '').toLowerCase();
   return t.includes('farmacia') || t.includes('droguer');
+}
+
+// Negocios de fabricación/taller (uniformes, bordados, muebles por pedido):
+// activa la columna "Entregado" por línea en Nueva Venta. Productos con
+// etiqueta "Producto Terminado" (Id_Etiqueta=2) salen como "No" (pendientes
+// de producir); los demás como "Si" (catálogo normal). La vista
+// Pendientes por Entregar lista las líneas con Entregado='N'.
+export function esFabricacion(): boolean {
+  const t = (getConfigImpresion().tipoNegocio || '').toLowerCase();
+  return t.includes('fabricaci') || t.includes('taller') || t.includes('confec');
 }
 
 export function saveConfigImpresion(config: ConfigImpresion) {
@@ -800,10 +812,23 @@ export function ConfiguracionSistema() {
           <select value={config.tipoNegocio} onChange={e => set('tipoNegocio', e.target.value)}
             style={{ height: 32, width: 250, border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, padding: '0 8px' }}>
             <option value="">-- Seleccionar --</option>
-            {['Tienda / Abarrotes', 'Farmacia / Droguería', 'Boutique / Ropa', 'Agropecuaria', 'Accesorios Celular', 'Dulcería', 'Ferretería', 'Papelería', 'Restaurante', 'Distribuidora', 'Otro'].map(t => (
+            {['Tienda / Abarrotes', 'Farmacia / Droguería', 'Boutique / Ropa', 'Fabricación / Taller', 'Agropecuaria', 'Accesorios Celular', 'Dulcería', 'Ferretería', 'Papelería', 'Restaurante', 'Distribuidora', 'Otro'].map(t => (
               <option key={t} value={t}>{t}</option>
             ))}
           </select>
+          {(config.tipoNegocio || '').toLowerCase().includes('fabricaci') && (
+            <div style={{ marginTop: 10 }}>
+              <label style={{ fontSize: 12, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 6 }}>
+                Días estimados de entrega
+                <span style={{ fontSize: 10, fontWeight: 400, color: '#6b7280', marginLeft: 6 }}>
+                  (base para semáforo de retrasos)
+                </span>
+              </label>
+              <input type="text" inputMode="numeric" value={config.diasEstimadosEntrega}
+                onChange={e => set('diasEstimadosEntrega', parseInt(e.target.value.replace(/\D/g,'')) || 0)}
+                style={{ height: 32, width: 100, border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, padding: '0 8px', textAlign: 'center' }} />
+            </div>
+          )}
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
