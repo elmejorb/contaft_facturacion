@@ -87,6 +87,13 @@ try {
             $h['ValorPago'] = floatval($h['ValorPago']);
             $h['ValorFact'] = floatval($h['ValorFact']);
             $h['SaldoAct'] = floatval($h['SaldoAct']);
+            // Defensa fecha: si Fecha viene NULL o '0000-00-00 00:00:00'
+            // (pagos legacy VB6 migrados mal), devolvemos string vacío para
+            // que el frontend aplique su fallback (NOW()). Sin esto el
+            // recibo salía en blanco con "Invalid Date".
+            if (empty($h['Fecha']) || $h['Fecha'] === '0000-00-00 00:00:00') {
+                $h['Fecha'] = '';
+            }
         }
 
         // Medios de pago

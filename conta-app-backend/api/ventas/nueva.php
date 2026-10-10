@@ -145,6 +145,27 @@ try {
     // Factura_N de POS, igual que en el sistema VB6 original.
     $tipoDocumento = $data->tipo_documento ?? 'pos';
     $esFE = in_array($tipoDocumento, ['electronica', 'soporte'], true);
+    $esCotizacion = $tipoDocumento === 'cotizacion';
+
+    // Guardarraíl: si no hay sesión de caja abierta para el vendedor, bloquear
+    // la venta. Sin esto, cuando el cajero cerraba la caja desde otra pestaña y
+    // volvía a Nueva Venta (que no re-chequea), la venta se guardaba igual pero
+    // su Fecha quedaba FUERA del rango de cualquier caja → cuadre con faltante.
+    // Las cotizaciones se permiten siempre (no afectan caja ni inventario).
+    if (!$esCotizacion && intval($vendedor) > 0) {
+        $stmtSes = $db->prepare("SELECT COUNT(*) FROM tblsesiones_caja
+                                 WHERE Id_Usuario = ? AND Estado = 'abierta'");
+        $stmtSes->execute([intval($vendedor)]);
+        if (intval($stmtSes->fetchColumn()) === 0) {
+            http_response_code(400);
+            echo json_encode([
+                'success' => false,
+                'code' => 'CAJA_CERRADA',
+                'message' => 'La caja está cerrada. Abre caja antes de registrar la venta.',
+            ]);
+            exit;
+        }
+    }
 
     // Régimen + IvaIncluido. Si NO es Responsable de IVA → IVA=0 siempre.
     // IvaIncluido=1 (default) → el precio del catálogo YA incluye IVA, hay
@@ -187,8 +208,12 @@ try {
 
     // Total a pagar: cuando IvaIncluido=1 el IVA ya está dentro del subtotal,
     // así que el total ES el subtotal. Cuando IvaIncluido=0 el IVA se agrega
-    // al subtotal para llegar al total.
-    $total = $ivaIncluidoCfg ? $subtotal : ($subtotal + $totalIva);
+    // al subtotal para llegar al total. En ambos casos restamos el descuento
+    // global (bug reportado: factura 7486 guardó $210.000 cuando correspondía
+    // $200.000 — el descuento global se guardaba en Descuento pero nunca se
+    // restaba del Total).
+    $totalBruto = $ivaIncluidoCfg ? $subtotal : ($subtotal + $totalIva);
+    $total = max($totalBruto - $descuentoGlobal, 0);
 
     // Guardarraíl: en crédito el abono debe ser ESTRICTAMENTE menor que el total.
     // Si es igual, la venta es contado (no crédito con abono). Si es mayor, es
@@ -383,6 +408,9 @@ try {
         // (NO Fact_N, para que no colisione con una venta POS del mismo número)
         if ($tipo !== 'Contado' && $abono > 0) {
             $rec = (int)$db->query("SELECT COALESCE(MAX(RecCajaN), 0) + 1 FROM tblpagos")->fetchColumn();
+            $abonoMedio = isset($data->abono_medio_pago) && $data->abono_medio_pago !== null
+                ? intval($data->abono_medio_pago)
+                : $medioPago;
             $db->prepare("
                 INSERT INTO tblpagos (RecCajaN, Codigo, Fact_N, ValorPago, Fecha, DetallePago,
                     ValorFact, SaldoAct, Descuento, Retencion, Estado, Afectada, id_mediopago,
@@ -392,7 +420,7 @@ try {
                 $rec, $clienteId, $abono,
                 "Abono inicial FE $refKardex",
                 $total, max($total - $abono, 0),
-                $medioPago, $refKardex, $vendedor
+                $abonoMedio, $refKardex, $vendedor
             ]);
         }
 
@@ -600,6 +628,14 @@ try {
         $stmtRecCaja = $db->query("SELECT COALESCE(MAX(RecCajaN), 0) + 1 AS next_rec FROM tblpagos");
         $recCajaN = intval($stmtRecCaja->fetch()['next_rec']);
 
+        // Medio de pago del abono: si viene abono_medio_pago (v4.7.2) se usa
+        // ese; si no, cae al medio general de la factura (compat con payloads
+        // viejos). Antes el abono siempre entraba como "Efectivo" independiente
+        // de cómo lo pagara el cliente.
+        $abonoMedio = isset($data->abono_medio_pago) && $data->abono_medio_pago !== null
+            ? intval($data->abono_medio_pago)
+            : $medioPago;
+
         $stmtAbonoPago = $db->prepare("
             INSERT INTO tblpagos (RecCajaN, Codigo, Fact_N, ValorPago, Fecha, DetallePago,
                 ValorFact, SaldoAct, Descuento, Retencion, Estado, Afectada, id_mediopago,
@@ -616,7 +652,7 @@ try {
             ':detalle'    => "Abono inicial al crear factura N° $factN",
             ':valor_fact' => $total,
             ':saldo_act'  => max($total - $abono, 0),
-            ':medio'      => $medioPago,
+            ':medio'      => $abonoMedio,
             ':id_user'    => $vendedor,
         ]);
     }

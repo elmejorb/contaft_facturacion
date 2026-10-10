@@ -73,7 +73,17 @@ try {
             $cedula = $data['cedula'] ?? '';
             $origen = $data['origen'] ?? 'caja'; // caja o banco
             $cajaId = intval($data['caja_id'] ?? 0);
-            $fecha = $data['fecha'] ?? date('Y-m-d');
+            // Fecha: si el frontend solo manda YYYY-MM-DD, combinamos con la hora
+            // actual. Sin esto el gasto quedaba a las 00:00:00 → fuera del rango
+            // del cuadre de caja abierta (que filtra Fecha >= apertura).
+            $fechaIn = $data['fecha'] ?? '';
+            if ($fechaIn && preg_match('/^\d{4}-\d{2}-\d{2}$/', $fechaIn)) {
+                $fecha = $fechaIn . ' ' . date('H:i:s');
+            } elseif ($fechaIn) {
+                $fecha = $fechaIn;
+            } else {
+                $fecha = date('Y-m-d H:i:s');
+            }
             $idUsuario = intval($data['id_usuario'] ?? 0) ?: null;
 
             $categoria = $data['categoria'] ?? 'Otros';

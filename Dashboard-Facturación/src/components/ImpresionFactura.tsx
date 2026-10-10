@@ -1,4 +1,4 @@
-import { getConfigImpresion, getEmpresaCache } from './ConfiguracionSistema';
+import { getConfigImpresion, getEmpresaCache, esFabricacion } from './ConfiguracionSistema';
 import pkg from '../../package.json';
 
 const fmtMon = (v: number) => '$ ' + Math.round(v).toLocaleString('es-CO');
@@ -14,7 +14,7 @@ export interface DatosFactura {
   tipo: string; // Contado / Crédito
   dias: number;
   cliente: { nombre: string; nit: string; telefono: string; direccion: string };
-  items: { codigo: string; nombre: string; cantidad: number; precio: number; iva: number; descuento: number; subtotal: number }[];
+  items: { codigo: string; nombre: string; cantidad: number; precio: number; iva: number; descuento: number; subtotal: number; entregado?: string }[];
   subtotal: number;
   descuento: number;
   iva: number;
@@ -99,14 +99,30 @@ function tirilla(d: DatosFactura): string {
   html += `<span>Cod</span><span>Descripción</span><span>Cant</span><span>Valor</span><span>Total</span></div>`;
   html += linea;
 
-  // Items
+  // Items. La letra junto al subtotal indica:
+  //   - En Fabricación/Confecciones/Taller: S = entregado, N = no entregado.
+  //     Los clientes de confección casi siempre son exentos de IVA entonces
+  //     la A/E aporta poco; en cambio saber qué se entregó es crítico.
+  //   - En otros negocios: A = con IVA 19%, E = exento (estándar DIAN).
+  // Además, para los no-entregados se mantiene el "** POR ENTREGAR **"
+  // destacado debajo del nombre para que sea imposible de pasar por alto.
+  const modoFab = esFabricacion();
   for (const item of d.items) {
-    const ivaLetra = item.iva > 0 ? 'A' : 'E';
+    // Si falta el campo o es cualquier cosa distinta de 'S', lo tratamos como
+    // pendiente — es más seguro mostrar el aviso que ocultar un pendiente
+    // real por un pipeline que no mandó el dato.
+    const pendiente = modoFab && item.entregado !== 'S';
+    const letraFinal = modoFab
+      ? (pendiente ? 'N' : 'S')
+      : (item.iva > 0 ? 'A' : 'E');
     html += `<div style="margin-bottom:5px;">`;
     html += `<div style="word-wrap:break-word;"><b>${item.codigo}</b> ${item.nombre}</div>`;
+    if (pendiente) {
+      html += `<div style="font-weight:bold;font-size:10px;color:#fff;background:#000;padding:1px 4px;display:inline-block;margin:2px 0;letter-spacing:1px;">** POR ENTREGAR **</div>`;
+    }
     html += `<div style="display:flex;justify-content:space-between;">`;
     html += `<span>&nbsp;&nbsp;${item.cantidad} x ${fmtMonDec(item.precio)}</span>`;
-    html += `<span>${fmtMonDec(item.subtotal)} ${ivaLetra}</span>`;
+    html += `<span>${fmtMonDec(item.subtotal)} ${letraFinal}</span>`;
     html += `</div></div>`;
   }
 
@@ -305,8 +321,11 @@ function mediaCarta(
   html += `<th style="text-align:right;padding:3px 5px;border:1px solid #000;width:80px;">Subtotal</th>`;
   html += `</tr></thead><tbody>`;
   for (const item of d.items) {
+    // Si falta `entregado` o es cualquier valor != 'S', lo tratamos como
+    // pendiente — mejor avisarlo que ocultar un pendiente real.
+    const marcaPend = item.entregado !== 'S' ? ' <b style="color:#fff;background:#000;padding:1px 4px;font-size:9px;letter-spacing:1px;">POR ENTREGAR</b>' : '';
     html += `<tr>`;
-    html += `<td style="padding:2px 5px;border-bottom:1px dotted #ccc;">${item.nombre}</td>`;
+    html += `<td style="padding:2px 5px;border-bottom:1px dotted #ccc;">${item.nombre}${marcaPend}</td>`;
     html += `<td style="text-align:center;padding:2px 5px;border-bottom:1px dotted #ccc;">${item.cantidad}</td>`;
     html += `<td style="text-align:right;padding:2px 5px;border-bottom:1px dotted #ccc;">${fmtMon(item.precio)}</td>`;
     html += `<td style="text-align:right;padding:2px 5px;border-bottom:1px dotted #ccc;">${fmtMon(item.subtotal)}</td>`;
@@ -464,9 +483,10 @@ function carta(
   html += `</tr></thead><tbody>`;
 
   for (const item of d.items) {
+    const marcaPend = item.entregado !== 'S' ? ' <b style="color:#fff;background:#000;padding:1px 4px;font-size:9px;letter-spacing:1px;">POR ENTREGAR</b>' : '';
     html += `<tr>`;
     html += `<td style="padding:2px 6px;border-bottom:1px dotted #ccc;vertical-align:top;">${item.codigo}</td>`;
-    html += `<td style="padding:2px 6px;border-bottom:1px dotted #ccc;vertical-align:top;word-wrap:break-word;">${item.nombre}</td>`;
+    html += `<td style="padding:2px 6px;border-bottom:1px dotted #ccc;vertical-align:top;word-wrap:break-word;">${item.nombre}${marcaPend}</td>`;
     html += `<td style="text-align:center;padding:2px 6px;border-bottom:1px dotted #ccc;vertical-align:top;">${item.cantidad}</td>`;
     html += `<td style="text-align:right;padding:2px 6px;border-bottom:1px dotted #ccc;vertical-align:top;">${fmtMon(item.precio)}</td>`;
     html += `<td style="text-align:center;padding:2px 6px;border-bottom:1px dotted #ccc;vertical-align:top;">${item.iva}%</td>`;
@@ -718,7 +738,11 @@ export function buildDatosFactura(
     precio: l.PrecioVenta,
     iva: esResponsableIVA ? l.Iva : 0,
     descuento: l.Descuento,
-    subtotal: l.Subtotal
+    subtotal: l.Subtotal,
+    // Modo Fabricación: si la línea quedó marcada N (no entregada) debe
+    // mostrarse como "POR ENTREGAR" en la tirilla. Sin esto se imprimía
+    // igual que una línea ya entregada y el cliente perdía trazabilidad.
+    entregado: l.Entregado,
   }));
 
   const subtotal = items.reduce((s, i) => s + i.subtotal, 0);

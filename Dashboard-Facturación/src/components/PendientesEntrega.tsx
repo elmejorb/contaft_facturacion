@@ -199,9 +199,8 @@ export default function PendientesEntrega() {
 
       {/* Modal entregar */}
       {entregarRow && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
-          onClick={() => setEntregarRow(null)}>
-          <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 12, padding: 24, width: 420, boxShadow: '0 20px 40px rgba(0,0,0,0.2)' }}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+          <div style={{ background: '#fff', borderRadius: 12, padding: 24, width: 420, boxShadow: '0 20px 40px rgba(0,0,0,0.2)' }}>
             <h3 style={{ fontSize: 18, fontWeight: 700, color: '#1f2937', marginBottom: 4 }}>Marcar como entregado</h3>
             <p style={{ fontSize: 13, color: '#6b7280', marginBottom: 16 }}>
               <b>{entregarRow.articulo}</b><br/>

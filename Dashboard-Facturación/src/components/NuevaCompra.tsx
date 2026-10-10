@@ -232,7 +232,12 @@ export function NuevaCompra({ pedidoEditar, onClose, initialState, onStateChange
   };
 
   const agregarProducto = (art: any) => {
-    const existe = lineas.find(l => l.Items === art.Items);
+    // Flag `permitirRepetirProducto` (misma config que usa NuevaVenta):
+    // si está activo, cada agregado del mismo producto crea una línea nueva
+    // (útil para comprar el mismo artículo con costos distintos por lote).
+    // Si está apagado, mantiene el comportamiento clásico: suma a la línea.
+    const permitirRepetir = getConfigImpresion().permitirRepetirProducto;
+    const existe = !permitirRepetir ? lineas.find(l => l.Items === art.Items) : null;
     if (existe) {
       setLineas(prev => prev.map(l => l.Items === art.Items ? { ...l, Cantidad: l.Cantidad + 1, Subtotal: (l.Cantidad + 1) * l.CostoConIva } : l));
       setBuscarProd(''); setShowProdDrop(false);
@@ -808,7 +813,7 @@ export function NuevaCompra({ pedidoEditar, onClose, initialState, onStateChange
   const provFiltrados = provBusqueda ? proveedores.filter(p => p.RazonSocial?.toLowerCase().includes(provBusqueda.toLowerCase()) || String(p.CodigoPro).includes(provBusqueda)) : proveedores;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 110px)' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
       {/* Header: datos compra */}
       <div style={{ background: '#fff', borderRadius: 12, padding: '8px 16px', marginBottom: 6, boxShadow: '0 1px 3px rgba(0,0,0,0.08)', flexShrink: 0 }}>
         {modoEdicion && (

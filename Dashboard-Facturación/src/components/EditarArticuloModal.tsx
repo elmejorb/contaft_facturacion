@@ -92,7 +92,19 @@ export function EditarArticuloModal({ isOpen, onClose, articulo, onGuardado, mod
         if (res.data.success) { setCategorias(res.data.categorias || []); setProveedores(res.data.proveedores || []); }
       }).catch(() => {});
       fetch('http://localhost:80/conta-app-backend/api/etiquetas/index.php').then(r => r.json()).then(d => {
-        if (d.success) setEtiquetasOpt(d.etiquetas || []);
+        if (d.success) {
+          const etqs = d.etiquetas || [];
+          setEtiquetasOpt(etqs);
+          // Default para nuevo producto: "Producto Terminado" (si existe en la BD).
+          // No pisamos la selección del usuario si ya cambió el valor, ni la
+          // etiqueta de un producto existente — por eso el guard Id_Etiqueta=0.
+          if (esNuevo) {
+            const prodTerm = etqs.find((e: EtiquetaOpt) => /producto\s*terminado/i.test(e.Nombre || ''));
+            if (prodTerm) {
+              setForm(p => p.Id_Etiqueta === 0 ? { ...p, Id_Etiqueta: prodTerm.Id_Etiqueta } : p);
+            }
+          }
+        }
       }).catch(() => {});
       fetch('http://localhost:80/conta-app-backend/api/bodegas/').then(r => r.json()).then(d => {
         if (d?.success) setBodegas((d.bodegas || []).filter((b: BodegaOpt) => b.Activa));

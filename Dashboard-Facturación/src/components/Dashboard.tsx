@@ -53,6 +53,8 @@ import { useNotificaciones } from '../hooks/useNotificaciones';
 import { useAutoSyncVendedores } from '../hooks/useAutoSyncVendedores';
 import { useEntitlements } from '../hooks/useEntitlements';
 import { useVendedoresConfig } from '../hooks/useVendedoresConfig';
+import { useModulos } from '../hooks/useModulos';
+import { useSincronizacion } from '../hooks/useSincronizacion';
 import { useStockBajoCount } from '../hooks/useStockBajoCount';
 import { useCumpleanosHoy } from '../hooks/useCumpleanosHoy';
 // Estos exports NO son componentes (funciones/consts) → deben ser estáticos.
@@ -79,12 +81,14 @@ const ListadoPagosClientes = lazy(() => import('./ListadoPagos').then(m => ({ de
 const ListadoPagosProveedores = lazy(() => import('./ListadoPagos').then(m => ({ default: m.ListadoPagosProveedores })));
 const GastosManagement = lazy(() => import('./GastosManagement').then(m => ({ default: m.GastosManagement })));
 const BancosManagement = lazy(() => import('./BancosManagement').then(m => ({ default: m.BancosManagement })));
+const NominaManagement = lazy(() => import('./NominaManagement').then(m => ({ default: m.NominaManagement })));
 const ConfigCategoriasGasto = lazy(() => import('./ConfigCategoriasGasto').then(m => ({ default: m.ConfigCategoriasGasto })));
 const ConfigRetenciones = lazy(() => import('./ConfigRetenciones').then(m => ({ default: m.ConfigRetenciones })));
 const ConfigEtiquetas = lazy(() => import('./ConfigEtiquetas').then(m => ({ default: m.ConfigEtiquetas })));
 const ConfigCajas = lazy(() => import('./ConfigCajas').then(m => ({ default: m.ConfigCajas })));
 const ConfigServidor = lazy(() => import('./ConfigServidor').then(m => ({ default: m.ConfigServidor })));
 const ConfigPermisos = lazy(() => import('./ConfigPermisos').then(m => ({ default: m.ConfigPermisos })));
+const ConfigModulos = lazy(() => import('./ConfigModulos').then(m => ({ default: m.ConfigModulos })));
 const InventarioManagement = lazy(() => import('./InventarioManagement').then(m => ({ default: m.InventarioManagement })));
 const DiagnosticoInventario = lazy(() => import('./DiagnosticoInventario').then(m => ({ default: m.DiagnosticoInventario })));
 const AuditoriaInventario = lazy(() => import('./AuditoriaInventario').then(m => ({ default: m.AuditoriaInventario })));
@@ -138,7 +142,7 @@ interface DashboardProps {
   user?: UserData | null;
 }
 
-type View = 'overview' | 'products' | 'customers' | 'suppliers' | 'purchases' | 'sales' | 'inventario' | 'diagnostico' | 'auditoria' | 'categorias' | 'conteo' | 'configuracion' | 'cuentas-cobrar' | 'top-clientes' | 'cumpleanos' | 'cuentas-pagar' | 'productos-proveedor' | 'nueva-venta' | 'ventas-tipo-pago' | 'datos-empresa' | 'usuarios' | 'nueva-compra' | 'facturacion-electronica' | 'facturas-recibidas' | 'caja' | 'caja-historial' | 'pagos-clientes' | 'pagos-proveedores' | 'gastos' | 'bancos' | 'config-categorias-gasto' | 'config-cajas' | 'config-servidor' | 'config-permisos' | 'familias' | 'distribuir' | 'stock-bajo' | 'config-retenciones' | 'informes-hub' | 'notas-articulo' | 'lotes-vencer' | 'inicio' | 'config-etiquetas' | 'vendedores-gestion' | 'vendedores-pedidos' | 'vendedores-cargues' | 'vendedores-informe' | 'ordenes-compra' | 'financiaciones' | 'backup-bd' | 'mantenimiento-bd' | 'anticipos-clientes' | 'movs-directos' | 'bodegas' | 'pendientes-entrega' | 'produccion-dia';
+type View = 'overview' | 'products' | 'customers' | 'suppliers' | 'purchases' | 'sales' | 'inventario' | 'diagnostico' | 'auditoria' | 'categorias' | 'conteo' | 'configuracion' | 'cuentas-cobrar' | 'top-clientes' | 'cumpleanos' | 'cuentas-pagar' | 'productos-proveedor' | 'nueva-venta' | 'ventas-tipo-pago' | 'datos-empresa' | 'usuarios' | 'nueva-compra' | 'facturacion-electronica' | 'facturas-recibidas' | 'caja' | 'caja-historial' | 'pagos-clientes' | 'pagos-proveedores' | 'gastos' | 'bancos' | 'nomina' | 'config-categorias-gasto' | 'config-cajas' | 'config-servidor' | 'config-permisos' | 'config-modulos' | 'familias' | 'distribuir' | 'stock-bajo' | 'config-retenciones' | 'informes-hub' | 'notas-articulo' | 'lotes-vencer' | 'inicio' | 'config-etiquetas' | 'vendedores-gestion' | 'vendedores-pedidos' | 'vendedores-cargues' | 'vendedores-informe' | 'ordenes-compra' | 'financiaciones' | 'backup-bd' | 'mantenimiento-bd' | 'anticipos-clientes' | 'movs-directos' | 'bodegas' | 'pendientes-entrega' | 'produccion-dia';
 
 interface MenuItem {
   id: string;
@@ -187,8 +191,8 @@ const TAB_SUPPORTED_VIEWS: ReadonlySet<View> = new Set<View>([
   'ordenes-compra',
   // Caja
   'caja', 'caja-historial',
-  // Gastos / Bancos
-  'gastos', 'bancos',
+  // Gastos / Bancos / Nómina
+  'gastos', 'bancos', 'nomina',
   // Informes
   'informes-hub', 'produccion-dia',
   // Fabricación (v4.7)
@@ -198,7 +202,7 @@ const TAB_SUPPORTED_VIEWS: ReadonlySet<View> = new Set<View>([
   // Configuración / administración
   'configuracion', 'datos-empresa', 'usuarios',
   'config-categorias-gasto', 'config-retenciones', 'config-cajas',
-  'config-servidor', 'config-permisos',
+  'config-servidor', 'config-permisos', 'config-modulos',
   'backup-bd', 'mantenimiento-bd',
 ]);
 
@@ -251,6 +255,7 @@ const TITULO_POR_VIEW: Partial<Record<View, string>> = {
   'caja-historial': 'Historial de Cajas',
   'gastos': 'Gastos',
   'bancos': 'Bancos',
+  'nomina': 'Nómina',
   'informes-hub': 'Informes',
   'produccion-dia': 'Producción del Día',
   'pendientes-entrega': 'Pendientes por Entregar',
@@ -266,6 +271,7 @@ const TITULO_POR_VIEW: Partial<Record<View, string>> = {
   'config-cajas': 'Cajas',
   'config-servidor': 'Servidor',
   'config-permisos': 'Permisos',
+  'config-modulos': 'Módulos',
   'backup-bd': 'Respaldos',
   'mantenimiento-bd': 'Mantenimiento BD',
 };
@@ -305,6 +311,7 @@ const ICONO_POR_VIEW: Partial<Record<View, any>> = {
   'caja-historial': CalendarDays,
   'gastos': DollarSign,
   'bancos': CreditCard,
+  'nomina': Users,
   'informes-hub': FileText,
   'produccion-dia': Package,
   'pendientes-entrega': Package,
@@ -320,6 +327,7 @@ const ICONO_POR_VIEW: Partial<Record<View, any>> = {
   'config-cajas': Wallet,
   'config-servidor': Settings,
   'config-permisos': Lock,
+  'config-modulos': Package,
   'backup-bd': Package,
   'mantenimiento-bd': Settings,
   'inventario': Boxes,
@@ -489,6 +497,47 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
     if (palOpen) setTimeout(() => palInputRef.current?.focus(), 30);
   }, [palOpen]);
 
+  // === F2: Abrir cajón de la impresora térmica sin hacer venta ===
+  // Imprime una tirilla casi vacía (1mm) para que el driver térmica (Epson,
+  // configurado con "Abrir cajón al imprimir") dispare la señal al cajón. Es
+  // el patrón más compatible — funciona con cualquier impresora térmica cuyo
+  // driver tenga activada la opción, sin dependencias nativas en el build.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'F2') return;
+      // Ignorar si el foco está en un input / textarea para no interrumpir escritura
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement)?.isContentEditable) return;
+      e.preventDefault();
+      try {
+        // Lazy import para no cargar config en el bundle inicial del Dashboard
+        import('./ConfiguracionSistema').then(({ getConfigImpresion }) => {
+          const cfg = getConfigImpresion();
+          const printer = cfg.impresoraTirilla;
+          if (!printer) {
+            toast.error('Primero elige la impresora térmica en Configuración → Impresión', { duration: 5000 });
+            return;
+          }
+          const ipc = (window as any).require?.('electron')?.ipcRenderer;
+          if (!ipc) {
+            toast.error('Función solo disponible en el app de escritorio');
+            return;
+          }
+          // HTML casi vacío — el driver abre el cajón al "terminar de imprimir"
+          const html = `<!DOCTYPE html><html><head><style>@page{size:72mm auto;margin:0;}body{margin:0;}</style></head><body><div style="height:1mm;"></div></body></html>`;
+          ipc.invoke('print:silent', { html, deviceName: printer })
+            .then((res: any) => {
+              if (res?.success) toast.success('Cajón abierto 💰', { duration: 2000 });
+              else toast.error('No se pudo abrir el cajón: ' + (res?.reason || 'error desconocido'), { duration: 5000 });
+            })
+            .catch(() => toast.error('Error enviando comando a la impresora'));
+        });
+      } catch {}
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
 
   useEffect(() => {
     fetch('http://localhost:80/conta-app-backend/api/empresa/datos.php')
@@ -521,6 +570,9 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
   // Cada N minutos según sync_intervalo_pull_min de la config.
   useAutoSyncVendedores();
   const [notifOpen, setNotifOpen] = useState(false);
+  const [showSyncModal, setShowSyncModal] = useState(false);
+  const [syncBusy, setSyncBusy] = useState(false);
+  const [syncLastResult, setSyncLastResult] = useState<any>(null);
   const irA = (v: View) => { abrirEnTab(v); setNotifOpen(false); };
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [expandedMenus, setExpandedMenus] = useState<string[]>([]);
@@ -528,6 +580,8 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
   const esAdmin = user?.tipoUsuario === 1 || user?.tipoUsuario === '1';
   const esVendedor = user?.tipoUsuario === 2 || user?.tipoUsuario === '2';
   const { habilitado: vendedoresHabilitado, pedidosPendientes } = useVendedoresConfig();
+  const { esActivo: esModuloActivo } = useModulos();
+  const sincro = useSincronizacion();
   const { modulos: entitlements, source: entitSource, loading: entitLoading } = useEntitlements();
   // CRM manda 100%: el módulo Vendedores solo aparece si el CRM lo tiene
   // activo. Durante la carga inicial (~1 seg) usamos el valor local para
@@ -679,6 +733,9 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
         { id: 'pagos-proveedores', label: 'Pagos a Proveedores', view: 'pagos-proveedores' as View },
         { id: 'gastos', label: 'Gastos', view: 'gastos' as View },
         { id: 'bancos', label: 'Bancos', view: 'bancos' as View },
+        // Nómina es módulo opcional — solo aparece si root lo activó
+        // desde Configuración → Módulos.
+        ...(esModuloActivo('nomina') ? [{ id: 'nomina', label: 'Nómina', view: 'nomina' as View }] : []),
       ]
     },
     esFabricacion() ? {
@@ -717,6 +774,9 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
         { id: 'config-empresa', label: 'Datos de la Empresa', view: 'datos-empresa' as View },
         { id: 'config-usuarios', label: 'Usuarios', view: 'usuarios' as View },
         { id: 'config-permisos', label: 'Permisos', view: 'config-permisos' as View },
+        // "Módulos" solo visible para root (root puede activar módulos opcionales
+        // como Nómina). Los demás usuarios NO ven este ítem.
+        ...(user?.username === 'root' ? [{ id: 'config-modulos', label: 'Módulos', view: 'config-modulos' as View }] : []),
         { id: 'config-categorias', label: 'Categorías de Gastos', view: 'config-categorias-gasto' as View },
         { id: 'config-retenciones', label: 'Retenciones', view: 'config-retenciones' as View },
         { id: 'config-cajas', label: 'Administrar Cajas', view: 'config-cajas' as View },
@@ -752,7 +812,7 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
     'gastos': 'gastos', 'bancos': 'bancos',
     'configuracion': 'configuracion', 'config-sistema': 'configuracion',
     'config-empresa': 'datos_empresa', 'config-usuarios': 'usuarios',
-    'config-categorias': 'configuracion', 'config-cajas': 'configuracion', 'config-servidor': 'configuracion', 'config-permisos': 'usuarios', 'backup-bd': 'configuracion', 'mantenimiento-bd': 'configuracion',
+    'config-categorias': 'configuracion', 'config-cajas': 'configuracion', 'config-servidor': 'configuracion', 'config-permisos': 'usuarios', 'config-modulos': 'configuracion', 'backup-bd': 'configuracion', 'mantenimiento-bd': 'configuracion',
     'informes': 'informes',
   };
 
@@ -1069,6 +1129,30 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
             </div>
 
             <div className="flex items-center gap-2">
+              {/* Badge discreto del SincroWorker — invisible hasta que el módulo
+                  esté activo. Verde con número = pendientes de sincronizar. */}
+              {sincro.activo && (
+                <div
+                  title={`Sincronización online activa\nPendientes: ${sincro.pendientes}\nEnviados esta sesión: ${sincro.enviados_sesion}${sincro.ultimo_error ? '\nÚltimo error: ' + sincro.ultimo_error : ''}\n\n(click para sincronizar histórico)`}
+                  onClick={() => setShowSyncModal(true)}
+                  style={{
+                    height: 32, padding: '0 10px',
+                    background: sincro.pendientes > 0 ? 'rgba(250, 204, 21, 0.15)' : 'rgba(34, 197, 94, 0.15)',
+                    border: '1px solid ' + (sincro.pendientes > 0 ? 'rgba(250, 204, 21, 0.4)' : 'rgba(34, 197, 94, 0.4)'),
+                    borderRadius: 8, color: '#fff',
+                    fontSize: 11, fontWeight: 600,
+                    display: 'flex', alignItems: 'center', gap: 6,
+                    cursor: 'pointer',
+                  }}
+                >
+                  <span style={{
+                    width: 8, height: 8, borderRadius: '50%',
+                    background: sincro.pendientes > 0 ? '#facc15' : '#22c55e',
+                    boxShadow: sincro.pendientes > 0 ? '0 0 6px #facc15' : '0 0 6px #22c55e',
+                  }} />
+                  {sincro.pendientes > 0 ? `Sync: ${sincro.pendientes} pend` : 'Sync al día'}
+                </div>
+              )}
               <DropdownMenu open={notifOpen} onOpenChange={setNotifOpen}>
                 <DropdownMenuTrigger asChild>
                   <button
@@ -1472,6 +1556,7 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
               {t.view === 'caja-historial' && <HistorialCajas />}
               {t.view === 'gastos' && <GastosManagement />}
               {t.view === 'bancos' && <BancosManagement />}
+              {t.view === 'nomina' && <NominaManagement />}
               {t.view === 'informes-hub' && <InformesHub />}
               {/* Vendedores móviles */}
               {t.view === 'vendedores-gestion' && <VendedoresMovil />}
@@ -1487,6 +1572,7 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
               {t.view === 'config-cajas' && <ConfigCajas />}
               {t.view === 'config-servidor' && <ConfigServidor />}
               {t.view === 'config-permisos' && <ConfigPermisos />}
+              {t.view === 'config-modulos' && <ConfigModulos />}
               {t.view === 'backup-bd' && <BackupBD />}
               {t.view === 'mantenimiento-bd' && <MantenimientoBD />}
             </div>
@@ -1538,6 +1624,128 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
               }}
                 style={{ height: 34, padding: '0 20px', background: '#7c3aed', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
                 Cambiar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: sincronizar histórico con la plataforma web */}
+      {showSyncModal && (
+        <div
+          onClick={(e) => { if (e.target === e.currentTarget && !syncBusy) setShowSyncModal(false); }}
+          style={{
+            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            zIndex: 9999,
+          }}
+        >
+          <div style={{
+            background: '#fff', borderRadius: 12, padding: 24, width: 420, maxWidth: '92vw',
+            boxShadow: '0 20px 50px rgba(0,0,0,0.3)',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+              <div style={{ fontSize: 22 }}>☁️</div>
+              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>Sincronizar con la plataforma web</h3>
+            </div>
+            <p style={{ fontSize: 13, color: '#64748b', margin: '0 0 16px', lineHeight: 1.5 }}>
+              Encola el histórico de clientes, productos, ventas y pagos para subirlos al dashboard online.
+              Los datos ya enviados <b>no se duplican</b>.
+            </p>
+
+            {!syncLastResult && (
+              <>
+                <div style={{ fontSize: 11, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 1, fontWeight: 700, margin: '12px 0 8px' }}>
+                  Elegí qué sincronizar
+                </div>
+                <div style={{ display: 'grid', gap: 8 }}>
+                  {[
+                    { label: 'Último mes', dias: 30 },
+                    { label: 'Últimos 3 meses', dias: 90 },
+                    { label: 'Últimos 6 meses', dias: 180 },
+                    { label: 'Último año', dias: 365 },
+                    { label: 'Todo el histórico', dias: 365 * 10 },
+                  ].map(opt => {
+                    const desde = new Date();
+                    desde.setDate(desde.getDate() - opt.dias);
+                    const desdeIso = desde.toISOString().slice(0, 10);
+                    return (
+                      <button
+                        key={opt.label}
+                        disabled={syncBusy}
+                        onClick={async () => {
+                          setSyncBusy(true);
+                          const r = await sincro.backfill(desdeIso);
+                          setSyncLastResult(r);
+                          setSyncBusy(false);
+                        }}
+                        style={{
+                          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                          padding: '12px 14px', border: '1px solid #e2e8f0', borderRadius: 10,
+                          background: syncBusy ? '#f1f5f9' : '#fff',
+                          cursor: syncBusy ? 'not-allowed' : 'pointer',
+                          fontSize: 14, fontWeight: 600, color: '#0f172a',
+                          textAlign: 'left', opacity: syncBusy ? 0.6 : 1,
+                        }}
+                      >
+                        <span>{opt.label}</span>
+                        <span style={{ color: '#94a3b8', fontSize: 11, fontWeight: 500 }}>desde {desdeIso}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </>
+            )}
+
+            {syncBusy && (
+              <div style={{ textAlign: 'center', padding: 20, color: '#7c3aed', fontWeight: 600, fontSize: 13 }}>
+                ⏳ Encolando datos...
+              </div>
+            )}
+
+            {syncLastResult && (
+              <div style={{
+                padding: 14, borderRadius: 10,
+                background: syncLastResult.ok ? '#f0fdf4' : '#fef2f2',
+                border: '1px solid ' + (syncLastResult.ok ? '#86efac' : '#fecaca'),
+              }}>
+                {syncLastResult.ok ? (
+                  <>
+                    <div style={{ fontWeight: 700, color: '#166534', marginBottom: 8, fontSize: 14 }}>
+                      ✓ Encolados {syncLastResult.total} registros
+                    </div>
+                    <div style={{ fontSize: 12, color: '#475569', lineHeight: 1.6 }}>
+                      {syncLastResult.encolados?.cliente > 0 && <div>• {syncLastResult.encolados.cliente} clientes</div>}
+                      {syncLastResult.encolados?.articulo > 0 && <div>• {syncLastResult.encolados.articulo} artículos</div>}
+                      {syncLastResult.encolados?.proveedor > 0 && <div>• {syncLastResult.encolados.proveedor} proveedores</div>}
+                      {syncLastResult.encolados?.venta > 0 && <div>• {syncLastResult.encolados.venta} ventas</div>}
+                      {syncLastResult.encolados?.pago > 0 && <div>• {syncLastResult.encolados.pago} pagos</div>}
+                    </div>
+                    <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 10 }}>
+                      El worker los enviará en los próximos ciclos (cada 30s). Podés cerrar esta ventana.
+                    </div>
+                  </>
+                ) : (
+                  <div style={{ color: '#991b1b', fontSize: 13 }}>
+                    ✗ Error: {syncLastResult.error}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
+              {syncLastResult && (
+                <button
+                  onClick={() => setSyncLastResult(null)}
+                  style={{ padding: '8px 14px', border: '1px solid #e2e8f0', background: '#fff', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                  Sincronizar otro rango
+                </button>
+              )}
+              <button
+                onClick={() => { if (!syncBusy) { setShowSyncModal(false); setSyncLastResult(null); } }}
+                disabled={syncBusy}
+                style={{ padding: '8px 16px', background: '#7c3aed', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: syncBusy ? 'not-allowed' : 'pointer' }}>
+                {syncLastResult ? 'Cerrar' : 'Cancelar'}
               </button>
             </div>
           </div>

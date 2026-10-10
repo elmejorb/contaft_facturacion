@@ -663,7 +663,7 @@ try {
                         $stmtMv = $db->prepare("
                             SELECT Id_Caja_Origen, Id_Sesion FROM tblmov_caja
                              WHERE Tipo = 'compra' AND Descripcion LIKE ?
-                             ORDER BY Id_Movimiento DESC LIMIT 1
+                             ORDER BY Id_Mov DESC LIMIT 1
                         ");
                         $stmtMv->execute(["Pago compra #$pedidoN%"]);
                         $mvOrig = $stmtMv->fetch();

@@ -14,6 +14,7 @@ export interface EntitlementModulo {
 export interface Entitlements {
   nucleo: EntitlementModulo;
   facturacion_electronica: EntitlementModulo;
+  sincronizacion: EntitlementModulo;
   dsno: EntitlementModulo;
   plataforma_web: EntitlementModulo;
   vendedor_movil: EntitlementModulo;
@@ -33,6 +34,7 @@ export interface EntitlementsState {
 const MODULOS_INACTIVOS: Entitlements = {
   nucleo:                  { activo: true },
   facturacion_electronica: { activo: false },
+  sincronizacion:          { activo: false },
   dsno:                    { activo: false },
   plataforma_web:          { activo: false },
   vendedor_movil:          { activo: false },
@@ -61,6 +63,7 @@ export function useEntitlements(): EntitlementsState {
         modulos: {
           nucleo:                  { activo: true },
           facturacion_electronica: { activo: true },
+          sincronizacion:          { activo: true },
           dsno:                    { activo: true },
           plataforma_web:          { activo: true },
           vendedor_movil:          { activo: true, cantidad: 99 },

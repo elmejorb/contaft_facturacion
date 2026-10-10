@@ -73,11 +73,28 @@ export function InformeEstadoResultados() {
             </table>
           )}
 
+          {parseFloat(data.nomina_total || 0) > 0 && (
+            <>
+              <div style={seccion}>GASTOS DE PERSONAL (NÓMINA)</div>
+              <table style={tableStyle}>
+                <tbody>
+                  <tr>
+                    <td style={td}>Pagos de nómina liquidados ({data.nomina_num || 0})</td>
+                    <td style={{ ...tdNum, color: '#dc2626' }}>-{fmt(parseFloat(data.nomina_total))}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </>
+          )}
+
           <div style={seccion}>RESULTADO FINAL</div>
           <table style={tableStyle}>
             <tbody>
               <tr><td style={td}>Utilidad Bruta</td><td style={tdNum}>{fmt(data.utilidad_bruta)}</td></tr>
-              <tr><td style={td}>(-) Total Gastos</td><td style={{ ...tdNum, color: '#dc2626' }}>-{fmt(data.gastos_total)}</td></tr>
+              <tr><td style={td}>(-) Gastos operacionales</td><td style={{ ...tdNum, color: '#dc2626' }}>-{fmt(data.gastos_total)}</td></tr>
+              {parseFloat(data.nomina_total || 0) > 0 && (
+                <tr><td style={td}>(-) Gastos de personal (nómina)</td><td style={{ ...tdNum, color: '#dc2626' }}>-{fmt(parseFloat(data.nomina_total))}</td></tr>
+              )}
               <tr style={{ background: data.utilidad_neta >= 0 ? '#dcfce7' : '#fee2e2', borderTop: '2px solid #000' }}>
                 <td style={tdTotal}>UTILIDAD NETA DEL PERÍODO</td>
                 <td style={{ ...tdNum, fontWeight: 700, fontSize: 16, color: data.utilidad_neta >= 0 ? '#16a34a' : '#dc2626' }}>{fmt(data.utilidad_neta)}</td>

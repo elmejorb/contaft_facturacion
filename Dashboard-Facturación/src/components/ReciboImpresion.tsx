@@ -1,8 +1,11 @@
-import { useRef } from 'react';
-import { Printer, X } from 'lucide-react';
-import { getEmpresaCache } from './ConfiguracionSistema';
+// Recibo de pago / Comprobante de egreso — copia 1:1 del patrón de
+// ImpresionFactura.tsx: función que construye HTML string + abre window.open
+// con toolbar. UNA sola ventana (no modal + ventana). Las medidas tirilla
+// (width:62mm, padding 3mm/4mm, Arial 11px) son idénticas a la factura
+// tirilla porque esa SÍ imprime bien en impresoras térmicas viejas.
+import { getConfigImpresion, getEmpresaCache } from './ConfiguracionSistema';
 
-interface PagoRecibo {
+export interface PagoRecibo {
   RecCajaN: number;
   Fecha: string;
   NFactAnt: string;
@@ -13,23 +16,16 @@ interface PagoRecibo {
   DetallePago: string;
 }
 
-interface Props {
-  pago: PagoRecibo;
-  cliente: { CodigoClien: number; Razon_Social: string; Nit: string; Telefonos: string };
-  formato: 'media-carta' | 'tirilla';
-  onClose: () => void;
-  tipoTercero?: 'cliente' | 'proveedor';
+export interface ClienteRecibo {
+  CodigoClien: number;
+  Razon_Social: string;
+  Nit: string;
+  Telefonos: string;
 }
 
 const getEmpresa = () => {
   const c = getEmpresaCache();
-  return {
-    nombre: c.nombre,
-    nit: c.nit,
-    direccion: c.direccion,
-    telefono: c.telefono,
-    email: c.email || ''
-  };
+  return { nombre: c.nombre, nit: c.nit, direccion: c.direccion, telefono: c.telefono };
 };
 
 const fmtMon = (v: number) => '$ ' + Math.round(v).toLocaleString('es-CO');
@@ -44,236 +40,251 @@ function numeroALetras(num: number): string {
     25: 'Veinticinco', 26: 'Veintiséis', 27: 'Veintisiete', 28: 'Veintiocho', 29: 'Veintinueve'
   };
   const centenas = ['', 'Ciento', 'Doscientos', 'Trescientos', 'Cuatrocientos', 'Quinientos', 'Seiscientos', 'Setecientos', 'Ochocientos', 'Novecientos'];
-
   const n = Math.round(num);
   if (n === 0) return 'Cero Pesos';
-  if (n === 100) return 'Cien';
-
   const convertir = (x: number): string => {
     if (x === 0) return '';
     if (x === 100) return 'Cien';
     if (x < 10) return unidades[x];
     if (especiales[x]) return especiales[x];
     if (x < 100) {
-      const d = Math.floor(x / 10);
-      const u = x % 10;
+      const d = Math.floor(x / 10); const u = x % 10;
       return decenas[d] + (u > 0 ? ' y ' + unidades[u] : '');
     }
     if (x < 1000) {
-      const c = Math.floor(x / 100);
-      const resto = x % 100;
-      return centenas[c] + (resto > 0 ? ' ' + convertir(resto) : '');
+      const c = Math.floor(x / 100); const r = x % 100;
+      return centenas[c] + (r > 0 ? ' ' + convertir(r) : '');
     }
     if (x < 1000000) {
-      const miles = Math.floor(x / 1000);
-      const resto = x % 1000;
+      const miles = Math.floor(x / 1000); const r = x % 1000;
       const prefix = miles === 1 ? 'Mil' : convertir(miles) + ' Mil';
-      return prefix + (resto > 0 ? ' ' + convertir(resto) : '');
+      return prefix + (r > 0 ? ' ' + convertir(r) : '');
     }
-    const millones = Math.floor(x / 1000000);
-    const resto = x % 1000000;
+    const millones = Math.floor(x / 1000000); const r = x % 1000000;
     const prefix = millones === 1 ? 'Un Millón' : convertir(millones) + ' Millones';
-    return prefix + (resto > 0 ? ' ' + convertir(resto) : '');
+    return prefix + (r > 0 ? ' ' + convertir(r) : '');
   };
-
   return convertir(n) + ' Pesos';
 }
 
-export function ReciboImpresion({ pago, cliente, formato, onClose, tipoTercero = 'cliente' }: Props) {
-  const labelTercero = tipoTercero === 'proveedor' ? 'Proveedor' : 'Cliente';
-  const tituloRecibo = tipoTercero === 'proveedor' ? 'COMPROBANTE DE EGRESO' : 'RECIBO DE PAGO';
-  const printRef = useRef<HTMLDivElement>(null);
+// Fecha defensiva: igual que la de la factura. Si la BD trae NULL o
+// '0000-00-00 00:00:00' (pagos legacy VB6) → fecha de hoy, no "Invalid Date".
+function fmtFecha(raw: any): string {
+  if (!raw || raw === '0000-00-00 00:00:00' || raw === '0000-00-00') return new Date().toLocaleString('es-CO');
+  const norm = typeof raw === 'string' && raw.includes(' ') && !raw.includes('T') ? raw.replace(' ', 'T') : raw;
+  const d = new Date(norm);
+  if (isNaN(d.getTime())) return new Date().toLocaleString('es-CO');
+  const fecha = d.toLocaleDateString('es-CO', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  const hora = d.toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' });
+  return `${fecha} ${hora}`;
+}
+
+// ============================================================
+// TIRILLA — mismo HTML que ImpresionFactura.tirilla() pero con
+// contenido de pago. Width/padding/fuente IDÉNTICOS a la factura
+// porque esa ya imprime bien en impresoras térmicas viejas.
+// ============================================================
+function tirilla(pago: PagoRecibo, cliente: ClienteRecibo, tipoTercero: 'cliente' | 'proveedor'): string {
   const empresa = getEmpresa();
+  const config = getConfigImpresion();
+  const linea = '<div style="border-bottom:1px dashed #000;margin:4px 0;"></div>';
+  const titulo = tipoTercero === 'proveedor' ? 'COMPROBANTE DE EGRESO' : 'RECIBO DE PAGO';
+  const labelTercero = tipoTercero === 'proveedor' ? 'PROVEEDOR' : 'CLIENTE';
+  const labelAccion = tipoTercero === 'proveedor' ? 'PAGADO A' : 'RECIBIDO DE';
 
-  const imprimir = () => {
-    const content = printRef.current;
-    if (!content) return;
-    const esTirilla = formato === 'tirilla';
-    // Ventana con toolbar + botón imprimir manual — mismo patrón de
-    // ImpresionFactura. Antes usaba window.onload -> print() -> close()
-    // automático, pero en impresoras térmicas o de red lentas el close()
-    // corría ANTES de que el diálogo terminara y salía hoja en blanco o
-    // no imprimía. Ahora el usuario controla cuándo imprimir y cerrar.
-    const winWidth = esTirilla ? 360 : 720;
-    const winHeight = esTirilla ? 620 : 700;
-    const win = window.open('', '_blank', `width=${winWidth},height=${winHeight}`);
-    if (!win) return;
-    const titulo = `${tipoTercero === 'proveedor' ? 'Comprobante Egreso' : 'Recibo Pago'} #${pago.RecCajaN}`;
-    win.document.write(`
-      <!DOCTYPE html>
-      <html><head><title>${titulo}</title>
-      <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: ${esTirilla ? "'Courier New', monospace" : "Arial, sans-serif"}; padding-top: 44px; }
-        @media print {
-          body { margin: 0; padding: 0 !important; }
-          #print-toolbar { display: none !important; }
-          @page { size: ${esTirilla ? '80mm auto' : 'letter'}; margin: ${esTirilla ? '2mm' : '15mm'}; }
-        }
-      </style></head><body>
-      <div id="print-toolbar" style="position:fixed;top:0;left:0;right:0;background:#7c3aed;padding:6px 16px;display:flex;align-items:center;gap:10px;z-index:9999;box-shadow:0 2px 8px rgba(0,0,0,0.2);font-family:Arial,sans-serif;">
-        <button onclick="document.getElementById('print-toolbar').style.display='none';window.print();setTimeout(function(){document.getElementById('print-toolbar').style.display='flex';},500);" style="height:30px;padding:0 16px;background:#fff;color:#7c3aed;border:none;border-radius:6px;font-size:13px;font-weight:700;cursor:pointer;">🖨️ Imprimir</button>
-        <button onclick="window.close();" style="height:30px;padding:0 12px;background:rgba(255,255,255,0.2);color:#fff;border:none;border-radius:6px;font-size:12px;cursor:pointer;">✕ Cerrar</button>
-        <span style="color:rgba(255,255,255,0.7);font-size:12px;margin-left:auto;">${titulo} — Vista previa</span>
-      </div>
-      ${content.innerHTML}
-      </body></html>
-    `);
-    win.document.close();
-    win.focus();
-  };
+  let html = `<div style="width:62mm;font-family:Arial,Helvetica,sans-serif;font-size:11px;padding:3mm 4mm;line-height:1.4;word-wrap:break-word;overflow-wrap:break-word;">`;
 
-  const fecha = new Date(pago.Fecha);
-  const fechaStr = fecha.toLocaleDateString('es-CO', { day: '2-digit', month: '2-digit', year: 'numeric' });
-  const horaStr = fecha.toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' });
+  // Empresa
+  html += `<div style="text-align:center;margin-bottom:6px;">`;
+  html += `<div style="font-size:12px;font-weight:bold;word-wrap:break-word;">${empresa.nombre}</div>`;
+  html += `<div>Nit. ${empresa.nit}</div>`;
+  if (config.mostrarDireccion) html += `<div>${empresa.direccion}</div>`;
+  if (config.mostrarTelefono) html += `<div>Tel. ${empresa.telefono}</div>`;
+  html += `</div>`;
 
-  return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 99999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.5)' }} onClick={onClose} />
-      <div style={{ position: 'relative', background: '#fff', borderRadius: 12, maxWidth: formato === 'tirilla' ? 400 : 700, width: '100%', maxHeight: '90vh', overflow: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
-        {/* Toolbar */}
-        <div style={{ padding: '10px 16px', borderBottom: '1px solid #e5e7eb', display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'sticky', top: 0, background: '#fff', zIndex: 1 }}>
-          <span style={{ fontSize: 14, fontWeight: 700 }}>Vista previa — {formato === 'tirilla' ? 'Tirilla' : 'Media Carta'}</span>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={imprimir} style={{
-              height: 30, padding: '0 14px', background: '#7c3aed', color: '#fff',
-              border: 'none', borderRadius: 8, fontSize: 13, cursor: 'pointer',
-              display: 'flex', alignItems: 'center', gap: 6
-            }}>
-              <Printer size={14} /> Imprimir
-            </button>
-            <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer' }}><X size={18} /></button>
-          </div>
-        </div>
+  // Título
+  html += linea;
+  html += `<div style="text-align:center;font-weight:bold;font-size:12px;margin:2px 0;">${titulo} No. ${pago.RecCajaN}</div>`;
+  html += linea;
 
-        {/* Preview */}
-        <div style={{ padding: 20 }}>
-          <div ref={printRef}>
-            {formato === 'media-carta' ? (
-              /* ==================== MEDIA CARTA ==================== */
-              <div style={{ fontFamily: 'Arial, sans-serif', fontSize: 13, color: '#000', maxWidth: 650, margin: '0 auto' }}>
-                {/* Header empresa */}
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
-                  <div style={{ textAlign: 'center', flex: 1 }}>
-                    <div style={{ fontSize: 18, fontWeight: 700, letterSpacing: 1 }}>{empresa.nombre}</div>
-                    <div style={{ fontSize: 12, marginTop: 2 }}>Nit. {empresa.nit}</div>
-                    <div style={{ fontSize: 11, marginTop: 2 }}>{empresa.direccion}</div>
-                    <div style={{ fontSize: 11 }}>Tel: {empresa.telefono}</div>
-                  </div>
-                  <div style={{ border: '2px solid #000', padding: '8px 14px', textAlign: 'center', flexShrink: 0 }}>
-                    <div style={{ fontSize: 11, fontWeight: 700 }}>COMPROBANTE</div>
-                    <div style={{ fontSize: 11, fontWeight: 700 }}>{tipoTercero === 'proveedor' ? 'DE EGRESO No.' : 'DE INGRESO No.'}</div>
-                    <div style={{ fontSize: 22, fontWeight: 700, marginTop: 2 }}>{pago.RecCajaN}</div>
-                  </div>
-                </div>
+  // Datos del pago
+  html += `<div style="margin-bottom:4px;">`;
+  html += `<div>FECHA: ${fmtFecha(pago.Fecha)}</div>`;
+  html += `<div>${labelAccion}:</div>`;
+  html += `<div style="word-wrap:break-word;"><b>${cliente.Razon_Social}</b></div>`;
+  html += `<div>${labelTercero === 'PROVEEDOR' ? 'NIT' : 'NIT/CC'}: ${cliente.Nit || '-'}</div>`;
+  if (pago.NFactAnt) html += `<div>FACTURA: <b>${pago.NFactAnt}</b></div>`;
+  html += `<div>MEDIO PAGO: ${pago.MedioPago}</div>`;
+  if ((pago.Descuento || 0) > 0) html += `<div>DESCUENTO: ${fmtMon(pago.Descuento || 0)}</div>`;
+  if (pago.DetallePago) html += `<div style="word-wrap:break-word;">CONCEPTO: ${pago.DetallePago}</div>`;
+  html += `</div>`;
 
-                {/* Datos del pago */}
-                <table style={{ width: '100%', borderCollapse: 'collapse', border: '1px solid #000', marginTop: 10 }}>
-                  <tbody>
-                    <tr>
-                      <td style={{ border: '1px solid #000', padding: '6px 10px', fontWeight: 600, width: 150, fontSize: 12, background: '#f9f9f9' }}>CIUDAD Y FECHA</td>
-                      <td style={{ border: '1px solid #000', padding: '6px 10px' }}>{fechaStr} {horaStr}</td>
-                      <td style={{ border: '1px solid #000', padding: '6px 10px', fontWeight: 600, width: 80, fontSize: 12, background: '#f9f9f9' }}>VALOR</td>
-                      <td style={{ border: '1px solid #000', padding: '6px 10px', fontWeight: 700, fontSize: 16, textAlign: 'right' }}>{fmtMon(pago.ValorPago)}</td>
-                    </tr>
-                    <tr>
-                      <td style={{ border: '1px solid #000', padding: '6px 10px', fontWeight: 600, fontSize: 12, background: '#f9f9f9' }}>{tipoTercero === 'proveedor' ? 'PAGADO A' : 'RECIBIDO DE'}</td>
-                      <td colSpan={3} style={{ border: '1px solid #000', padding: '6px 10px' }}>{cliente.Razon_Social} — NIT: {cliente.Nit || '-'}</td>
-                    </tr>
-                    <tr>
-                      <td style={{ border: '1px solid #000', padding: '6px 10px', fontWeight: 600, fontSize: 12, background: '#f9f9f9' }}>POR CONCEPTO DE</td>
-                      <td colSpan={3} style={{ border: '1px solid #000', padding: '6px 10px' }}>{pago.DetallePago}</td>
-                    </tr>
-                    <tr>
-                      <td style={{ border: '1px solid #000', padding: '6px 10px', fontWeight: 600, fontSize: 12, background: '#f9f9f9' }}>MEDIO DE PAGO</td>
-                      <td style={{ border: '1px solid #000', padding: '6px 10px' }}>{pago.MedioPago}</td>
-                      <td style={{ border: '1px solid #000', padding: '6px 10px', fontWeight: 600, fontSize: 12, background: '#f9f9f9' }}>SALDO TOTAL CLIENTE</td>
-                      <td style={{ border: '1px solid #000', padding: '6px 10px', textAlign: 'right', fontWeight: 600 }}>{fmtMon(pago.SaldoAct)}</td>
-                    </tr>
-                  </tbody>
-                </table>
+  // Totales
+  html += linea;
+  html += `<div style="display:flex;justify-content:space-between;font-weight:bold;font-size:12px;">`;
+  html += `<span>VALOR PAGADO:</span><span>${fmtMon(pago.ValorPago)}</span></div>`;
+  html += `<div style="display:flex;justify-content:space-between;">`;
+  html += `<span>Saldo cliente:</span><span>${fmtMon(pago.SaldoAct)}</span></div>`;
+  html += linea;
 
-                {/* Suma en letras */}
-                <div style={{ border: '1px solid #000', borderTop: 'none', padding: '8px 10px', display: 'flex', gap: 10 }}>
-                  <span style={{ fontWeight: 600, fontSize: 12, flexShrink: 0, background: '#f9f9f9', padding: '0 4px' }}>LA SUMA DE</span>
-                  <span style={{ fontWeight: 700 }}>{numeroALetras(pago.ValorPago)}</span>
-                </div>
+  // En letras
+  html += `<div style="font-size:10px;margin:4px 0;word-wrap:break-word;">Son: ${numeroALetras(pago.ValorPago)}</div>`;
 
-                {/* Firmas */}
-                <div style={{ marginTop: 40, display: 'flex', justifyContent: 'space-between' }}>
-                  <div style={{ textAlign: 'center', width: '45%' }}>
-                    <div style={{ borderTop: '1px solid #000', paddingTop: 4, fontSize: 11 }}>FIRMA Y SELLO DEL BENEFICIARIO</div>
-                  </div>
-                  <div style={{ textAlign: 'center', width: '45%' }}>
-                    <div style={{ borderTop: '1px solid #000', paddingTop: 4, fontSize: 11 }}>FIRMA AUTORIZADA</div>
-                  </div>
-                </div>
-              </div>
-            ) : (
-              /* ==================== TIRILLA ==================== */
-              <div style={{ fontFamily: "'Courier New', monospace", fontSize: 11, color: '#000', width: 280, margin: '0 auto', lineHeight: 1.4 }}>
-                <div style={{ textAlign: 'center', marginBottom: 8 }}>
-                  <div style={{ fontSize: 13, fontWeight: 700 }}>{empresa.nombre}</div>
-                  <div>NIT: {empresa.nit}</div>
-                  <div>{empresa.direccion}</div>
-                  <div>Tel: {empresa.telefono}</div>
-                </div>
+  // Firma
+  html += `<div style="margin-top:18px;text-align:center;">`;
+  html += `<div style="border-top:1px solid #000;width:50mm;margin:0 auto;padding-top:3px;font-size:10px;">Firma</div>`;
+  html += `</div>`;
 
-                <div style={{ borderTop: '1px dashed #000', borderBottom: '1px dashed #000', padding: '6px 0', textAlign: 'center', fontWeight: 700, fontSize: 13, margin: '4px 0' }}>
-                  {tituloRecibo} #{pago.RecCajaN}
-                </div>
+  // Frase final
+  html += `<div style="text-align:center;font-size:10px;margin-top:8px;">Gracias por su pago</div>`;
 
-                <div style={{ padding: '4px 0' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span>Fecha:</span><span>{fechaStr} {horaStr}</span>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span>{labelTercero}:</span><span style={{ textAlign: 'right', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis' }}>{cliente.Razon_Social}</span>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span>NIT:</span><span>{cliente.Nit || '-'}</span>
-                  </div>
-                </div>
+  html += `</div>`;
+  return html;
+}
 
-                <div style={{ borderTop: '1px dashed #000', margin: '4px 0', padding: '4px 0' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span>Factura:</span><span style={{ fontWeight: 700 }}>{pago.NFactAnt}</span>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span>Medio pago:</span><span>{pago.MedioPago}</span>
-                  </div>
-                  {(pago.Descuento || 0) > 0 && (
-                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                      <span>Descuento:</span><span>{fmtMon(pago.Descuento || 0)}</span>
-                    </div>
-                  )}
-                </div>
+// ============================================================
+// MEDIA CARTA — formato oficina (recibo completo con cuadro).
+// ============================================================
+function mediaCarta(pago: PagoRecibo, cliente: ClienteRecibo, tipoTercero: 'cliente' | 'proveedor'): string {
+  const empresa = getEmpresa();
+  const titulo = tipoTercero === 'proveedor' ? 'COMPROBANTE DE EGRESO' : 'RECIBO DE PAGO';
+  const labelAccion = tipoTercero === 'proveedor' ? 'PAGADO A' : 'RECIBIDO DE';
 
-                <div style={{ borderTop: '1px dashed #000', borderBottom: '1px dashed #000', padding: '6px 0', margin: '4px 0' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, fontWeight: 700 }}>
-                    <span>VALOR PAGADO:</span><span>{fmtMon(pago.ValorPago)}</span>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span>Saldo total cliente:</span><span>{fmtMon(pago.SaldoAct)}</span>
-                  </div>
-                </div>
+  let html = `<div style="width:100%;font-family:Arial,Helvetica,sans-serif;font-size:12px;padding:10mm;box-sizing:border-box;color:#000;">`;
 
-                <div style={{ padding: '4px 0', fontSize: 10 }}>
-                  <div>Son: {numeroALetras(pago.ValorPago)}</div>
-                </div>
+  // Header
+  html += `<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;">`;
+  html += `<div style="text-align:center;flex:1;">`;
+  html += `<div style="font-size:18px;font-weight:700;letter-spacing:1px;">${empresa.nombre}</div>`;
+  html += `<div style="font-size:12px;margin-top:2px;">Nit. ${empresa.nit}</div>`;
+  html += `<div style="font-size:11px;">${empresa.direccion}</div>`;
+  html += `<div style="font-size:11px;">Tel: ${empresa.telefono}</div>`;
+  html += `</div>`;
+  html += `<div style="border:2px solid #000;padding:8px 14px;text-align:center;flex-shrink:0;">`;
+  html += `<div style="font-size:11px;font-weight:700;">COMPROBANTE</div>`;
+  html += `<div style="font-size:11px;font-weight:700;">${tipoTercero === 'proveedor' ? 'DE EGRESO No.' : 'DE INGRESO No.'}</div>`;
+  html += `<div style="font-size:22px;font-weight:700;margin-top:2px;">${pago.RecCajaN}</div>`;
+  html += `</div>`;
+  html += `</div>`;
 
-                <div style={{ marginTop: 20, textAlign: 'center', fontSize: 10 }}>
-                  <div style={{ borderTop: '1px dashed #000', paddingTop: 4, width: '70%', margin: '0 auto' }}>Firma</div>
-                </div>
+  // Tabla
+  html += `<table style="width:100%;border-collapse:collapse;border:1px solid #000;margin-top:10px;">`;
+  html += `<tbody>`;
+  html += `<tr>`;
+  html += `<td style="border:1px solid #000;padding:6px 10px;font-weight:600;width:150px;font-size:12px;background:#f9f9f9;">CIUDAD Y FECHA</td>`;
+  html += `<td style="border:1px solid #000;padding:6px 10px;">${fmtFecha(pago.Fecha)}</td>`;
+  html += `<td style="border:1px solid #000;padding:6px 10px;font-weight:600;width:80px;font-size:12px;background:#f9f9f9;">VALOR</td>`;
+  html += `<td style="border:1px solid #000;padding:6px 10px;font-weight:700;font-size:16px;text-align:right;">${fmtMon(pago.ValorPago)}</td>`;
+  html += `</tr>`;
+  html += `<tr>`;
+  html += `<td style="border:1px solid #000;padding:6px 10px;font-weight:600;font-size:12px;background:#f9f9f9;">${labelAccion}</td>`;
+  html += `<td colspan="3" style="border:1px solid #000;padding:6px 10px;">${cliente.Razon_Social} — NIT: ${cliente.Nit || '-'}</td>`;
+  html += `</tr>`;
+  html += `<tr>`;
+  html += `<td style="border:1px solid #000;padding:6px 10px;font-weight:600;font-size:12px;background:#f9f9f9;">POR CONCEPTO DE</td>`;
+  html += `<td colspan="3" style="border:1px solid #000;padding:6px 10px;">${pago.DetallePago || '-'}</td>`;
+  html += `</tr>`;
+  html += `<tr>`;
+  html += `<td style="border:1px solid #000;padding:6px 10px;font-weight:600;font-size:12px;background:#f9f9f9;">MEDIO DE PAGO</td>`;
+  html += `<td style="border:1px solid #000;padding:6px 10px;">${pago.MedioPago}</td>`;
+  html += `<td style="border:1px solid #000;padding:6px 10px;font-weight:600;font-size:12px;background:#f9f9f9;">SALDO TOTAL</td>`;
+  html += `<td style="border:1px solid #000;padding:6px 10px;text-align:right;font-weight:600;">${fmtMon(pago.SaldoAct)}</td>`;
+  html += `</tr>`;
+  html += `</tbody></table>`;
 
-                <div style={{ marginTop: 12, textAlign: 'center', fontSize: 9, color: '#666' }}>
-                  Gracias por su pago
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+  // En letras
+  html += `<div style="border:1px solid #000;border-top:none;padding:8px 10px;display:flex;gap:10px;">`;
+  html += `<span style="font-weight:600;font-size:12px;flex-shrink:0;background:#f9f9f9;padding:0 4px;">LA SUMA DE</span>`;
+  html += `<span style="font-weight:700;">${numeroALetras(pago.ValorPago)}</span>`;
+  html += `</div>`;
+
+  // Firmas
+  html += `<div style="margin-top:40px;display:flex;justify-content:space-between;">`;
+  html += `<div style="text-align:center;width:45%;">`;
+  html += `<div style="border-top:1px solid #000;padding-top:4px;font-size:11px;">FIRMA Y SELLO DEL BENEFICIARIO</div>`;
+  html += `</div>`;
+  html += `<div style="text-align:center;width:45%;">`;
+  html += `<div style="border-top:1px solid #000;padding-top:4px;font-size:11px;">FIRMA AUTORIZADA</div>`;
+  html += `</div>`;
+  html += `</div>`;
+
+  html += `</div>`;
+  return html;
+}
+
+// ============================================================
+// FUNCIÓN PRINCIPAL: imprime en UNA sola ventana. Reemplaza
+// el antiguo componente modal — ya no hay preview intermedio.
+// ============================================================
+export function imprimirReciboPago(
+  pago: PagoRecibo,
+  cliente: ClienteRecibo,
+  formatoOverride?: 'tirilla' | 'media-carta',
+  tipoTercero: 'cliente' | 'proveedor' = 'cliente'
+) {
+  const config = getConfigImpresion();
+  const formato = formatoOverride || config.formatoPago;
+  const esTirilla = formato === 'tirilla';
+  const contenido = esTirilla ? tirilla(pago, cliente, tipoTercero) : mediaCarta(pago, cliente, tipoTercero);
+  const pageSize = esTirilla ? '72mm auto' : 'half-letter';
+
+  const winWidth = esTirilla ? 360 : 720;
+  const winHeight = esTirilla ? 700 : 600;
+  const printWindow = window.open('', '_blank', `width=${winWidth},height=${winHeight}`);
+  if (!printWindow) return;
+
+  const titulo = tipoTercero === 'proveedor' ? `Comprobante Egreso #${pago.RecCajaN}` : `Recibo Pago #${pago.RecCajaN}`;
+  const toolbar = `<div id="print-toolbar" style="position:fixed;top:0;left:0;right:0;background:#7c3aed;padding:6px 16px;display:flex;align-items:center;gap:10px;z-index:9999;box-shadow:0 2px 8px rgba(0,0,0,0.2);font-family:Arial;">
+    <button onclick="document.getElementById('print-toolbar').style.display='none';window.print();setTimeout(function(){document.getElementById('print-toolbar').style.display='flex';},500);" style="height:30px;padding:0 16px;background:#fff;color:#7c3aed;border:none;border-radius:6px;font-size:13px;font-weight:700;cursor:pointer;">🖨️ Imprimir</button>
+    <button onclick="window.close();" style="height:30px;padding:0 12px;background:rgba(255,255,255,0.2);color:#fff;border:none;border-radius:6px;font-size:12px;cursor:pointer;">✕ Cerrar</button>
+    <span style="color:rgba(255,255,255,0.7);font-size:12px;margin-left:auto;">${titulo} — Vista previa</span>
+  </div>`;
+
+  const bodyPadding = config.vistaPrevia ? 'padding-top:44px;' : '';
+
+  printWindow.document.write(`<!DOCTYPE html><html><head>
+    <title>${titulo}</title>
+    <style>
+      @media print {
+        @page { size: ${pageSize}; margin: 0; }
+        body { margin: 0; padding: 0 !important; }
+        #print-toolbar { display: none !important; }
+      }
+      body { margin: 0; ${bodyPadding} }
+    </style>
+  </head><body>${config.vistaPrevia ? toolbar : ''}${contenido}</body></html>`);
+
+  printWindow.document.close();
+
+  if (config.vistaPrevia) {
+    printWindow.focus();
+  } else {
+    printWindow.print();
+    printWindow.close();
+  }
+}
+
+// ============================================================
+// Compat: componente wrapper para los callers viejos que usan
+// <ReciboImpresion ... /> en JSX. Internamente llama a la función
+// `imprimirReciboPago` al montar y cierra el modal padre con onClose().
+// Esto evita romper los callers existentes mientras los migramos.
+// ============================================================
+import { useEffect } from 'react';
+
+interface Props {
+  pago: PagoRecibo;
+  cliente: ClienteRecibo;
+  formato: 'media-carta' | 'tirilla';
+  onClose: () => void;
+  tipoTercero?: 'cliente' | 'proveedor';
+}
+
+export function ReciboImpresion({ pago, cliente, formato, onClose, tipoTercero = 'cliente' }: Props) {
+  useEffect(() => {
+    imprimirReciboPago(pago, cliente, formato, tipoTercero);
+    onClose();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  return null;
 }

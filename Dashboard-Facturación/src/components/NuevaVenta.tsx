@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Search, Trash2, Plus, Save, X, ShoppingCart, Lock, Unlock, PackagePlus, Loader2, Send, DollarSign, BookOpen } from 'lucide-react';
+import { Search, Trash2, Plus, Save, X, ShoppingCart, Lock, Unlock, PackagePlus, Loader2, Send, DollarSign, BookOpen, Printer } from 'lucide-react';
 import { HistorialPreciosVentaModal } from './HistorialPreciosVentaModal';
 import { KardexArticuloModal } from './KardexArticuloModal';
 import { EditarArticuloModal } from './EditarArticuloModal';
@@ -343,10 +343,21 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
 
   useEffect(() => {
     const esFE = tipoDocumento === 'electronica' || tipoDocumento === 'soporte';
+    // Sync del flag "Enviar a correo" con la validez del email del cliente que
+    // vamos a dejar activo. Sin esto, cambiar a FE con CONSUMIDOR FINAL (sin
+    // correo) mantiene prendido el checkbox del cliente anterior y bloquea el
+    // guardado con "El cliente no tiene un correo válido".
+    const syncEnviarEmail = (email: string) => {
+      const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      const tokens = (email || '').split(/[;,]+/).map(s => s.trim()).filter(Boolean);
+      setEnviarEmailFE(tokens.some(t => re.test(t)));
+    };
+
     if (esFE && esClienteContadoGenerico(cliente)) {
       // Cambiar a CONSUMIDOR FINAL. Si ya lo tenemos en cache, usarlo.
       if (consumidorFinalCache) {
         setCliente(consumidorFinalCache);
+        syncEnviarEmail(consumidorFinalCache.email || '');
         return;
       }
       // Buscar por NIT 222222222 (estándar DIAN). Si el backend tiene varios
@@ -365,6 +376,7 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
             };
             setConsumidorFinalCache(obj);
             setCliente(obj);
+            syncEnviarEmail(email);
           } else {
             // BD sin CONSUMIDOR FINAL configurado — usar fallback y avisar.
             toast('⚠ No hay cliente "CONSUMIDOR FINAL" (NIT 222222222) en la BD. Créalo desde Clientes para poder facturar electrónicamente sin cliente específico.', { duration: 8000, icon: 'ℹ️' });
@@ -373,6 +385,7 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
               tel: '0', dir: '-', cupo: 0, esCliente: false, email: '',
             };
             setCliente(obj);
+            syncEnviarEmail('');
           }
         })
         .catch(() => {
@@ -380,6 +393,7 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
             id: 0, nombre: 'CONSUMIDOR FINAL', nit: '222222222',
             tel: '0', dir: '-', cupo: 0, esCliente: false, email: '',
           });
+          syncEnviarEmail('');
         });
     } else if (!esFE && esClienteConsumidorFinalGenerico(cliente)) {
       // Volver a VENTAS AL CONTADO — genérico local, no requiere fetch.
@@ -387,6 +401,7 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
         id: 130500, nombre: 'VENTAS AL CONTADO', nit: '0',
         tel: '0', dir: '-', cupo: 0, esCliente: false, email: '',
       });
+      setEnviarEmailFE(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tipoDocumento]);
@@ -449,6 +464,15 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [showPagoModal, setShowPagoModal] = useState(false);
+  // Chulito "Imprimir" por venta — permite al cajero decidir en cada venta.
+  // Se inicializa con el default global de Configuración, y se recuerda su
+  // última elección en localStorage para que no haya que marcarlo cada vez.
+  const [imprimirEstaVenta, setImprimirEstaVenta] = useState<boolean>(() => {
+    const saved = localStorage.getItem('nuevaventa_imprimir');
+    if (saved !== null) return saved === '1';
+    return !!getConfigImpresion().imprimirAlGuardar;
+  });
+  useEffect(() => { localStorage.setItem('nuevaventa_imprimir', imprimirEstaVenta ? '1' : '0'); }, [imprimirEstaVenta]);
   const [distribucionesPendientes, setDistribucionesPendientes] = useState<any[] | null>(null);
   const [contingenciaPrompt, setContingenciaPrompt] = useState<{ factN: number; motivo: string; intentos: number; docLocalId?: number | null } | null>(null);
   // Cuando el usuario cierra el modal FE-fallida con la X (para ir a corregir
@@ -464,6 +488,11 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
   const [pagoTransferencia, setPagoTransferencia] = useState('');
   const [pagoMedioTransf, setPagoMedioTransf] = useState(2); // Bancolombia por defecto
   const [pagoAbono, setPagoAbono] = useState('');
+  // Medio de pago del abono inicial en crédito (0=Efectivo, 1=Tarjeta,
+  // 2=Bancolombia, 3=Nequi). Separado del medio de la factura — el abono
+  // puede entrar por un canal distinto al que luego usará el cliente para
+  // completar el saldo.
+  const [pagoAbonoMedio, setPagoAbonoMedio] = useState(0);
   const [mediosPago] = useState([
     { id: 0, nombre: 'Efectivo' }, { id: 1, nombre: 'Tarjeta' },
     { id: 2, nombre: 'Bancolombia' }, { id: 3, nombre: 'Nequi' }
@@ -635,11 +664,14 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
       const precioFinal = empaqueDefault && factorArt > 1
         ? (precioEmpManual != null ? precioEmpManual : Math.round(precio * factorArt))
         : precio;
-      // Default Entregado: en modo Fabricación, los productos con etiqueta
-      // "Producto Terminado" (Id_Etiqueta=2) salen como 'N' (toca producir);
-      // los demás salen como 'S' (catálogo normal, entrega inmediata).
       const idEtiqueta = (art as any).Id_Etiqueta ?? null;
-      const entregadoDefault: 'S' | 'N' = esFabricacion() && idEtiqueta === 2 ? 'N' : 'S';
+      // Default Entregado: en modo Fabricación/Confecciones/Taller TODOS los
+      // productos físicos arrancan en 'N' (no entregado) — asumimos que hay
+      // producción/preparación de por medio y es más seguro que la cajera
+      // marque S explícitamente al momento de entregar que al revés.
+      // Servicios se consideran siempre entregados (no son stock).
+      // En otros tipos de negocio: siempre 'S' (entrega inmediata estándar).
+      const entregadoDefault: 'S' | 'N' = (esFabricacion() && !esServicio) ? 'N' : 'S';
       const nueva: LineaVenta = {
         id: ++lineaId, Items: art.Items, Codigo: art.Codigo, Nombre: art.Nombres_Articulo,
         Existencia: esServicio ? 0 : art.Existencia, Cantidad: cantInicial, PrecioCosto: art.Precio_Costo,
@@ -725,7 +757,37 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
       .catch(() => {});
   }, []);
 
-  // Verificar caja abierta al montar + cargar base sugerida
+  // Carga info de cajas + base sugerida. Se extrae a función para poder
+  // volver a llamar cuando el usuario cierra caja desde otra pestaña y
+  // vuelve a Nueva Venta — así la base sugerida refleja el cierre más reciente.
+  const cargarInfoCajas = async () => {
+    try {
+      const r = await fetch(API_CAJA + `?cajas=1&usuario=${user?.id || 0}`);
+      const d = await r.json();
+      if (!d.success) return;
+      const cajas = (d.cajas || []).filter((c: any) => c.Tipo !== 'principal');
+      // Si recibe más de una caja, significa que NO tiene una caja asignada
+      // (el backend filtra por Id_Caja cuando el usuario tiene asignación → siempre devuelve 1).
+      // Para vender se requiere asignación específica.
+      if (cajas.length !== 1) {
+        setSinCajaAsignada(true);
+        return;
+      }
+      setSinCajaAsignada(false);
+      const cajaDelUsuario = cajas[0];
+      setCajaIdAbrir(cajaDelUsuario.Id_Caja);
+      const sugerida = parseFloat(cajaDelUsuario.base_sugerida) || 0;
+      if (sugerida > 0) {
+        setBaseSugerida(sugerida);
+        setBaseApertura(String(Math.round(sugerida)));
+      } else {
+        setBaseSugerida(0);
+        setBaseApertura('');
+      }
+    } catch {}
+  };
+
+  // Verificar caja abierta al montar + cargar info de cajas
   useEffect(() => {
     // Pasar usuario para que la verificación sea por la sesión DE ESTE usuario,
     // no por cualquier sesión abierta en el sistema (otro cajero puede tener su caja abierta).
@@ -733,31 +795,16 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
       if (d.success) setCajaAbierta(d.abierta);
       else setCajaAbierta(false);
     }).catch(() => setCajaAbierta(false));
-
-    // Cargar caja(s) disponible(s) según el usuario y su base sugerida
-    fetch(API_CAJA + `?cajas=1&usuario=${user?.id || 0}`).then(r => r.json()).then(d => {
-      if (d.success) {
-        const cajas = (d.cajas || []).filter((c: any) => c.Tipo !== 'principal');
-        // Si recibe más de una caja, significa que NO tiene una caja asignada
-        // (el backend filtra por Id_Caja cuando el usuario tiene asignación → siempre devuelve 1).
-        // Para vender se requiere asignación específica.
-        if (cajas.length === 0) {
-          setSinCajaAsignada(true);
-        } else if (cajas.length > 1) {
-          setSinCajaAsignada(true);
-        } else {
-          setSinCajaAsignada(false);
-          const cajaDelUsuario = cajas[0];
-          setCajaIdAbrir(cajaDelUsuario.Id_Caja);
-          const sugerida = parseFloat(cajaDelUsuario.base_sugerida) || 0;
-          if (sugerida > 0) {
-            setBaseSugerida(sugerida);
-            setBaseApertura(String(Math.round(sugerida)));
-          }
-        }
-      }
-    }).catch(() => {});
+    cargarInfoCajas();
   }, []);
+
+  // Si durante la operación detectamos caja cerrada (chequeo pre-POST o
+  // respuesta CAJA_CERRADA del backend), recargamos la base sugerida — así
+  // el formulario de "Abrir caja" muestra el valor del cierre que acaba de pasar.
+  useEffect(() => {
+    if (cajaAbierta === false && !sinCajaAsignada) cargarInfoCajas();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cajaAbierta]);
 
   // Edición de borrador FE — id del borrador que se está editando (o null).
   // Cuando != null, el botón "Guardar Borrador" llama a `actualizar_borrador`
@@ -1211,8 +1258,13 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
   const pagoTransfNum = parseInt(pagoTransferencia || '0');
   const pagoAbonoNum = parseInt(pagoAbono || '0');
   const totalPagado = tipo === 'Contado' ? pagoEfectivoNum + pagoTransfNum : pagoAbonoNum;
-  const cambioPago = tipo === 'Contado' ? Math.max(totalPagado - total, 0) : 0;
-  const faltaPagar = tipo === 'Contado' ? Math.max(total - totalPagado, 0) : 0;
+  // Comparar sobre valores REDONDEADOS: el total puede llevar decimales por
+  // IVA (ej. 106000.0001) mientras que los pagos vienen como enteros. Sin
+  // redondear, faltaPagar = 0.0001 > 0 → botón "Guardar Factura" bloqueado
+  // aunque el usuario pagó el monto exacto.
+  const totalRedondeado = Math.round(total);
+  const cambioPago = tipo === 'Contado' ? Math.max(totalPagado - totalRedondeado, 0) : 0;
+  const faltaPagar = tipo === 'Contado' ? Math.max(totalRedondeado - totalPagado, 0) : 0;
 
   // Pre-check: ¿hay líneas que requieran distribuir desde la unidad mayor?
   const verificarDistribucion = async (): Promise<{ ok: boolean; distribuciones: any[]; faltantes: any[] } | null> => {
@@ -1282,8 +1334,9 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
   };
 
   const finalizarVentaExitosa = (factN: number, dianDocId: number | null, enContingencia: boolean) => {
-    const cfg = getConfigImpresion();
-    if (cfg.imprimirAlGuardar) {
+    // Imprime si el chulito "Imprimir" del modal pago está marcado. El default
+    // sale de Configuración → Impresión, pero el cajero puede quitarlo por venta.
+    if (imprimirEstaVenta) {
       if (tipoDocumento === 'electronica' && dianDocId && !enContingencia) {
         window.open(`http://localhost:80/conta-app-backend/api/facturacion-electronica/pdf.php?id=${dianDocId}`, 'PDF_FE', 'width=900,height=700,menubar=no,toolbar=no');
       } else {
@@ -1437,6 +1490,28 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
       return;
     }
 
+    // Re-chequear caja abierta ANTES de guardar. El estado `cajaAbierta` se
+    // carga una sola vez al montar; si el cajero cerró la caja desde otra
+    // pestaña, acá creeríamos que sigue abierta y guardaríamos una venta
+    // huérfana (sin sesión que la contabilice). Las cotizaciones no afectan
+    // caja ni inventario, así que las dejamos pasar.
+    if (tipoDocumento !== 'cotizacion') {
+      try {
+        const r = await fetch(API_CAJA + `?usuario=${user?.id || 0}`);
+        const d = await r.json();
+        if (!d.success || !d.abierta) {
+          setCajaAbierta(false);
+          setShowPagoModal(false);
+          toast.error('La caja está cerrada. Abre caja antes de registrar la venta.', { duration: 7000 });
+          return;
+        }
+      } catch {
+        // Si el chequeo falla por red, dejamos que el backend decida (devuelve
+        // code=CAJA_CERRADA si corresponde). Mejor fail-open local que bloquear
+        // ventas por un hipo de conexión.
+      }
+    }
+
     // Si la factura es electrónica y el usuario marcó "Enviar a correo",
     // exigimos que al menos un correo del cliente sea válido. Bloquea el
     // caso donde el cliente tenía un email del tipo "abc@" guardado: la
@@ -1515,6 +1590,7 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
         autorizado_por_nombre: authCupoAdmin?.nombre || null,
         efectivo: efectivoFinal, valor_pagado: valorPagadoFinal,
         abono: tipo !== 'Contado' ? pagoAbonoNum : 0,
+        abono_medio_pago: tipo !== 'Contado' ? pagoAbonoMedio : null,
         items: lineasFinal.map(l => {
           // Conversión de empaques: si la línea se está vendiendo como Empaque
           // (VenderComoEmpaque=true con FactorConversion>1), la cantidad y el
@@ -1624,7 +1700,15 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
         }
 
         finalizarVentaExitosa(factN, dianDocId, false);
-      } else { toast.error(d.message); }
+      } else {
+        // Defensa en el backend contra venta sin caja abierta — ocurre si el
+        // chequeo pre-POST pasó pero entre medio otro usuario cerró la caja.
+        if (d.code === 'CAJA_CERRADA') {
+          setCajaAbierta(false);
+          setShowPagoModal(false);
+        }
+        toast.error(d.message || 'No se pudo guardar la venta', { duration: 6000 });
+      }
     } catch (e) { toast.error('Error al crear factura'); }
     setGuardando(false);
   };
@@ -1661,7 +1745,7 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
   // Admin (u otro usuario) sin caja asignada → no puede operar venta
   if (cajaAbierta === false && sinCajaAsignada) {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 'calc(100vh - 150px)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', minHeight: 0 }}>
         <div style={{ background: '#fff', borderRadius: 16, padding: 30, boxShadow: '0 4px 20px rgba(0,0,0,0.08)', textAlign: 'center', width: 440 }}>
           <div style={{ width: 56, height: 56, borderRadius: 14, background: '#fef3c7', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 14px' }}>
             <Lock size={24} color="#d97706" />
@@ -1689,7 +1773,7 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
 
   if (cajaAbierta === false) {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 'calc(100vh - 150px)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', minHeight: 0 }}>
         <div style={{ background: '#fff', borderRadius: 16, padding: 30, boxShadow: '0 4px 20px rgba(0,0,0,0.08)', textAlign: 'center', width: 380 }}>
           <div style={{ width: 56, height: 56, borderRadius: 14, background: '#fef3c7', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 14px' }}>
             <Lock size={24} color="#d97706" />
@@ -1722,7 +1806,7 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 110px)' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
       {error && <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, padding: '6px 14px', marginBottom: 8, color: '#dc2626', fontSize: 12, display: 'flex', justifyContent: 'space-between' }}>{error}<button onClick={() => setError('')} style={{ background: 'none', border: 'none', cursor: 'pointer' }}><X size={14} /></button></div>}
       {success && <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: '6px 14px', marginBottom: 8, color: '#16a34a', fontSize: 13, fontWeight: 600 }}>{success}</div>}
 
@@ -2763,6 +2847,11 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
                       <div style={{ fontSize: 12, fontWeight: 600 }}>Abono</div>
                       <div style={{ fontSize: 10, color: '#6b7280' }}>Deje en 0 si no hay abono</div>
                     </div>
+                    <select value={pagoAbonoMedio}
+                      onChange={e => setPagoAbonoMedio(parseInt(e.target.value))}
+                      style={{ height: 32, border: '1px solid #d1d5db', borderRadius: 8, fontSize: 12, fontWeight: 600, padding: '0 8px', outline: 'none', background: '#fff', color: '#374151' }}>
+                      {mediosPago.map(m => <option key={m.id} value={m.id}>{m.nombre}</option>)}
+                    </select>
                     <input type="text" placeholder="$ 0" value={pagoAbono}
                       onChange={e => {
                         // Bloqueo estricto: el abono a crédito debe ser SIEMPRE menor
@@ -2804,7 +2893,12 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
             </div>
 
             {/* Footer */}
-            <div style={{ padding: '12px 20px', borderTop: '1px solid #e5e7eb', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+            <div style={{ padding: '12px 20px', borderTop: '1px solid #e5e7eb', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: '#374151', cursor: 'pointer', userSelect: 'none' }}>
+                <input type="checkbox" checked={imprimirEstaVenta} onChange={e => setImprimirEstaVenta(e.target.checked)} style={{ cursor: 'pointer', width: 16, height: 16 }} />
+                <Printer size={14} /> Imprimir al guardar
+              </label>
+              <div style={{ display: 'flex', gap: 8 }}>
               <button onClick={() => setShowPagoModal(false)} style={{ height: 34, padding: '0 16px', background: '#f3f4f6', color: '#374151', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
                 <X size={14} /> Cerrar
               </button>
@@ -2818,6 +2912,7 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
                 }}>
                 <Save size={15} /> {tipoDocumento === 'electronica' ? 'Guardar y Enviar a DIAN' : tipoDocumento === 'soporte' ? 'Guardar Doc. Soporte' : 'Guardar Factura'}
               </button>
+              </div>
             </div>
           </div>
         </div>

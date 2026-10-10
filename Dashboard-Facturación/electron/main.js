@@ -145,6 +145,7 @@ async function consultarEntitlements() {
       modulos: {
         nucleo:                  { activo: true },
         facturacion_electronica: { activo: false },
+        sincronizacion:          { activo: false },
         dsno:                    { activo: false },
         plataforma_web:          { activo: false },
         vendedor_movil:          { activo: false },
@@ -942,6 +943,28 @@ app.whenReady().then(() => {
       createWindow();
     }
   });
+
+  // SincroWorker — módulo invisible de sincronización online. Arranca si
+  // el entitlement `plataforma_web` o `sincronizacion` está activo (el CRM
+  // los activa por empresa). Si ninguno está activo, el worker no hace nada.
+  try {
+    const sincroWorker = require('./sincroWorker');
+    sincroWorker.iniciar(mainWindow, readConfig, consultarEntitlements);
+    ipcMain.handle('sync:estado', () => sincroWorker.getEstado());
+    ipcMain.handle('sync:forzar', () => sincroWorker.forzarCiclo(mainWindow, readConfig, consultarEntitlements));
+    ipcMain.handle('sync:backfill', async (_e, { desde }) => {
+      try {
+        const r = await sincroWorker.backfill(readConfig, desde);
+        // Dispara ciclo inmediato para que empiece a enviar sin esperar los 30s
+        sincroWorker.forzarCiclo(mainWindow, readConfig, consultarEntitlements);
+        return r;
+      } catch (e) {
+        return { ok: false, error: String(e?.message || e) };
+      }
+    });
+  } catch (e) {
+    console.warn('[sync] no se pudo iniciar SincroWorker:', e?.message || e);
+  }
 
   // Chequeo automático al arrancar (solo producción, silencioso)
   if (autoUpdater) {

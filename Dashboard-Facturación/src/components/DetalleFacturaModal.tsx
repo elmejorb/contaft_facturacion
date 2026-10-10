@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
-import { X, Save, Printer, RotateCcw, Ban, Edit3, Eye, Search } from 'lucide-react';
+import { X, Save, Printer, RotateCcw, Ban, Edit3, Eye, Search, BookOpen } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { getConfigImpresion, getEmpresaCache } from './ConfiguracionSistema';
 import { imprimirFactura, type DatosFactura } from './ImpresionFactura';
 import { confirmar } from './ConfirmDialog';
 import { AutorizacionAdminModal, type AdminAutorizado } from './AutorizacionAdminModal';
+import { KardexArticuloModal } from './KardexArticuloModal';
 import { useAuth } from '../contexts/AuthContext';
 
 const API = 'http://localhost:80/conta-app-backend/api/ventas/detalle-factura.php';
@@ -47,6 +48,10 @@ export function DetalleFacturaModal({ factN, onClose, onUpdate }: Props) {
   const [fechaEntregaLinea, setFechaEntregaLinea] = useState(new Date().toISOString().slice(0, 10));
   const [cantAEntregarLinea, setCantAEntregarLinea] = useState('');
   const [entregandoLinea, setEntregandoLinea] = useState(false);
+  // Kardex del artículo: se abre al hacer click en el código de la fila.
+  // Útil para ver el historial de entregas parciales + ventas + compras del
+  // producto (asientos con fecha, útil cuando una línea se entregó por partes).
+  const [kardexArt, setKardexArt] = useState<{ items: number; codigo: string; nombre: string } | null>(null);
 
   // Handler global que la tabla llama por `(window as any).__entregarLinea`.
   useEffect(() => {
@@ -249,7 +254,10 @@ export function DetalleFacturaModal({ factN, onClose, onUpdate }: Props) {
       fecha: factura.Fecha ? new Date(factura.Fecha).toLocaleDateString('es-CO') + ' - ' + fmtHora12(factura.Hora) : '-',
       tipo: factura.Tipo || 'Contado', dias: parseInt(factura.Dias) || 0,
       cliente: { nombre: factura.A_nombre || '-', nit: factura.Identificacion || '0', telefono: factura.Telefono || '0', direccion: factura.Direccion || '-' },
-      items: items.map(i => ({ codigo: i.Codigo || '', nombre: i.Nombres_Articulo || '-', cantidad: parseFloat(i.Cantidad) || 0, precio: parseFloat(i.PrecioV) || 0, iva: parseFloat(i.IVA) || 0, descuento: parseFloat(i.Descuento) || 0, subtotal: parseFloat(i.Subtotal) || 0 })),
+      // Pasar `entregado` para que la impresión muestre "POR ENTREGAR" / letra
+      // N en modo Fabricación. Sin esto, reimprimir siempre salía como "S"
+      // aunque la línea esté marcada N en BD.
+      items: items.map(i => ({ codigo: i.Codigo || '', nombre: i.Nombres_Articulo || '-', cantidad: parseFloat(i.Cantidad) || 0, precio: parseFloat(i.PrecioV) || 0, iva: parseFloat(i.IVA) || 0, descuento: parseFloat(i.Descuento) || 0, subtotal: parseFloat(i.Subtotal) || 0, entregado: i.Entregado })),
       subtotal: items.reduce((s, i) => s + (parseFloat(i.Subtotal) || 0), 0),
       descuento: parseFloat(factura.Descuento) || 0, iva: parseFloat(factura.Impuesto) || 0,
       total: parseFloat(factura.Total) || 0, efectivo: parseFloat(factura.efectivo) || 0,
@@ -427,10 +435,21 @@ export function DetalleFacturaModal({ factN, onClose, onUpdate }: Props) {
                   {items.map((item: any) => {
                     const cant = parseFloat(item.Cantidad) || 0;
                     const dev = parseFloat(item.Dev) || 0;
-                    const pendiente = (item.Entregado || 'S') === 'N';
+                    // Si falta el campo, lo tratamos como pendiente. Es más seguro
+                    // mostrar el aviso que ocultar un pendiente real.
+                    const pendiente = (item.Entregado || 'N') !== 'S';
                     return (
                       <tr key={item.Id_DetalleVenta} style={{ borderBottom: '1px solid #f3f4f6', background: cant === 0 ? '#fef2f2' : (pendiente ? '#fef3c7' : '') }}>
-                        <td style={{ padding: '4px 8px', color: '#6b7280', fontSize: 11 }}>{item.Codigo}</td>
+                        <td style={{ padding: '4px 8px', fontSize: 11 }}>
+                          <button
+                            onClick={() => setKardexArt({ items: item.Items, codigo: item.Codigo || '', nombre: item.Nombres_Articulo || '' })}
+                            title="Ver kardex del artículo (historial de movimientos y entregas)"
+                            style={{ background: 'none', border: 'none', padding: 0, color: '#7c3aed', cursor: 'pointer', fontSize: 11, fontWeight: 600, textDecoration: 'underline', display: 'inline-flex', alignItems: 'center', gap: 3 }}
+                          >
+                            <BookOpen size={11} />
+                            {item.Codigo}
+                          </button>
+                        </td>
                         <td style={{ padding: '4px 8px', fontWeight: 500 }}>{item.Nombres_Articulo}</td>
                         <td style={{ padding: '4px 8px', textAlign: 'center', fontWeight: 600, color: cant === 0 ? '#dc2626' : '#1f2937' }}>{cant}</td>
                         <td style={{ padding: '4px 8px', textAlign: 'right', color: '#6b7280', fontSize: 11 }}>{fmtMon(parseFloat(item.PrecioC) || 0)}</td>
@@ -456,13 +475,19 @@ export function DetalleFacturaModal({ factN, onClose, onUpdate }: Props) {
                                 </div>
                               );
                             }
-                            // Entrega completa
+                            // Entrega completa. Si tiene FechaEntrega la muestra;
+                            // si no (facturas viejas o entregas inmediatas), solo
+                            // muestra el check verde con "Entregado". Antes caía
+                            // en "-" lo cual confundía al cliente — pensaba que
+                            // no estaba entregado.
                             return item.FechaEntrega ? (
                               <span style={{ fontSize: 10, color: '#16a34a', fontWeight: 600 }} title={`Entregado: ${item.FechaEntrega}`}>
                                 ✓ {String(item.FechaEntrega).slice(0,10).split('-').reverse().join('/')}
                               </span>
                             ) : (
-                              <span style={{ fontSize: 10, color: '#9ca3af' }}>-</span>
+                              <span style={{ fontSize: 10, color: '#16a34a', fontWeight: 600 }} title="Entregado (sin fecha registrada)">
+                                ✓ Entregado
+                              </span>
                             );
                           })()}
                         </td>
@@ -636,11 +661,20 @@ export function DetalleFacturaModal({ factN, onClose, onUpdate }: Props) {
         />
       )}
 
+      {/* Kardex del artículo (click en código) */}
+      {kardexArt && (
+        <KardexArticuloModal
+          items={kardexArt.items}
+          codigo={kardexArt.codigo}
+          nombre={kardexArt.nombre}
+          onClose={() => setKardexArt(null)}
+        />
+      )}
+
       {/* Modal entregar línea (modo Fabricación v4.7) */}
       {entregarLinea && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000 }}
-          onClick={() => setEntregarLinea(null)}>
-          <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 12, padding: 24, width: 420, boxShadow: '0 20px 40px rgba(0,0,0,0.2)' }}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000 }}>
+          <div style={{ background: '#fff', borderRadius: 12, padding: 24, width: 420, boxShadow: '0 20px 40px rgba(0,0,0,0.2)' }}>
             <h3 style={{ fontSize: 18, fontWeight: 700, color: '#1f2937', marginBottom: 4 }}>Marcar como entregado</h3>
             <p style={{ fontSize: 13, color: '#6b7280', marginBottom: 16 }}>
               <b>{entregarLinea.nombre}</b><br/>

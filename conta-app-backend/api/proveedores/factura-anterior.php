@@ -24,6 +24,19 @@ $database = new Database();
 $db = $database->getConnection();
 
 try {
+    // GET siguiente consecutivo. Mismo patrón que el endpoint de clientes:
+    // extrae la parte numérica de los FacturaN existentes y suma 1. Es solo
+    // una SUGERENCIA — el usuario puede editarla.
+    if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['siguiente'])) {
+        $stmt = $db->query("
+            SELECT COALESCE(MAX(CAST(REPLACE(FacturaN, 'AT-', '') AS UNSIGNED)), 0) AS max_num
+            FROM tblfacturasanterioresproveedor
+        ");
+        $siguiente = intval($stmt->fetchColumn()) + 1;
+        echo json_encode(['success' => true, 'siguiente' => $siguiente]);
+        exit;
+    }
+
     $data = json_decode(file_get_contents('php://input'), true);
     $action = $data['action'] ?? 'crear';
 

@@ -81,6 +81,9 @@ export function InformeCierreMes() {
       <table style={tableStyle}>
         <tbody>
           <tr><td style={td}>Gastos operativos del mes</td><td style={{ ...tdNum, color: '#dc2626' }}>-{fmt(egr.gastos || 0)}</td></tr>
+          {(egr.nomina || 0) > 0 && (
+            <tr><td style={td}>Gastos de personal (nómina) — {egr.nomina_num || 0} pago(s)</td><td style={{ ...tdNum, color: '#dc2626' }}>-{fmt(egr.nomina || 0)}</td></tr>
+          )}
           <tr><td style={td}>Pagos a proveedores (egresos por cuentas por pagar)</td><td style={tdNum}>{fmt(egr.pagos_proveedores || 0)}</td></tr>
           <tr><td style={td}>Compras del mes (al contado)</td><td style={tdNum}>{fmt(egr.compras?.contado || 0)}</td></tr>
           <tr><td style={td}>Compras del mes (a crédito)</td><td style={tdNum}>{fmt(egr.compras?.credito || 0)}</td></tr>
@@ -95,6 +98,9 @@ export function InformeCierreMes() {
           <tr><td style={td}>(-) Costo de ventas</td><td style={{ ...tdNum, color: '#dc2626' }}>-{fmt(egr.costo_ventas || 0)}</td></tr>
           <tr style={{ background: '#dcfce7' }}><td style={tdSub}>= Utilidad Bruta</td><td style={{ ...tdNum, fontWeight: 700, color: '#16a34a' }}>{fmt(util.bruta || 0)}</td></tr>
           <tr><td style={td}>(-) Gastos operativos</td><td style={{ ...tdNum, color: '#dc2626' }}>-{fmt(egr.gastos || 0)}</td></tr>
+          {(egr.nomina || 0) > 0 && (
+            <tr><td style={td}>(-) Gastos de personal (nómina)</td><td style={{ ...tdNum, color: '#dc2626' }}>-{fmt(egr.nomina || 0)}</td></tr>
+          )}
           <tr style={{ background: util.neta >= 0 ? '#dcfce7' : '#fee2e2', borderTop: '2px solid #000' }}>
             <td style={tdTotal}>UTILIDAD NETA DEL MES</td>
             <td style={{ ...tdNum, fontWeight: 700, fontSize: 16, color: util.neta >= 0 ? '#16a34a' : '#dc2626' }}>{fmt(util.neta || 0)}</td>

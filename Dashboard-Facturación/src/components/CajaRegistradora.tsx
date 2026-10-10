@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { Lock, Unlock, DollarSign, RefreshCw, Clock, ArrowDownRight, Plus, Settings, Edit3 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../contexts/AuthContext';
-import { getConfigImpresion } from './ConfiguracionSistema';
+import { getConfigImpresion, getEmpresaCache } from './ConfiguracionSistema';
 import { confirmar } from './ConfirmDialog';
 import { AutorizacionAdminModal, type AdminAutorizado } from './AutorizacionAdminModal';
 
@@ -303,52 +303,116 @@ export function CajaRegistradora() {
         </div>
       `;
     } else {
-      // ===== Media carta (formato actual) =====
-      pageStyle = `@page { size: auto; margin: 10mm; }`;
-      winWidth = 500;
-      const linea = (label: string, ef: number, tr?: number) =>
-        `<tr><td style="padding:3px 6px;">${label}</td><td style="padding:3px 6px;text-align:right;font-weight:600;">${fmtMon(ef)}</td>${tr !== undefined ? `<td style="padding:3px 6px;text-align:right;color:#666;">${fmtMon(tr)}</td>` : ''}</tr>`;
+      // ===== Media carta =====
+      // Hoja carta vertical (portrait). El contenido ocupa el ancho completo
+      // de la hoja pero solo la mitad superior en altura. El usuario después
+      // corta físicamente por la mitad para tener su media carta real.
+      // Usar tamaños estándar (letter portrait) garantiza que drivers como
+      // OneNote y PDF los respeten (ignoran tamaños custom 140mm×215mm).
+      pageStyle = `@page { size: letter portrait; margin: 10mm 15mm; }`;
+      winWidth = 760;
+      const empresa = (getEmpresaCache().nombre || 'EMPRESA').toUpperCase();
+      // Fecha larga tipo "07 DE OCTUBRE 2026"
+      const meses = ['ENERO','FEBRERO','MARZO','ABRIL','MAYO','JUNIO','JULIO','AGOSTO','SEPTIEMBRE','OCTUBRE','NOVIEMBRE','DICIEMBRE'];
+      const d = new Date();
+      const fechaLarga = `${String(d.getDate()).padStart(2,'0')} DE ${meses[d.getMonth()]} ${d.getFullYear()}`;
+
+      const totalVentas = (res.ventas_contado_efectivo || 0)
+                        + (res.ventas_contado_transferencia || 0)
+                        + (res.ventas_credito || 0);
+
+      // Línea: "LABEL ................ $ VALOR" (sin columnas)
+      // Solo renderiza si el valor es > 0 (o si forzar=true, p.ej. BASE siempre).
+      // Sin colores — resaltamos con negrita + mayúsculas (para impresión B/N).
+      const linea = (label: string, valor: number, forzar = false, destacar = false) => {
+        if (!forzar && (!valor || valor === 0)) return '';
+        const estilo = destacar
+          ? 'font-size:13px;font-weight:bold;'
+          : 'font-size:12px;';
+        return `
+          <tr style="${estilo}">
+            <td style="padding:2px 4px;">${label}</td>
+            <td style="padding:2px 4px;text-align:right;font-weight:${destacar ? '700' : '600'};">${fmtMon(valor)}</td>
+          </tr>`;
+      };
+      const separador = `<tr><td colspan="2" style="padding:2px 0;"><div style="border-top:1px solid #000;"></div></td></tr>`;
+      const espacio = (h = 5) => `<tr><td colspan="2" style="height:${h}px;"></td></tr>`;
+
+      // Para DIFERENCIA mostramos CUADRA/SOBRANTE/FALTANTE (sin colores)
+      const diffLabel = diff === 0 ? 'CUADRA ✓'
+                      : diff > 0 ? `${fmtMon(diff)} (SOBRANTE)`
+                                 : `${fmtMon(Math.abs(diff))} (FALTANTE)`;
 
       html = `
-        <div style="font-family:Arial,sans-serif;max-width:400px;margin:0 auto;padding:20px;">
-          <div style="text-align:center;margin-bottom:16px;">
-            <div style="font-size:16px;font-weight:bold;">CUADRE DE CAJA</div>
-            <div style="font-size:12px;color:#666;">${sesion.NombreCaja} — ${sesion.NombreUsuario || 'Admin'}</div>
-            <div style="font-size:12px;color:#666;">Fecha: ${fecha} ${hora}</div>
+        <div style="width:100%;font-family:Arial,sans-serif;color:#000;box-sizing:border-box;max-height:125mm;">
+          <!-- Cabecera -->
+          <div style="text-align:center;margin-bottom:8px;">
+            <div style="font-size:17px;font-weight:bold;letter-spacing:0.5px;">${empresa}</div>
+            <div style="font-size:13px;font-weight:bold;margin-top:3px;">CIERRE DEL DÍA ${fechaLarga}</div>
           </div>
-          <table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:12px;">
-            <tr style="background:#f0f0f0;font-weight:bold;">
-              <td style="padding:4px 6px;">Concepto</td>
-              <td style="padding:4px 6px;text-align:right;">Efectivo</td>
-              <td style="padding:4px 6px;text-align:right;">Transferencia</td>
+
+          <!-- Info caja -->
+          <div style="font-size:11px;margin-bottom:8px;line-height:1.4;">
+            <div><b>Fecha Informe:</b> ${fecha} ${hora}</div>
+            <div><b>Caja:</b> ${sesion.NombreCaja}</div>
+            <div><b>Cajero:</b> ${sesion.NombreUsuario || 'Admin'}</div>
+          </div>
+
+          <!-- Cuerpo del cuadre -->
+          <table style="width:100%;border-collapse:collapse;">
+            ${linea('BASE', res.base, true)}
+            ${linea(`VENTAS CONTADO EFECTIVO (${res.ventas_contado_cantidad})`, res.ventas_contado_efectivo)}
+            ${linea(`VENTAS CON TARJETA / TRANSFERENCIA`, res.ventas_contado_transferencia)}
+            ${linea(`VENTAS CRÉDITO (${res.ventas_credito_cantidad})`, res.ventas_credito)}
+            ${separador}
+            ${linea('TOTAL VENTAS', totalVentas, true, true)}
+            ${espacio(6)}
+
+            ${linea(`PAGOS DE CLIENTES EFECTIVO (${res.pagos_cantidad})`, res.pagos_efectivo)}
+            ${linea(`PAGOS DE CLIENTES CON TARJETA`, res.pagos_transferencia)}
+            ${separador}
+            ${linea('TOTAL INGRESOS EN EFECTIVO', (res.ventas_contado_efectivo || 0) + (res.pagos_efectivo || 0), true, true)}
+            ${linea('TOTAL INGRESOS EN TRANSFERENCIA', (res.ventas_contado_transferencia || 0) + (res.pagos_transferencia || 0), true, true)}
+            ${espacio(6)}
+            ${linea(`GASTOS (${res.egresos_cantidad})`, res.egresos)}
+            ${linea(`ANULACIONES (${res.anulaciones_cantidad})`, res.anulaciones)}
+            ${linea('RETIROS PARCIALES', res.retiros_parciales)}
+            ${separador}
+            ${linea('TOTAL EN EFECTIVO (SISTEMA)', res.total_efectivo, true, true)}
+            ${linea('CONTEO DE CAJA', conteoVal, true, true)}
+            <tr>
+              <td colspan="2" style="padding:1px 0;"><div style="border-top:2px solid #000;"></div></td>
             </tr>
-            ${linea('Base', res.base, 0)}
-            ${linea(`Ventas Contado (${res.ventas_contado_cantidad})`, res.ventas_contado_efectivo, res.ventas_contado_transferencia)}
-            ${linea(`Ventas Crédito (${res.ventas_credito_cantidad})`, 0, res.ventas_credito)}
-            ${linea(`Pagos Clientes (${res.pagos_cantidad})`, res.pagos_efectivo, res.pagos_transferencia)}
-            ${res.egresos > 0 ? linea(`Egresos (${res.egresos_cantidad})`, -res.egresos, 0) : ''}
-            ${res.anulaciones > 0 ? linea(`Anulaciones (${res.anulaciones_cantidad})`, -res.anulaciones, 0) : ''}
-            ${res.retiros_parciales > 0 ? linea('Retiros parciales', -res.retiros_parciales, 0) : ''}
+            <tr>
+              <td style="padding:4px 4px;font-weight:bold;font-size:13px;letter-spacing:1px;">DIFERENCIA</td>
+              <td style="padding:4px 4px;text-align:right;font-weight:bold;font-size:13px;">${diffLabel}</td>
+            </tr>
+            <tr>
+              <td colspan="2" style="padding:1px 0;"><div style="border-top:2px solid #000;"></div></td>
+            </tr>
+            ${espacio(8)}
+
+            ${linea('TOTAL VENTA DEL DÍA', res.total_venta_dia, true, true)}
           </table>
-          <div style="border-top:3px solid #000;padding-top:8px;margin-bottom:12px;">
-            <table style="width:100%;font-size:13px;">
-              <tr><td style="font-weight:bold;">Total en Efectivo (Sistema):</td><td style="text-align:right;font-weight:bold;">${fmtMon(res.total_efectivo)}</td></tr>
-              <tr><td style="font-weight:bold;">Conteo de Caja:</td><td style="text-align:right;font-weight:bold;">${fmtMon(conteoVal)}</td></tr>
-              <tr style="font-size:15px;${diff === 0 ? 'color:green;' : diff > 0 ? 'color:blue;' : 'color:red;'}">
-                <td style="font-weight:bold;">Diferencia:</td>
-                <td style="text-align:right;font-weight:bold;">${diff === 0 ? 'CUADRA ✓' : fmtMon(diff) + (diff > 0 ? ' (Sobrante)' : ' (Faltante)')}</td>
-              </tr>
-              ${trasladado > 0 ? `<tr><td>Trasladado a Principal:</td><td style="text-align:right;">${fmtMon(trasladado)}</td></tr>` : ''}
-            </table>
-          </div>
-          <div style="border-top:2px solid #000;padding-top:8px;margin-bottom:8px;">
-            <table style="width:100%;font-size:14px;">
-              <tr><td style="font-weight:bold;">Total Venta del Día:</td><td style="text-align:right;font-weight:bold;font-size:16px;">${fmtMon(res.total_venta_dia)}</td></tr>
-            </table>
-          </div>
-          <div style="margin-top:30px;display:flex;justify-content:space-between;">
-            <div style="text-align:center;width:45%;"><div style="border-top:1px solid #000;padding-top:4px;font-size:10px;">Cajero</div></div>
-            <div style="text-align:center;width:45%;"><div style="border-top:1px solid #000;padding-top:4px;font-size:10px;">Administrador</div></div>
+
+          <!-- Informativo post-cuadre: traslado hecho DESPUÉS del cierre.
+               No forma parte del cálculo del cuadre, va al final para dejar
+               constancia de que ese efectivo se envió a caja principal. -->
+          ${trasladado > 0 ? `
+            <div style="margin-top:10px;padding:5px 8px;border:1px dashed #000;font-size:11px;display:flex;justify-content:space-between;">
+              <span><i>Informativo:</i> trasladado a Caja Principal</span>
+              <span style="font-weight:700;">${fmtMon(trasladado)}</span>
+            </div>
+          ` : ''}
+
+          <!-- Firmas -->
+          <div style="margin-top:20px;display:flex;justify-content:space-between;">
+            <div style="text-align:center;width:45%;">
+              <div style="border-top:1px solid #000;padding-top:3px;font-size:10px;">Cajero</div>
+            </div>
+            <div style="text-align:center;width:45%;">
+              <div style="border-top:1px solid #000;padding-top:3px;font-size:10px;">Administrador</div>
+            </div>
           </div>
         </div>
       `;
@@ -358,7 +422,14 @@ export function CajaRegistradora() {
     if (!win) return;
     win.document.write(`<!DOCTYPE html><html><head><title>Cuadre de Caja</title>
       <style>
-        @media print { ${pageStyle} body { margin: 0; } .no-print { display: none !important; } }
+        /* Anti-centrado: fuerza que el contenido comience arriba de la hoja
+           aunque el driver (OneNote p.ej.) ignore @page size y use carta. */
+        html, body { margin: 0; padding: 0; }
+        @media print {
+          ${pageStyle}
+          html, body { margin: 0 !important; padding: 0 !important; }
+          .no-print { display: none !important; }
+        }
       </style></head><body>
       <div class="no-print" style="padding:8px 16px;background:#7c3aed;display:flex;gap:8px;align-items:center;">
         <button onclick="window.print()" style="height:30px;padding:0 14px;background:#fff;color:#7c3aed;border:none;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;">Imprimir</button>
@@ -623,11 +694,22 @@ export function CajaRegistradora() {
                 </div>
                 {linea('Base', res.base, 0)}
                 {linea(`Ventas Contado (${res.ventas_contado_cantidad})`, res.ventas_contado_efectivo, res.ventas_contado_transferencia)}
-                {linea(`Ventas Crédito (${res.ventas_credito_cantidad})`, 0, res.ventas_credito, '#6b7280')}
                 {linea(`Pagos Clientes (${res.pagos_cantidad})`, res.pagos_efectivo, res.pagos_transferencia, '#16a34a')}
                 {res.egresos > 0 && linea(`Egresos (${res.egresos_cantidad})`, -res.egresos, 0, '#dc2626')}
                 {res.anulaciones > 0 && linea(`Anulaciones (${res.anulaciones_cantidad})`, -res.anulaciones, 0, '#dc2626')}
                 {res.retiros_parciales > 0 && linea('Retiros parciales', -res.retiros_parciales, 0, '#d97706')}
+                {/* Ventas Crédito: no entra ni en efectivo ni en transferencia — es DEUDA
+                    pendiente. Va en línea propia con color distinto y texto aclaratorio
+                    para no confundir al cajero. */}
+                {res.ventas_credito > 0 && (
+                  <div style={{ display: 'flex', alignItems: 'center', padding: '5px 0', borderBottom: '1px solid #f3f4f6', fontSize: 12, background: '#f3e8ff' }}>
+                    <span style={{ flex: 1, color: '#6b21a8', paddingLeft: 4 }}>
+                      Ventas Crédito ({res.ventas_credito_cantidad})
+                      <span style={{ fontSize: 10, color: '#9ca3af', marginLeft: 6, fontStyle: 'italic' }}>(deuda — no entra a caja)</span>
+                    </span>
+                    <span style={{ width: 110, textAlign: 'right', fontWeight: 700, color: '#6b21a8', paddingRight: 4 }}>{fmtMon(res.ventas_credito)}</span>
+                  </div>
+                )}
                 <div style={{ display: 'flex', padding: '8px 0', borderTop: '3px solid #1f2937', marginTop: 6 }}>
                   <span style={{ flex: 1, fontSize: 14, fontWeight: 800 }}>Total en Efectivo</span>
                   <span style={{ width: 110, textAlign: 'right', fontSize: 18, fontWeight: 800, color: '#16a34a' }}>{fmtMon(res.total_efectivo)}</span>

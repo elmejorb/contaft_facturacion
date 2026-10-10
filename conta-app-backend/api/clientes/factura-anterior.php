@@ -1,6 +1,7 @@
 <?php
 /**
  * Facturas anteriores de clientes
+ * GET  ?siguiente=1 → devuelve el siguiente consecutivo sugerido
  * POST action=crear → agregar factura anterior
  * POST action=eliminar → eliminar
  */
@@ -9,6 +10,19 @@ $database = new Database();
 $db = $database->getConnection();
 
 try {
+    // GET siguiente consecutivo. Toma el máximo entre las partes numéricas de
+    // los FacturaN existentes y suma 1. Si no hay facturas anteriores aún,
+    // arranca en 1. Es solo una SUGERENCIA — el usuario puede editarla.
+    if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['siguiente'])) {
+        $stmt = $db->query("
+            SELECT COALESCE(MAX(CAST(REPLACE(FacturaN, 'AT-', '') AS UNSIGNED)), 0) AS max_num
+            FROM tblfacturasanteriores
+        ");
+        $siguiente = intval($stmt->fetchColumn()) + 1;
+        echo json_encode(['success' => true, 'siguiente' => $siguiente]);
+        exit;
+    }
+
     $data = json_decode(file_get_contents('php://input'), true);
     $action = $data['action'] ?? 'crear';
 

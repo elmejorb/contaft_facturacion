@@ -637,7 +637,17 @@ export function CuentasPorCobrar() {
           }}>
             <Printer size={14} /> Detallado
           </button>
-          <button onClick={() => setShowFactAnt(true)} title="Agregar factura de sistema anterior para cargar saldos iniciales" style={{
+          <button onClick={async () => {
+            setShowFactAnt(true);
+            // Prefill con el siguiente consecutivo sugerido por el backend.
+            // Siempre editable — el usuario puede escribir el número real que
+            // tenía la factura en el sistema anterior si lo recuerda.
+            try {
+              const r = await fetch('http://localhost:80/conta-app-backend/api/clientes/factura-anterior.php?siguiente=1');
+              const d = await r.json();
+              if (d.success && d.siguiente) setFaFacturaN(String(d.siguiente));
+            } catch {}
+          }} title="Agregar factura de sistema anterior para cargar saldos iniciales" style={{
             height: 30, padding: '0 12px', background: '#d97706', color: '#fff',
             border: 'none', borderRadius: 8, fontSize: 12, cursor: 'pointer',
             display: 'flex', alignItems: 'center', gap: 5

@@ -4,7 +4,7 @@ import { AllCommunityModule, ModuleRegistry, ColDef, themeQuartz } from 'ag-grid
 import { RefreshCw, Eye, ArrowUpRight, ArrowDownRight, DollarSign, X, Printer, Calendar, Wallet } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../contexts/AuthContext';
-import { getConfigImpresion } from './ConfiguracionSistema';
+import { getConfigImpresion, getEmpresaCache } from './ConfiguracionSistema';
 import { hoyLocal, inicioMesLocal } from '../utils/fecha';
 import { AG_GRID_LOCALE_ES } from '../utils/agGridLocaleEs';
 
@@ -45,6 +45,8 @@ export function HistorialCajas() {
   const [movCaja, setMovCaja] = useState(0);
   const [showTrasladar, setShowTrasladar] = useState(false);
   const [trasladarValor, setTrasladarValor] = useState('');
+  // Modal para elegir formato de reimpresión (tirilla vs media carta) por cada reimpresión.
+  const [elegirFormato, setElegirFormato] = useState<any | null>(null);
 
   const cargar = async () => {
     setLoading(true);
@@ -107,7 +109,7 @@ export function HistorialCajas() {
     } catch (e) { toast.error('Error'); }
   };
 
-  const imprimirCuadreHistorial = (s: any) => {
+  const imprimirCuadreHistorial = (s: any, formatoElegido?: 'tirilla' | 'media') => {
     const fecha = new Date(s.FechaApertura).toLocaleDateString('es-CO');
     const horaCierre = s.FechaCierre ? new Date(s.FechaCierre).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' }) : '';
     const diff = parseFloat(s.DiferenciaFinal) || 0;
@@ -123,7 +125,7 @@ export function HistorialCajas() {
     const anulaciones = parseFloat(s.Anulaciones) || 0;
     const retiros = parseFloat(s.RetirosParciales) || 0;
     const totalVenta = ventasEf + ventasTr + ventasCr;
-    const formato = getConfigImpresion().formatoCuadreCaja || 'tirilla';
+    const formato = formatoElegido || getConfigImpresion().formatoCuadreCaja || 'tirilla';
 
     let html = '', pageStyle = '', winWidth = 500;
 
@@ -170,49 +172,96 @@ export function HistorialCajas() {
           <div style="text-align:center;font-size:9px;margin-top:8px;color:#666;">- - - Conta FT - - -</div>
         </div>`;
     } else {
-      pageStyle = `@page { size: auto; margin: 10mm; }`;
-      const linea = (label: string, ef: number, tr?: number) =>
-        `<tr><td style="padding:3px 6px;">${label}</td><td style="padding:3px 6px;text-align:right;font-weight:600;">${fmtMon(ef)}</td>${tr !== undefined ? `<td style="padding:3px 6px;text-align:right;color:#666;">${fmtMon(tr)}</td>` : ''}</tr>`;
+      // ===== Media carta (reimpresión) — mismo formato que CajaRegistradora =====
+      // Hoja carta vertical, contenido en la mitad superior. Usuario corta
+      // físicamente por la mitad para tener su media carta.
+      pageStyle = `@page { size: letter portrait; margin: 10mm 15mm; }`;
+      const empresa = (getEmpresaCache().nombre || 'EMPRESA').toUpperCase();
+      const meses = ['ENERO','FEBRERO','MARZO','ABRIL','MAYO','JUNIO','JULIO','AGOSTO','SEPTIEMBRE','OCTUBRE','NOVIEMBRE','DICIEMBRE'];
+      const fap = new Date(s.FechaApertura);
+      const fechaLarga = `${String(fap.getDate()).padStart(2,'0')} DE ${meses[fap.getMonth()]} ${fap.getFullYear()}`;
+      const totalVentas = (ventasEf || 0) + (ventasTr || 0) + (ventasCr || 0);
+
+      // Sin colores — resaltamos con negrita + bordes dobles para la DIFERENCIA.
+      const linea = (label: string, valor: number, forzar = false, destacar = false) => {
+        if (!forzar && (!valor || valor === 0)) return '';
+        const estilo = destacar ? 'font-size:13px;font-weight:bold;' : 'font-size:12px;';
+        return `
+          <tr style="${estilo}">
+            <td style="padding:2px 4px;">${label}</td>
+            <td style="padding:2px 4px;text-align:right;font-weight:${destacar ? '700' : '600'};">${fmtMon(valor)}</td>
+          </tr>`;
+      };
+      const separador = `<tr><td colspan="2" style="padding:2px 0;"><div style="border-top:1px solid #000;"></div></td></tr>`;
+      const espacio = (h = 5) => `<tr><td colspan="2" style="height:${h}px;"></td></tr>`;
+
+      const diffLabel = diff === 0 ? 'CUADRA ✓'
+                      : diff > 0 ? `${fmtMon(diff)} (SOBRANTE)`
+                                 : `${fmtMon(Math.abs(diff))} (FALTANTE)`;
+
       html = `
-        <div style="font-family:Arial,sans-serif;max-width:400px;margin:0 auto;padding:20px;">
+        <div style="width:100%;font-family:Arial,sans-serif;color:#000;box-sizing:border-box;max-height:125mm;">
           <div style="text-align:center;margin-bottom:8px;">
-            <div style="font-size:16px;font-weight:bold;">CUADRE DE CAJA</div>
-            <div style="font-size:11px;color:#999;font-style:italic;">— REIMPRESIÓN —</div>
-            <div style="font-size:12px;color:#666;">${s.NombreCaja || 'Caja'} — ${s.NombreUsuario || 'Admin'}</div>
-            <div style="font-size:12px;color:#666;">Fecha: ${fecha} — Cierre: ${horaCierre}</div>
+            <div style="font-size:17px;font-weight:bold;letter-spacing:0.5px;">${empresa}</div>
+            <div style="font-size:13px;font-weight:bold;margin-top:3px;">CIERRE DEL DÍA ${fechaLarga}</div>
+            <div style="font-size:10px;font-style:italic;margin-top:2px;">— REIMPRESIÓN —</div>
           </div>
-          <table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:12px;">
-            <tr style="background:#f0f0f0;font-weight:bold;">
-              <td style="padding:4px 6px;">Concepto</td>
-              <td style="padding:4px 6px;text-align:right;">Efectivo</td>
-              <td style="padding:4px 6px;text-align:right;">Transferencia</td>
+
+          <div style="font-size:11px;margin-bottom:8px;line-height:1.4;">
+            <div><b>Fecha Informe:</b> ${fecha} ${horaCierre ? '— Cierre: ' + horaCierre : ''}</div>
+            <div><b>Caja:</b> ${s.NombreCaja || 'Caja'}</div>
+            <div><b>Cajero:</b> ${s.NombreUsuario || 'Admin'}</div>
+          </div>
+
+          <table style="width:100%;border-collapse:collapse;">
+            ${linea('BASE', base, true)}
+            ${linea('VENTAS CONTADO EFECTIVO', ventasEf)}
+            ${linea('VENTAS CON TARJETA / TRANSFERENCIA', ventasTr)}
+            ${linea('VENTAS CRÉDITO', ventasCr)}
+            ${separador}
+            ${linea('TOTAL VENTAS', totalVentas, true, true)}
+            ${espacio(6)}
+
+            ${linea('PAGOS DE CLIENTES EFECTIVO', pagosEf)}
+            ${linea('PAGOS DE CLIENTES CON TARJETA', pagosTr)}
+            ${separador}
+            ${linea('TOTAL INGRESOS EN EFECTIVO', (ventasEf || 0) + (pagosEf || 0), true, true)}
+            ${linea('TOTAL INGRESOS EN TRANSFERENCIA', (ventasTr || 0) + (pagosTr || 0), true, true)}
+            ${espacio(6)}
+            ${linea('GASTOS', egresos)}
+            ${linea('ANULACIONES', anulaciones)}
+            ${linea('RETIROS PARCIALES', retiros)}
+            ${separador}
+            ${linea('TOTAL EN EFECTIVO (SISTEMA)', totalEf, true, true)}
+            ${linea('CONTEO DE CAJA', conteoVal, true, true)}
+            <tr><td colspan="2" style="padding:1px 0;"><div style="border-top:2px solid #000;"></div></td></tr>
+            <tr>
+              <td style="padding:4px 4px;font-weight:bold;font-size:13px;letter-spacing:1px;">DIFERENCIA</td>
+              <td style="padding:4px 4px;text-align:right;font-weight:bold;font-size:13px;">${diffLabel}</td>
             </tr>
-            ${linea('Base', base, 0)}
-            ${linea('Ventas Contado', ventasEf, ventasTr)}
-            ${linea('Ventas Crédito', 0, ventasCr)}
-            ${linea('Pagos Clientes', pagosEf, pagosTr)}
-            ${egresos > 0 ? linea('Egresos', -egresos, 0) : ''}
-            ${anulaciones > 0 ? linea('Anulaciones', -anulaciones, 0) : ''}
-            ${retiros > 0 ? linea('Retiros parciales', -retiros, 0) : ''}
+            <tr><td colspan="2" style="padding:1px 0;"><div style="border-top:2px solid #000;"></div></td></tr>
+            ${espacio(8)}
+
+            ${linea('TOTAL VENTA DEL DÍA', totalVenta, true, true)}
           </table>
-          <div style="border-top:3px solid #000;padding-top:8px;margin-bottom:12px;">
-            <table style="width:100%;font-size:13px;">
-              <tr><td style="font-weight:bold;">Total Efectivo (Sistema):</td><td style="text-align:right;font-weight:bold;">${fmtMon(totalEf)}</td></tr>
-              <tr><td style="font-weight:bold;">Conteo de Caja:</td><td style="text-align:right;font-weight:bold;">${fmtMon(conteoVal)}</td></tr>
-              <tr style="font-size:15px;${diff === 0 ? 'color:green;' : diff > 0 ? 'color:blue;' : 'color:red;'}">
-                <td style="font-weight:bold;">Diferencia:</td>
-                <td style="text-align:right;font-weight:bold;">${diff === 0 ? 'CUADRA ✓' : fmtMon(diff) + (diff > 0 ? ' (Sobrante)' : ' (Faltante)')}</td>
-              </tr>
-            </table>
-          </div>
-          <div style="border-top:2px solid #000;padding-top:8px;">
-            <table style="width:100%;font-size:14px;">
-              <tr><td style="font-weight:bold;">Total Venta del Día:</td><td style="text-align:right;font-weight:bold;font-size:16px;">${fmtMon(totalVenta)}</td></tr>
-            </table>
-          </div>
-          <div style="margin-top:30px;display:flex;justify-content:space-between;">
-            <div style="text-align:center;width:45%;"><div style="border-top:1px solid #000;padding-top:4px;font-size:10px;">Cajero</div></div>
-            <div style="text-align:center;width:45%;"><div style="border-top:1px solid #000;padding-top:4px;font-size:10px;">Administrador</div></div>
+
+          ${(() => {
+            const trasladado = parseFloat(s.trasladado) || 0;
+            return trasladado > 0 ? `
+              <div style="margin-top:10px;padding:5px 8px;border:1px dashed #000;font-size:11px;display:flex;justify-content:space-between;">
+                <span><i>Informativo:</i> trasladado a Caja Principal</span>
+                <span style="font-weight:700;">${fmtMon(trasladado)}</span>
+              </div>
+            ` : '';
+          })()}
+
+          <div style="margin-top:20px;display:flex;justify-content:space-between;">
+            <div style="text-align:center;width:45%;">
+              <div style="border-top:1px solid #000;padding-top:3px;font-size:10px;">Cajero</div>
+            </div>
+            <div style="text-align:center;width:45%;">
+              <div style="border-top:1px solid #000;padding-top:3px;font-size:10px;">Administrador</div>
+            </div>
           </div>
         </div>`;
     }
@@ -220,7 +269,16 @@ export function HistorialCajas() {
     const win = window.open('', 'CuadreCaja', `width=${winWidth},height=720,menubar=no,toolbar=no`);
     if (!win) return;
     win.document.write(`<!DOCTYPE html><html><head><title>Cuadre de Caja - ${fecha}</title>
-      <style>@media print { ${pageStyle} body { margin: 0; } .no-print { display: none !important; } }</style>
+      <style>
+        /* Anti-centrado: fuerza que el contenido comience arriba de la hoja
+           aunque el driver (OneNote p.ej.) ignore @page size y use carta. */
+        html, body { margin: 0; padding: 0; }
+        @media print {
+          ${pageStyle}
+          html, body { margin: 0 !important; padding: 0 !important; }
+          .no-print { display: none !important; }
+        }
+      </style>
       </head><body>
       <div class="no-print" style="padding:8px 16px;background:#7c3aed;display:flex;gap:8px;align-items:center;">
         <button onclick="window.print()" style="height:30px;padding:0 14px;background:#fff;color:#7c3aed;border:none;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;">Imprimir</button>
@@ -254,7 +312,7 @@ export function HistorialCajas() {
           <Eye size={13} color="#6b7280" />
         </button>
         {p.data.Estado === 'cerrada' && (
-          <button title="Imprimir cuadre" onClick={() => imprimirCuadreHistorial(p.data)}
+          <button title="Imprimir cuadre" onClick={() => setElegirFormato(p.data)}
             style={{ width: 26, height: 24, border: '1px solid #d1d5db', borderRadius: 4, cursor: 'pointer', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <Printer size={13} color="#7c3aed" />
           </button>
@@ -619,6 +677,38 @@ export function HistorialCajas() {
                 ))}
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Modal: elegir formato de reimpresión del cuadre */}
+      {elegirFormato && (
+        <div onClick={() => setElegirFormato(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 12, padding: 20, width: 360, boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, fontSize: 15, fontWeight: 700, color: '#111827' }}>
+              <Printer size={18} color="#7c3aed" /> Formato de impresión
+            </div>
+            <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 14 }}>
+              Cuadre de {elegirFormato.NombreCaja} — {new Date(elegirFormato.FechaApertura).toLocaleDateString('es-CO')}
+            </div>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button onClick={() => { imprimirCuadreHistorial(elegirFormato, 'tirilla'); setElegirFormato(null); }}
+                style={{ flex: 1, padding: '14px 8px', background: '#f3e8ff', border: '2px solid #c084fc', borderRadius: 10, cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, color: '#6b21a8', fontWeight: 700, fontSize: 13 }}>
+                <div style={{ fontSize: 24 }}>🧾</div>
+                Tirilla
+                <div style={{ fontSize: 10, fontWeight: 500, color: '#7c3aed' }}>80mm — térmica</div>
+              </button>
+              <button onClick={() => { imprimirCuadreHistorial(elegirFormato, 'media'); setElegirFormato(null); }}
+                style={{ flex: 1, padding: '14px 8px', background: '#dbeafe', border: '2px solid #60a5fa', borderRadius: 10, cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, color: '#1e40af', fontWeight: 700, fontSize: 13 }}>
+                <div style={{ fontSize: 24 }}>📄</div>
+                Media carta
+                <div style={{ fontSize: 10, fontWeight: 500, color: '#2563eb' }}>140×215mm — hoja</div>
+              </button>
+            </div>
+            <button onClick={() => setElegirFormato(null)}
+              style={{ marginTop: 12, width: '100%', padding: '8px', background: '#f3f4f6', border: '1px solid #e5e7eb', borderRadius: 8, cursor: 'pointer', fontSize: 12, color: '#6b7280' }}>
+              Cancelar
+            </button>
           </div>
         </div>
       )}

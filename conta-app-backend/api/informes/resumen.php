@@ -79,11 +79,23 @@ try {
             FROM tblpedidos WHERE $where
         ")->fetch();
 
-        // Gastos
+        // Gastos operacionales — EXCLUYE anticipos/préstamos a empleados
+        // (vinculado_a='empleado') porque son activos exigibles, no gastos.
+        // Los pagos de nómina (vinculado_a='nomina') se contabilizan aparte
+        // como "gastos de personal" para que el dueño vea cuánto le pesa
+        // la nómina en el P&L.
         $rGast = $db->query("
             SELECT SUM(Valor) AS gastos_total, COUNT(*) AS num_gastos
             FROM tblegresos
             WHERE $where AND Estado='Valida' AND CodigoPro = 0
+              AND COALESCE(vinculado_a, '') NOT IN ('empleado', 'nomina')
+        ")->fetch();
+
+        // Gastos de personal — pagos de nómina liquidados en el período.
+        $rNomina = $db->query("
+            SELECT SUM(Valor) AS nomina_total, COUNT(*) AS num_nomina
+            FROM tblegresos
+            WHERE $where AND Estado='Valida' AND vinculado_a = 'nomina'
         ")->fetch();
 
         // Pagos a proveedores
@@ -123,8 +135,9 @@ try {
         $ventas_total = floatval($r['ventas_total']) + floatval($rEd['fe_total']);
         $costo = floatval($rCosto['costo_ventas']) + floatval($rCostoFE['costo_fe']);
         $gastos = floatval($rGast['gastos_total']);
+        $nomina = floatval($rNomina['nomina_total']);
         $util_bruta = $ventas_total - $costo;
-        $util_neta  = $util_bruta - $gastos;
+        $util_neta  = $util_bruta - $gastos - $nomina;
 
         echo json_encode([
             'success' => true,
@@ -156,6 +169,8 @@ try {
                     'total'   => floatval($rComp['compras_total']),
                 ],
                 'gastos'             => $gastos,
+                'nomina'             => $nomina,
+                'nomina_num'         => intval($rNomina['num_nomina']),
                 'pagos_proveedores'  => floatval($rPagProv['pagos_proveedores']),
                 'costo_ventas'       => $costo,
             ],
@@ -216,22 +231,37 @@ try {
             $rCosFE = $r->fetch();
         }
 
+        // Gastos operacionales por categoría — EXCLUYE anticipos/préstamos a empleados
+        // (son activos exigibles, no gastos) y los pagos de nómina (van en línea
+        // propia abajo como "Gastos de personal").
         $r = $db->prepare("
             SELECT COALESCE(cg.Nombre, 'Sin categoría') AS Categoria, SUM(e.Valor) AS total
             FROM tblegresos e
             LEFT JOIN tblcategorias_gasto cg ON e.categoria_gasto = cg.Nombre
             WHERE Fecha BETWEEN ? AND CONCAT(?, ' 23:59:59') AND Estado='Valida' AND CodigoPro=0
+              AND COALESCE(e.vinculado_a, '') NOT IN ('empleado', 'nomina')
             GROUP BY cg.Nombre
             ORDER BY total DESC
         ");
         $r->execute([$desde, $hasta]);
         $gastosCat = $r->fetchAll();
 
+        // Gastos de personal (nómina) del período
+        $r = $db->prepare("
+            SELECT SUM(Valor) AS nomina_total, COUNT(*) AS num
+            FROM tblegresos
+            WHERE Fecha BETWEEN ? AND CONCAT(?, ' 23:59:59')
+              AND Estado='Valida' AND vinculado_a='nomina'
+        ");
+        $r->execute([$desde, $hasta]);
+        $rNom = $r->fetch();
+        $nomina = floatval($rNom['nomina_total']);
+
         $totalGastos = array_sum(array_column($gastosCat, 'total'));
         $ventas = floatval($rVen['ventas']) + floatval($rVenFE['ventas_fe']);
         $costo = floatval($rCos['costo']) + floatval($rCosFE['costo_fe']);
         $utilBruta = $ventas - $costo;
-        $utilNeta = $utilBruta - $totalGastos;
+        $utilNeta = $utilBruta - $totalGastos - $nomina;
 
         echo json_encode([
             'success' => true,
@@ -242,6 +272,8 @@ try {
             'utilidad_bruta' => $utilBruta,
             'gastos_por_categoria' => $gastosCat,
             'gastos_total' => floatval($totalGastos),
+            'nomina_total' => $nomina,
+            'nomina_num'   => intval($rNom['num']),
             'utilidad_neta' => $utilNeta,
             'margen_bruto_pct' => $ventas > 0 ? ($utilBruta / $ventas * 100) : 0,
             'margen_neto_pct'  => $ventas > 0 ? ($utilNeta  / $ventas * 100) : 0,

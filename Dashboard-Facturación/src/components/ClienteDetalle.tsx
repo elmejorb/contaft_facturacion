@@ -11,6 +11,8 @@ import { useVendedoresConfig } from '../hooks/useVendedoresConfig';
 import toast from 'react-hot-toast';
 import { useAuth } from '../contexts/AuthContext';
 import { hoyLocal, inicioMesLocal, fechaLocal } from '../utils/fecha';
+import { moneyInputHandlers } from '../utils/moneyInput';
+import { Plus } from 'lucide-react';
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
@@ -53,6 +55,50 @@ export function ClienteDetalle({ clienteId, onClose, tabInicial = 'ventas' }: Pr
   const [previewFactN, setPreviewFactN] = useState<number | null>(null);
   const [pagoSuccess, setPagoSuccess] = useState('');
   const [pagoError, setPagoError] = useState('');
+
+  // Modal "Agregar factura anterior" dentro del detalle del cliente — más
+  // directo que ir a Cartera y volver. El cliente ya está seleccionado.
+  const [showFactAnt, setShowFactAnt] = useState(false);
+  const [faFacturaN, setFaFacturaN] = useState('');
+  const [faFecha, setFaFecha] = useState(hoyLocal());
+  const [faValor, setFaValor] = useState(0);
+  const [faSaldo, setFaSaldo] = useState(0);
+  const [faDias, setFaDias] = useState('30');
+  const [guardandoFA, setGuardandoFA] = useState(false);
+
+  const abrirAgregarFactAnt = async () => {
+    setFaFacturaN(''); setFaValor(0); setFaSaldo(0); setFaDias('30'); setFaFecha(hoyLocal());
+    setShowFactAnt(true);
+    try {
+      const r = await fetch('http://localhost:80/conta-app-backend/api/clientes/factura-anterior.php?siguiente=1');
+      const d = await r.json();
+      if (d.success && d.siguiente) setFaFacturaN(String(d.siguiente));
+    } catch {}
+  };
+
+  const guardarFactAnt = async () => {
+    if (!faFacturaN || !(faValor > 0)) { toast.error('Complete número y valor'); return; }
+    setGuardandoFA(true);
+    try {
+      const r = await fetch('http://localhost:80/conta-app-backend/api/clientes/factura-anterior.php', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'crear', cliente_id: clienteId, factura_n: faFacturaN,
+          fecha: faFecha, valor: faValor, saldo: faSaldo > 0 ? faSaldo : faValor,
+          dias: parseInt(faDias) || 30,
+        })
+      });
+      const d = await r.json();
+      if (d.success) {
+        toast.success(d.message);
+        setShowFactAnt(false);
+        cargar(anio); // refresca el listado del cliente
+      } else {
+        toast.error(d.message);
+      }
+    } catch (e) { toast.error('Error de conexión'); }
+    setGuardandoFA(false);
+  };
 
   const cargar = async (year: number) => {
     setLoading(true);
@@ -428,6 +474,20 @@ export function ClienteDetalle({ clienteId, onClose, tabInicial = 'ventas' }: Pr
               <Printer size={14} /> Estado de cuenta
             </button>
           )}
+          <button
+            onClick={abrirAgregarFactAnt}
+            title="Agregar factura anterior a este cliente"
+            style={{
+              height: 32, padding: '0 12px', display: 'flex', alignItems: 'center', gap: 6,
+              background: '#fef3c7', color: '#92400e',
+              border: '1px solid #fcd34d', borderRadius: 8, cursor: 'pointer',
+              fontSize: 12, fontWeight: 600,
+            }}
+            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#fde68a'; }}
+            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = '#fef3c7'; }}
+          >
+            <Plus size={14} /> Factura anterior
+          </button>
           <select
             value={anio}
             onChange={e => setAnio(parseInt(e.target.value))}
@@ -1041,6 +1101,65 @@ export function ClienteDetalle({ clienteId, onClose, tabInicial = 'ventas' }: Pr
             formato={estadoCuentaFormato}
             onClose={() => setEstadoCuentaFormato(null)}
           />
+        </div>
+      )}
+
+      {/* Modal Agregar Factura Anterior (contextual del cliente) */}
+      {showFactAnt && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 10000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.4)' }} onClick={() => setShowFactAnt(false)} />
+          <div style={{ position: 'relative', background: '#fff', borderRadius: 12, width: 420, boxShadow: '0 20px 60px rgba(0,0,0,0.3)', padding: 20 }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+              <span style={{ fontSize: 15, fontWeight: 700, color: '#d97706' }}>Agregar Factura Anterior</span>
+              <button onClick={() => setShowFactAnt(false)} style={{ background: 'none', border: 'none', cursor: 'pointer' }}><X size={18} /></button>
+            </div>
+            <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 14 }}>
+              Cliente: <b>{data?.cliente?.Nombre_Cliente || data?.cliente?.Razon_Social || '-'}</b>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
+              <div>
+                <label style={{ fontSize: 10, fontWeight: 600, color: '#6b7280', display: 'block', marginBottom: 4 }}>Nº FACTURA</label>
+                <div style={{ display: 'flex', alignItems: 'stretch', border: '1px solid #d1d5db', borderRadius: 8, overflow: 'hidden' }}>
+                  <span style={{ padding: '0 10px', background: '#f3f4f6', color: '#7c3aed', fontSize: 13, fontWeight: 700, display: 'flex', alignItems: 'center', borderRight: '1px solid #d1d5db' }}>AT-</span>
+                  <input type="text" value={faFacturaN} onChange={e => setFaFacturaN(e.target.value.replace(/^AT-/i, ''))} placeholder="12345"
+                    style={{ flex: 1, height: 32, border: 'none', fontSize: 13, padding: '0 10px', outline: 'none', minWidth: 0 }} />
+                </div>
+              </div>
+              <div>
+                <label style={{ fontSize: 10, fontWeight: 600, color: '#6b7280', display: 'block', marginBottom: 4 }}>FECHA</label>
+                <input type="date" value={faFecha} onChange={e => setFaFecha(e.target.value)}
+                  style={{ width: '100%', height: 32, border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, padding: '0 8px', boxSizing: 'border-box' }} />
+              </div>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 80px', gap: 10, marginBottom: 16 }}>
+              <div>
+                <label style={{ fontSize: 10, fontWeight: 600, color: '#6b7280', display: 'block', marginBottom: 4 }}>VALOR</label>
+                <input type="text" key={`fa-valor-${faValor}`}
+                  {...moneyInputHandlers(faValor, v => { setFaValor(v); if (faSaldo === 0 || faSaldo > v) setFaSaldo(v); })}
+                  placeholder="$ 0"
+                  style={{ width: '100%', height: 32, border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, fontWeight: 700, padding: '0 10px', boxSizing: 'border-box', textAlign: 'right' }} />
+              </div>
+              <div>
+                <label style={{ fontSize: 10, fontWeight: 600, color: '#6b7280', display: 'block', marginBottom: 4 }}>SALDO</label>
+                <input type="text" key={`fa-saldo-${faSaldo}`}
+                  {...moneyInputHandlers(faSaldo, setFaSaldo)}
+                  placeholder="= Valor"
+                  style={{ width: '100%', height: 32, border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, fontWeight: 700, padding: '0 10px', color: '#dc2626', boxSizing: 'border-box', textAlign: 'right' }} />
+              </div>
+              <div>
+                <label style={{ fontSize: 10, fontWeight: 600, color: '#6b7280', display: 'block', marginBottom: 4 }}>DÍAS</label>
+                <input type="text" value={faDias} onChange={e => setFaDias(e.target.value.replace(/[^0-9]/g, ''))}
+                  style={{ width: '100%', height: 32, border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, padding: '0 8px', boxSizing: 'border-box', textAlign: 'center' }} />
+              </div>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button onClick={() => setShowFactAnt(false)} style={{ height: 34, padding: '0 16px', background: '#f3f4f6', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 13, cursor: 'pointer' }}>Cancelar</button>
+              <button onClick={guardarFactAnt} disabled={guardandoFA}
+                style={{ height: 34, padding: '0 16px', background: '#d97706', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: guardandoFA ? 'wait' : 'pointer' }}>
+                {guardandoFA ? 'Guardando...' : 'Agregar Factura'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
