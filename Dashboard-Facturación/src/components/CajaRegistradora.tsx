@@ -373,6 +373,10 @@ export function CajaRegistradora() {
             ${separador}
             ${linea('TOTAL INGRESOS EN EFECTIVO', (res.ventas_contado_efectivo || 0) + (res.pagos_efectivo || 0), true, true)}
             ${linea('TOTAL INGRESOS EN TRANSFERENCIA', (res.ventas_contado_transferencia || 0) + (res.pagos_transferencia || 0), true, true)}
+            ${linea('TOTAL INGRESOS DEL DÍA',
+              (res.ventas_contado_efectivo || 0) + (res.pagos_efectivo || 0) +
+              (res.ventas_contado_transferencia || 0) + (res.pagos_transferencia || 0),
+              true, true)}
             ${espacio(6)}
             ${linea(`GASTOS (${res.egresos_cantidad})`, res.egresos)}
             ${linea(`ANULACIONES (${res.anulaciones_cantidad})`, res.anulaciones)}

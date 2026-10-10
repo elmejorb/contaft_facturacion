@@ -227,6 +227,9 @@ export function HistorialCajas() {
             ${separador}
             ${linea('TOTAL INGRESOS EN EFECTIVO', (ventasEf || 0) + (pagosEf || 0), true, true)}
             ${linea('TOTAL INGRESOS EN TRANSFERENCIA', (ventasTr || 0) + (pagosTr || 0), true, true)}
+            ${linea('TOTAL INGRESOS DEL DÍA',
+              (ventasEf || 0) + (pagosEf || 0) + (ventasTr || 0) + (pagosTr || 0),
+              true, true)}
             ${espacio(6)}
             ${linea('GASTOS', egresos)}
             ${linea('ANULACIONES', anulaciones)}
