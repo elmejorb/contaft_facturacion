@@ -2192,7 +2192,16 @@ CREATE TABLE IF NOT EXISTS tbl_modulos_activos (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 INSERT IGNORE INTO tbl_modulos_activos (Nombre, Descripcion) VALUES
-('nomina', 'Gestión de empleados, anticipos, préstamos y liquidación de nómina');
+('nomina', 'Gestión de empleados, anticipos, préstamos y liquidación de nómina'),
+('financiaciones', 'Crédito con cuotas para ventas financiadas (motos, equipos, etc.)');
+
+-- Si la empresa ya tenía tbldatosempresa.modulo_financiaciones=1 (sistema
+-- viejo), sincronizamos la nueva tabla para que aparezca como activa en la
+-- pantalla unificada de módulos. Idempotente.
+UPDATE tbl_modulos_activos m
+JOIN tbldatosempresa d
+   SET m.Activo = 1, m.Fecha_Activacion = COALESCE(m.Fecha_Activacion, NOW())
+ WHERE m.Nombre = 'financiaciones' AND d.modulo_financiaciones = 1;
 
 -- ============================================================
 -- MÓDULO NÓMINA (v4.7.5+)

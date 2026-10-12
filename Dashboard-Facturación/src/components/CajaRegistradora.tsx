@@ -252,6 +252,9 @@ export function CajaRegistradora() {
     const hora = new Date().toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' });
     const diff = resultado.diferencia || 0;
     const trasladado = resultado.trasladado || 0;
+    // El formato 'tabular-mc' es custom (solo root puede activarlo desde
+    // Configuración). Una vez activo en localStorage, se aplica a quien
+    // imprima el cuadre en esa PC — incluyendo cajeros.
     const formato = getConfigImpresion().formatoCuadreCaja || 'tirilla';
 
     let html = '', pageStyle = '', winWidth = 500;
@@ -302,7 +305,7 @@ export function CajaRegistradora() {
           <div style="text-align:center;font-size:9px;margin-top:8px;color:#666;">- - - Conta FT - - -</div>
         </div>
       `;
-    } else {
+    } else if (formato === 'media-carta') {
       // ===== Media carta =====
       // Hoja carta vertical (portrait). El contenido ocupa el ancho completo
       // de la hoja pero solo la mitad superior en altura. El usuario después
@@ -454,6 +457,100 @@ export function CajaRegistradora() {
       `;
     }
 
+    if (formato === 'tabular-mc') {
+      // ===== Formato tabular personalizado (Manos Creativas) =====
+      // Modelo exigido por la cliente: encabezado FECHA/CAJA/CAJERO y
+      // 4 bloques tabulares (Efectivo, Transferencia, Otros, Cuadre).
+      pageStyle = `@page { size: letter portrait; margin: 15mm 18mm; }`;
+      winWidth = 780;
+      const empresa = (getEmpresaCache().nombre || 'EMPRESA').toUpperCase();
+      const cajeroNom = (sesion?.NombreUsuario || user?.nombre || user?.username || '').toString().toUpperCase();
+      const cajaNom = (sesion?.NombreCaja || cajaActual?.Nombre || '').toString().toUpperCase();
+
+      const baseVal = res.base || 0;
+      const ventasEf = (res.ventas_contado_efectivo_neto ?? res.ventas_contado_efectivo) || 0;
+      const abonoEf  = res.pagos_efectivo || 0;
+      const totalEf  = baseVal + ventasEf + abonoEf;
+      const ventasTr = (res.ventas_contado_transferencia_neto ?? res.ventas_contado_transferencia) || 0;
+      const abonoTr  = res.pagos_transferencia || 0;
+      const totalTr  = ventasTr + abonoTr;
+      const ventasCr = res.ventas_credito || 0;
+      const gastos   = res.egresos || 0;
+      const anul     = res.anulaciones || 0;
+      const totalEfSistema = res.total_efectivo || 0;
+      const conteo   = conteoVal || 0;
+      const diferencia = diff;
+      const ventaTotalDia = (res.ventas_contado_total_neto ?? res.ventas_contado_total ?? 0) + ventasCr;
+
+      const fila = (label: string, valor: number, bold = false) => `
+        <tr>
+          <td style="border:1px solid #000;padding:5px 10px;font-size:12px;${bold ? 'font-weight:700;' : ''}">${label}</td>
+          <td style="border:1px solid #000;padding:5px 10px;font-size:12px;text-align:right;${bold ? 'font-weight:700;' : 'font-weight:600;'}">$ ${fmtMon(valor).replace('$','').trim()}</td>
+        </tr>`;
+      // table-layout:fixed + <colgroup> fuerzan que cada bloque use el mismo
+      // ancho de columnas (70/30) sin importar cuán largos sean los labels.
+      // Sin esto cada tabla recalcula el ancho según su contenido y las
+      // líneas verticales de bloques consecutivos no alinean.
+      const bloque = (filas: string) => `
+        <table style="width:100%;border-collapse:collapse;margin-bottom:10px;table-layout:fixed;">
+          <colgroup>
+            <col style="width:70%;" />
+            <col style="width:30%;" />
+          </colgroup>
+          ${filas}
+        </table>`;
+
+      html = `
+        <div style="width:100%;font-family:Arial,sans-serif;color:#000;box-sizing:border-box;">
+          <div style="text-align:center;margin-bottom:10px;">
+            <div style="font-size:16px;font-weight:bold;">${empresa}</div>
+            <div style="font-size:13px;font-weight:bold;margin-top:3px;">CIERRE DEL DÍA</div>
+          </div>
+
+          <div style="font-size:12px;line-height:1.6;margin-bottom:10px;">
+            <div><b>FECHA:</b> ${fecha} ${hora}</div>
+            <div><b>CAJA:</b> ${cajaNom}</div>
+            <div><b>CAJERO:</b> ${cajeroNom}</div>
+          </div>
+
+          ${bloque(
+            fila('BASE', baseVal) +
+            fila('VENTAS CONTADO EFECTIVO', ventasEf) +
+            fila('ABONO EN EFECTIVO', abonoEf) +
+            fila('TOTAL VENTAS EN EFECTIVO', totalEf, true)
+          )}
+
+          ${bloque(
+            fila('VENTAS EN TRANSFERENCIA', ventasTr) +
+            fila('ABONOS EN TRANSFERENCIA', abonoTr) +
+            fila('TOTAL VENTA EN TRANSFERENCIA', totalTr, true)
+          )}
+
+          ${bloque(
+            fila('VENTAS CRÉDITO', ventasCr) +
+            fila('GASTOS', gastos) +
+            fila('ANULACIONES', anul)
+          )}
+
+          ${bloque(
+            fila('TOTAL EN EFECTIVO (SISTEMA)', totalEfSistema, true) +
+            fila('CONTEO DE CAJA', conteo, true) +
+            fila('DIFERENCIA', Math.abs(diferencia), true) +
+            fila('VENTA TOTAL DEL DÍA', ventaTotalDia, true)
+          )}
+
+          <div style="margin-top:28px;display:flex;justify-content:space-between;">
+            <div style="text-align:center;width:45%;">
+              <div style="border-top:1px solid #000;padding-top:4px;font-size:11px;">Cajero</div>
+            </div>
+            <div style="text-align:center;width:45%;">
+              <div style="border-top:1px solid #000;padding-top:4px;font-size:11px;">Administrador</div>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
     const win = window.open('', 'CuadreCaja', `width=${winWidth},height=720,menubar=no,toolbar=no`);
     if (!win) return;
     win.document.write(`<!DOCTYPE html><html><head><title>Cuadre de Caja</title>
@@ -470,7 +567,7 @@ export function CajaRegistradora() {
       <div class="no-print" style="padding:8px 16px;background:#7c3aed;display:flex;gap:8px;align-items:center;">
         <button onclick="window.print()" style="height:30px;padding:0 14px;background:#fff;color:#7c3aed;border:none;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;">Imprimir</button>
         <button onclick="window.close()" style="height:30px;padding:0 14px;background:transparent;color:#fff;border:1px solid rgba(255,255,255,0.5);border-radius:6px;font-size:12px;cursor:pointer;">Cerrar</button>
-        <span style="color:rgba(255,255,255,0.8);font-size:12px;margin-left:auto;">Cuadre de Caja — ${sesion.NombreCaja} (${formato === 'tirilla' ? 'Tirilla' : 'Media carta'})</span>
+        <span style="color:rgba(255,255,255,0.8);font-size:12px;margin-left:auto;">Cuadre de Caja — ${sesion.NombreCaja} (${formato === 'tirilla' ? 'Tirilla' : formato === 'tabular-mc' ? 'Tabular' : 'Media carta'})</span>
       </div>
       ${html}</body></html>`);
     win.document.close();

@@ -12,7 +12,11 @@ export interface ConfigImpresion {
   formatoPago: 'media-carta' | 'tirilla';
   formatoCotizacion: 'media-carta' | 'tirilla' | 'carta';
   formatoInforme: 'carta' | 'media-carta';
-  formatoCuadreCaja: 'tirilla' | 'media-carta';
+  // 'tabular-mc' es un formato personalizado para una cliente puntual
+  // (Manos Creativas). No aparece en el selector general — solo root puede
+  // activarlo desde su propia sección oculta y solo se aplica cuando el
+  // usuario logueado es root al imprimir el cuadre.
+  formatoCuadreCaja: 'tirilla' | 'media-carta' | 'tabular-mc';
   // Comportamiento
   vistaPrevia: boolean; // true = preview, false = imprime directo
   imprimirAlGuardar: boolean; // imprimir automáticamente al guardar factura
@@ -661,6 +665,23 @@ export function ConfiguracionSistema() {
           {formatoImpresora('Recibos de Pago', 'formatoPago')}
           {formatoImpresora('Cotizaciones', 'formatoCotizacion')}
           {formatoImpresora('Cuadre de Caja', 'formatoCuadreCaja')}
+          {/* Formato personalizado — SOLO root puede verlo/activarlo. Se
+              aplica únicamente cuando el usuario que imprime es root. */}
+          {isRoot && (
+            <div style={{ marginBottom: 14, padding: '10px 12px', background: '#fef3c7', border: '1px dashed #fcd34d', borderRadius: 8 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: '#92400e', marginBottom: 6, letterSpacing: 0.3 }}>
+                🔒 FORMATO PERSONALIZADO (solo root)
+              </div>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: '#78350f', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={config.formatoCuadreCaja === 'tabular-mc'}
+                  onChange={e => set('formatoCuadreCaja', e.target.checked ? 'tabular-mc' : 'tirilla')}
+                />
+                <span>Cuadre tabular (modelo Manos Creativas) — reemplaza el formato de arriba cuando este usuario root imprime</span>
+              </label>
+            </div>
+          )}
           {formatoImpresora('Informes y Reportes', 'formatoInforme')}
         </div>
       ))}
