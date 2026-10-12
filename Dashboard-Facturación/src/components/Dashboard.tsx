@@ -1131,28 +1131,36 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
             <div className="flex items-center gap-2">
               {/* Badge discreto del SincroWorker — invisible hasta que el módulo
                   esté activo. Verde con número = pendientes de sincronizar. */}
-              {sincro.activo && (
-                <div
-                  title={`Sincronización online activa\nPendientes: ${sincro.pendientes}\nEnviados esta sesión: ${sincro.enviados_sesion}${sincro.ultimo_error ? '\nÚltimo error: ' + sincro.ultimo_error : ''}\n\n(click para sincronizar histórico)`}
-                  onClick={() => setShowSyncModal(true)}
-                  style={{
-                    height: 32, padding: '0 10px',
-                    background: sincro.pendientes > 0 ? 'rgba(250, 204, 21, 0.15)' : 'rgba(34, 197, 94, 0.15)',
-                    border: '1px solid ' + (sincro.pendientes > 0 ? 'rgba(250, 204, 21, 0.4)' : 'rgba(34, 197, 94, 0.4)'),
-                    borderRadius: 8, color: '#fff',
-                    fontSize: 11, fontWeight: 600,
-                    display: 'flex', alignItems: 'center', gap: 6,
-                    cursor: 'pointer',
-                  }}
-                >
-                  <span style={{
-                    width: 8, height: 8, borderRadius: '50%',
-                    background: sincro.pendientes > 0 ? '#facc15' : '#22c55e',
-                    boxShadow: sincro.pendientes > 0 ? '0 0 6px #facc15' : '0 0 6px #22c55e',
-                  }} />
-                  {sincro.pendientes > 0 ? `Sync: ${sincro.pendientes} pend` : 'Sync al día'}
-                </div>
-              )}
+              {sincro.activo && (() => {
+                // Estados: error (rojo) > pendientes (amarillo) > OK (verde)
+                const hayError = !!sincro.ultimo_error;
+                const color = hayError ? '#ef4444' : (sincro.pendientes > 0 ? '#facc15' : '#22c55e');
+                const label = hayError
+                  ? 'Sync: error'
+                  : (sincro.pendientes > 0 ? `Sync: ${sincro.pendientes} pend` : 'Sync al día');
+                return (
+                  <div
+                    title={`Sincronización online activa\nPendientes: ${sincro.pendientes}\nEnviados esta sesión: ${sincro.enviados_sesion}${sincro.ultimo_error ? '\n\n⚠ Último error: ' + sincro.ultimo_error : ''}\n\n(click para sincronizar histórico)`}
+                    onClick={() => setShowSyncModal(true)}
+                    style={{
+                      height: 32, padding: '0 10px',
+                      background: color + '28',
+                      border: '1px solid ' + color + '66',
+                      borderRadius: 8, color: '#fff',
+                      fontSize: 11, fontWeight: 600,
+                      display: 'flex', alignItems: 'center', gap: 6,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <span style={{
+                      width: 8, height: 8, borderRadius: '50%',
+                      background: color,
+                      boxShadow: '0 0 6px ' + color,
+                    }} />
+                    {label}
+                  </div>
+                );
+              })()}
               <DropdownMenu open={notifOpen} onOpenChange={setNotifOpen}>
                 <DropdownMenuTrigger asChild>
                   <button

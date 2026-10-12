@@ -42,12 +42,29 @@ try {
         // Ventas al contado (efectivo) — INCLUYE anuladas por diseño contable:
         // cada venta se cuenta bruta y la anulación aparece como salida separada
         // (evita doble descuento). Mismo criterio que VB6 y ERPs estándar.
-        $stmt = $db->prepare("SELECT COALESCE(SUM(efectivo), 0) as efectivo, COALESCE(SUM(valorpagado1), 0) as transferencia, COALESCE(SUM(Total), 0) as total, COUNT(*) as cantidad FROM tblventas WHERE DATE(Fecha) = ? AND EstadoFact IN ('Valida','Anulada') AND Tipo = 'Contado'");
+        // Ventas CONTADO. INCLUYE anuladas en los totales porque el cálculo
+        // del efectivo YA resta anulaciones por separado (descontarlo dos veces
+        // rompería la caja). PERO agregamos conteos separados y totales NETOS
+        // para la impresión clara que el usuario pueda distinguir.
+        $stmt = $db->prepare("SELECT
+            COALESCE(SUM(efectivo), 0) as efectivo,
+            COALESCE(SUM(valorpagado1), 0) as transferencia,
+            COALESCE(SUM(Total), 0) as total,
+            COUNT(*) as cantidad,
+            -- Totales SOLO de ventas válidas (sin anuladas) — para mostrar neto
+            COALESCE(SUM(CASE WHEN EstadoFact='Valida' THEN efectivo ELSE 0 END), 0) as efectivo_neto,
+            COALESCE(SUM(CASE WHEN EstadoFact='Valida' THEN valorpagado1 ELSE 0 END), 0) as transferencia_neto,
+            COALESCE(SUM(CASE WHEN EstadoFact='Valida' THEN Total ELSE 0 END), 0) as total_neto,
+            SUM(CASE WHEN EstadoFact='Valida' THEN 1 ELSE 0 END) as cantidad_neto,
+            SUM(CASE WHEN EstadoFact='Valida' AND id_mediopago=0 THEN 1 ELSE 0 END) as cantidad_efectivo,
+            SUM(CASE WHEN EstadoFact='Valida' AND id_mediopago>0 THEN 1 ELSE 0 END) as cantidad_transferencia
+            FROM tblventas
+            WHERE DATE(Fecha) = ? AND EstadoFact IN ('Valida','Anulada') AND Tipo = 'Contado'");
         $stmt->execute([$fechaCaja]);
         $ventasContado = $stmt->fetch();
 
-        // Ventas a crédito — mismo criterio (incluir anuladas)
-        $stmt = $db->prepare("SELECT COALESCE(SUM(Total), 0) as total, COUNT(*) as cantidad FROM tblventas WHERE DATE(Fecha) = ? AND EstadoFact IN ('Valida','Anulada') AND Tipo != 'Contado'");
+        // Ventas a crédito (solo válidas — las anuladas no suman al débito)
+        $stmt = $db->prepare("SELECT COALESCE(SUM(Total), 0) as total, COUNT(*) as cantidad, COALESCE(SUM(Saldo), 0) as saldo_pendiente FROM tblventas WHERE DATE(Fecha) = ? AND EstadoFact = 'Valida' AND Tipo != 'Contado'");
         $stmt->execute([$fechaCaja]);
         $ventasCredito = $stmt->fetch();
 
@@ -99,8 +116,10 @@ try {
             - floatval($anulaciones['total'])
             - floatval($pagosAnulados['total']);
 
-        // Total venta del día
-        $totalVentaDia = floatval($ventasContado['total']) + floatval($ventasCredito['total']);
+        // Total venta del día — NETO (sin anuladas). Es el número que la cajera
+        // ve y debe cuadrar con sus facturas en mano. Las anuladas aparecen
+        // como línea separada en el cuadre.
+        $totalVentaDia = floatval($ventasContado['total_neto']) + floatval($ventasCredito['total']);
 
         echo json_encode([
             'success' => true,
@@ -113,8 +132,16 @@ try {
                 'ventas_contado_transferencia' => floatval($ventasContado['transferencia']),
                 'ventas_contado_total' => floatval($ventasContado['total']),
                 'ventas_contado_cantidad' => intval($ventasContado['cantidad']),
+                // NUEVOS: netos (sin anuladas) para impresión clara
+                'ventas_contado_efectivo_neto' => floatval($ventasContado['efectivo_neto']),
+                'ventas_contado_transferencia_neto' => floatval($ventasContado['transferencia_neto']),
+                'ventas_contado_total_neto' => floatval($ventasContado['total_neto']),
+                'ventas_contado_cantidad_neto' => intval($ventasContado['cantidad_neto']),
+                'ventas_contado_efectivo_cantidad' => intval($ventasContado['cantidad_efectivo']),
+                'ventas_contado_transferencia_cantidad' => intval($ventasContado['cantidad_transferencia']),
                 'ventas_credito' => floatval($ventasCredito['total']),
                 'ventas_credito_cantidad' => intval($ventasCredito['cantidad']),
+                'ventas_credito_saldo_pendiente' => floatval($ventasCredito['saldo_pendiente']),
                 'ventas_por_medio' => $ventasPorMedio,
                 'pagos_efectivo' => floatval($pagos['efectivo']),
                 'pagos_transferencia' => floatval($pagos['transferencia']),

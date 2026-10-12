@@ -215,9 +215,9 @@ export function HistorialCajas() {
 
           <table style="width:100%;border-collapse:collapse;">
             ${linea('BASE', base, true)}
-            ${linea('VENTAS CONTADO EFECTIVO', ventasEf)}
-            ${linea('VENTAS CON TARJETA / TRANSFERENCIA', ventasTr)}
-            ${linea('VENTAS CRÉDITO', ventasCr)}
+            ${linea('VENTAS CONTADO EFECTIVO', ventasEf, true)}
+            ${linea('VENTAS CON TARJETA / TRANSFERENCIA', ventasTr, true)}
+            ${linea('VENTAS CRÉDITO', ventasCr, true)}
             ${separador}
             ${linea('TOTAL VENTAS', totalVentas, true, true)}
             ${espacio(6)}

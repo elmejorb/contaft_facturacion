@@ -360,12 +360,28 @@ export function CajaRegistradora() {
 
           <!-- Cuerpo del cuadre -->
           <table style="width:100%;border-collapse:collapse;">
-            ${linea('BASE', res.base, true)}
-            ${linea(`VENTAS CONTADO EFECTIVO (${res.ventas_contado_cantidad})`, res.ventas_contado_efectivo)}
-            ${linea(`VENTAS CON TARJETA / TRANSFERENCIA`, res.ventas_contado_transferencia)}
-            ${linea(`VENTAS CRÉDITO (${res.ventas_credito_cantidad})`, res.ventas_credito)}
-            ${separador}
-            ${linea('TOTAL VENTAS', totalVentas, true, true)}
+            ${(() => {
+              // Preferir campos NETOS nuevos del backend (sin anuladas); si no vienen, caer a los viejos.
+              const ventaEfectivo = (res.ventas_contado_efectivo_neto ?? res.ventas_contado_efectivo) || 0;
+              const ventaTransf   = (res.ventas_contado_transferencia_neto ?? res.ventas_contado_transferencia) || 0;
+              const ventaCredito  = res.ventas_credito || 0;
+              const totalNeto     = ventaEfectivo + ventaTransf + ventaCredito;
+              const cantEfec      = res.ventas_contado_efectivo_cantidad ?? res.ventas_contado_cantidad;
+              const cantTransf    = res.ventas_contado_transferencia_cantidad ?? 0;
+              const cantCredito   = res.ventas_credito_cantidad || 0;
+              const notaAnuladas  = (res.anulaciones || 0) > 0
+                ? `<tr><td colspan="2" style="padding:1px 4px;font-size:10px;color:#666;font-style:italic;">(no incluye ${res.anulaciones_cantidad} venta(s) anulada(s) por ${fmtMon(res.anulaciones)})</td></tr>`
+                : '';
+              return `
+                ${linea('BASE', res.base, true)}
+                ${linea(`VENTAS CONTADO EFECTIVO (${cantEfec})`, ventaEfectivo, true)}
+                ${linea(`VENTAS CON TARJETA / TRANSFERENCIA (${cantTransf})`, ventaTransf, true)}
+                ${linea(`VENTAS CRÉDITO (${cantCredito})`, ventaCredito, true)}
+                ${separador}
+                ${linea('TOTAL VENTAS NETAS', totalNeto, true, true)}
+                ${notaAnuladas}
+              `;
+            })()}
             ${espacio(6)}
 
             ${linea(`PAGOS DE CLIENTES EFECTIVO (${res.pagos_cantidad})`, res.pagos_efectivo)}
@@ -398,6 +414,22 @@ export function CajaRegistradora() {
 
             ${linea('TOTAL VENTA DEL DÍA', res.total_venta_dia, true, true)}
           </table>
+
+          <!-- Si hubo ventas a crédito con saldo pendiente, destacarlo
+               claramente (feedback del cliente: 'información clara cuando hay deuda'). -->
+          ${(res.ventas_credito_saldo_pendiente || 0) > 0 ? `
+            <div style="margin-top:12px;padding:8px 10px;border:2px solid #000;background:#fff;font-size:12px;">
+              <div style="font-weight:700;text-align:center;margin-bottom:4px;letter-spacing:0.5px;">
+                ⚠ DEUDA GENERADA HOY (CRÉDITO)
+              </div>
+              <table style="width:100%;border-collapse:collapse;font-size:11px;">
+                <tr><td>${res.ventas_credito_cantidad} venta(s) a crédito</td>
+                    <td style="text-align:right;">${fmtMon(res.ventas_credito)}</td></tr>
+                <tr><td style="padding-top:3px;font-weight:700;">Saldo que deben los clientes</td>
+                    <td style="text-align:right;padding-top:3px;font-weight:700;">${fmtMon(res.ventas_credito_saldo_pendiente)}</td></tr>
+              </table>
+            </div>
+          ` : ''}
 
           <!-- Informativo post-cuadre: traslado hecho DESPUÉS del cierre.
                No forma parte del cálculo del cuadre, va al final para dejar

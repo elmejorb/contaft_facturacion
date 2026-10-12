@@ -291,12 +291,15 @@ export function FacturacionElectronica({ onNavigate }: Props = {}) {
     } catch (e) { toast.error('Error'); }
   };
 
-  const enviarNotaCredito = async (factN: number, motivo: string, conceptId: number = 2) => {
+  const enviarNotaCredito = async (factN: number, motivo: string, conceptId: number = 2, docElecId: number = 0) => {
     toast.loading('Enviando Nota Crédito a DIAN...', { id: 'nc-send' });
     try {
+      const body: any = { action: 'nota_credito', motivo, concept_id: conceptId };
+      if (docElecId > 0) body.doc_elec_id = docElecId;
+      if (factN > 0) body.factura_n = factN;
       const r = await fetch(`${API}/enviar.php`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'nota_credito', factura_n: factN, motivo, concept_id: conceptId })
+        body: JSON.stringify(body)
       });
       const d = await r.json();
       if (d.success) {
@@ -744,9 +747,9 @@ export function FacturacionElectronica({ onNavigate }: Props = {}) {
               <Mail size={13} color={p.data.email_sent ? '#16a34a' : '#2563eb'} />
             </button>
           )}
-          {p.data.cufe && p.data.status === 'autorizado' && p.data.factura_n_local && (
+          {p.data.cufe && p.data.status === 'autorizado' && Number(p.data.type_document_id) === 1 && (
             <button title="Anular / Nota Crédito"
-              onClick={() => setShowNotaCredito({ factN: p.data.number, factura_n_local: p.data.factura_n_local, id: p.data.id, cliente: p.data.cliente_nombre, total: p.data.total, prefix: p.data.prefix })}
+              onClick={() => setShowNotaCredito({ factN: p.data.number, factura_n_local: p.data.factura_n_local, doc_elec_id: p.data.id, id: p.data.id, cliente: p.data.cliente_nombre, total: p.data.total, prefix: p.data.prefix })}
               style={{ width: 26, height: 24, border: '1px solid #fca5a5', borderRadius: 4, cursor: 'pointer', background: '#fef2f2', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <FileMinus size={13} color="#dc2626" />
             </button>
@@ -1179,15 +1182,16 @@ const CONCEPTOS_NC = [
   { id: 5, label: 'Otros', desc: 'Próximamente.', disabled: true },
 ];
 
-function NotaCreditoModal({ nc, onClose, onEnviar }: { nc: any; onClose: () => void; onEnviar: (factN: number, motivo: string, conceptId: number) => void }) {
+function NotaCreditoModal({ nc, onClose, onEnviar }: { nc: any; onClose: () => void; onEnviar: (factN: number, motivo: string, conceptId: number, docElecId: number) => void }) {
   const [conceptId, setConceptId] = useState(2);
   const [motivo, setMotivo] = useState('Anulación de la factura por error en los datos');
   const [confirmando, setConfirmando] = useState(false);
 
-  const factN = nc.factura_n_local || nc.factN || 0;
+  const factN = nc.factura_n_local || 0;
+  const docElecId = nc.doc_elec_id || nc.id || 0;
 
   const enviar = async () => {
-    if (!factN) { toast.error('No se encontró la factura local'); return; }
+    if (!factN && !docElecId) { toast.error('No se encontró la factura'); return; }
     if (!motivo.trim()) { toast.error('Ingrese un motivo'); return; }
     if (!await confirmar({
       title: `Emitir Nota Crédito${conceptId === 2 ? ' (anulación)' : ''}`,
@@ -1196,7 +1200,7 @@ function NotaCreditoModal({ nc, onClose, onEnviar }: { nc: any; onClose: () => v
       confirmText: 'Emitir'
     })) return;
     setConfirmando(true);
-    onEnviar(factN, motivo, conceptId);
+    onEnviar(factN, motivo, conceptId, docElecId);
   };
 
   return (

@@ -49,14 +49,52 @@ const MAP_ENTIDAD = {
   gasto:     { endpoint: 'gastos',      tabla: 'tblegresos',     pk: 'Id_Egresos',  armar: armarGasto },
 };
 
+// Lee las credenciales REALES de la BD del cliente desde su `database.php`
+// (fuente de verdad). Fallback a los valores de config.json si no se puede leer.
+// Fallback final a los defaults de XAMPP sin password que es como suelen venir
+// los clientes.
 function leerDbConfig(readConfig) {
   const cfg = readConfig?.() || {};
-  return {
-    host: cfg.db_host || '127.0.0.1',
-    user: cfg.db_user || 'root',
-    password: cfg.db_pass || 'root',
-    database: cfg.db_name || 'conta_demo',
-  };
+
+  // Override explícito via config.json (útil para dev)
+  if (cfg.db_host && cfg.db_name) {
+    return {
+      host:     cfg.db_host,
+      user:     cfg.db_user || 'root',
+      password: cfg.db_pass != null ? cfg.db_pass : '',  // '' es válido!
+      database: cfg.db_name,
+    };
+  }
+
+  // Parsear database.php del backend que la app ya usa.
+  // `backendPath` lo guarda la propia app en config.json al instalar/configurar
+  // (es la MISMA ruta que usa el frontend para apuntar sus requests PHP).
+  if (cfg.backendPath) {
+    const path = require('path');
+    const fs = require('fs');
+    const dbPhp = path.join(cfg.backendPath, 'api', 'config', 'database.php');
+    try {
+      if (fs.existsSync(dbPhp)) {
+        const php = fs.readFileSync(dbPhp, 'utf8');
+        const m = (re) => (re.exec(php) || [])[1];
+        const host = m(/\$host\s*=\s*["']([^"']*)["']/);
+        const user = m(/\$username\s*=\s*["']([^"']*)["']/);
+        const pass = m(/\$password\s*=\s*["']([^"']*)["']/) ?? '';
+        const database = m(/\$db_name\s*=\s*["']([^"']*)["']/);
+        if (host && user != null && database) {
+          return {
+            host: host === 'localhost' ? '127.0.0.1' : host,
+            user,
+            password: pass,
+            database,
+          };
+        }
+      }
+    } catch (e) { /* cae al fallback */ }
+  }
+
+  // Último recurso: no hay backendPath y no hay db_* en config → avisar
+  throw new Error('No se pudo determinar la BD: config.backendPath no está seteado y falta db_name en config.json');
 }
 
 function leerSaasConfig(readConfig) {
@@ -353,15 +391,32 @@ async function cicloUnavez(mainWindow, readConfig, getEntitlements) {
     estado.activo = true;
 
     const saas = leerSaasConfig(readConfig);
-    if (!saas.email || !saas.token_api) {
-      estado.ultimo_error = 'Faltan credenciales sync_email / sync_token_api en config.json';
-      corriendo = false;
-      return;
-    }
-
     const dbCfg = leerDbConfig(readConfig);
     const conn = await mysql.createConnection(dbCfg);
     try {
+      // Fuente de verdad: tbldatosempresa.email + api_token. El usuario los
+      // edita desde "Datos Empresa → Integración Web", por eso ese dato
+      // debe mandar. config.json y env quedan solo como override para dev.
+      if (!saas.email || !saas.token_api) {
+        try {
+          const [rows] = await conn.query(
+            `SELECT email, api_token FROM tbldatosempresa LIMIT 1`
+          );
+          if (rows[0]) {
+            if (!saas.email && rows[0].email) saas.email = String(rows[0].email).trim();
+            if (!saas.token_api && rows[0].api_token) saas.token_api = String(rows[0].api_token).trim();
+          }
+        } catch (e) {
+          // tbldatosempresa puede no existir en BDs muy viejas — seguimos
+          // con lo que haya en config.json.
+        }
+      }
+      if (!saas.email || !saas.token_api) {
+        estado.ultimo_error = 'Faltan credenciales de sincronización. Configurá Email y API Token en Datos Empresa → Integración Web.';
+        try { await conn.end(); } catch(_){}
+        corriendo = false;
+        return;
+      }
       // Chequear outbox
       const [exists] = await conn.query(
         `SELECT COUNT(*) AS c FROM information_schema.TABLES

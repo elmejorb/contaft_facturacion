@@ -134,13 +134,29 @@ try {
         $filtroUsuarioPagos = $idUsuarioSesion > 0 ? ' AND id_usuario = ?' : ''; // tblpagos / tblegresos en minúscula
         $paramsUsuario = $idUsuarioSesion > 0 ? [$fechaApertura, $idUsuarioSesion] : [$fechaApertura];
 
-        // Ventas contado (tblventas) — efectivo NETO = efectivo recibido menos cambio devuelto.
-        // INCLUYE las anuladas del día por diseño contable: cada venta se cuenta
-        // como entrada bruta y la anulación aparece como salida separada en la
-        // línea "Anulaciones". Esto evita el doble descuento que había antes
-        // (excluir anuladas AQUÍ + restar anulaciones aparte descontaba 2 veces).
-        // Es el mismo criterio que usaba el sistema VB6.
-        $stmt = $db->prepare("SELECT COALESCE(SUM(efectivo - COALESCE(Cambio,0)),0) as ef, COALESCE(SUM(valorpagado1),0) as tr, COALESCE(SUM(Total),0) as t, COUNT(*) as c FROM tblventas WHERE Fecha >= ? AND EstadoFact IN ('Valida','Anulada') AND Tipo = 'Contado'$filtroUsuario");
+        // Ventas contado (tblventas).
+        // IMPORTANTE — DUAL BRUTO/NETO:
+        //   - BRUTO (ef, tr, t, c): incluye anuladas. Lo usamos para calcular
+        //     el EFECTIVO FÍSICO en caja (porque la anulación aparece como
+        //     reembolso aparte en tblmov_caja; si excluimos anuladas aquí
+        //     Y restamos reembolsos abajo, estaríamos descontando dos veces).
+        //   - NETO (ef_neto, tr_neto, t_neto, c_neto): solo Valida. Es el
+        //     número que ve la cajera para cuadrar con sus facturas físicas.
+        //     Imprimir el bruto como "TOTAL VENTA DEL DÍA" infla el total y
+        //     la cajera lo marca como falso (bug Ruth / Manos Creativas).
+        $stmt = $db->prepare("SELECT
+            COALESCE(SUM(efectivo - COALESCE(Cambio,0)),0) as ef,
+            COALESCE(SUM(valorpagado1),0) as tr,
+            COALESCE(SUM(Total),0) as t,
+            COUNT(*) as c,
+            COALESCE(SUM(CASE WHEN EstadoFact='Valida' THEN (efectivo - COALESCE(Cambio,0)) ELSE 0 END),0) as ef_neto,
+            COALESCE(SUM(CASE WHEN EstadoFact='Valida' THEN valorpagado1 ELSE 0 END),0) as tr_neto,
+            COALESCE(SUM(CASE WHEN EstadoFact='Valida' THEN Total ELSE 0 END),0) as t_neto,
+            SUM(CASE WHEN EstadoFact='Valida' THEN 1 ELSE 0 END) as c_neto,
+            SUM(CASE WHEN EstadoFact='Valida' AND id_mediopago=0 THEN 1 ELSE 0 END) as c_efectivo,
+            SUM(CASE WHEN EstadoFact='Valida' AND id_mediopago>0 THEN 1 ELSE 0 END) as c_transferencia
+            FROM tblventas
+            WHERE Fecha >= ? AND EstadoFact IN ('Valida','Anulada') AND Tipo = 'Contado'$filtroUsuario");
         $stmt->execute($paramsUsuario);
         $vc = $stmt->fetch();
 
@@ -152,15 +168,25 @@ try {
             $stmt->execute($paramsUsuario);
             $vfe = $stmt->fetch();
         }
+        // Guardamos los netos antes de rearmar el array (los FE son siempre
+        // válidas — no vienen anuladas desde ese módulo — así que netos += FE
+        // igual que brutos. Si en el futuro se agregan FE anuladas, aquí se
+        // separa con un CASE equivalente al de tblventas).
         $vc = [
             'ef' => floatval($vc['ef']) + floatval($vfe['ef']),
             'tr' => floatval($vc['tr']) + floatval($vfe['tr']),
             't'  => floatval($vc['t'])  + floatval($vfe['t']),
             'c'  => intval($vc['c'])   + intval($vfe['c']),
+            'ef_neto'   => floatval($vc['ef_neto']) + floatval($vfe['ef']),
+            'tr_neto'   => floatval($vc['tr_neto']) + floatval($vfe['tr']),
+            't_neto'    => floatval($vc['t_neto'])  + floatval($vfe['t']),
+            'c_neto'    => intval($vc['c_neto'])   + intval($vfe['c']),
+            'c_efectivo'      => intval($vc['c_efectivo']) + intval($vfe['c']),
+            'c_transferencia' => intval($vc['c_transferencia']),
         ];
 
-        // Ventas crédito (tblventas)
-        $stmt = $db->prepare("SELECT COALESCE(SUM(Total),0) as t, COUNT(*) as c FROM tblventas WHERE Fecha >= ? AND EstadoFact = 'Valida' AND Tipo != 'Contado'$filtroUsuario");
+        // Ventas crédito (tblventas) — solo válidas (anuladas no suman al débito)
+        $stmt = $db->prepare("SELECT COALESCE(SUM(Total),0) as t, COUNT(*) as c, COALESCE(SUM(Saldo),0) as saldo_pendiente FROM tblventas WHERE Fecha >= ? AND EstadoFact = 'Valida' AND Tipo != 'Contado'$filtroUsuario");
         $stmt->execute($paramsUsuario);
         $vcr = $stmt->fetch();
 
@@ -174,6 +200,7 @@ try {
         $vcr = [
             't' => floatval($vcr['t']) + floatval($vfecr['t']),
             'c' => intval($vcr['c'])  + intval($vfecr['c']),
+            'saldo_pendiente' => floatval($vcr['saldo_pendiente'] ?? 0) + floatval($vfecr['t']),
         ];
 
         // Ventas por medio de pago — mismo criterio que "Ventas contado":
@@ -223,7 +250,10 @@ try {
         $movimientos = $stmt->fetchAll();
 
         $totalEfectivo = $base + floatval($vc['ef']) + floatval($pg['ef']) - floatval($eg['t']) - floatval($an['t']) - $retiros;
-        $totalVentaDia = floatval($vc['t']) + floatval($vcr['t']);
+        // TOTAL VENTA DEL DÍA — SIEMPRE NETO (sin anuladas). Es lo que la
+        // cajera cuadra con sus facturas en mano. Las anuladas aparecen como
+        // línea separada en el cuadre impreso.
+        $totalVentaDia = floatval($vc['t_neto']) + floatval($vcr['t']);
 
         echo json_encode([
             'success' => true,
@@ -232,12 +262,21 @@ try {
             'resumen' => [
                 'fecha_apertura' => $fechaApertura,
                 'base' => $base,
+                // BRUTOS (incluyen anuladas) — mantenidos por compatibilidad
                 'ventas_contado_efectivo' => floatval($vc['ef']),
                 'ventas_contado_transferencia' => floatval($vc['tr']),
                 'ventas_contado_total' => floatval($vc['t']),
                 'ventas_contado_cantidad' => intval($vc['c']),
+                // NETOS (solo Valida) — lo que debe ver y cuadrar la cajera
+                'ventas_contado_efectivo_neto' => floatval($vc['ef_neto']),
+                'ventas_contado_transferencia_neto' => floatval($vc['tr_neto']),
+                'ventas_contado_total_neto' => floatval($vc['t_neto']),
+                'ventas_contado_cantidad_neto' => intval($vc['c_neto']),
+                'ventas_contado_efectivo_cantidad' => intval($vc['c_efectivo']),
+                'ventas_contado_transferencia_cantidad' => intval($vc['c_transferencia']),
                 'ventas_credito' => floatval($vcr['t']),
                 'ventas_credito_cantidad' => intval($vcr['c']),
+                'ventas_credito_saldo_pendiente' => floatval($vcr['saldo_pendiente']),
                 'ventas_por_medio' => $ventasMedio,
                 'pagos_efectivo' => floatval($pg['ef']),
                 'pagos_transferencia' => floatval($pg['tr']),
