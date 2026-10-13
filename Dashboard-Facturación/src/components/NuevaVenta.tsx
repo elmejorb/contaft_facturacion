@@ -2186,7 +2186,7 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
       )}
 
       {/* Tabla de items con fila de entrada */}
-      <div style={{ flex: 1, background: '#fff', borderRadius: 12, boxShadow: '0 1px 3px rgba(0,0,0,0.08)', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+      <div style={{ flex: 1, background: '#fff', borderRadius: 12, boxShadow: '0 1px 3px rgba(0,0,0,0.08)', overflow: 'hidden', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
           <thead>
             <tr style={{ background: '#fff', borderBottom: '3px solid #7c3aed' }}>
@@ -2205,7 +2205,23 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
             </tr>
           </thead>
         </table>
-        <div style={{ flex: 1, overflow: 'auto' }} ref={productoInputRef as any}>
+        <div style={{ flex: 1, overflow: 'auto', position: 'relative' }} ref={productoInputRef as any}>
+          {/* Placeholder centrado cuando no hay productos — evita que el
+              contenedor se vea como un hueco en blanco gigante. Marca
+              visualmente que la zona espera recibir productos. */}
+          {lineas.length === 0 && (
+            <div style={{
+              position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+              display: 'flex', flexDirection: 'column',
+              alignItems: 'center', justifyContent: 'center',
+              pointerEvents: 'none', color: '#cbd5e1',
+            }}>
+              <ShoppingCart size={64} strokeWidth={1} />
+              <div style={{ marginTop: 10, fontSize: 14, fontWeight: 600 }}>Aún no agregaste productos</div>
+              <div style={{ marginTop: 4, fontSize: 12 }}>Usá el campo <b>Código</b> arriba o buscá por nombre</div>
+              <div style={{ marginTop: 2, fontSize: 11 }}>F9 para finalizar la venta</div>
+            </div>
+          )}
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
             <tbody>
               {lineas.map(l => (

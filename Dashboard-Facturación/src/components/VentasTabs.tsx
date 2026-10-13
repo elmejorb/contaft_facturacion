@@ -327,7 +327,7 @@ export function VentasTabs() {
   });
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 80px)' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
       {/* Barra de tabs + acciones */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 4, flexShrink: 0, flexWrap: 'wrap' }}>
         {/* Tabs */}
