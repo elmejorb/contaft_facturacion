@@ -894,6 +894,48 @@ try {
                     $db->prepare("UPDATE electronic_documents SET status = 'autorizado', number = ?, cufe = ?, dian_response = ?, email_sent = ?, email_sent_at = ? WHERE id = ?")
                        ->execute([$consecutive, $cufe, json_encode($result), $emailSent, $emailSent ? date('Y-m-d H:i:s') : null, $docElecId]);
                 }
+
+                // Bajar inventario + registrar kardex de salida.
+                // Bug histórico v4.6+: el flujo nuevo (FE que vive solo en
+                // electronic_documents) olvidó esta parte que sí hacía el
+                // POS tradicional en crear-factura.php. Resultado: stock
+                // nunca bajaba al emitir una FE.
+                // Idempotente — si por reintentos ya existe kardex para
+                // este CUFE no vuelve a bajar (el chequeo lo hacemos por
+                // prefix+number del documento, único por cliente).
+                // $edRow no existe en este scope; leemos el prefix actual del
+                // documento (ya actualizado si vino $prefixDian) o 'FCON'.
+                $stmtPrefix = $db->prepare("SELECT prefix FROM electronic_documents WHERE id = ?");
+                $stmtPrefix->execute([$docElecId]);
+                $prefixUsado = $prefixDian ?: ($stmtPrefix->fetchColumn() ?: 'FCON');
+                $detalleKxVenta = "Venta FE Nº $prefixUsado-$consecutive";
+                $stmtItemsFE = $db->prepare("SELECT d.items, d.invoiced_quantity FROM detalle_document_electronic d WHERE d.factura_n = ?");
+                $stmtItemsFE->execute([$docElecId]);
+                $lineasFE = $stmtItemsFE->fetchAll();
+                $mesesNom = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+                $mesNombre = $mesesNom[intval(date('n')) - 1];
+                $stmtArt    = $db->prepare("SELECT Existencia, Precio_Costo, Servicio FROM tblarticulos WHERE Items = ?");
+                $stmtStock  = $db->prepare("UPDATE tblarticulos SET Existencia = Existencia - ? WHERE Items = ?");
+                $stmtKardex = $db->prepare("INSERT INTO tblkardex (Fecha, Mes, Items, Detalle, C_D, Cant_Ent, Cost_Ent, Cant_Sal, Cost_Sal, Cant_Saldo, Cost_Saldo, Cost_Unit) VALUES (NOW(), ?, ?, ?, 2, 0, 0, ?, ?, ?, ?, ?)");
+                $stmtExiste = $db->prepare("SELECT COUNT(*) FROM tblkardex WHERE Items = ? AND C_D = 2 AND Detalle = ?");
+                foreach ($lineasFE as $lf) {
+                    $itemsId = intval($lf['items']);
+                    $cant    = abs(floatval($lf['invoiced_quantity']));
+                    if ($itemsId <= 0 || $cant <= 0) continue;
+                    // Idempotencia: si ya bajamos este mismo kardex, saltar
+                    $stmtExiste->execute([$itemsId, $detalleKxVenta]);
+                    if (intval($stmtExiste->fetchColumn()) > 0) continue;
+                    $stmtArt->execute([$itemsId]);
+                    $art = $stmtArt->fetch();
+                    if (!$art || ($art['Servicio'] ?? 'N') === 'S') continue;
+                    $stmtStock->execute([$cant, $itemsId]);
+                    $exNueva = floatval($art['Existencia']) - $cant;
+                    $costo   = floatval($art['Precio_Costo']);
+                    $stmtKardex->execute([
+                        $mesNombre, $itemsId, $detalleKxVenta,
+                        $cant, $cant * $costo, $exNueva, $exNueva * $costo, $costo
+                    ]);
+                }
             } else {
                 // Falló: actualizar status a rechazado con el mensaje de error
                 $db->prepare("UPDATE electronic_documents SET status = 'rechazado', dian_response = ? WHERE id = ?")
@@ -1112,6 +1154,39 @@ try {
                     }
                     $db->prepare("UPDATE electronic_documents SET status = 'anulado' WHERE cufe = ?")
                        ->execute([$factura['cufe']]);
+
+                    // 3) Revertir inventario: la anulación devuelve los productos.
+                    // Regla kardex inmutable: no borramos movimientos — insertamos
+                    // entrada opuesta (C_D=1 = compra/entrada) con el detalle de la NC.
+                    // Omitimos servicios (Servicio='S') porque no manejan stock.
+                    // Bug histórico: v4.6+ con el flujo nuevo "olvidó" esta parte
+                    // que sí hacía el flujo legacy — por eso el stock quedaba
+                    // descuadrado tras anular una FE.
+                    $mesesNom = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+                    $mesNombre = $mesesNom[intval(date('n')) - 1];
+                    $prefijoFE = ($edRow['prefix'] ?? 'FCON') . ($edRow['number'] ?? '');
+                    $detalleKx = "NC $ncPrefix$ncConsecutive — anula $prefijoFE";
+                    $stmtArt    = $db->prepare("SELECT Existencia, Precio_Costo, Servicio FROM tblarticulos WHERE Items = ?");
+                    $stmtStock  = $db->prepare("UPDATE tblarticulos SET Existencia = Existencia + ? WHERE Items = ?");
+                    $stmtKardex = $db->prepare("INSERT INTO tblkardex (Fecha, Mes, Items, Detalle, C_D, Cant_Ent, Cost_Ent, Cant_Sal, Cost_Sal, Cant_Saldo, Cost_Saldo, Cost_Unit) VALUES (NOW(), ?, ?, ?, 1, ?, ?, 0, 0, ?, ?, ?)");
+                    foreach ($items as $it) {
+                        $itemsId = intval($it['Items'] ?? $it['items'] ?? 0);
+                        // ABS por si algún detalle legacy guardó la cantidad
+                        // con signo invertido — para la reversión siempre
+                        // sumamos positivo al stock.
+                        $cant    = abs(floatval($it['Cantidad'] ?? $it['invoiced_quantity'] ?? 0));
+                        if ($itemsId <= 0 || $cant <= 0) continue;
+                        $stmtArt->execute([$itemsId]);
+                        $art = $stmtArt->fetch();
+                        if (!$art || ($art['Servicio'] ?? 'N') === 'S') continue;
+                        $stmtStock->execute([$cant, $itemsId]);
+                        $exNueva = floatval($art['Existencia']) + $cant;
+                        $costo   = floatval($art['Precio_Costo']);
+                        $stmtKardex->execute([
+                            $mesNombre, $itemsId, $detalleKx,
+                            $cant, $cant * $costo, $exNueva, $exNueva * $costo, $costo
+                        ]);
+                    }
                 }
             }
 
