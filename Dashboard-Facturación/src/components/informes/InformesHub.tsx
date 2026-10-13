@@ -29,9 +29,11 @@ import { InformeVentasMensual } from './InformeVentasMensual';
 import { InformeVentasDiario } from './InformeVentasDiario';
 import { InformeIVA } from './InformeIVA';
 import { InformeFacturasVendedor } from './InformeFacturasVendedor';
+import { InformeRetencionesRecibidas } from '../InformeRetencionesRecibidas';
+import { InformeIngresosTotales } from '../InformeIngresosTotales';
 
 type ReporteId =
-  | 'cuadre' | 'cierre-mes' | 'estado-resultados' | 'iva'
+  | 'cuadre' | 'cierre-mes' | 'estado-resultados' | 'iva' | 'retenciones-recibidas' | 'ingresos-totales'
   | 'ventas' | 'compras' | 'top-productos' | 'ventas-por-producto' | 'top-clientes' | 'ventas-categoria'
   | 'ventas-mensual' | 'ventas-diario' | 'facturas-vendedor'
   | 'inventario' | 'agotados' | 'productos-vencer'
@@ -52,10 +54,12 @@ interface ReporteDef {
 
 const REPORTES: ReporteDef[] = [
   // Financieros
+  { id: 'ingresos-totales', titulo: 'Ingresos Totales (por día o mes)', desc: 'Suma de TODOS los ingresos agrupados: ventas contado, crédito, pagos de cartera y retenciones recibidas. Con gráfica.', icon: TrendingUp, color: '#16a34a', bg: '#dcfce7', categoria: 'financieros' },
   { id: 'cuadre', titulo: 'Cuadre de Caja', desc: 'Cierre diario por medio de pago, ingresos y egresos del día.', icon: Wallet, color: '#7c3aed', bg: '#f3e8ff', categoria: 'financieros' },
   { id: 'cierre-mes', titulo: 'Cierre de Mes', desc: 'Resumen contable del mes: ventas, costos, gastos y utilidad.', icon: TrendingUp, color: '#2563eb', bg: '#dbeafe', categoria: 'financieros' },
   { id: 'estado-resultados', titulo: 'Estado de Resultados', desc: 'P&L por rango de fechas con desglose de gastos por categoría.', icon: FileText, color: '#0891b2', bg: '#cffafe', categoria: 'financieros' },
   { id: 'iva', titulo: 'Informe de IVA', desc: 'IVA generado en ventas vs descontable en compras, saldo a pagar a la DIAN.', icon: Percent, color: '#2563eb', bg: '#dbeafe', categoria: 'financieros' },
+  { id: 'retenciones-recibidas', titulo: 'Retenciones Recibidas (Formulario 350)', desc: 'ReteFuente, ReteIVA, ReteICA que los clientes te aplicaron al pagar. Base para imputar al impuesto o solicitar reintegro.', icon: Receipt, color: '#dc2626', bg: '#fee2e2', categoria: 'financieros' },
   // Ventas
   { id: 'ventas', titulo: 'Listado de Ventas', desc: 'Todas las facturas del período con cliente, total y estado.', icon: Receipt, color: '#16a34a', bg: '#dcfce7', categoria: 'ventas' },
   { id: 'ventas-mensual', titulo: 'Ventas Mensuales (con costo y utilidad)', desc: 'Resumen mes por mes del año con contado, crédito, costo, utilidad y margen.', icon: Calendar, color: '#16a34a', bg: '#dcfce7', categoria: 'ventas' },
@@ -132,6 +136,8 @@ export function InformesHub() {
         {activo === 'ventas-mensual' && <InformeVentasMensual />}
         {activo === 'ventas-diario' && <InformeVentasDiario />}
         {activo === 'iva' && <InformeIVA />}
+        {activo === 'retenciones-recibidas' && <InformeRetencionesRecibidas />}
+        {activo === 'ingresos-totales' && <InformeIngresosTotales />}
         {activo === 'facturas-vendedor' && <InformeFacturasVendedor />}
       </div>
     );

@@ -83,6 +83,32 @@ try {
         ");
         $stmt->execute([':id' => $clienteId]);
         $historial = $stmt->fetchAll();
+        // Retenciones aplicadas por pago — una sola query para todos los
+        // pagos del cliente, luego las agrupamos por Id_Pagos. Evita el
+        // problema N+1.
+        $retsPorPago = [];
+        try {
+            $ids = array_column($historial, 'Id_Pagos');
+            if (!empty($ids)) {
+                $placeholders = implode(',', array_fill(0, count($ids), '?'));
+                $stmtR = $db->prepare("
+                    SELECT Id_Pagos, concepto_label, tipo_codigo, base, tarifa, monto
+                    FROM tbl_retenciones_pago
+                    WHERE Id_Pagos IN ($placeholders)
+                ");
+                $stmtR->execute($ids);
+                foreach ($stmtR->fetchAll() as $r) {
+                    $retsPorPago[$r['Id_Pagos']][] = [
+                        'concepto_label' => $r['concepto_label'],
+                        'tipo_codigo'    => $r['tipo_codigo'],
+                        'base'           => floatval($r['base']),
+                        'tarifa'         => floatval($r['tarifa']),
+                        'monto'          => floatval($r['monto']),
+                    ];
+                }
+            }
+        } catch (Throwable $e) { /* BD sin tabla de retenciones todavía */ }
+
         foreach ($historial as &$h) {
             $h['ValorPago'] = floatval($h['ValorPago']);
             $h['ValorFact'] = floatval($h['ValorFact']);
@@ -94,6 +120,8 @@ try {
             if (empty($h['Fecha']) || $h['Fecha'] === '0000-00-00 00:00:00') {
                 $h['Fecha'] = '';
             }
+            // Retenciones del pago (vacío si no tiene)
+            $h['Retenciones'] = $retsPorPago[$h['Id_Pagos']] ?? [];
         }
 
         // Medios de pago
@@ -358,12 +386,44 @@ try {
                     ':medio' => $medioPago,
                     ':id_user' => $idUsuario,
                 ]);
+                // Capturar el id del primer pago para vincular retenciones al final.
+                if (!isset($pagoIdCreado)) $pagoIdCreado = intval($db->lastInsertId());
 
                 // Recalcular Saldo desde la fuente de verdad (tblpagos).
                 recalcularSaldoFactura($db, intval($factN));
 
                 $totalPagado += $valor;
                 $facturasAfectadas++;
+            }
+
+            // Retenciones aplicadas por el cliente al pagar (nuevo en 4.7.13).
+            // Se guardan vinculadas al PRIMER pago de la operación — representan
+            // retenciones sobre el conjunto del recibo. Sumadas al monto efectivo
+            // dan el total que efectivamente cerró el saldo.
+            $retenciones = $data->retenciones ?? [];
+            $primerPagoId = isset($pagoIdCreado) ? $pagoIdCreado : null;
+            if (!empty($retenciones) && $primerPagoId) {
+                $stmtRet = $db->prepare("
+                    INSERT INTO tbl_retenciones_pago
+                    (Id_Pagos, concepto_label, concepto_ref_id, impuesto_ref_id, tipo_codigo, base_kind, base, tarifa, monto)
+                    VALUES (?,?,?,?,?,?,?,?,?)
+                ");
+                foreach ($retenciones as $r) {
+                    $concepto = trim((string)($r->concepto_label ?? ''));
+                    $monto    = floatval($r->monto ?? 0);
+                    if ($concepto === '' || $monto <= 0) continue;
+                    $stmtRet->execute([
+                        $primerPagoId,
+                        $concepto,
+                        isset($r->concepto_ref_id) ? intval($r->concepto_ref_id) : null,
+                        isset($r->impuesto_ref_id) ? intval($r->impuesto_ref_id) : null,
+                        (string)($r->tipo_codigo ?? '06'),
+                        (string)($r->base_kind ?? 'subtotal'),
+                        floatval($r->base ?? 0),
+                        floatval($r->tarifa ?? 0),
+                        $monto,
+                    ]);
+                }
             }
 
             $db->commit();

@@ -5,6 +5,14 @@
 // tirilla porque esa SÍ imprime bien en impresoras térmicas viejas.
 import { getConfigImpresion, getEmpresaCache } from './ConfiguracionSistema';
 
+export interface RetencionAplicada {
+  concepto_label: string;
+  tipo_codigo?: string; // '05'=ReteIVA, '06'=ReteFte, '07'=ReteICA
+  base?: number;
+  tarifa?: number;
+  monto: number;
+}
+
 export interface PagoRecibo {
   RecCajaN: number;
   Fecha: string;
@@ -14,6 +22,7 @@ export interface PagoRecibo {
   Descuento?: number;
   MedioPago: string;
   DetallePago: string;
+  Retenciones?: RetencionAplicada[]; // 4.7.13+: retenciones aplicadas por el cliente
 }
 
 export interface ClienteRecibo {
@@ -190,9 +199,38 @@ function mediaCarta(pago: PagoRecibo, cliente: ClienteRecibo, tipoTercero: 'clie
   html += `<td style="border:1px solid #000;padding:6px 10px;font-weight:600;font-size:12px;background:#f9f9f9;">SALDO TOTAL</td>`;
   html += `<td style="border:1px solid #000;padding:6px 10px;text-align:right;font-weight:600;">${fmtMon(pago.SaldoAct)}</td>`;
   html += `</tr>`;
+
+  // Retenciones aplicadas por el cliente (4.7.13+)
+  // Si el cliente aplicó una o más retenciones al pagar, listamos cada una
+  // con concepto + monto, y mostramos el total abonado real (pago + retenc).
+  const rets = pago.Retenciones || [];
+  if (rets.length > 0) {
+    const totalRet = rets.reduce((s, r) => s + (r.monto || 0), 0);
+    html += `<tr>`;
+    html += `<td colspan="4" style="border:1px solid #000;border-top:2px solid #000;padding:6px 10px;background:#fef3c7;font-weight:700;font-size:11px;letter-spacing:0.5px;">RETENCIONES APLICADAS POR EL CLIENTE</td>`;
+    html += `</tr>`;
+    for (const r of rets) {
+      const tipoLabel = r.tipo_codigo === '05' ? 'ReteIVA' : r.tipo_codigo === '07' ? 'ReteICA' : 'ReteFuente';
+      const detalle = `${tipoLabel} — ${r.concepto_label}${r.tarifa ? ` (${r.tarifa}%)` : ''}`;
+      html += `<tr>`;
+      html += `<td colspan="3" style="border:1px solid #000;padding:5px 10px;font-size:11px;">${detalle}</td>`;
+      html += `<td style="border:1px solid #000;padding:5px 10px;text-align:right;font-weight:600;color:#92400e;">${fmtMon(r.monto)}</td>`;
+      html += `</tr>`;
+    }
+    html += `<tr>`;
+    html += `<td colspan="2" style="border:1px solid #000;padding:5px 10px;font-weight:700;font-size:11px;background:#fef3c7;">TOTAL RETENIDO</td>`;
+    html += `<td style="border:1px solid #000;padding:5px 10px;font-weight:700;font-size:11px;background:#fef3c7;">ABONO REAL (EFECTIVO + RETENCIONES)</td>`;
+    html += `<td style="border:1px solid #000;padding:5px 10px;text-align:right;font-weight:700;color:#92400e;background:#fef3c7;">${fmtMon(totalRet)}</td>`;
+    html += `</tr>`;
+    html += `<tr>`;
+    html += `<td colspan="3" style="border:1px solid #000;padding:5px 10px;font-weight:700;font-size:12px;background:#dcfce7;">VALOR TOTAL APLICADO AL SALDO</td>`;
+    html += `<td style="border:1px solid #000;padding:5px 10px;text-align:right;font-weight:700;font-size:13px;color:#15803d;background:#dcfce7;">${fmtMon(pago.ValorPago + totalRet)}</td>`;
+    html += `</tr>`;
+  }
+
   html += `</tbody></table>`;
 
-  // En letras
+  // En letras — monto efectivo (sin incluir retenciones, que no son dinero)
   html += `<div style="border:1px solid #000;border-top:none;padding:8px 10px;display:flex;gap:10px;">`;
   html += `<span style="font-weight:600;font-size:12px;flex-shrink:0;background:#f9f9f9;padding:0 4px;">LA SUMA DE</span>`;
   html += `<span style="font-weight:700;">${numeroALetras(pago.ValorPago)}</span>`;

@@ -13,6 +13,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { hoyLocal, inicioMesLocal, fechaLocal } from '../utils/fecha';
 import { moneyInputHandlers } from '../utils/moneyInput';
 import { Plus } from 'lucide-react';
+import { RetencionesInput, type Retencion } from './RetencionesInput';
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
@@ -41,6 +42,7 @@ export function ClienteDetalle({ clienteId, onClose, tabInicial = 'ventas' }: Pr
   const [pagosData, setPagosData] = useState<any>(null);
   const [abonos, setAbonos] = useState<Map<number, number>>(new Map());
   const [medioPago, setMedioPago] = useState(0);
+  const [retenciones, setRetenciones] = useState<Retencion[]>([]);
   const [fechaPago, setFechaPago] = useState(hoyLocal());
   const [reciboImprimir, setReciboImprimir] = useState<any>(null);
   const [pickerEstadoCuenta, setPickerEstadoCuenta] = useState(false);
@@ -179,7 +181,7 @@ export function ClienteDetalle({ clienteId, onClose, tabInicial = 'ventas' }: Pr
       const r = await fetch(API_PAGOS, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'pagar', cliente: clienteId, pagos: pagosArr, medio_pago: medioPago, fecha: fechaPago, id_usuario: user?.id || 0 })
+        body: JSON.stringify({ action: 'pagar', cliente: clienteId, pagos: pagosArr, medio_pago: medioPago, fecha: fechaPago, id_usuario: user?.id || 0, retenciones: retenciones.filter(r => r.monto > 0) })
       });
       const d = await r.json();
       if (d.success) {
@@ -187,12 +189,14 @@ export function ClienteDetalle({ clienteId, onClose, tabInicial = 'ventas' }: Pr
         setAbonos(new Map());
         setPagoGlobal('');
         setDescuentoGlobal('');
+        setRetenciones([]);
         setFormVersion(v => v + 1);
         cargarPagos();
         cargar(anio);
         // Preguntar si imprimir recibo
         if (await confirmar({ title: 'Pago registrado', message: '¿Desea imprimir el recibo?', type: 'question', confirmText: 'Imprimir', cancelText: 'No, gracias' })) {
           const cfg = getConfigImpresion();
+          const retsValidas = retenciones.filter(r => r.monto > 0);
           const pagoData = {
             RecCajaN: d.recibo,
             Fecha: fechaPago + ' ' + new Date().toLocaleTimeString('es-CO'),
@@ -202,7 +206,14 @@ export function ClienteDetalle({ clienteId, onClose, tabInicial = 'ventas' }: Pr
             SaldoAct: d.saldo_cliente ?? 0,
             Descuento: descGlobal,
             MedioPago: mediosPago.find((m: any) => m.id_mediopago === medioPago)?.nombre_medio || 'Efectivo',
-            DetallePago: `Pago de ${d.facturas_afectadas} factura(s)`
+            DetallePago: `Pago de ${d.facturas_afectadas} factura(s)`,
+            Retenciones: retsValidas.map(r => ({
+              concepto_label: r.concepto_label,
+              tipo_codigo: r.tipo_codigo,
+              base: r.base,
+              tarifa: r.tarifa,
+              monto: r.monto,
+            })),
           };
           setReciboImprimir({ pago: pagoData, formato: cfg.formatoPago });
         }
@@ -672,6 +683,20 @@ export function ClienteDetalle({ clienteId, onClose, tabInicial = 'ventas' }: Pr
                   <Save size={13} /> Guardar
                 </button>
               </div>
+
+              {/* Retenciones aplicadas por el cliente al pagar.
+                  Se envían con el POST 'pagar' y el backend las registra en
+                  tbl_retenciones_pago. Sumadas al monto efectivo cierran saldo.
+                  Siempre visible (aun sin abono tipeado): el usuario puede
+                  arrancar por acá cuando el cliente le anuncia la retención. */}
+              <RetencionesInput
+                value={retenciones}
+                onChange={setRetenciones}
+                subtotal={totalAbonos > 0 ? totalAbonos : (pendientes.reduce((s: number, f: any) => s + f.Saldo, 0) || 0)}
+                iva={0}
+                total={totalAbonos > 0 ? totalAbonos : (pendientes.reduce((s: number, f: any) => s + f.Saldo, 0) || 0)}
+                compact
+              />
 
               {/* Facturas pendientes */}
               <div style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>

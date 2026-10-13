@@ -45,7 +45,27 @@ if (!function_exists('recalcularSaldoFactura')) {
         $stmt->execute([$facturaN]);
         $pagado = floatval($stmt->fetchColumn() ?: 0);
 
-        $saldoReal = max($total - $pagado, 0);
+        // 3. Suma de retenciones aplicadas por el cliente a los pagos de esta
+        // factura. Las retenciones NO son efectivo que entró a caja pero SÍ
+        // cierran el saldo de la factura (son un anticipo del impuesto a
+        // favor que el cliente nos cobró). Si no existe la tabla (sistema
+        // viejo), seguimos sin retenciones.
+        $retenciones = 0.0;
+        try {
+            $stmt = $db->prepare("
+                SELECT COALESCE(SUM(rp.monto), 0)
+                FROM tbl_retenciones_pago rp
+                JOIN tblpagos p ON p.Id_Pagos = rp.Id_Pagos
+                WHERE p.Fact_N = ?
+                  AND COALESCE(p.Estado, 'Valida') = 'Valida'
+            ");
+            $stmt->execute([$facturaN]);
+            $retenciones = floatval($stmt->fetchColumn() ?: 0);
+        } catch (Throwable $e) {
+            // tbl_retenciones_pago no existe aún — BD sin migración
+        }
+
+        $saldoReal = max($total - $pagado - $retenciones, 0);
         $pagada    = $saldoReal <= 0.001 ? '1' : '';
 
         // 3. Persistir

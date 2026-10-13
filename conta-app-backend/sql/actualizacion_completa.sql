@@ -2203,6 +2203,141 @@ JOIN tbldatosempresa d
    SET m.Activo = 1, m.Fecha_Activacion = COALESCE(m.Fecha_Activacion, NOW())
  WHERE m.Nombre = 'financiaciones' AND d.modulo_financiaciones = 1;
 
+-- ================================================================
+-- MÓDULO RETENCIONES (v4.7.13+)
+-- Permite registrar retenciones que un cliente aplica cuando paga una
+-- factura (contado o abono crédito). Patrón tomado de FJD SAS.
+--
+-- Catálogos:
+--   * tblretenciones (ya existe) — se amplía con es_retencion y tipo_codigo.
+--     Para los grandes IVA/ICA/"Otras" con tarifa única.
+--   * tbl_conceptos_retefuente (nuevo) — los conceptos DIAN de Retención
+--     en la Fuente con base mínima en UVT y tarifa por tipo.
+--   * tbldatosempresa.uvt_valor + uvt_anio — para calcular base en pesos.
+--
+-- Movimientos:
+--   * tbl_retenciones_pago — N retenciones aplicadas a un abono (tblpagos).
+--   * tbl_retenciones_factura — N retenciones aplicadas al emitir una
+--     factura al contado (tblventas o electronic_documents).
+--
+-- Idempotente: solo crea lo que falta, no sobrescribe.
+-- ================================================================
+
+-- Columnas UVT en tbldatosempresa (para cálculo de bases mínimas)
+SET @col = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='tbldatosempresa' AND COLUMN_NAME='uvt_valor');
+SET @sql = IF(@col=0, "ALTER TABLE tbldatosempresa ADD COLUMN uvt_valor DECIMAL(12,2) NOT NULL DEFAULT 52374.00", "SELECT 1");
+PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
+
+SET @col = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='tbldatosempresa' AND COLUMN_NAME='uvt_anio');
+SET @sql = IF(@col=0, "ALTER TABLE tbldatosempresa ADD COLUMN uvt_anio INT NOT NULL DEFAULT 2026", "SELECT 1");
+PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
+
+SET @col = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='tbldatosempresa' AND COLUMN_NAME='uvt_actualizado_at');
+SET @sql = IF(@col=0, "ALTER TABLE tbldatosempresa ADD COLUMN uvt_actualizado_at DATETIME NULL", "SELECT 1");
+PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
+
+-- Extender tblretenciones con es_retencion + tipo_codigo DIAN
+-- Las existentes son todas retenciones (es_retencion = 1 por default).
+SET @col = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='tblretenciones' AND COLUMN_NAME='es_retencion');
+SET @sql = IF(@col=0, "ALTER TABLE tblretenciones ADD COLUMN es_retencion TINYINT(1) NOT NULL DEFAULT 1", "SELECT 1");
+PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
+
+SET @col = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='tblretenciones' AND COLUMN_NAME='tipo_codigo');
+SET @sql = IF(@col=0, "ALTER TABLE tblretenciones ADD COLUMN tipo_codigo VARCHAR(5) NULL COMMENT '05=ReteIVA, 06=ReteFuente, 07=ReteICA'", "SELECT 1");
+PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
+
+-- Catálogo de conceptos de Retención en la Fuente
+CREATE TABLE IF NOT EXISTS tbl_conceptos_retefuente (
+  Id_Concepto     INT AUTO_INCREMENT PRIMARY KEY,
+  concepto        VARCHAR(255) NOT NULL,
+  base_uvt        DECIMAL(10,2) NOT NULL DEFAULT 0 COMMENT 'Base mínima en UVTs para aplicar la retención',
+  tarifa          DECIMAL(5,2) NOT NULL DEFAULT 0 COMMENT 'Porcentaje a retener',
+  tipo_codigo     VARCHAR(5) NOT NULL DEFAULT '06' COMMENT '06=ReteFuente, 05=ReteIVA, 07=ReteICA',
+  activo          TINYINT(1) NOT NULL DEFAULT 1,
+  Fecha_Creacion  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uk_concepto (concepto)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- Seed inicial de conceptos ReteFuente (tabla DIAN 2026) — los más usados
+INSERT IGNORE INTO tbl_conceptos_retefuente (concepto, base_uvt, tarifa, tipo_codigo) VALUES
+('Compras generales (declarantes)',                       27,   2.5, '06'),
+('Compras generales (no declarantes)',                    27,   3.5, '06'),
+('Compras con tarjeta débito o crédito',                   0,   1.5, '06'),
+('Compras de bienes raíces vivienda (primeras 20.000 UVT)', 0,   1.0, '06'),
+('Compras de bienes raíces vivienda (exceso 20.000 UVT)',  27,   2.5, '06'),
+('Compras de bienes raíces distinto a vivienda',          27,   2.5, '06'),
+('Compras de productos agrícolas sin procesamiento',      92,   1.5, '06'),
+('Compras de productos agrícolas con procesamiento (declarantes)', 27, 2.5, '06'),
+('Compras de productos agrícolas con procesamiento (no declarantes)', 27, 3.5, '06'),
+('Compras de café pergamino o cereza',                   160,   0.5, '06'),
+('Compras de combustibles derivados del petróleo',         0,   0.1, '06'),
+('Compras de vehículos',                                   0,   1.0, '06'),
+('Compras de oro por sociedades de comercialización',      0,   2.5, '06'),
+('Honorarios y comisiones (declarantes)',                  0,  11.0, '06'),
+('Honorarios y comisiones (no declarantes)',               0,  10.0, '06'),
+('Honorarios por contratos de consultoría de obra pública (declarantes)', 0, 2.0, '06'),
+('Honorarios por contratos de consultoría de obra pública (no declarantes)', 0, 2.0, '06'),
+('Servicios generales (declarantes)',                      4,   4.0, '06'),
+('Servicios generales (no declarantes)',                   4,   6.0, '06'),
+('Servicios de transporte nacional de carga',              4,   1.0, '06'),
+('Servicios de transporte nacional de pasajeros',         27,   3.5, '06'),
+('Servicios temporales',                                   4,   1.0, '06'),
+('Servicios de aseo y vigilancia (sobre AIU)',             4,   2.0, '06'),
+('Servicios integrales de salud',                          4,   2.0, '06'),
+('Servicios de hoteles, restaurantes y hospedajes',        4,   3.5, '06'),
+('Servicios de licenciamiento o uso de software',          0,   3.5, '06'),
+('Arrendamiento de bienes muebles',                        0,   4.0, '06'),
+('Arrendamiento de bienes raíces (declarantes)',          27,   2.5, '06'),
+('Arrendamiento de bienes raíces (no declarantes)',       27,   3.5, '06'),
+('Comisiones del fondo central de garantía',               0,   4.0, '06'),
+('Comisiones de intermediación bursátil',                  0,   3.0, '06'),
+('Rendimientos financieros en general',                    0,   7.0, '06'),
+('Rendimientos financieros títulos renta fija',            0,   4.0, '06'),
+('Ingresos provenientes de loterías, rifas, apuestas',     48, 20.0, '06'),
+('Dividendos y participaciones',                           0,   7.5, '06'),
+('Enajenación activos fijos personas naturales',           0,   1.0, '06'),
+('Pagos al exterior por servicios técnicos y consultoría', 0,  20.0, '06'),
+('Pagos al exterior por regalías',                         0,  20.0, '06'),
+('Otros ingresos tributarios (declarantes)',              27,   2.5, '06'),
+('Otros ingresos tributarios (no declarantes)',           27,   3.5, '06'),
+('Contratos de construcción de obra material inmueble',   27,   2.0, '06');
+
+-- Retenciones aplicadas a un ABONO/PAGO de cliente
+CREATE TABLE IF NOT EXISTS tbl_retenciones_pago (
+  Id_RetencionPago INT AUTO_INCREMENT PRIMARY KEY,
+  Id_Pagos         INT NOT NULL COMMENT 'FK a tblpagos',
+  concepto_label   VARCHAR(255) NOT NULL COMMENT 'Nombre descriptivo (snapshot)',
+  concepto_ref_id  INT NULL COMMENT 'FK a tbl_conceptos_retefuente si aplica',
+  impuesto_ref_id  INT NULL COMMENT 'FK a tblretenciones si aplica',
+  tipo_codigo      VARCHAR(5) NOT NULL DEFAULT '06',
+  base_kind        VARCHAR(10) NOT NULL DEFAULT 'subtotal' COMMENT 'subtotal|iva|total|custom',
+  base             DECIMAL(15,2) NOT NULL DEFAULT 0,
+  tarifa           DECIMAL(5,2) NOT NULL DEFAULT 0,
+  monto            DECIMAL(15,2) NOT NULL DEFAULT 0,
+  Fecha            DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_pago (Id_Pagos)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- Retenciones aplicadas al emitir una FACTURA CONTADO
+-- (el cliente retiene al momento de pagar). Factura_N o FE_Id son
+-- excluyentes: una venta POS referencia Factura_N, una FE pura referencia FE_Id.
+CREATE TABLE IF NOT EXISTS tbl_retenciones_factura (
+  Id_RetencionFact INT AUTO_INCREMENT PRIMARY KEY,
+  Factura_N        INT NULL COMMENT 'FK a tblventas (POS/legacy)',
+  FE_Id            INT NULL COMMENT 'FK a electronic_documents.id (flujo nuevo)',
+  concepto_label   VARCHAR(255) NOT NULL,
+  concepto_ref_id  INT NULL,
+  impuesto_ref_id  INT NULL,
+  tipo_codigo      VARCHAR(5) NOT NULL DEFAULT '06',
+  base_kind        VARCHAR(10) NOT NULL DEFAULT 'subtotal',
+  base             DECIMAL(15,2) NOT NULL DEFAULT 0,
+  tarifa           DECIMAL(5,2) NOT NULL DEFAULT 0,
+  monto            DECIMAL(15,2) NOT NULL DEFAULT 0,
+  Fecha            DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_factpos (Factura_N),
+  KEY idx_factfe (FE_Id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
 -- ============================================================
 -- MÓDULO NÓMINA (v4.7.5+)
 -- Empleados, anticipos/préstamos, liquidación de nómina

@@ -277,7 +277,9 @@ export function HistorialCajas() {
       winWidth = 780;
       const empresa = (getEmpresaCache().nombre || 'EMPRESA').toUpperCase();
       const hora = horaCierre || '';
-      const totalEf = (parseFloat(s.BaseInicial) || 0) + ventasEf + pagosEf;
+      // La BASE no es venta — queda en su propio bloque. TOTAL VENTAS EN
+      // EFECTIVO solo suma ventas contado efectivo + abonos en efectivo.
+      const totalEf = ventasEf + pagosEf;
       const totalTr = ventasTr + pagosTr;
       const totalEfSistema = parseFloat(s.TotalEfectivoSistema) || 0;
       const conteo = parseFloat(s.ConteoFinal) || 0;
@@ -309,7 +311,9 @@ export function HistorialCajas() {
             <div><b>CAJERO:</b> ${(s.NombreUsuario || '').toString().toUpperCase()}</div>
           </div>
           ${bloque(
-            fila('BASE', parseFloat(s.BaseInicial) || 0) +
+            fila('BASE', parseFloat(s.BaseInicial) || 0, true)
+          )}
+          ${bloque(
             fila('VENTAS CONTADO EFECTIVO', ventasEf) +
             fila('ABONO EN EFECTIVO', pagosEf) +
             fila('TOTAL VENTAS EN EFECTIVO', totalEf, true)

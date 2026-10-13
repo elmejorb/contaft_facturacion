@@ -470,7 +470,9 @@ export function CajaRegistradora() {
       const baseVal = res.base || 0;
       const ventasEf = (res.ventas_contado_efectivo_neto ?? res.ventas_contado_efectivo) || 0;
       const abonoEf  = res.pagos_efectivo || 0;
-      const totalEf  = baseVal + ventasEf + abonoEf;
+      // La BASE no es venta — queda en su propio bloque arriba. TOTAL VENTAS
+      // EN EFECTIVO solo suma ventas contado efectivo + abonos en efectivo.
+      const totalEf  = ventasEf + abonoEf;
       const ventasTr = (res.ventas_contado_transferencia_neto ?? res.ventas_contado_transferencia) || 0;
       const abonoTr  = res.pagos_transferencia || 0;
       const totalTr  = ventasTr + abonoTr;
@@ -514,7 +516,10 @@ export function CajaRegistradora() {
           </div>
 
           ${bloque(
-            fila('BASE', baseVal) +
+            fila('BASE', baseVal, true)
+          )}
+
+          ${bloque(
             fila('VENTAS CONTADO EFECTIVO', ventasEf) +
             fila('ABONO EN EFECTIVO', abonoEf) +
             fila('TOTAL VENTAS EN EFECTIVO', totalEf, true)

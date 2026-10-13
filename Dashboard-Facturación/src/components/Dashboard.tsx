@@ -84,6 +84,7 @@ const BancosManagement = lazy(() => import('./BancosManagement').then(m => ({ de
 const NominaManagement = lazy(() => import('./NominaManagement').then(m => ({ default: m.NominaManagement })));
 const ConfigCategoriasGasto = lazy(() => import('./ConfigCategoriasGasto').then(m => ({ default: m.ConfigCategoriasGasto })));
 const ConfigRetenciones = lazy(() => import('./ConfigRetenciones').then(m => ({ default: m.ConfigRetenciones })));
+const ConceptosRetefuente = lazy(() => import('./ConceptosRetefuente').then(m => ({ default: m.ConceptosRetefuente })));
 const ConfigEtiquetas = lazy(() => import('./ConfigEtiquetas').then(m => ({ default: m.ConfigEtiquetas })));
 const ConfigCajas = lazy(() => import('./ConfigCajas').then(m => ({ default: m.ConfigCajas })));
 const ConfigServidor = lazy(() => import('./ConfigServidor').then(m => ({ default: m.ConfigServidor })));
@@ -101,6 +102,7 @@ const NotasArticulo = lazy(() => import('./NotasArticulo').then(m => ({ default:
 const LotesPorVencer = lazy(() => import('./LotesPorVencer').then(m => ({ default: m.LotesPorVencer })));
 const MovsDirectos = lazy(() => import('./MovsDirectos').then(m => ({ default: m.MovsDirectos })));
 const InformesHub = lazy(() => import('./informes/InformesHub').then(m => ({ default: m.InformesHub })));
+const InformeRetencionesRecibidas = lazy(() => import('./InformeRetencionesRecibidas').then(m => ({ default: m.InformeRetencionesRecibidas })));
 const ConfiguracionSistema = lazy(() => import('./ConfiguracionSistema').then(m => ({ default: m.ConfiguracionSistema })));
 const FinanciacionesManagement = lazy(() => import('./FinanciacionesManagement').then(m => ({ default: m.FinanciacionesManagement })));
 const BackupBD = lazy(() => import('./BackupBD').then(m => ({ default: m.BackupBD })));
@@ -142,7 +144,7 @@ interface DashboardProps {
   user?: UserData | null;
 }
 
-type View = 'overview' | 'products' | 'customers' | 'suppliers' | 'purchases' | 'sales' | 'inventario' | 'diagnostico' | 'auditoria' | 'categorias' | 'conteo' | 'configuracion' | 'cuentas-cobrar' | 'top-clientes' | 'cumpleanos' | 'cuentas-pagar' | 'productos-proveedor' | 'nueva-venta' | 'ventas-tipo-pago' | 'datos-empresa' | 'usuarios' | 'nueva-compra' | 'facturacion-electronica' | 'facturas-recibidas' | 'caja' | 'caja-historial' | 'pagos-clientes' | 'pagos-proveedores' | 'gastos' | 'bancos' | 'nomina' | 'config-categorias-gasto' | 'config-cajas' | 'config-servidor' | 'config-permisos' | 'config-modulos' | 'familias' | 'distribuir' | 'stock-bajo' | 'config-retenciones' | 'informes-hub' | 'notas-articulo' | 'lotes-vencer' | 'inicio' | 'config-etiquetas' | 'vendedores-gestion' | 'vendedores-pedidos' | 'vendedores-cargues' | 'vendedores-informe' | 'ordenes-compra' | 'financiaciones' | 'backup-bd' | 'mantenimiento-bd' | 'anticipos-clientes' | 'movs-directos' | 'bodegas' | 'pendientes-entrega' | 'produccion-dia';
+type View = 'overview' | 'products' | 'customers' | 'suppliers' | 'purchases' | 'sales' | 'inventario' | 'diagnostico' | 'auditoria' | 'categorias' | 'conteo' | 'configuracion' | 'cuentas-cobrar' | 'top-clientes' | 'cumpleanos' | 'cuentas-pagar' | 'productos-proveedor' | 'nueva-venta' | 'ventas-tipo-pago' | 'datos-empresa' | 'usuarios' | 'nueva-compra' | 'facturacion-electronica' | 'facturas-recibidas' | 'caja' | 'caja-historial' | 'pagos-clientes' | 'pagos-proveedores' | 'gastos' | 'bancos' | 'nomina' | 'config-categorias-gasto' | 'config-cajas' | 'config-servidor' | 'config-permisos' | 'config-modulos' | 'familias' | 'distribuir' | 'stock-bajo' | 'config-retenciones' | 'config-conceptos-rete' | 'informes-hub' | 'informe-retenciones' | 'notas-articulo' | 'lotes-vencer' | 'inicio' | 'config-etiquetas' | 'vendedores-gestion' | 'vendedores-pedidos' | 'vendedores-cargues' | 'vendedores-informe' | 'ordenes-compra' | 'financiaciones' | 'backup-bd' | 'mantenimiento-bd' | 'anticipos-clientes' | 'movs-directos' | 'bodegas' | 'pendientes-entrega' | 'produccion-dia';
 
 interface MenuItem {
   id: string;
@@ -194,14 +196,14 @@ const TAB_SUPPORTED_VIEWS: ReadonlySet<View> = new Set<View>([
   // Gastos / Bancos / Nómina
   'gastos', 'bancos', 'nomina',
   // Informes
-  'informes-hub', 'produccion-dia',
+  'informes-hub', 'informe-retenciones', 'produccion-dia',
   // Fabricación (v4.7)
   'pendientes-entrega',
   // Vendedores móviles (solo aparecen si el módulo está activo)
   'vendedores-gestion', 'vendedores-pedidos', 'vendedores-cargues', 'vendedores-informe',
   // Configuración / administración
   'configuracion', 'datos-empresa', 'usuarios',
-  'config-categorias-gasto', 'config-retenciones', 'config-cajas',
+  'config-categorias-gasto', 'config-retenciones', 'config-conceptos-rete', 'config-cajas',
   'config-servidor', 'config-permisos', 'config-modulos',
   'backup-bd', 'mantenimiento-bd',
 ]);
@@ -257,6 +259,7 @@ const TITULO_POR_VIEW: Partial<Record<View, string>> = {
   'bancos': 'Bancos',
   'nomina': 'Nómina',
   'informes-hub': 'Informes',
+  'informe-retenciones': 'Retenciones Recibidas',
   'produccion-dia': 'Producción del Día',
   'pendientes-entrega': 'Pendientes por Entregar',
   'vendedores-gestion': 'Gestión Vendedores',
@@ -268,6 +271,7 @@ const TITULO_POR_VIEW: Partial<Record<View, string>> = {
   'usuarios': 'Usuarios',
   'config-categorias-gasto': 'Categorías de Gasto',
   'config-retenciones': 'Retenciones',
+  'config-conceptos-rete': 'Conceptos ReteFuente',
   'config-cajas': 'Cajas',
   'config-servidor': 'Servidor',
   'config-permisos': 'Permisos',
@@ -313,6 +317,7 @@ const ICONO_POR_VIEW: Partial<Record<View, any>> = {
   'bancos': CreditCard,
   'nomina': Users,
   'informes-hub': FileText,
+  'informe-retenciones': Receipt,
   'produccion-dia': Package,
   'pendientes-entrega': Package,
   'vendedores-gestion': Smartphone,
@@ -324,6 +329,7 @@ const ICONO_POR_VIEW: Partial<Record<View, any>> = {
   'usuarios': Users,
   'config-categorias-gasto': Tags,
   'config-retenciones': DollarSign,
+  'config-conceptos-rete': DollarSign,
   'config-cajas': Wallet,
   'config-servidor': Settings,
   'config-permisos': Lock,
@@ -744,6 +750,7 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
       icon: FileText,
       children: [
         { id: 'informes-hub', label: 'Panel de Informes', view: 'informes-hub' as View },
+        { id: 'informe-retenciones', label: 'Retenciones Recibidas', view: 'informe-retenciones' as View },
         { id: 'produccion-dia', label: 'Producción del Día', view: 'produccion-dia' as View },
       ]
     } : {
@@ -779,6 +786,7 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
         ...(user?.username === 'root' ? [{ id: 'config-modulos', label: 'Módulos', view: 'config-modulos' as View }] : []),
         { id: 'config-categorias', label: 'Categorías de Gastos', view: 'config-categorias-gasto' as View },
         { id: 'config-retenciones', label: 'Retenciones', view: 'config-retenciones' as View },
+        { id: 'config-conceptos-rete', label: 'Conceptos ReteFuente', view: 'config-conceptos-rete' as View },
         { id: 'config-cajas', label: 'Administrar Cajas', view: 'config-cajas' as View },
         { id: 'config-servidor', label: 'Servidor', view: 'config-servidor' as View },
         { id: 'backup-bd', label: 'Respaldo de la Base de Datos', view: 'backup-bd' as View },
@@ -1566,6 +1574,7 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
               {t.view === 'bancos' && <BancosManagement />}
               {t.view === 'nomina' && <NominaManagement />}
               {t.view === 'informes-hub' && <InformesHub />}
+              {t.view === 'informe-retenciones' && <InformeRetencionesRecibidas />}
               {/* Vendedores móviles */}
               {t.view === 'vendedores-gestion' && <VendedoresMovil />}
               {t.view === 'vendedores-pedidos' && <VendedoresPedidos onNavigate={(v) => abrirEnTab(v as View)} />}
@@ -1577,6 +1586,7 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
               {t.view === 'usuarios' && <UsuariosManagement />}
               {t.view === 'config-categorias-gasto' && <ConfigCategoriasGasto />}
               {t.view === 'config-retenciones' && <ConfigRetenciones />}
+              {t.view === 'config-conceptos-rete' && <ConceptosRetefuente />}
               {t.view === 'config-cajas' && <ConfigCajas />}
               {t.view === 'config-servidor' && <ConfigServidor />}
               {t.view === 'config-permisos' && <ConfigPermisos />}
