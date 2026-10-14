@@ -1,6 +1,6 @@
 {
       "name": "dashboard-facturacion",
-      "version": "4.7.13",
+      "version": "4.7.14",
       "private": true,
       "main": "electron/main.js",
       "dependencies": {
@@ -73,7 +73,9 @@
             "build": "vite build",
             "electron": "cross-env NODE_ENV=development electron .",
             "electron:dev": "concurrently \"npm run dev\" \"wait-on http://localhost:3000 && npm run electron\"",
-            "electron:build": "npm run build && electron-builder",
+            "test:backend": "node scripts/pre-build-tests.mjs",
+            "electron:build": "npm run test:backend && npm run build && electron-builder",
+            "electron:build:skip-tests": "npm run build && electron-builder",
             "dev:cdp": "node scripts/probar-app.mjs",
             "analizar": "node scripts/analizar-perf.mjs",
             "analizar:watch": "node scripts/analizar-perf.mjs --watch",

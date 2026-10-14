@@ -314,10 +314,23 @@ try {
         $stmtFE->execute($paramsFE);
         $docElecId = (int)$db->lastInsertId();
 
-        // Loop items: detalle_document_electronic + stock + kardex.
+        // Loop items: SOLO detalle_document_electronic.
+        //
+        // REGLA (v4.7.14 — igual que el sistema VB6 original):
+        // una FE en borrador NO toca inventario ni kardex. El stock se
+        // descuenta únicamente cuando DIAN autoriza la factura, dentro de
+        // facturacion-electronica/enviar.php (case 'factura'). Si la FE
+        // queda en contingencia o es rechazada, el inventario sigue intacto.
+        //
+        // Bug previo (v4.6–v4.7.13): acá se bajaba stock + kardex al crear
+        // el borrador, y enviar.php volvía a bajarlo al autorizar DIAN =>
+        // doble descuento por cada FE autorizada (32 pares detectados en
+        // Nutrigranos). Fix: eliminar la bajada local y dejar un solo
+        // responsable (enviar.php).
+        //
         // Columna 'entregado' defensiva — solo existe desde v4.7. Si no está
         // (BD sin migrar) el INSERT se ejecuta sin ella y la columna queda
-        // en su default (que v4.7 definió como 'S').
+        // en su default.
         $tieneEntregadoFE = (int)$db->query("SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='detalle_document_electronic' AND COLUMN_NAME='entregado'")->fetchColumn() > 0;
         $colEntregadoFE = $tieneEntregadoFE ? ', entregado' : '';
         $valEntregadoFE = $tieneEntregadoFE ? ', ?' : '';
@@ -329,13 +342,9 @@ try {
              tax_id, tax_amount, taxable_amount, tax_percent $colEntregadoFE)
             VALUES (?, ?, ?, ?, ?, 0, ?, 3, ?, ?, ?, ?, 1, ?, ?, ? $valEntregadoFE)
         ");
-        $stmtStockFE = $db->prepare("UPDATE tblarticulos SET Existencia = Existencia - :cant WHERE Items = :items");
-        $stmtKardexFE = $db->prepare("
-            INSERT INTO tblkardex (Fecha, Mes, Items, Detalle, C_D, Cant_Ent, Cost_Ent, Cant_Sal, Cost_Sal, Cant_Saldo, Cost_Saldo, Cost_Unit)
-            VALUES (NOW(), :mes, :items, :det, 2, 0, 0, :cant, :cost_sal, :saldo_cant, :saldo_cost, :cost_unit)
-        ");
-        $mesNombreFE = (['','Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'])[$mesActual] ?? '';
-        $refKardex = "$prefijo-$docElecId"; // provisional; cuando DIAN autoriza queda prefix+number real
+        // Referencia textual para el abono inicial (si aplica). Antes se usaba
+        // también como detalle del kardex, pero el kardex ya no se inserta aquí.
+        $refKardex = "$prefijo-$docElecId";
 
         foreach ($data->items as $item) {
             $itemId = intval($item->items);
@@ -379,29 +388,7 @@ try {
             ];
             if ($tieneEntregadoFE) $paramsDetFE[] = $entregadoFE;
             $stmtDetFE->execute($paramsDetFE);
-
-            // Servicios no mueven stock/kardex
-            if ($esServicio) continue;
-
-            // Línea pendiente (fabricación): no descuenta stock ni kardex.
-            if ($entregadoFE === 'N') continue;
-
-            // Stock + kardex (igual que POS, solo cambia el string Detalle)
-            $stmtStockFE->execute([':cant' => $cant, ':items' => $itemId]);
-            $exi = $db->prepare("SELECT Existencia, Precio_Costo FROM tblarticulos WHERE Items = ?");
-            $exi->execute([$itemId]);
-            $a = $exi->fetch();
-            if ($a) {
-                $costoUnit = floatval($a['Precio_Costo']);
-                $existActual = floatval($a['Existencia']);
-                $stmtKardexFE->execute([
-                    ':mes' => $mesNombreFE, ':items' => $itemId,
-                    ':det' => "Venta FE N° $refKardex",
-                    ':cant' => $cant, ':cost_sal' => $cant * $costoUnit,
-                    ':saldo_cant' => $existActual, ':saldo_cost' => $existActual * $costoUnit,
-                    ':cost_unit' => $costoUnit
-                ]);
-            }
+            // (No se toca tblarticulos ni tblkardex aquí — ver bloque superior.)
         }
 
         // Abono inicial en FE a crédito → tblpagos con Nfact_electronica

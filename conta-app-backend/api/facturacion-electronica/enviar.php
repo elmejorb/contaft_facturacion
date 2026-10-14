@@ -908,7 +908,12 @@ try {
                 $stmtPrefix = $db->prepare("SELECT prefix FROM electronic_documents WHERE id = ?");
                 $stmtPrefix->execute([$docElecId]);
                 $prefixUsado = $prefixDian ?: ($stmtPrefix->fetchColumn() ?: 'FCON');
-                $detalleKxVenta = "Venta FE Nº $prefixUsado-$consecutive";
+                // Marcador invisible [#id] con el id interno del electronic_document.
+                // Es la clave real para idempotencia: NO CAMBIA entre reintentos
+                // (el prefix y number sí cambian si DIAN los reasigna). Sin este
+                // marcador, un reenvío del mismo doc con otro prefix bajaba stock
+                // dos veces porque el detalle "Venta FE Nº X-Y" quedaba distinto.
+                $detalleKxVenta = "Venta FE Nº $prefixUsado-$consecutive [#$docElecId]";
                 $stmtItemsFE = $db->prepare("SELECT d.items, d.invoiced_quantity FROM detalle_document_electronic d WHERE d.factura_n = ?");
                 $stmtItemsFE->execute([$docElecId]);
                 $lineasFE = $stmtItemsFE->fetchAll();
@@ -917,13 +922,16 @@ try {
                 $stmtArt    = $db->prepare("SELECT Existencia, Precio_Costo, Servicio FROM tblarticulos WHERE Items = ?");
                 $stmtStock  = $db->prepare("UPDATE tblarticulos SET Existencia = Existencia - ? WHERE Items = ?");
                 $stmtKardex = $db->prepare("INSERT INTO tblkardex (Fecha, Mes, Items, Detalle, C_D, Cant_Ent, Cost_Ent, Cant_Sal, Cost_Sal, Cant_Saldo, Cost_Saldo, Cost_Unit) VALUES (NOW(), ?, ?, ?, 2, 0, 0, ?, ?, ?, ?, ?)");
-                $stmtExiste = $db->prepare("SELECT COUNT(*) FROM tblkardex WHERE Items = ? AND C_D = 2 AND Detalle = ?");
+                // El chequeo por LIKE busca el marcador [#id]: aunque el prefix/number
+                // cambie entre reintentos, el id interno del doc se mantiene.
+                $stmtExiste = $db->prepare("SELECT COUNT(*) FROM tblkardex WHERE Items = ? AND C_D = 2 AND Detalle LIKE ?");
+                $marcadorIdem = '%[#' . intval($docElecId) . ']%';
                 foreach ($lineasFE as $lf) {
                     $itemsId = intval($lf['items']);
                     $cant    = abs(floatval($lf['invoiced_quantity']));
                     if ($itemsId <= 0 || $cant <= 0) continue;
                     // Idempotencia: si ya bajamos este mismo kardex, saltar
-                    $stmtExiste->execute([$itemsId, $detalleKxVenta]);
+                    $stmtExiste->execute([$itemsId, $marcadorIdem]);
                     if (intval($stmtExiste->fetchColumn()) > 0) continue;
                     $stmtArt->execute([$itemsId]);
                     $art = $stmtArt->fetch();

@@ -157,7 +157,24 @@ try {
             $valorNuevo   = floatval($data['valor'] ?? $gasto['Valor']);
             $beneficiario = $data['beneficiario'] ?? $gasto['Orden'];
             $cedula       = $data['cedula']       ?? $gasto['Cedula'];
-            $fecha        = $data['fecha']        ?? $gasto['Fecha'];
+            // Fecha al editar: si el frontend solo manda YYYY-MM-DD (input type=date),
+            // preservamos la hora que ya tenía el gasto para no bajarla a 00:00:00
+            // (ver bug 4.7.14: egreso editado quedaba fuera del cuadre de caja
+            //  porque Fecha=YYYY-MM-DD 00:00:00 < FechaApertura de la sesión).
+            $fechaIn = $data['fecha'] ?? null;
+            if ($fechaIn && preg_match('/^\d{4}-\d{2}-\d{2}$/', $fechaIn)) {
+                // Si el gasto original ya tenía hora, la conservamos; si no, usamos NOW().
+                $horaOrig = substr($gasto['Fecha'], 11, 8);
+                if ($horaOrig && $horaOrig !== '00:00:00') {
+                    $fecha = $fechaIn . ' ' . $horaOrig;
+                } else {
+                    $fecha = $fechaIn . ' ' . date('H:i:s');
+                }
+            } elseif ($fechaIn) {
+                $fecha = $fechaIn;
+            } else {
+                $fecha = $gasto['Fecha'];
+            }
             $categoria    = $data['categoria']    ?? $gasto['categoria_gasto'];
 
             if (!$concepto || $valorNuevo <= 0) {
