@@ -5,6 +5,8 @@ const os = require('os');
 const http = require('http');
 const https = require('https');
 const crypto = require('crypto');
+const net = require('net');
+const { spawn } = require('child_process');
 const { URL } = require('url');
 
 // machine_id estable por equipo: hash de hostname + user + plataforma + CPU.
@@ -931,11 +933,109 @@ function migrarUserDataDesdeVersionesViejas() {
   }
 }
 
-app.whenReady().then(() => {
+// ============================================================
+// Backend PHP embebido (desde 4.8.0 — ver PLAN-EXPANSION-MERCADO.md)
+// Permite que la app arranque sin XAMPP ni Apache externos. Solo se
+// activa si config.backendMode === 'embedded'; clientes existentes
+// (que no tienen esa flag) siguen con su Apache local y no se
+// enteran de nada.
+// ============================================================
+let phpProcess = null;
+let phpPortActivo = null;
+
+async function puertoLibre(preferido) {
+  const probar = (p) => new Promise((resolve) => {
+    const srv = net.createServer();
+    srv.once('error', () => resolve(false));
+    srv.once('listening', () => srv.close(() => resolve(true)));
+    srv.listen(p, '127.0.0.1');
+  });
+  if (await probar(preferido)) return preferido;
+  // Si el preferido está ocupado, pedir uno aleatorio al OS
+  return await new Promise((resolve) => {
+    const srv = net.createServer();
+    srv.listen(0, '127.0.0.1', () => {
+      const p = srv.address().port;
+      srv.close(() => resolve(p));
+    });
+  });
+}
+
+async function startEmbeddedPHP() {
+  const cfg = readConfig();
+  if (cfg.backendMode !== 'embedded') return; // Modo legacy: nada que hacer.
+
+  const isPackaged = app.isPackaged;
+  const phpDir = isPackaged
+    ? path.join(process.resourcesPath, 'php-portable')
+    : path.join(__dirname, '..', 'php-portable');
+  const backendDir = isPackaged
+    ? path.join(process.resourcesPath, 'backend')
+    : path.join(__dirname, '..', '..', 'conta-app-backend');
+
+  const phpExe = path.join(phpDir, 'php.exe');
+  const phpIni = path.join(phpDir, 'php.ini');
+  if (!fs.existsSync(phpExe)) {
+    console.error('[php] No se encontró php.exe en', phpExe, '— modo embebido deshabilitado para esta corrida.');
+    return;
+  }
+
+  // Config.json del backend: le decimos a PHP que lea el config SQLite
+  // desde userData (nunca lo distribuimos en el .exe).
+  const configBackendPath = path.join(app.getPath('userData'), 'backend-config.json');
+  if (!fs.existsSync(configBackendPath)) {
+    const dbPath = path.join(app.getPath('userData'), 'conta.db').replace(/\\/g, '/');
+    const backendCfg = {
+      driver: 'sqlite',
+      sqlite: { path: dbPath },
+      mysql: cfg.backendMysql || { host: 'localhost', database: 'conta_demo', username: 'root', password: '' },
+    };
+    fs.writeFileSync(configBackendPath, JSON.stringify(backendCfg, null, 2));
+    console.log('[php] backend-config.json creado en', configBackendPath);
+  }
+
+  phpPortActivo = await puertoLibre(cfg.phpPreferredPort || 8089);
+  const docRoot = path.join(backendDir, 'api');
+
+  console.log(`[php] arrancando built-in server en 127.0.0.1:${phpPortActivo} (doc root: ${docRoot})`);
+  phpProcess = spawn(phpExe, ['-c', phpIni, '-S', `127.0.0.1:${phpPortActivo}`, '-t', docRoot], {
+    cwd: docRoot,
+    env: { ...process.env, CONTA_CONFIG_PATH: configBackendPath },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+
+  phpProcess.stdout.on('data', (d) => console.log('[php stdout]', d.toString().trim()));
+  phpProcess.stderr.on('data', (d) => console.log('[php stderr]', d.toString().trim()));
+  phpProcess.on('exit', (code, signal) => {
+    console.log(`[php] built-in server terminó (code=${code}, signal=${signal})`);
+    phpProcess = null;
+  });
+
+  // Si config.json tiene apiUrl pointing al puerto 80 clásico Y el modo es
+  // embebido, lo redirigimos al puerto dinámico (en memoria, no persistimos
+  // para no romper si vuelven a modo legacy).
+  const apiUrlNueva = `http://127.0.0.1:${phpPortActivo}`;
+  if (!cfg.apiUrl || cfg.apiUrl.includes('localhost:80') || cfg.apiUrl.includes('127.0.0.1:80')) {
+    // Guardar en runtime para que el frontend sepa a dónde llamar
+    writeConfig({ apiUrlRuntime: apiUrlNueva });
+    console.log(`[php] apiUrl runtime fijada en ${apiUrlNueva}`);
+  }
+}
+
+function stopEmbeddedPHP() {
+  if (phpProcess) {
+    console.log('[php] matando built-in server (pid=' + phpProcess.pid + ')');
+    try { phpProcess.kill(); } catch {}
+    phpProcess = null;
+  }
+}
+
+app.whenReady().then(async () => {
   Menu.setApplicationMenu(null);
   migrarUserDataDesdeVersionesViejas();
   ensureConfigExists();
   syncBackend();
+  await startEmbeddedPHP();
   createWindow();
 
   app.on('activate', () => {
@@ -985,4 +1085,5 @@ app.on('window-all-closed', () => {
 
 app.on('will-quit', () => {
   globalShortcut.unregisterAll();
+  stopEmbeddedPHP();
 });
