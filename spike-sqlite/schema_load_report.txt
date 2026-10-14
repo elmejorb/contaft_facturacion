@@ -1,0 +1,36 @@
+=== Segundo pass de limpieza ===
+  Bloques DELIMITER (procedures/triggers): 9 removidos
+  LOCK/UNLOCK TABLES: 202 removidos
+  CREATE VIEW: cláusulas MySQL-only quitadas
+
+=== Resultado de la carga ===
+Sentencias ejecutadas OK: 281
+Tablas creadas: 100 / Tablas fallidas: 1
+
+=== Errores por tipo ===
+  syntax error                   3
+  no such table (orden FK)       1
+
+=== Detalle de errores (primeros 30) ===
+  · FALLÓ TABLE tblreferenciasarticulos: SQLSTATE[HY000]: General error: 1 near "AUTOINCREMENT": syntax error
+  · FALLÓ INDEX idx_tblarticulos_idx_nombre_articulo: SQLSTATE[HY000]: General error: 1 near ";": syntax error
+  · FALLÓ INDEX idx_tblarticulos2_idx_nombre_articulo: SQLSTATE[HY000]: General error: 1 near ";": syntax error
+  · FALLÓ INDEX idx_tblreferenciasarticulos_idRefeArt: SQLSTATE[HY000]: General error: 1 no such table: main.tblreferenciasarticulos
+
+=== Verificación: tablas que importan al día a día ===
+  tblventas                           OK
+  tbldetalle_venta                    OK
+  tblkardex                           OK
+  tblarticulos                        OK
+  tblclientes                         OK
+  tblproveedores                      OK
+  tblpagos                            OK
+  tblegresos                          OK
+  tblcajas                            OK
+  tblsesiones_caja                    OK
+  tblpedidos                          OK
+  tbldetalle_pedido                   OK
+  tbldatosempresa                     OK
+  tblusuarios                         OK
+  electronic_documents                OK
+  detalle_document_electronic         OK

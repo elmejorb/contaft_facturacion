@@ -1,0 +1,45 @@
+=== Reemplazos mecánicos aplicados ===
+  /*!...*/ pragmas MySQL                        856 ocurrencias
+  SET session (SQL_MODE, @saved_, @old_)        54 ocurrencias
+  SET character_set_client                      0 ocurrencias
+  START TRANSACTION → BEGIN                   0 ocurrencias
+  backticks → comillas dobles                 2489 ocurrencias
+  COMMENT en columna/tabla                      31 ocurrencias
+  ENGINE=InnoDB                                 101 ocurrencias
+  DEFAULT CHARSET=utf8mb4                       101 ocurrencias
+  COLLATE= tabla                                101 ocurrencias
+  COLLATE columna                               1 ocurrencias
+  CHARACTER SET                                 1 ocurrencias
+  ROW_FORMAT=DYNAMIC                            0 ocurrencias
+  AUTO_INCREMENT=N (tabla)                      36 ocurrencias
+  tinyint(N) → INTEGER                        34 ocurrencias
+  smallint(N) → INTEGER                       0 ocurrencias
+  mediumint(N) → INTEGER                      0 ocurrencias
+  bigint(N) → INTEGER                         23 ocurrencias
+  int(N) → INTEGER                            327 ocurrencias
+  float(p,s) → REAL                           0 ocurrencias
+  double(p,s) → REAL                          0 ocurrencias
+  decimal(p,s) → NUMERIC                      204 ocurrencias
+  numeric(p,s) → NUMERIC                      0 ocurrencias
+  AUTO_INCREMENT (col)                          79 ocurrencias
+  enum(...) → TEXT                            15 ocurrencias
+  set(...) → TEXT                             0 ocurrencias
+  ON UPDATE CURRENT_TIMESTAMP                   4 ocurrencias
+  current_timestamp() → CURRENT_TIMESTAMP     39 ocurrencias
+  PRIMARY KEY + AUTOINCREMENT                   78 PKs fusionadas con AUTOINCREMENT
+  KEY inline → CREATE INDEX                   149 índices extraídos a CREATE INDEX
+
+=== Patrones MySQL-only detectados (requieren revisión manual) ===
+  TRIGGER                   0 apariciones
+  PROCEDURE                 9 apariciones
+  FUNCTION                  0 apariciones
+  VIEW_WITH_IF              18 apariciones
+  EVENT                     0 apariciones
+  LOCK_TABLES               101 apariciones
+  UNLOCK                    101 apariciones
+  FULLTEXT                  0 apariciones
+  GENERATED_AS              1 apariciones
+  DELIMITER                 18 apariciones
+
+=== Tablas en el output final ===
+Total: 101
