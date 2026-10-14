@@ -18,7 +18,22 @@
 require_once __DIR__ . '/lib/TestCase.php';
 require_once __DIR__ . '/lib/setup_db.php';
 
-$filtro = $argv[1] ?? '';
+// Parsing de argumentos: --driver=sqlite|mysql + opcionalmente un filtro de slug
+$filtro = '';
+$driver = null;
+foreach (array_slice($argv, 1) as $arg) {
+    if (preg_match('~^--driver=(\w+)$~', $arg, $m)) {
+        $driver = $m[1];
+    } elseif (strpos($arg, '--') !== 0) {
+        $filtro = $arg;
+    }
+}
+if ($driver) {
+    putenv("TEST_DB_DRIVER=$driver");
+    $_ENV['TEST_DB_DRIVER'] = $driver;
+}
+$driverActivo = $_ENV['TEST_DB_DRIVER'] ?? getenv('TEST_DB_DRIVER') ?: 'mysql';
+
 $casesDir = __DIR__ . '/cases';
 $archivos = glob("$casesDir/test_*.php");
 if ($filtro) {
@@ -31,7 +46,7 @@ if (!$archivos) {
 }
 
 echo str_repeat('=', 72) . "\n";
-echo "SUITE DE PRUEBAS — Conta FT backend (" . count($archivos) . " casos)\n";
+echo "SUITE DE PRUEBAS — Conta FT backend (" . count($archivos) . " casos) [driver=$driverActivo]\n";
 echo str_repeat('=', 72) . "\n\n";
 
 try {

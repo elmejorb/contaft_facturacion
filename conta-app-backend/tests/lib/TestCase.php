@@ -17,16 +17,28 @@ abstract class TestCase {
     public $failed = 0;
 
     public function setUp() {
-        $this->db = new PDO('mysql:host=localhost;dbname=conta_test;charset=utf8mb4', 'root', 'root', [
-            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-        ]);
-        // Desactivar strict mode para esta conexión — permite INSERTs mínimos
-        // en tablas con muchas columnas NOT NULL sin default (los valores se
-        // completan con '' / 0 / NULL). Las aserciones del test siguen siendo
-        // estrictas; esto solo evita que el seed se rompa cada vez que agregan
-        // una columna nueva al schema.
-        $this->db->exec("SET SESSION sql_mode = ''");
+        $driver = $_ENV['TEST_DB_DRIVER'] ?? getenv('TEST_DB_DRIVER') ?: 'mysql';
+        if ($driver === 'sqlite') {
+            $dbPath = __DIR__ . '/../fixtures/conta_test.db';
+            $this->db = new PDO("sqlite:$dbPath", null, null, [
+                PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+                PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+            ]);
+            $this->db->exec('PRAGMA foreign_keys = ON');
+            $this->db->exec('PRAGMA busy_timeout = 5000');
+        } else {
+            $this->db = new PDO('mysql:host=localhost;dbname=conta_test;charset=utf8mb4', 'root', 'root', [
+                PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+                PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+            ]);
+            // Desactivar strict mode para esta conexión — permite INSERTs mínimos
+            // en tablas con muchas columnas NOT NULL sin default.
+            $this->db->exec("SET SESSION sql_mode = ''");
+        }
+    }
+
+    protected function getDriver(): string {
+        return $_ENV['TEST_DB_DRIVER'] ?? getenv('TEST_DB_DRIVER') ?: 'mysql';
     }
 
     abstract public function run();

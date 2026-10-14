@@ -103,6 +103,8 @@
                         "filter": [
                               "**/*",
                               "!api/config/database.php",
+                              "!api/config/config.json",
+                              "!tests/**",
                               "!**/*.log",
                               "!**/.git/**",
                               "!**/node_modules/**"
