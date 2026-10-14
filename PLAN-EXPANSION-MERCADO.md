@@ -166,15 +166,33 @@ El 85% de los endpoints ya funciona sin tocar nada (PDO abstrae MySQL/SQLite). E
 
 ---
 
-### Fase 3 — Datos de demo + modo trial (3-4 días)
+### Fase 3 — Trial 30 días con la data propia del cliente (2 días)
 
-- Crear `conta_demo_14dias.sql` con empresa demo, 10 productos, 3 clientes, 5 proveedores, movimientos de ejemplo del último mes (ventas, pagos, un egreso, un cuadre cerrado) para que el cliente pueda explorar todos los informes sin tener que digitar nada primero.
-- Primera corrida: el instalador carga este fixture. En `tbldatosempresa` agregar un campo `fecha_fin_trial` = NOW + 14 días.
-- Banner persistente arriba de la app: *"Modo demo — N días restantes · Activar licencia"*.
-- Al día 14 + 1: la app abre pero bloquea Nueva Venta / Nueva Compra. Muestra modal "Tu demo venció — Activa para seguir usando" con botón directo al flujo de pago (Fase 4).
-- Botón "Empezar en blanco" dentro de Configuración → borra la demo y arranca una BD limpia con solo la empresa del cliente. Útil cuando ya pagó y quiere su data propia.
+**Modelo**: el cliente NO recibe una BD con datos simulados. Recibe una BD limpia (solo catálogos DIAN + plan de cuentas default), ingresa SU empresa, SUS productos, SUS clientes, y trabaja normalmente durante 30 días. Al día 31 se le pide activar la licencia.
 
-**Criterio de aceptación**: cliente ficticio instala, abre, navega, intenta facturar en día 15 → ve el modal de activación.
+Es como Alegra, QuickBooks, Siigo y la mayoría del mercado — y comercialmente es mucho más fuerte porque al vencer el trial el cliente YA tiene su data cargada y pagar es decisión natural (no quiere perder lo que lleva un mes digitando).
+
+#### Qué se construye
+
+- **Primer arranque** detecta que `conta.db` no existe en `userData`. Lo crea desde `schema_sqlite.sql` + catálogos DIAN + plan de cuentas default. Guarda `trial_inicio` en `config.json` con la fecha de hoy.
+- **Banner suave arriba** de la app: *"Prueba gratis — 23 días restantes · Activar licencia"*. Verde los primeros días, amarillo <7, rojo <1.
+- **Al día 31**: la app abre normal pero bloquea los botones de **Nueva Venta** y **Nueva Compra**. El cliente SIGUE pudiendo leer todos sus informes, imprimir su histórico, consultar sus clientes. Lo único que no puede es facturar nuevo.
+- **Modal al bloquear**: *"Tu prueba de 30 días venció. Activa tu licencia para seguir facturando — tu información queda intacta."* Con botón directo a la pantalla de pago (Fase 4).
+- **Al activar**: el bloqueo se levanta inmediatamente. Toda la data del cliente queda igual, no se borra nada.
+
+#### Lo que NO perdemos de valor
+
+El beneficio de "la app funciona apenas la abro, sin pedir configuración" se mantiene: el cliente abre, le pide los datos de su empresa (NIT, nombre, dirección), empieza a facturar la primera venta. 30 segundos.
+
+#### Ventajas sobre el modelo anterior
+
+| Modelo anterior (fixtures demo) | Nuevo modelo (BD limpia, trial 30 días) |
+|---|---|
+| Cliente juega con empresa falsa; al comprar, borra todo y empieza de cero | Cliente trabaja con su data desde día 1; al pagar, nada se pierde |
+| Fixtures que mantener alineados con el schema | Cero mantenimiento de datos de ejemplo |
+| Trial 14 días (presión de "explorar") | Trial 30 días (presión real: "no quiero perder lo que ingresé") |
+
+**Criterio de aceptación**: instalador fresh, cliente ingresa datos de su empresa, factura durante 30 días, día 31 ve el modal y no puede facturar más. Al activar sigue como estaba.
 
 ---
 

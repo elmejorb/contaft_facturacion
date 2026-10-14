@@ -539,6 +539,10 @@ ipcMain.handle('updater:install', () => {
   // (bug reportado por múltiples clientes 2026-09-30).
   autoUpdater.quitAndInstall(true, true);
 });
+// Trial 30 días (modo embebido) — el frontend lo lee para mostrar banner y
+// bloquear flujos cuando venza.
+ipcMain.handle('trial:getStatus', () => getTrialStatus());
+
 ipcMain.handle('subscription:check', () => validateForUsage());
 ipcMain.handle('subscription:checkUpdate', () => validateForUpdate());
 ipcMain.handle('subscription:setOfflineCode', (_, code) => {
@@ -961,6 +965,97 @@ async function puertoLibre(preferido) {
   });
 }
 
+// Bootstrap de la BD SQLite en primera corrida: crea conta.db desde el
+// schema vacío + catálogos DIAN. El cliente arranca con una BD limpia y
+// trabaja con SUS datos desde el día 1. No cargamos datos de ejemplo —
+// el valor del trial de 30 días es precisamente que el cliente ingresa
+// su data real y al vencer el trial no quiere perderla.
+function bootstrapSqliteDb() {
+  const isPackaged = app.isPackaged;
+  const sqlDir = isPackaged
+    ? path.join(process.resourcesPath, 'backend', 'sql')
+    : path.join(__dirname, '..', '..', 'conta-app-backend', 'sql');
+  const schemaPath = path.join(sqlDir, 'schema_sqlite_cliente.sql');
+  const dianPath   = path.join(sqlDir, 'dian_catalog_sqlite.sql');
+  const dbPath = path.join(app.getPath('userData'), 'conta.db');
+
+  if (fs.existsSync(dbPath)) return; // Ya existe — no re-bootstrapear.
+  if (!fs.existsSync(schemaPath)) {
+    console.warn('[bootstrap] No se encontró schema SQLite en', schemaPath);
+    return;
+  }
+
+  console.log('[bootstrap] creando BD SQLite nueva en', dbPath);
+  // Usamos el PHP portable con sqlite para cargar el schema. No podemos usar
+  // better-sqlite3 porque no es dependencia del proyecto. PHP ya está en
+  // php-portable/ (lo necesitamos para el server embebido).
+  const phpDir = isPackaged
+    ? path.join(process.resourcesPath, 'php-portable')
+    : path.join(__dirname, '..', 'php-portable');
+  const phpExe = path.join(phpDir, 'php.exe');
+  const phpIni = path.join(phpDir, 'php.ini');
+
+  const loadScript = `
+    $pdo = new PDO('sqlite:' . ${JSON.stringify(dbPath).replace(/"/g, "'")});
+    $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+    $pdo->exec('PRAGMA journal_mode = WAL');
+    $pdo->exec('PRAGMA foreign_keys = OFF');
+    function cargar($pdo, $path) {
+      $sql = file_get_contents($path);
+      $lineas = preg_split('~\\r?\\n~', $sql);
+      $lineas = array_filter($lineas, fn($l) => !preg_match('~^\\s*--~', $l));
+      $sql = implode("\\n", $lineas);
+      $sql = preg_replace('~/\\*![0-9]+ .*? \\*/;?~m', '', $sql);
+      $sql = preg_replace('~^SET\\s+[^;]+;~mi', '', $sql);
+      $sql = preg_replace('~^(LOCK|UNLOCK)\\s+TABLES[^;]*;~mi', '', $sql);
+      $sql = preg_replace('~\`([^\`]+)\`~', '"$1"', $sql);
+      foreach (explode(';', $sql) as $stmt) {
+        $stmt = trim($stmt);
+        if ($stmt === '') continue;
+        try { $pdo->exec($stmt); } catch (Exception $e) { /* tolerar errores menores */ }
+      }
+    }
+    cargar($pdo, ${JSON.stringify(schemaPath).replace(/"/g, "'")});
+    cargar($pdo, ${JSON.stringify(dianPath).replace(/"/g, "'")});
+    $pdo->exec('PRAGMA foreign_keys = ON');
+    $n = $pdo->query("SELECT COUNT(*) FROM sqlite_master WHERE type='table'")->fetchColumn();
+    echo "tablas=\$n\\n";
+  `.trim();
+
+  const result = require('child_process').spawnSync(
+    phpExe, ['-c', phpIni, '-r', loadScript],
+    { encoding: 'utf8', timeout: 30000 }
+  );
+  if (result.status === 0) {
+    console.log('[bootstrap] BD SQLite creada:', (result.stdout || '').trim());
+  } else {
+    console.error('[bootstrap] falló:', result.stderr || result.stdout);
+  }
+}
+
+// Inicializa el trial de 30 días en primera corrida.
+// Guarda la fecha en config.json; a partir de ahí getTrialStatus() calcula.
+function ensureTrialInicio() {
+  const cfg = readConfig();
+  if (cfg.trial_inicio) return; // Ya se inicializó
+  writeConfig({ trial_inicio: new Date().toISOString().substring(0, 10) });
+  console.log('[trial] trial de 30 días iniciado hoy');
+}
+
+function getTrialStatus() {
+  const cfg = readConfig();
+  if (!cfg.trial_inicio) return { activo: false, iniciado: false };
+  if (cfg.suscripcion_activa) return { activo: false, suscripcion: true, dias_restantes: null };
+  const DURACION = 30;
+  const inicio = new Date(cfg.trial_inicio + 'T00:00:00');
+  const hoy = new Date();
+  const dias_transcurridos = Math.floor((hoy - inicio) / (1000 * 60 * 60 * 24));
+  const dias_restantes = Math.max(0, DURACION - dias_transcurridos);
+  const vencido = dias_restantes === 0;
+  const nivel = vencido ? 'rojo' : dias_restantes < 7 ? 'amarillo' : 'verde';
+  return { activo: true, iniciado: true, dias_transcurridos, dias_restantes, vencido, nivel };
+}
+
 async function startEmbeddedPHP() {
   const cfg = readConfig();
   if (cfg.backendMode !== 'embedded') return; // Modo legacy: nada que hacer.
@@ -1035,6 +1130,13 @@ app.whenReady().then(async () => {
   migrarUserDataDesdeVersionesViejas();
   ensureConfigExists();
   syncBackend();
+  // Bootstrap SQLite + trial — solo si el usuario está en modo embebido.
+  // Si está en modo legacy (Apache externo con MySQL), nada de esto corre.
+  const cfg = readConfig();
+  if (cfg.backendMode === 'embedded') {
+    bootstrapSqliteDb();
+    ensureTrialInicio();
+  }
   await startEmbeddedPHP();
   createWindow();
 
