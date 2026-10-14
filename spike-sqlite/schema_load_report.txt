@@ -4,18 +4,36 @@
   CREATE VIEW: cláusulas MySQL-only quitadas
 
 === Resultado de la carga ===
-Sentencias ejecutadas OK: 281
-Tablas creadas: 100 / Tablas fallidas: 1
+Sentencias ejecutadas OK: 283
+Tablas creadas: 101 / Tablas fallidas: 0
 
 === Errores por tipo ===
-  syntax error                   3
-  no such table (orden FK)       1
+  syntax error                   2
 
 === Detalle de errores (primeros 30) ===
-  · FALLÓ TABLE tblreferenciasarticulos: SQLSTATE[HY000]: General error: 1 near "AUTOINCREMENT": syntax error
   · FALLÓ INDEX idx_tblarticulos_idx_nombre_articulo: SQLSTATE[HY000]: General error: 1 near ";": syntax error
   · FALLÓ INDEX idx_tblarticulos2_idx_nombre_articulo: SQLSTATE[HY000]: General error: 1 near ";": syntax error
-  · FALLÓ INDEX idx_tblreferenciasarticulos_idRefeArt: SQLSTATE[HY000]: General error: 1 no such table: main.tblreferenciasarticulos
+
+=== Vistas creadas ===
+Total: 18
+  · ver_factura
+  · view_detalles_ventas
+  · view_listado_facturas_electronica
+  · vw_auditoria_inventario_90d
+  · vw_capacidad_compuestos
+  · vw_componentes_detalle
+  · vw_diagnostico_inventario_30d
+  · vw_facturas_anteriores_cliente
+  · vw_facturas_cliente_saldos
+  · vw_facturas_elec_cliente_saldos
+  · vw_item_ventas_30d
+  · vw_item_ventas_90d
+  · vw_lotes_por_vencer
+  · vw_productos_stock_bajo
+  · vw_prov_cxp_aging
+  · vw_prov_facturas_anteriores_saldos
+  · vw_prov_pedidos_credito_saldos
+  · vw_proveedores_saldo_actual
 
 === Verificación: tablas que importan al día a día ===
   tblventas                           OK

@@ -1,0 +1,25 @@
+=== Verificación funcional de las 18 vistas ===
+  ✓ ver_factura
+  ✓ view_detalles_ventas
+  ✓ view_listado_facturas_electronica
+  ✓ vw_auditoria_inventario_90d
+  ✓ vw_capacidad_compuestos
+  ✓ vw_componentes_detalle
+  ✓ vw_diagnostico_inventario_30d
+  ✓ vw_facturas_anteriores_cliente
+  ✓ vw_facturas_cliente_saldos
+  ✓ vw_facturas_elec_cliente_saldos
+  ✓ vw_item_ventas_30d
+  ✓ vw_item_ventas_90d
+  ✓ vw_lotes_por_vencer
+  ✓ vw_productos_stock_bajo
+  ✓ vw_prov_cxp_aging
+  ✓ vw_prov_facturas_anteriores_saldos
+  ✓ vw_prov_pedidos_credito_saldos
+  ✓ vw_proveedores_saldo_actual
+
+=== Resumen ===
+Vistas que funcionan: 18 / 18
+Vistas que fallan al ejecutar: 0
+
+=== Errores por tipo ===

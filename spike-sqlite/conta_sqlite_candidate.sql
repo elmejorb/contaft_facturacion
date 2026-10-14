@@ -2381,8 +2381,7 @@ UNLOCK TABLES;
 DROP TABLE IF EXISTS "tblreferenciasarticulos";
 
 
-CREATE TABLE "tblreferenciasarticulos" (
-  "idRefeArt" INTEGER NOT NULL AUTOINCREMENT,
+CREATE TABLE "tblreferenciasarticulos" (  "idRefeArt" INTEGER PRIMARY KEY AUTOINCREMENT,
   "Id_DetalleVenta" INTEGER NOT NULL,
   "RerenciaPro" varchar(100) NOT NULL);
 
@@ -3024,7 +3023,7 @@ DROP TABLE IF EXISTS "ver_factura";
 /*!50001 DROP VIEW IF EXISTS "ver_factura"*/;
 
 
-/*!50001 CREATE VIEW "ver_factura" AS SELECT
+CREATE VIEW "ver_factura" AS SELECT
  1 AS "Factura_N",
   1 AS "Fecha",
   1 AS "Hora",
@@ -3040,7 +3039,7 @@ DROP TABLE IF EXISTS "ver_factura";
   1 AS "Saldo",
   1 AS "Pago",
   1 AS "Cambio",
-  1 AS "Nombre" */;
+  1 AS "Nombre" ;
 
 
 --
@@ -3051,7 +3050,7 @@ DROP TABLE IF EXISTS "view_detalles_ventas";
 /*!50001 DROP VIEW IF EXISTS "view_detalles_ventas"*/;
 
 
-/*!50001 CREATE VIEW "view_detalles_ventas" AS SELECT
+CREATE VIEW "view_detalles_ventas" AS SELECT
  1 AS "Factura_N",
   1 AS "Items",
   1 AS "Codigo",
@@ -3062,7 +3061,7 @@ DROP TABLE IF EXISTS "view_detalles_ventas";
   1 AS "DescuPro",
   1 AS "Entregado",
   1 AS "subtotal",
-  1 AS "impuesto" */;
+  1 AS "impuesto" ;
 
 
 --
@@ -3073,7 +3072,7 @@ DROP TABLE IF EXISTS "view_listado_facturas_electronica";
 /*!50001 DROP VIEW IF EXISTS "view_listado_facturas_electronica"*/;
 
 
-/*!50001 CREATE VIEW "view_listado_facturas_electronica" AS SELECT
+CREATE VIEW "view_listado_facturas_electronica" AS SELECT
  1 AS "fecha",
   1 AS "num_factura",
   1 AS "tipo_doc",
@@ -3088,7 +3087,7 @@ DROP TABLE IF EXISTS "view_listado_facturas_electronica";
   1 AS "fechahora",
   1 AS "number",
   1 AS "type_document_id",
-  1 AS "email_sent" */;
+  1 AS "email_sent" ;
 
 
 --
@@ -3099,7 +3098,7 @@ DROP TABLE IF EXISTS "vw_auditoria_inventario_90d";
 /*!50001 DROP VIEW IF EXISTS "vw_auditoria_inventario_90d"*/;
 
 
-/*!50001 CREATE VIEW "vw_auditoria_inventario_90d" AS SELECT
+CREATE VIEW "vw_auditoria_inventario_90d" AS SELECT
  1 AS "Items",
   1 AS "Codigo",
   1 AS "Nombres_Articulo",
@@ -3115,7 +3114,7 @@ DROP TABLE IF EXISTS "vw_auditoria_inventario_90d";
   1 AS "Dias_Stock",
   1 AS "Categoria",
   1 AS "Proveedor",
-  1 AS "Auditoria" */;
+  1 AS "Auditoria" ;
 
 
 --
@@ -3126,14 +3125,14 @@ DROP TABLE IF EXISTS "vw_capacidad_compuestos";
 /*!50001 DROP VIEW IF EXISTS "vw_capacidad_compuestos"*/;
 
 
-/*!50001 CREATE VIEW "vw_capacidad_compuestos" AS SELECT
+CREATE VIEW "vw_capacidad_compuestos" AS SELECT
  1 AS "Items_Padre",
   1 AS "Codigo",
   1 AS "Producto",
   1 AS "Unidades_Posibles",
   1 AS "Costo_Total_Receta",
   1 AS "Precio_Venta",
-  1 AS "Num_Componentes" */;
+  1 AS "Num_Componentes" ;
 
 
 --
@@ -3144,7 +3143,7 @@ DROP TABLE IF EXISTS "vw_componentes_detalle";
 /*!50001 DROP VIEW IF EXISTS "vw_componentes_detalle"*/;
 
 
-/*!50001 CREATE VIEW "vw_componentes_detalle" AS SELECT
+CREATE VIEW "vw_componentes_detalle" AS SELECT
  1 AS "Id_Componente",
   1 AS "Items_Padre",
   1 AS "Items_Componente",
@@ -3158,7 +3157,7 @@ DROP TABLE IF EXISTS "vw_componentes_detalle";
   1 AS "Nombre_Componente",
   1 AS "Stock_Componente",
   1 AS "Costo_Unit_Componente",
-  1 AS "Costo_Aporte" */;
+  1 AS "Costo_Aporte" ;
 
 
 --
@@ -3169,7 +3168,7 @@ DROP TABLE IF EXISTS "vw_diagnostico_inventario_30d";
 /*!50001 DROP VIEW IF EXISTS "vw_diagnostico_inventario_30d"*/;
 
 
-/*!50001 CREATE VIEW "vw_diagnostico_inventario_30d" AS SELECT
+CREATE VIEW "vw_diagnostico_inventario_30d" AS SELECT
  1 AS "Items",
   1 AS "Nombres_Articulo",
   1 AS "Existencia",
@@ -3179,7 +3178,7 @@ DROP TABLE IF EXISTS "vw_diagnostico_inventario_30d";
   1 AS "Unidades_Vendidas_30d",
   1 AS "Veces_Vendido_30d",
   1 AS "Capital_Invertido",
-  1 AS "Diagnostico" */;
+  1 AS "Diagnostico" ;
 
 
 --
@@ -3190,7 +3189,7 @@ DROP TABLE IF EXISTS "vw_facturas_anteriores_cliente";
 /*!50001 DROP VIEW IF EXISTS "vw_facturas_anteriores_cliente"*/;
 
 
-/*!50001 CREATE VIEW "vw_facturas_anteriores_cliente" AS SELECT
+CREATE VIEW "vw_facturas_anteriores_cliente" AS SELECT
  1 AS "CodigoCli",
   1 AS "FacturaN",
   1 AS "Fecha",
@@ -3200,7 +3199,7 @@ DROP TABLE IF EXISTS "vw_facturas_anteriores_cliente";
   1 AS "TotalPagos",
   1 AS "Saldo",
   1 AS "DiasVenc",
-  1 AS "Vencida" */;
+  1 AS "Vencida" ;
 
 
 --
@@ -3211,7 +3210,7 @@ DROP TABLE IF EXISTS "vw_facturas_cliente_saldos";
 /*!50001 DROP VIEW IF EXISTS "vw_facturas_cliente_saldos"*/;
 
 
-/*!50001 CREATE VIEW "vw_facturas_cliente_saldos" AS SELECT
+CREATE VIEW "vw_facturas_cliente_saldos" AS SELECT
  1 AS "Factura_N",
   1 AS "CodigoCli",
   1 AS "A_Nombre",
@@ -3225,7 +3224,7 @@ DROP TABLE IF EXISTS "vw_facturas_cliente_saldos";
   1 AS "EstadoFact",
   1 AS "FechaMod",
   1 AS "DiasVenc",
-  1 AS "Vencida" */;
+  1 AS "Vencida" ;
 
 
 --
@@ -3236,7 +3235,7 @@ DROP TABLE IF EXISTS "vw_facturas_elec_cliente_saldos";
 /*!50001 DROP VIEW IF EXISTS "vw_facturas_elec_cliente_saldos"*/;
 
 
-/*!50001 CREATE VIEW "vw_facturas_elec_cliente_saldos" AS SELECT
+CREATE VIEW "vw_facturas_elec_cliente_saldos" AS SELECT
  1 AS "DocID",
   1 AS "Factura_N",
   1 AS "CodigoCli",
@@ -3251,7 +3250,7 @@ DROP TABLE IF EXISTS "vw_facturas_elec_cliente_saldos";
   1 AS "EstadoFact",
   1 AS "updated_at",
   1 AS "DiasVenc",
-  1 AS "Vencida" */;
+  1 AS "Vencida" ;
 
 
 --
@@ -3262,10 +3261,10 @@ DROP TABLE IF EXISTS "vw_item_ventas_30d";
 /*!50001 DROP VIEW IF EXISTS "vw_item_ventas_30d"*/;
 
 
-/*!50001 CREATE VIEW "vw_item_ventas_30d" AS SELECT
+CREATE VIEW "vw_item_ventas_30d" AS SELECT
  1 AS "Items",
   1 AS "Unidades_Vendidas_30d",
-  1 AS "Veces_Vendido_30d" */;
+  1 AS "Veces_Vendido_30d" ;
 
 
 --
@@ -3276,12 +3275,12 @@ DROP TABLE IF EXISTS "vw_item_ventas_90d";
 /*!50001 DROP VIEW IF EXISTS "vw_item_ventas_90d"*/;
 
 
-/*!50001 CREATE VIEW "vw_item_ventas_90d" AS SELECT
+CREATE VIEW "vw_item_ventas_90d" AS SELECT
  1 AS "Items",
   1 AS "Unidades_Vendidas_90d",
   1 AS "Veces_Vendido_90d",
   1 AS "Total_Vendido_90d",
-  1 AS "Ultima_Venta" */;
+  1 AS "Ultima_Venta" ;
 
 
 --
@@ -3292,7 +3291,7 @@ DROP TABLE IF EXISTS "vw_lotes_por_vencer";
 /*!50001 DROP VIEW IF EXISTS "vw_lotes_por_vencer"*/;
 
 
-/*!50001 CREATE VIEW "vw_lotes_por_vencer" AS SELECT
+CREATE VIEW "vw_lotes_por_vencer" AS SELECT
  1 AS "Id_Lote",
   1 AS "Items",
   1 AS "Numero_Lote",
@@ -3305,7 +3304,7 @@ DROP TABLE IF EXISTS "vw_lotes_por_vencer";
   1 AS "Nombres_Articulo",
   1 AS "Precio_Costo",
   1 AS "Precio_Venta",
-  1 AS "valor_costo" */;
+  1 AS "valor_costo" ;
 
 
 --
@@ -3316,7 +3315,7 @@ DROP TABLE IF EXISTS "vw_productos_stock_bajo";
 /*!50001 DROP VIEW IF EXISTS "vw_productos_stock_bajo"*/;
 
 
-/*!50001 CREATE VIEW "vw_productos_stock_bajo" AS SELECT
+CREATE VIEW "vw_productos_stock_bajo" AS SELECT
  1 AS "Items",
   1 AS "Codigo",
   1 AS "Nombres_Articulo",
@@ -3324,7 +3323,7 @@ DROP TABLE IF EXISTS "vw_productos_stock_bajo";
   1 AS "Stock_Minimo",
   1 AS "Precio_Venta",
   1 AS "Id_Familia",
-  1 AS "Familia_Nombre" */;
+  1 AS "Familia_Nombre" ;
 
 
 --
@@ -3335,7 +3334,7 @@ DROP TABLE IF EXISTS "vw_prov_cxp_aging";
 /*!50001 DROP VIEW IF EXISTS "vw_prov_cxp_aging"*/;
 
 
-/*!50001 CREATE VIEW "vw_prov_cxp_aging" AS SELECT
+CREATE VIEW "vw_prov_cxp_aging" AS SELECT
  1 AS "CodigoPro",
   1 AS "RazonSocial",
   1 AS "FacturaN",
@@ -3347,7 +3346,7 @@ DROP TABLE IF EXISTS "vw_prov_cxp_aging";
   1 AS "Saldo",
   1 AS "DiasVenc",
   1 AS "Vencida",
-  1 AS "Origen" */;
+  1 AS "Origen" ;
 
 
 --
@@ -3358,7 +3357,7 @@ DROP TABLE IF EXISTS "vw_prov_facturas_anteriores_saldos";
 /*!50001 DROP VIEW IF EXISTS "vw_prov_facturas_anteriores_saldos"*/;
 
 
-/*!50001 CREATE VIEW "vw_prov_facturas_anteriores_saldos" AS SELECT
+CREATE VIEW "vw_prov_facturas_anteriores_saldos" AS SELECT
  1 AS "FacturaN",
   1 AS "CodigoPro",
   1 AS "RazonSocial",
@@ -3367,7 +3366,7 @@ DROP TABLE IF EXISTS "vw_prov_facturas_anteriores_saldos";
   1 AS "Fechav",
   1 AS "Total",
   1 AS "TotalPagos",
-  1 AS "Saldo" */;
+  1 AS "Saldo" ;
 
 
 --
@@ -3378,7 +3377,7 @@ DROP TABLE IF EXISTS "vw_prov_pedidos_credito_saldos";
 /*!50001 DROP VIEW IF EXISTS "vw_prov_pedidos_credito_saldos"*/;
 
 
-/*!50001 CREATE VIEW "vw_prov_pedidos_credito_saldos" AS SELECT
+CREATE VIEW "vw_prov_pedidos_credito_saldos" AS SELECT
  1 AS "FacturaN",
   1 AS "CodigoPro",
   1 AS "RazonSocial",
@@ -3390,7 +3389,7 @@ DROP TABLE IF EXISTS "vw_prov_pedidos_credito_saldos";
   1 AS "Saldo",
   1 AS "TipoPedido",
   1 AS "EstadoPedido",
-  1 AS "Pedido_N" */;
+  1 AS "Pedido_N" ;
 
 
 --
@@ -3401,12 +3400,12 @@ DROP TABLE IF EXISTS "vw_proveedores_saldo_actual";
 /*!50001 DROP VIEW IF EXISTS "vw_proveedores_saldo_actual"*/;
 
 
-/*!50001 CREATE VIEW "vw_proveedores_saldo_actual" AS SELECT
+CREATE VIEW "vw_proveedores_saldo_actual" AS SELECT
  1 AS "CodigoPro",
   1 AS "RazonSocial",
   1 AS "SaldoAnterior",
   1 AS "SaldoPedidos",
-  1 AS "SaldoActual" */;
+  1 AS "SaldoActual" ;
 
 
 --

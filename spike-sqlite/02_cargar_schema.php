@@ -114,6 +114,12 @@ if (count($erroresDetalle) > 30) {
     $log[] = "  (... " . (count($erroresDetalle) - 30) . " errores más)";
 }
 $log[] = "";
+$log[] = "=== Vistas creadas ===";
+$views = $pdo->query("SELECT name FROM sqlite_master WHERE type='view' ORDER BY name")->fetchAll(PDO::FETCH_COLUMN);
+$log[] = "Total: " . count($views);
+foreach ($views as $v) $log[] = "  · $v";
+
+$log[] = "";
 $log[] = "=== Verificación: tablas que importan al día a día ===";
 $criticas = ['tblventas', 'tbldetalle_venta', 'tblkardex', 'tblarticulos', 'tblclientes',
              'tblproveedores', 'tblpagos', 'tblegresos', 'tblcajas', 'tblsesiones_caja',

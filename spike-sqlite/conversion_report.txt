@@ -1,4 +1,5 @@
 === Reemplazos mecánicos aplicados ===
+  /*!50001 CREATE VIEW ... */                   18 vistas desenvueltas
   /*!...*/ pragmas MySQL                        856 ocurrencias
   SET session (SQL_MODE, @saved_, @old_)        54 ocurrencias
   SET character_set_client                      0 ocurrencias
@@ -26,7 +27,7 @@
   set(...) → TEXT                             0 ocurrencias
   ON UPDATE CURRENT_TIMESTAMP                   4 ocurrencias
   current_timestamp() → CURRENT_TIMESTAMP     39 ocurrencias
-  PRIMARY KEY + AUTOINCREMENT                   78 PKs fusionadas con AUTOINCREMENT
+  PRIMARY KEY + AUTOINCREMENT                   79 PKs fusionadas con AUTOINCREMENT
   KEY inline → CREATE INDEX                   149 índices extraídos a CREATE INDEX
 
 === Patrones MySQL-only detectados (requieren revisión manual) ===

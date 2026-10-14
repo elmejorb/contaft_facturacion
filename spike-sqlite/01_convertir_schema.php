@@ -38,7 +38,21 @@ function logReplace(&$log, $sql, $patron, $reemplazo, $nombre) {
     return $sql;
 }
 
-// 1. Comentarios y pragmas MySQL que SQLite ignora o rechaza
+// 1. Comentarios y pragmas MySQL que SQLite ignora o rechaza.
+//    EXCEPCIÓN: /*!50001 CREATE VIEW ... */ — contienen las vistas reales.
+//    Primero extraemos el contenido útil, DESPUÉS borramos el resto.
+$viewsExtraidas = 0;
+$sql = preg_replace_callback(
+    '~/\*!50001\s+(CREATE\s+VIEW\s+.*?)\*/\s*;?~si',
+    function($m) use (&$viewsExtraidas) {
+        $viewsExtraidas++;
+        // Dentro del wrapper pueden venir otros /*!...*/ anidados (ej. ALGORITHM, DEFINER); los limpiamos aparte después.
+        return $m[1] . ';';
+    },
+    $sql
+);
+$log[] = sprintf("  %-45s %d vistas desenvueltas", '/*!50001 CREATE VIEW ... */', $viewsExtraidas);
+// Ahora sí, borrar el resto de pragmas /*!...*/
 $sql = logReplace($log, $sql, '~/\*![0-9]+ .*? \*/;?~m', '', '/*!...*/ pragmas MySQL');
 $sql = logReplace($log, $sql, '~^SET\s+(SQL_MODE|FOREIGN_KEY_CHECKS|UNIQUE_CHECKS|AUTOCOMMIT|CHARACTER_SET_CLIENT|CHARACTER_SET_RESULTS|CHARACTER_SET_CONNECTION|time_zone|NAMES|@saved_[a-z_]+|@old_[a-z_]+)[^;]*;~mi', '', 'SET session (SQL_MODE, @saved_, @old_)');
 $sql = logReplace($log, $sql, '~^SET\s+character_set_client[^;]*;~mi', '', 'SET character_set_client');
@@ -106,24 +120,30 @@ $sql = preg_replace_callback(
         foreach ($lineasOrig as $linea) {
             $t = trim($linea);
 
-            // KEY / UNIQUE KEY / FULLTEXT KEY → extraer o descartar
+            // KEY / UNIQUE KEY / FULLTEXT KEY → extraer o descartar.
+            // SQLite ignora prefix length col(N) en índices — lo removemos.
             if (preg_match('~^KEY\s+"([^"]+)"\s*\(([^)]+)\)~i', $t, $mk)) {
-                $extraIndices[] = "CREATE INDEX IF NOT EXISTS \"idx_{$tabla}_{$mk[1]}\" ON \"$tabla\" ({$mk[2]});";
+                $cols = preg_replace('~\(\s*\d+\s*\)~', '', $mk[2]);
+                $extraIndices[] = "CREATE INDEX IF NOT EXISTS \"idx_{$tabla}_{$mk[1]}\" ON \"$tabla\" ($cols);";
                 continue;
             }
             if (preg_match('~^UNIQUE\s+KEY\s+"([^"]+)"\s*\(([^)]+)\)~i', $t, $mu)) {
-                $extraIndices[] = "CREATE UNIQUE INDEX IF NOT EXISTS \"uq_{$tabla}_{$mu[1]}\" ON \"$tabla\" ({$mu[2]});";
+                $cols = preg_replace('~\(\s*\d+\s*\)~', '', $mu[2]);
+                $extraIndices[] = "CREATE UNIQUE INDEX IF NOT EXISTS \"uq_{$tabla}_{$mu[1]}\" ON \"$tabla\" ($cols);";
                 continue;
             }
             if (preg_match('~^FULLTEXT\s+KEY~i', $t)) continue;
 
-            // Columna con AUTOINCREMENT: si es la PK de 1 sola columna, fusionamos
-            if (!$pkFusionada && $pkCols && count($pkCols) === 1 &&
+            // Columna con AUTOINCREMENT: si es la PK (declarada o única con AUTOINC), fusionamos.
+            // Caso 1: PK declarada al final y la columna es la PK.
+            // Caso 2: columna tiene AUTOINCREMENT pero NO hay PK declarada → asumimos que ESTA es la PK
+            //         (así se comporta en MySQL donde AUTO_INCREMENT siempre va con una PK).
+            if (!$pkFusionada &&
                 preg_match('~^"([^"]+)"\s+INTEGER\b~i', $t, $mcol) &&
                 stripos($t, 'AUTOINCREMENT') !== false &&
-                $mcol[1] === $pkCols[0]
+                (($pkCols && count($pkCols) === 1 && $mcol[1] === $pkCols[0])
+                 || $pkCols === null)
             ) {
-                // Reescribir la línea: col INTEGER PRIMARY KEY AUTOINCREMENT (preserva NOT NULL y DEFAULT)
                 $lineasFiltradas[] = "  \"{$mcol[1]}\" INTEGER PRIMARY KEY AUTOINCREMENT";
                 $pkFusionada = true;
                 $autoincFusionados++;

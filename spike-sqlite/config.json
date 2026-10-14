@@ -1,0 +1,12 @@
+{
+  "driver": "sqlite",
+  "sqlite": {
+    "path": "C:/Users/LUIS_FDO/Documents/proyectos/InnovacionDg/AppReactConta/spike-sqlite/conta.db"
+  },
+  "mysql": {
+    "host": "localhost",
+    "database": "conta_demo",
+    "username": "root",
+    "password": "root"
+  }
+}
