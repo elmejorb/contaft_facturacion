@@ -119,7 +119,7 @@ try {
         FROM tbldetalle_venta d
         INNER JOIN tblventas v ON d.Factura_N = v.Factura_N
         INNER JOIN tblarticulos a ON d.Items = a.Items
-        WHERE v.CodigoCli = :id AND v.Fecha >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)
+        WHERE v.CodigoCli = :id AND v.Fecha >= DATE_SUB(CURRENT_DATE, INTERVAL 12 MONTH)
         GROUP BY a.Items, a.Nombres_Articulo, a.Codigo
         ORDER BY total_cantidad DESC
         LIMIT 20

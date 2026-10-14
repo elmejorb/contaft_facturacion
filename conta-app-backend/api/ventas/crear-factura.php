@@ -63,7 +63,7 @@ try {
             Estado
         ) VALUES (
             :numero,
-            NOW(),
+            CURRENT_TIMESTAMP,
             :idCliente,
             :identificacion,
             :nombre,
@@ -159,8 +159,8 @@ try {
                 Cost_Unit
             ) SELECT
                 :idArticulo,
-                NOW(),
-                MONTHNAME(NOW()),
+                CURRENT_TIMESTAMP,
+                MONTHNAME(CURRENT_TIMESTAMP),
                 CONCAT('Venta de Mercancia según Fra. N° ', :numeroFactura),
                 1,
                 0,

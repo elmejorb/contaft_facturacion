@@ -466,7 +466,7 @@ try {
         $factN = intval($data['factura_n'] ?? 0);
         $motivo = trim($data['motivo'] ?? 'Sin conexión con la DIAN');
         if (!$factN) { echo json_encode(['success' => false, 'message' => 'Factura requerida']); exit; }
-        $db->prepare("UPDATE tblventas SET en_contingencia = 1, contingencia_fecha = NOW(), contingencia_motivo = ?, contingencia_reenviada = 0 WHERE Factura_N = ?")
+        $db->prepare("UPDATE tblventas SET en_contingencia = 1, contingencia_fecha = CURRENT_TIMESTAMP, contingencia_motivo = ?, contingencia_reenviada = 0 WHERE Factura_N = ?")
            ->execute([$motivo, $factN]);
         echo json_encode(['success' => true, 'message' => "Factura #$factN marcada como contingencia. Se reenviará a la DIAN cuando haya conexión."], JSON_UNESCAPED_UNICODE);
         exit;
@@ -476,7 +476,7 @@ try {
         $stmt = $db->query("
             SELECT v.Factura_N, v.Fecha, v.contingencia_fecha, v.contingencia_motivo,
                    v.CodigoCli, v.A_nombre, v.Total, v.Identificacion,
-                   DATEDIFF(NOW(), v.contingencia_fecha) AS dias_espera
+                   DATEDIFF(CURRENT_TIMESTAMP, v.contingencia_fecha) AS dias_espera
             FROM tblventas v
             WHERE v.en_contingencia = 1 AND v.contingencia_reenviada = 0 AND v.EstadoFact = 'Valida'
             ORDER BY v.contingencia_fecha ASC
@@ -850,7 +850,7 @@ try {
 
                 // Flujo nuevo: la FE nunca existió en tblventas. Flujo legacy: sí.
                 if (!$esFlujoNuevo) {
-                    $db->prepare("UPDATE tblventas SET enviada_dian = 1, fecha_envio_dian = NOW(), cufe = ? WHERE Factura_N = ?")
+                    $db->prepare("UPDATE tblventas SET enviada_dian = 1, fecha_envio_dian = CURRENT_TIMESTAMP, cufe = ? WHERE Factura_N = ?")
                        ->execute([$cufe, $factN]);
                 }
 
@@ -921,7 +921,7 @@ try {
                 $mesNombre = $mesesNom[intval(date('n')) - 1];
                 $stmtArt    = $db->prepare("SELECT Existencia, Precio_Costo, Servicio FROM tblarticulos WHERE Items = ?");
                 $stmtStock  = $db->prepare("UPDATE tblarticulos SET Existencia = Existencia - ? WHERE Items = ?");
-                $stmtKardex = $db->prepare("INSERT INTO tblkardex (Fecha, Mes, Items, Detalle, C_D, Cant_Ent, Cost_Ent, Cant_Sal, Cost_Sal, Cant_Saldo, Cost_Saldo, Cost_Unit) VALUES (NOW(), ?, ?, ?, 2, 0, 0, ?, ?, ?, ?, ?)");
+                $stmtKardex = $db->prepare("INSERT INTO tblkardex (Fecha, Mes, Items, Detalle, C_D, Cant_Ent, Cost_Ent, Cant_Sal, Cost_Sal, Cant_Saldo, Cost_Saldo, Cost_Unit) VALUES (CURRENT_TIMESTAMP, ?, ?, ?, 2, 0, 0, ?, ?, ?, ?, ?)");
                 // El chequeo por LIKE busca el marcador [#id]: aunque el prefix/number
                 // cambie entre reintentos, el id interno del doc se mantiene.
                 $stmtExiste = $db->prepare("SELECT COUNT(*) FROM tblkardex WHERE Items = ? AND C_D = 2 AND Detalle LIKE ?");
@@ -1176,7 +1176,7 @@ try {
                     $detalleKx = "NC $ncPrefix$ncConsecutive — anula $prefijoFE";
                     $stmtArt    = $db->prepare("SELECT Existencia, Precio_Costo, Servicio FROM tblarticulos WHERE Items = ?");
                     $stmtStock  = $db->prepare("UPDATE tblarticulos SET Existencia = Existencia + ? WHERE Items = ?");
-                    $stmtKardex = $db->prepare("INSERT INTO tblkardex (Fecha, Mes, Items, Detalle, C_D, Cant_Ent, Cost_Ent, Cant_Sal, Cost_Sal, Cant_Saldo, Cost_Saldo, Cost_Unit) VALUES (NOW(), ?, ?, ?, 1, ?, ?, 0, 0, ?, ?, ?)");
+                    $stmtKardex = $db->prepare("INSERT INTO tblkardex (Fecha, Mes, Items, Detalle, C_D, Cant_Ent, Cost_Ent, Cant_Sal, Cost_Sal, Cant_Saldo, Cost_Saldo, Cost_Unit) VALUES (CURRENT_TIMESTAMP, ?, ?, ?, 1, ?, ?, 0, 0, ?, ?, ?)");
                     foreach ($items as $it) {
                         $itemsId = intval($it['Items'] ?? $it['items'] ?? 0);
                         // ABS por si algún detalle legacy guardó la cantidad
@@ -1464,7 +1464,7 @@ try {
             if (isset($result['success']) && $result['success']) {
                 $cufe = $result['cufe'] ?? '';
                 $consecutive = $result['consecutive'] ?? 0;
-                $db->prepare("UPDATE tblventas SET enviada_dian = 1, fecha_envio_dian = NOW(), cufe = ?, contingencia_reenviada = 1 WHERE Factura_N = ?")
+                $db->prepare("UPDATE tblventas SET enviada_dian = 1, fecha_envio_dian = CURRENT_TIMESTAMP, cufe = ?, contingencia_reenviada = 1 WHERE Factura_N = ?")
                    ->execute([$cufe, $factN]);
                 $db->prepare("UPDATE electronic_documents SET status = 'autorizado', number = ?, cufe = ?, dian_response = ? WHERE id = ?")
                    ->execute([$consecutive, $cufe, json_encode($result), $docElecId]);
@@ -1656,7 +1656,7 @@ try {
                 $stmtStock = $db->prepare("UPDATE tblarticulos SET Existencia = Existencia + ? WHERE Items = ?");
                 $stmtArt = $db->prepare("SELECT Existencia, Precio_Costo, Servicio FROM tblarticulos WHERE Items = ?");
                 $mesNombre = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'][intval(date('n')) - 1];
-                $stmtKardex = $db->prepare("INSERT INTO tblkardex (Fecha, Mes, Items, Detalle, C_D, Cant_Ent, Cost_Ent, Cant_Sal, Cost_Sal, Cant_Saldo, Cost_Saldo, Cost_Unit) VALUES (NOW(), ?, ?, ?, 1, ?, ?, 0, 0, ?, ?, ?)");
+                $stmtKardex = $db->prepare("INSERT INTO tblkardex (Fecha, Mes, Items, Detalle, C_D, Cant_Ent, Cost_Ent, Cant_Sal, Cost_Sal, Cant_Saldo, Cost_Saldo, Cost_Unit) VALUES (CURRENT_TIMESTAMP, ?, ?, ?, 1, ?, ?, 0, 0, ?, ?, ?)");
                 foreach ($lineas as $l) {
                     $items = intval($l['Items']);
                     $cant  = floatval($l['Cantidad']);
@@ -1890,7 +1890,7 @@ try {
                     cod_cliente=?, customer_identification=?, customer_name=?, customer_email=?,
                     total=?, id_mediopago=?, efectivo=?, valorpagado1=?,
                     nota=?, payment_form_id=?, payment_method_id=?, payment_due_days=?,
-                    abono=?, descuento=?, updated_at=NOW()
+                    abono=?, descuento=?, updated_at=CURRENT_TIMESTAMP
                 WHERE id=?
             ")->execute([
                 $codigoCli, $identCli, $nombreCli, $customerEmail ?: null,

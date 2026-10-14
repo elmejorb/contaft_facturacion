@@ -51,7 +51,7 @@ try {
 
     $nuevoCom = trim(($oc['Comentario'] ?? '') . ($motivo !== '' ? " | Anulada: $motivo" : ' | Anulada'));
 
-    $db->prepare("UPDATE tbl_ordenes_compra SET Estado = 'Anulada', Comentario = ?, FechaMod = NOW() WHERE id_oc = ?")
+    $db->prepare("UPDATE tbl_ordenes_compra SET Estado = 'Anulada', Comentario = ?, FechaMod = CURRENT_TIMESTAMP WHERE id_oc = ?")
        ->execute([$nuevoCom, $idOc]);
 
     echo json_encode([

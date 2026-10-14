@@ -392,7 +392,7 @@ try {
         $r = $db->query("
             SELECT c.CodigoClien, c.Razon_Social, c.Nit, c.Telefonos,
                    x.Factura_N, x.Fecha, x.Dias, x.Total, x.Saldo,
-                   DATEDIFF(CURDATE(), DATE_ADD(x.Fecha, INTERVAL x.Dias DAY)) AS Dias_Vencidos
+                   DATEDIFF(CURRENT_DATE, DATE_ADD(x.Fecha, INTERVAL x.Dias DAY)) AS Dias_Vencidos
             FROM tblclientes c
             INNER JOIN (
                 SELECT CodigoCli AS cod, Factura_N, Fecha, Dias, Total, Saldo
@@ -846,7 +846,7 @@ try {
         $r = $db->query("
             SELECT DATE(Fecha) AS dia, SUM(Total) AS total, COUNT(*) AS cant
             FROM tblventas
-            WHERE Fecha >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
+            WHERE Fecha >= DATE_SUB(CURRENT_DATE, INTERVAL 30 DAY)
               AND EstadoFact = 'Valida'
             GROUP BY DATE(Fecha)
             ORDER BY DATE(Fecha)
@@ -982,7 +982,7 @@ try {
         $r = $db->query("
             SELECT p.CodigoPro, p.RazonSocial, p.Nit, p.Telefonos,
                    x.FacturaN, x.Fecha, x.Dias, x.Valor, x.Saldo,
-                   DATEDIFF(CURDATE(), DATE_ADD(x.Fecha, INTERVAL x.Dias DAY)) AS Dias_Vencidos
+                   DATEDIFF(CURRENT_DATE, DATE_ADD(x.Fecha, INTERVAL x.Dias DAY)) AS Dias_Vencidos
             FROM tblproveedores p
             INNER JOIN (
                 SELECT CodigoProv AS cod, FacturaN, Fecha, Dias, Valor, Saldo

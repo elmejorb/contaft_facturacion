@@ -79,7 +79,7 @@ try {
     $ph = implode(',', array_fill(0, count($elegibles), '?'));
 
     // 1. Borrar detalle. La tabla puede o no existir según la versión.
-    if ($db->query("SHOW TABLES LIKE 'tbldetalle_documento_electronico'")->fetch()) {
+    if (conta_tiene_tabla($db, "tbldetalle_documento_electronico")) {
         $db->prepare("DELETE FROM tbldetalle_documento_electronico WHERE id_doc_electronico IN ($ph)")
            ->execute($elegibles);
     }

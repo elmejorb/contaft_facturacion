@@ -42,7 +42,7 @@ try {
     $db->prepare("
         UPDATE tbl_cargues_vendedor SET
             notas_admin = ?,
-            updated_at = NOW()
+            updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
     ")->execute([$notasCombinadas, $id]);
 

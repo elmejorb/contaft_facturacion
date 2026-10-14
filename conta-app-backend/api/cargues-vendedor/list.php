@@ -67,7 +67,7 @@ try {
     $stmtC = $db->query("
         SELECT estado, COUNT(*) AS n
         FROM tbl_cargues_vendedor
-        WHERE fecha >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
+        WHERE fecha >= DATE_SUB(CURRENT_DATE, INTERVAL 30 DAY)
         GROUP BY estado
     ");
     $conteosRows = $stmtC->fetchAll(PDO::FETCH_ASSOC);

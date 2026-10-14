@@ -20,16 +20,16 @@ try {
         $stmt = $db->prepare("
             SELECT CodigoClien, Razon_Social, Telefonos, Email, Whatsapp, FechaCumple,
                    DATEDIFF(
-                       DATE(CONCAT(YEAR(CURDATE()), '-', MONTH(FechaCumple), '-', DAY(FechaCumple))),
-                       CURDATE()
+                       DATE(CONCAT(YEAR(CURRENT_DATE), '-', MONTH(FechaCumple), '-', DAY(FechaCumple))),
+                       CURRENT_DATE
                    ) as Dias_Para_Cumple
             FROM tblclientes
             WHERE FechaCumple IS NOT NULL
               AND FechaCumple != '0000-00-00 00:00:00'
               AND FechaCumple != '1899-12-30 00:00:00'
               AND DATEDIFF(
-                    DATE(CONCAT(YEAR(CURDATE()), '-', MONTH(FechaCumple), '-', DAY(FechaCumple))),
-                    CURDATE()
+                    DATE(CONCAT(YEAR(CURRENT_DATE), '-', MONTH(FechaCumple), '-', DAY(FechaCumple))),
+                    CURRENT_DATE
                   ) BETWEEN 0 AND :rango
             ORDER BY Dias_Para_Cumple ASC
         ");
@@ -52,14 +52,14 @@ try {
             SELECT CodigoClien, Razon_Social, Telefonos, Email, Whatsapp, FechaCumple,
                    DAY(FechaCumple) as Dia,
                    DATEDIFF(
-                       DATE(CONCAT(YEAR(CURDATE()), '-', MONTH(FechaCumple), '-', DAY(FechaCumple))),
-                       CURDATE()
+                       DATE(CONCAT(YEAR(CURRENT_DATE), '-', MONTH(FechaCumple), '-', DAY(FechaCumple))),
+                       CURRENT_DATE
                    ) as Dias_Para_Cumple
             FROM tblclientes
             WHERE FechaCumple IS NOT NULL
               AND FechaCumple != '0000-00-00 00:00:00'
               AND FechaCumple != '1899-12-30 00:00:00'
-              AND MONTH(FechaCumple) = MONTH(CURDATE())
+              AND MONTH(FechaCumple) = MONTH(CURRENT_DATE)
             ORDER BY DAY(FechaCumple)
         ");
     }

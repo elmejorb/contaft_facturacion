@@ -147,7 +147,7 @@ try {
             $cambioSoloMedioPago   = ($tipoAnterior === 'Contado' && $nuevoTipo === 'Contado' && $medioAnterior !== $nuevoMedio);
 
             // === CASO 1: Crédito → Contado ===
-            // Registrar el cobro en tblpagos con Fecha=NOW() para que aparezca
+            // Registrar el cobro en tblpagos con Fecha=CURRENT_TIMESTAMP para que aparezca
             // en la caja del día en que se hace el cambio.
             if ($convertidaAContado && $totalFactura > 0) {
                 $idUsuario = intval($data['id_usuario'] ?? 0);
@@ -159,9 +159,9 @@ try {
                     INSERT INTO tblpagos (RecCajaN, Codigo, Fact_N, ValorPago, Fecha, DetallePago,
                         ValorFact, SaldoAct, Descuento, Retencion, Estado, Afectada, id_mediopago,
                         NFactAnt, Nfact_electronica, FechaMod, id_usuario)
-                    VALUES (:rec, :codigo, :fact_n, :valor, NOW(), :detalle,
+                    VALUES (:rec, :codigo, :fact_n, :valor, CURRENT_TIMESTAMP, :detalle,
                         :valor_fact, 0, 0, 0, 'Valida', '1110', :medio,
-                        '', '', NOW(), :id_user)
+                        '', '', CURRENT_TIMESTAMP, :id_user)
                 ");
                 $stmtPago->execute([
                     ':rec'        => $recN,
@@ -181,7 +181,7 @@ try {
             // Anulada para que deje de sumar en caja.
             if ($revertidaACredito) {
                 $db->prepare("
-                    UPDATE tblpagos SET Estado = 'Anulada', FechaMod = NOW()
+                    UPDATE tblpagos SET Estado = 'Anulada', FechaMod = CURRENT_TIMESTAMP
                     WHERE Fact_N = ? AND Estado = 'Valida'
                       AND DetallePago LIKE 'Pago total al convertir%'
                 ")->execute([$factN]);
@@ -193,7 +193,7 @@ try {
             // medio. Solo se toca el registro automático, no cobros manuales.
             if ($cambioSoloMedioPago) {
                 $db->prepare("
-                    UPDATE tblpagos SET id_mediopago = ?, FechaMod = NOW()
+                    UPDATE tblpagos SET id_mediopago = ?, FechaMod = CURRENT_TIMESTAMP
                     WHERE Fact_N = ? AND Estado = 'Valida'
                       AND DetallePago LIKE 'Pago total al convertir%'
                 ")->execute([$nuevoMedio, $factN]);
@@ -253,7 +253,7 @@ try {
                    ->execute([$cantDev, $det['Items']]);
 
                 // Insert devolucion record
-                $db->prepare("INSERT INTO tbldevolucion_ventas (Id_DetalleVenta, valor_dev, caja, fecha_fact, fecha_mod, id_usuario) VALUES (?, ?, '1', CURDATE(), NOW(), ?)")
+                $db->prepare("INSERT INTO tbldevolucion_ventas (Id_DetalleVenta, valor_dev, caja, fecha_fact, fecha_mod, id_usuario) VALUES (?, ?, '1', CURRENT_DATE, CURRENT_TIMESTAMP, ?)")
                    ->execute([$idDetalle, $valorDev, $idUsuario]);
 
                 // Kardex entry
@@ -263,7 +263,7 @@ try {
                 $costoUnit = floatval($art['Precio_Costo']);
                 $mesNombre = $meses[intval(date('n'))] ?? '';
 
-                $db->prepare("INSERT INTO tblkardex (Fecha, Mes, Items, Detalle, C_D, Cant_Ent, Cost_Ent, Cant_Sal, Cost_Sal, Cant_Saldo, Cost_Saldo, Cost_Unit) VALUES (NOW(), ?, ?, ?, 1, ?, ?, 0, 0, ?, ?, ?)")
+                $db->prepare("INSERT INTO tblkardex (Fecha, Mes, Items, Detalle, C_D, Cant_Ent, Cost_Ent, Cant_Sal, Cost_Sal, Cant_Saldo, Cost_Saldo, Cost_Unit) VALUES (CURRENT_TIMESTAMP, ?, ?, ?, 1, ?, ?, 0, 0, ?, ?, ?)")
                    ->execute([$mesNombre, $det['Items'], "Dev. Fra. N° $factN", $cantDev, $cantDev * $costoUnit, floatval($art['Existencia']), floatval($art['Existencia']) * $costoUnit, $costoUnit]);
 
                 $totalDevuelto += $valorDev;
@@ -346,7 +346,7 @@ try {
                     SELECT s.Id_Sesion, s.Id_Caja, c.Nombre AS NombreCaja
                     FROM tblsesiones_caja s
                     INNER JOIN tblcajas c ON s.Id_Caja = c.Id_Caja
-                    WHERE s.Estado = 'abierta' AND DATE(s.FechaApertura) = CURDATE() AND s.Id_Usuario = ?
+                    WHERE s.Estado = 'abierta' AND DATE(s.FechaApertura) = CURRENT_DATE AND s.Id_Usuario = ?
                     ORDER BY s.FechaApertura DESC LIMIT 1
                 ");
                 $stmt->execute([$usuarioId]);
@@ -432,7 +432,7 @@ try {
 
                     $costoUnit = floatval($art['Precio_Costo']);
                     $existActual = floatval($art['Existencia']);
-                    $db->prepare("INSERT INTO tblkardex (Fecha, Mes, Items, Detalle, C_D, Cant_Ent, Cost_Ent, Cant_Sal, Cost_Sal, Cant_Saldo, Cost_Saldo, Cost_Unit) VALUES (NOW(), ?, ?, ?, 1, ?, ?, 0, 0, ?, ?, ?)")
+                    $db->prepare("INSERT INTO tblkardex (Fecha, Mes, Items, Detalle, C_D, Cant_Ent, Cost_Ent, Cant_Sal, Cost_Sal, Cant_Saldo, Cost_Saldo, Cost_Unit) VALUES (CURRENT_TIMESTAMP, ?, ?, ?, 1, ?, ?, 0, 0, ?, ?, ?)")
                        ->execute([$mesNombre, $det['Items'], "Anulación Fra. N° $factN", $cantAReversar, $cantAReversar * $costoUnit, $existActual, $existActual * $costoUnit, $costoUnit]);
                 }
             }

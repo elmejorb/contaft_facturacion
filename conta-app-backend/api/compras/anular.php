@@ -89,7 +89,7 @@ try {
                 SELECT s.Id_Sesion, s.Id_Caja, c.Nombre AS NombreCaja
                 FROM tblsesiones_caja s
                 INNER JOIN tblcajas c ON s.Id_Caja = c.Id_Caja
-                WHERE s.Estado = 'abierta' AND DATE(s.FechaApertura) = CURDATE()
+                WHERE s.Estado = 'abierta' AND DATE(s.FechaApertura) = CURRENT_DATE
                   AND s.Id_Usuario = ?
                 ORDER BY s.FechaApertura DESC LIMIT 1
             ");

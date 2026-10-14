@@ -48,17 +48,22 @@ if (mysqlCheck.status !== 0) {
   fatal(`MySQL no responde. Arrancalo desde XAMPP Control Panel. (${mysqlCheck.stderr?.trim() || 'sin stderr'})`);
 }
 
-// 3. Correr la suite
-info('Corriendo suite de tests del backend...');
-console.log(''); // línea en blanco antes del output del runner
-const result = spawnSync(PHP, [runnerPath], {
-  stdio: 'inherit',
-  cwd: BACKEND,
-});
-
-if (result.status !== 0) {
-  console.error('');
-  fatal(`La suite de tests falló (exit ${result.status}). El build fue CANCELADO para proteger a los clientes.`);
+// 3. Correr la suite contra AMBOS drivers (MySQL legacy + SQLite nuevo).
+//    Si cualquiera falla, el build se cancela — así clientes actuales (MySQL)
+//    y clientes nuevos (SQLite) ambos reciben código que funciona.
+const drivers = ['mysql', 'sqlite'];
+for (const driver of drivers) {
+  info(`Corriendo suite [driver=${driver}]...`);
+  console.log('');
+  const result = spawnSync(PHP, [runnerPath, `--driver=${driver}`], {
+    stdio: 'inherit',
+    cwd: BACKEND,
+  });
+  if (result.status !== 0) {
+    console.error('');
+    fatal(`La suite de tests falló para driver=${driver} (exit ${result.status}). El build fue CANCELADO para proteger a los clientes.`);
+  }
+  console.log('');
 }
 
-info('\x1b[32m✓ Todos los tests pasan — se autoriza continuar con el build.\x1b[0m');
+info('\x1b[32m✓ Todos los tests pasan en MySQL Y SQLite — se autoriza continuar con el build.\x1b[0m');

@@ -33,7 +33,7 @@ function recalcularEstadoAnticipo(PDO $db, int $idAnt): void {
     $saldo = floatval($a['Saldo']);
     $nuevo = $saldo <= 0.01 ? 'Aplicado' : 'Vigente';
     if ($nuevo !== $a['Estado']) {
-        $db->prepare("UPDATE tblanticipos_cliente SET Estado=?, FechaMod=NOW() WHERE Id_Anticipo=?")
+        $db->prepare("UPDATE tblanticipos_cliente SET Estado=?, FechaMod=CURRENT_TIMESTAMP WHERE Id_Anticipo=?")
            ->execute([$nuevo, $idAnt]);
     }
 }
@@ -215,7 +215,7 @@ try {
 
         $db->beginTransaction();
         // 1) Descontar del saldo del anticipo
-        $db->prepare("UPDATE tblanticipos_cliente SET Saldo = Saldo - ?, FechaMod=NOW() WHERE Id_Anticipo=?")
+        $db->prepare("UPDATE tblanticipos_cliente SET Saldo = Saldo - ?, FechaMod=CURRENT_TIMESTAMP WHERE Id_Anticipo=?")
            ->execute([$valor, $idAnt]);
         // 2) Registrar el movimiento
         $db->prepare("
@@ -253,7 +253,7 @@ try {
         }
 
         $db->beginTransaction();
-        $db->prepare("UPDATE tblanticipos_cliente SET Saldo = Saldo - ?, FechaMod=NOW() WHERE Id_Anticipo=?")
+        $db->prepare("UPDATE tblanticipos_cliente SET Saldo = Saldo - ?, FechaMod=CURRENT_TIMESTAMP WHERE Id_Anticipo=?")
            ->execute([$valor, $idAnt]);
         $db->prepare("
             INSERT INTO tblanticipo_movs (Id_Anticipo, Fecha, Tipo, Valor, Concepto, id_mediopago, Id_Usuario, Estado)
@@ -265,7 +265,7 @@ try {
         $stmt->execute([$idAnt]);
         $saldoNuevo = floatval($stmt->fetchColumn());
         if ($saldoNuevo <= 0.01) {
-            $db->prepare("UPDATE tblanticipos_cliente SET Estado='Devuelto', FechaMod=NOW() WHERE Id_Anticipo=?")
+            $db->prepare("UPDATE tblanticipos_cliente SET Estado='Devuelto', FechaMod=CURRENT_TIMESTAMP WHERE Id_Anticipo=?")
                ->execute([$idAnt]);
         }
         $db->commit();
@@ -292,7 +292,7 @@ try {
         }
 
         $db->beginTransaction();
-        $db->prepare("UPDATE tblanticipos_cliente SET Estado='Anulado', Saldo=0, FechaMod=NOW() WHERE Id_Anticipo=?")
+        $db->prepare("UPDATE tblanticipos_cliente SET Estado='Anulado', Saldo=0, FechaMod=CURRENT_TIMESTAMP WHERE Id_Anticipo=?")
            ->execute([$idAnt]);
         $db->prepare("
             INSERT INTO tblanticipo_movs (Id_Anticipo, Fecha, Tipo, Valor, Concepto, Id_Usuario, Estado)

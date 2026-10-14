@@ -28,16 +28,16 @@ function sumarVentas($db, $tieneFE, $wherePos, $whereFE) {
 
 try {
     $ventasHoy = sumarVentas($db, $tieneFE,
-        "DATE(Fecha) = CURDATE()",
-        "DATE(fecha) = CURDATE()"
+        "DATE(Fecha) = CURRENT_DATE",
+        "DATE(fecha) = CURRENT_DATE"
     );
     $ventasMes = sumarVentas($db, $tieneFE,
-        "MONTH(Fecha) = MONTH(CURDATE()) AND YEAR(Fecha) = YEAR(CURDATE())",
-        "MONTH(fecha) = MONTH(CURDATE()) AND YEAR(fecha) = YEAR(CURDATE())"
+        "MONTH(Fecha) = MONTH(CURRENT_DATE) AND YEAR(Fecha) = YEAR(CURRENT_DATE)",
+        "MONTH(fecha) = MONTH(CURRENT_DATE) AND YEAR(fecha) = YEAR(CURRENT_DATE)"
     );
     $ventasMesAnterior = sumarVentas($db, $tieneFE,
-        "MONTH(Fecha) = MONTH(DATE_SUB(CURDATE(), INTERVAL 1 MONTH)) AND YEAR(Fecha) = YEAR(DATE_SUB(CURDATE(), INTERVAL 1 MONTH))",
-        "MONTH(fecha) = MONTH(DATE_SUB(CURDATE(), INTERVAL 1 MONTH)) AND YEAR(fecha) = YEAR(DATE_SUB(CURDATE(), INTERVAL 1 MONTH))"
+        "MONTH(Fecha) = MONTH(DATE_SUB(CURRENT_DATE, INTERVAL 1 MONTH)) AND YEAR(Fecha) = YEAR(DATE_SUB(CURRENT_DATE, INTERVAL 1 MONTH))",
+        "MONTH(fecha) = MONTH(DATE_SUB(CURRENT_DATE, INTERVAL 1 MONTH)) AND YEAR(fecha) = YEAR(DATE_SUB(CURRENT_DATE, INTERVAL 1 MONTH))"
     );
 
     // Cuentas por cobrar — ya calcula desde tblpagos (vista dinámica)
@@ -49,8 +49,8 @@ try {
     $cuentasPorCobrar = $stmt->fetch();
 
     // Pagos recibidos (POS + FE comparten tblpagos)
-    $pagosHoy = $db->query("SELECT COALESCE(SUM(ValorPago),0) as total, COUNT(*) as cantidad FROM tblpagos WHERE DATE(Fecha) = CURDATE() AND Estado='Valida'")->fetch();
-    $pagosMes = $db->query("SELECT COALESCE(SUM(ValorPago),0) as total, COUNT(*) as cantidad FROM tblpagos WHERE MONTH(Fecha) = MONTH(CURDATE()) AND YEAR(Fecha) = YEAR(CURDATE()) AND Estado='Valida'")->fetch();
+    $pagosHoy = $db->query("SELECT COALESCE(SUM(ValorPago),0) as total, COUNT(*) as cantidad FROM tblpagos WHERE DATE(Fecha) = CURRENT_DATE AND Estado='Valida'")->fetch();
+    $pagosMes = $db->query("SELECT COALESCE(SUM(ValorPago),0) as total, COUNT(*) as cantidad FROM tblpagos WHERE MONTH(Fecha) = MONTH(CURRENT_DATE) AND YEAR(Fecha) = YEAR(CURRENT_DATE) AND Estado='Valida'")->fetch();
 
     // Productos
     $productos = $db->query("SELECT COUNT(*) as total FROM tblarticulos WHERE Estado = 1")->fetch();
@@ -65,7 +65,7 @@ try {
             FROM tbldetalle_venta d
             INNER JOIN tblventas v ON d.Factura_N = v.Factura_N
             LEFT JOIN tblarticulos a ON d.Items = a.Items
-            WHERE MONTH(v.Fecha) = MONTH(CURDATE()) AND YEAR(v.Fecha) = YEAR(CURDATE())
+            WHERE MONTH(v.Fecha) = MONTH(CURRENT_DATE) AND YEAR(v.Fecha) = YEAR(CURRENT_DATE)
               AND v.EstadoFact='Valida'
     ";
     if ($tieneFE) {
@@ -76,7 +76,7 @@ try {
             FROM detalle_document_electronic dd
             INNER JOIN electronic_documents e ON e.id = dd.factura_n
             LEFT JOIN tblarticulos a ON dd.items = a.Items
-            WHERE MONTH(e.fecha) = MONTH(CURDATE()) AND YEAR(e.fecha) = YEAR(CURDATE())
+            WHERE MONTH(e.fecha) = MONTH(CURRENT_DATE) AND YEAR(e.fecha) = YEAR(CURRENT_DATE)
               AND e.status='autorizado' AND e.type_document_id=1
         ";
     }
@@ -88,7 +88,7 @@ try {
         SELECT fecha, SUM(cantidad) AS cantidad, SUM(total) AS total FROM (
             SELECT DATE(Fecha) as fecha, COUNT(*) as cantidad, COALESCE(SUM(Total),0) as total
             FROM tblventas
-            WHERE Fecha >= DATE_SUB(CURDATE(), INTERVAL 7 DAY) AND EstadoFact='Valida'
+            WHERE Fecha >= DATE_SUB(CURRENT_DATE, INTERVAL 7 DAY) AND EstadoFact='Valida'
             GROUP BY DATE(Fecha)
     ";
     if ($tieneFE) {
@@ -96,7 +96,7 @@ try {
             UNION ALL
             SELECT DATE(fecha) as fecha, COUNT(*) as cantidad, COALESCE(SUM(total),0) as total
             FROM electronic_documents
-            WHERE fecha >= DATE_SUB(CURDATE(), INTERVAL 7 DAY) AND status='autorizado' AND type_document_id=1
+            WHERE fecha >= DATE_SUB(CURRENT_DATE, INTERVAL 7 DAY) AND status='autorizado' AND type_document_id=1
             GROUP BY DATE(fecha)
         ";
     }
@@ -106,9 +106,9 @@ try {
     $empresa = $db->query("SELECT Empresa, Propietario, Nit FROM tbldatosempresa LIMIT 1")->fetch();
 
     // Clientes activos del mes — distinct de POS + FE
-    $cliQuery = "SELECT CodigoCli AS cli FROM tblventas WHERE MONTH(Fecha) = MONTH(CURDATE()) AND YEAR(Fecha) = YEAR(CURDATE()) AND EstadoFact='Valida'";
+    $cliQuery = "SELECT CodigoCli AS cli FROM tblventas WHERE MONTH(Fecha) = MONTH(CURRENT_DATE) AND YEAR(Fecha) = YEAR(CURRENT_DATE) AND EstadoFact='Valida'";
     if ($tieneFE) {
-        $cliQuery .= " UNION SELECT cod_cliente AS cli FROM electronic_documents WHERE MONTH(fecha) = MONTH(CURDATE()) AND YEAR(fecha) = YEAR(CURDATE()) AND status='autorizado' AND type_document_id=1";
+        $cliQuery .= " UNION SELECT cod_cliente AS cli FROM electronic_documents WHERE MONTH(fecha) = MONTH(CURRENT_DATE) AND YEAR(fecha) = YEAR(CURRENT_DATE) AND status='autorizado' AND type_document_id=1";
     }
     $clientesMes = $db->query("SELECT COUNT(DISTINCT cli) AS total FROM ($cliQuery) z")->fetch();
 

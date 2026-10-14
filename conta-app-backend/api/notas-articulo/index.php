@@ -190,7 +190,7 @@ try {
         }
         // Marcar nota como Anulada (soft-delete)
         $db->prepare("UPDATE tblnotas_articulo
-                      SET Estado='Anulada', Anulada_Por=?, Fecha_Anulacion=NOW(), Motivo_Anulacion=?
+                      SET Estado='Anulada', Anulada_Por=?, Fecha_Anulacion=CURRENT_TIMESTAMP, Motivo_Anulacion=?
                       WHERE Id_Nota = ?")
            ->execute([$idUsuario, $motivo ?: null, $idNota]);
 

@@ -82,8 +82,8 @@ try {
             estado = 'aprobado',
             notas_admin = ?,
             aprobado_por = ?,
-            aprobado_at = NOW(),
-            updated_at = NOW()
+            aprobado_at = CURRENT_TIMESTAMP,
+            updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
     ")->execute([$notasAdmin, $aprobadoPor, $id]);
 

@@ -157,7 +157,7 @@ try {
             exit;
         }
         $companyId = intval($login['data']['id_empresa']);
-        $db->prepare("UPDATE tbldatosempresa SET fe_company_id = ?, fe_company_id_at = NOW()")->execute([$companyId]);
+        $db->prepare("UPDATE tbldatosempresa SET fe_company_id = ?, fe_company_id_at = CURRENT_TIMESTAMP")->execute([$companyId]);
     }
 
     // Llamar al endpoint público de consulta

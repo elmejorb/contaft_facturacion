@@ -120,7 +120,7 @@ try {
                 echo json_encode(['success' => false, 'message' => "No se puede retirar: tiene saldo pendiente de \$$saldo"]);
                 exit;
             }
-            $stmt = $db->prepare("UPDATE tbl_empleados SET Estado='retirado', Fecha_Retiro=CURDATE() WHERE Id_Empleado=?");
+            $stmt = $db->prepare("UPDATE tbl_empleados SET Estado='retirado', Fecha_Retiro=CURRENT_DATE WHERE Id_Empleado=?");
             $stmt->execute([$id]);
             echo json_encode(['success' => true, 'message' => 'Empleado retirado']);
             exit;

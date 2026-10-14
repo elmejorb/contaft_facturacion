@@ -75,7 +75,7 @@ try {
         FROM vw_facturas_cliente_saldos
         WHERE Saldo > 0
           AND DiasVenc <= 0
-          AND Fechav BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 7 DAY)
+          AND Fechav BETWEEN CURRENT_DATE AND DATE_ADD(CURRENT_DATE, INTERVAL 7 DAY)
     ");
     $row = $stmt->fetch();
     if ($row && intval($row['n_facturas']) > 0) {
@@ -114,7 +114,7 @@ try {
                 FROM vw_productos_stock_bajo sb
                 JOIN tbldetalle_venta d ON d.Items = sb.Items
                 JOIN tblventas v ON v.Factura_N = d.Factura_N
-                WHERE v.Fecha >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
+                WHERE v.Fecha >= DATE_SUB(CURRENT_DATE, INTERVAL 30 DAY)
                   AND v.EstadoFact = 'Valida'
                 GROUP BY sb.Items
                 HAVING SUM(d.Cantidad) >= 3
@@ -150,8 +150,8 @@ try {
         FROM tblclientes
         WHERE FechaCumple IS NOT NULL
           AND FechaCumple <> '0000-00-00'
-          AND DAY(FechaCumple) = DAY(CURDATE())
-          AND MONTH(FechaCumple) = MONTH(CURDATE())
+          AND DAY(FechaCumple) = DAY(CURRENT_DATE)
+          AND MONTH(FechaCumple) = MONTH(CURRENT_DATE)
           AND Razon_Social IS NOT NULL
           AND Razon_Social <> ''
         LIMIT 3
@@ -188,8 +188,8 @@ try {
     // ============================================================
     $stmt = $db->query("
         SELECT
-            COALESCE(SUM(CASE WHEN Fecha >= DATE_SUB(CURDATE(), INTERVAL 7 DAY) AND Fecha <= CURDATE() THEN Total ELSE 0 END), 0) AS semana_actual,
-            COALESCE(SUM(CASE WHEN Fecha >= DATE_SUB(CURDATE(), INTERVAL 35 DAY) AND Fecha < DATE_SUB(CURDATE(), INTERVAL 7 DAY) THEN Total ELSE 0 END), 0) AS cuatro_semanas_previas
+            COALESCE(SUM(CASE WHEN Fecha >= DATE_SUB(CURRENT_DATE, INTERVAL 7 DAY) AND Fecha <= CURRENT_DATE THEN Total ELSE 0 END), 0) AS semana_actual,
+            COALESCE(SUM(CASE WHEN Fecha >= DATE_SUB(CURRENT_DATE, INTERVAL 35 DAY) AND Fecha < DATE_SUB(CURRENT_DATE, INTERVAL 7 DAY) THEN Total ELSE 0 END), 0) AS cuatro_semanas_previas
         FROM tblventas
         WHERE EstadoFact = 'Valida'
     ");
@@ -224,8 +224,8 @@ try {
         FROM tbldetalle_venta d
         JOIN tblventas v ON d.Factura_N = v.Factura_N
         JOIN tblarticulos a ON d.Items = a.Items
-        WHERE v.Fecha >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
-          AND v.Fecha <= CURDATE()
+        WHERE v.Fecha >= DATE_SUB(CURRENT_DATE, INTERVAL 7 DAY)
+          AND v.Fecha <= CURRENT_DATE
           AND v.EstadoFact = 'Valida'
           AND a.Nombres_Articulo IS NOT NULL
         GROUP BY a.Items, a.Codigo, a.Nombres_Articulo

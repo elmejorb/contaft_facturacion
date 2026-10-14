@@ -25,7 +25,7 @@ function registrarMovKardex($db, $empleadoId, $tipo, $valor, $opts = []) {
         INSERT INTO tbl_mov_empleado
             (Id_Empleado, Fecha, Tipo, Valor, Saldo_Acum, Observacion,
              Vinculado_Tipo, Vinculado_Id, Id_Nomina, Id_Mov_Origen, Id_Usuario, Estado)
-        VALUES (?, NOW(), ?, ?, ?, ?, 'nomina', ?, ?, ?, ?, 'activo')
+        VALUES (?, CURRENT_TIMESTAMP, ?, ?, ?, ?, 'nomina', ?, ?, ?, ?, 'activo')
     ");
     $stmt->execute([
         $empleadoId, $tipo, $valor, $saldoNuevo,
@@ -175,7 +175,7 @@ try {
                          Salario_Base, Horas_Extras, Bonificaciones, Otros_Ingresos,
                          Total_Devengado, Total_Deducciones, Neto,
                          Origen_Pago, Id_Banco, Fecha_Pago, Observacion, Id_Usuario, Estado)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, ?, 'pagada')
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, ?, 'pagada')
                 ");
                 $stmt->execute([
                     $empleadoId,
@@ -224,7 +224,7 @@ try {
                         INSERT INTO tblegresos
                             (N_Comprobante, Fecha, Concepto, Valor, Estado, TipoPago,
                              id_usuario, vinculado_a, id_vinculo)
-                        VALUES (?, NOW(), ?, ?, 'Valida', ?, ?, 'nomina', ?)
+                        VALUES (?, CURRENT_TIMESTAMP, ?, ?, 'Valida', ?, ?, 'nomina', ?)
                     ");
                     $stmt->execute([$nComp, $concepto, $neto, $tipoPago, $usuarioId, $idNomina]);
                     $idEgreso = $db->lastInsertId();

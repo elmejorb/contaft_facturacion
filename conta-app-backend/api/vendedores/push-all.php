@@ -210,7 +210,7 @@ try {
     // ────────────────────────────────────────────────────────────────────
     // 4. VENDEDORES MÓVILES
     // ────────────────────────────────────────────────────────────────────
-    if ($db->query("SHOW TABLES LIKE 'tbl_vendedores_movil'")->fetch()) {
+    if (conta_tiene_tabla($db, "tbl_vendedores_movil")) {
         $rows = $db->query("
             SELECT id, codigo, nombre, email, password_hash, telefono, cedula, zona,
                    can_edit_clients, activo
@@ -240,7 +240,7 @@ try {
     }
 
     // Stamp último push exitoso en config
-    $db->prepare("UPDATE tbl_config_vendedores SET fecha_mod = NOW() WHERE id = 1")->execute();
+    $db->prepare("UPDATE tbl_config_vendedores SET fecha_mod = CURRENT_TIMESTAMP WHERE id = 1")->execute();
 
     $resultado['fin'] = date('Y-m-d H:i:s');
 

@@ -44,7 +44,7 @@ try {
          precio_venta_2, precio_venta_3, stock, stock_minimo, porcentaje_iva, estado,
          created_at, updated_at)
         VALUES
-        (?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, NOW(), NOW())
+        (?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
     ";
     $stmtInsert = $pdoRemoto->prepare($sqlInsert);
 
@@ -91,7 +91,7 @@ try {
          tipo_documento, numero_documento, telefono, email, direccion,
          cupo_autorizado, estado, created_at, updated_at)
         VALUES
-        (?, 1, ?, ?, ?, 'NIT', ?, ?, ?, ?, ?, 1, NOW(), NOW())
+        (?, 1, ?, ?, ?, 'NIT', ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
     ";
     $stmtInsert = $pdoRemoto->prepare($sqlInsert);
 

@@ -33,7 +33,7 @@ function registrarMov($db, $empleadoId, $tipo, $valor, $opts = []) {
             (Id_Empleado, Fecha, Tipo, Valor, Saldo_Acum, Cuota_Mensual,
              Observacion, Vinculado_Tipo, Vinculado_Id, Id_Egreso, Id_Nomina,
              Id_Mov_Origen, Id_Usuario, Estado)
-        VALUES (?, NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'activo')
+        VALUES (?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'activo')
     ");
     $stmt->execute([
         $empleadoId, $tipo, $valor, $saldoNuevo,
@@ -63,7 +63,7 @@ function generarEgresoCaja($db, $empleadoId, $empleadoNombre, $valor, $concepto,
         INSERT INTO tblegresos
             (N_Comprobante, Fecha, Concepto, Valor, Estado, TipoPago,
              id_usuario, vinculado_a, id_vinculo)
-        VALUES (?, NOW(), ?, ?, 'Valida', ?, ?, 'empleado', ?)
+        VALUES (?, CURRENT_TIMESTAMP, ?, ?, 'Valida', ?, ?, 'empleado', ?)
     ");
     $stmt->execute([
         $nComp, $concepto, $valor, $tipoPago, $idUsuario, $empleadoId,
@@ -158,7 +158,7 @@ try {
                     if ($idSesion) {
                         $stmtMc = $db->prepare("
                             INSERT INTO tblmov_caja (Fecha, Id_Sesion, Tipo, Descripcion, Valor, id_usuario)
-                            VALUES (NOW(), ?, 'gasto', ?, ?, ?)
+                            VALUES (CURRENT_TIMESTAMP, ?, 'gasto', ?, ?, ?)
                         ");
                         $stmtMc->execute([$idSesion, $concepto, $valor, $usuarioId]);
                     }
@@ -222,7 +222,7 @@ try {
                     if ($idSesion) {
                         $stmtMc = $db->prepare("
                             INSERT INTO tblmov_caja (Fecha, Id_Sesion, Tipo, Descripcion, Valor, id_usuario)
-                            VALUES (NOW(), ?, 'deposito', ?, ?, ?)
+                            VALUES (CURRENT_TIMESTAMP, ?, 'deposito', ?, ?, ?)
                         ");
                         $stmtMc->execute([$idSesion, "Abono empleado — $obs", $valor, $usuarioId]);
                     }

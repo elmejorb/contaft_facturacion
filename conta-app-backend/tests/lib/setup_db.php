@@ -70,13 +70,22 @@ function resetTestDatabaseSqlite() {
         $dianCatalog = __DIR__ . '/../fixtures/_dian_catalog.sql';
         if (file_exists($dianCatalog)) {
             $dianSql = file_get_contents($dianCatalog);
+            // Normalizar CRLF → LF para que los regex `~m` funcionen uniformemente
+            $dianSql = str_replace("\r\n", "\n", $dianSql);
             $dianSql = preg_replace('~/\*![0-9]+ .*? \*/;?~m', '', $dianSql);
             $dianSql = preg_replace('~^SET\s+[^;]+;~mi', '', $dianSql);
             $dianSql = preg_replace('~^(LOCK|UNLOCK)\s+TABLES[^;]*;~mi', '', $dianSql);
             $dianSql = preg_replace('~`([^`]+)`~', '"$1"', $dianSql);
-            foreach (preg_split('~;\s*(?:\n|$)~', $dianSql) as $stmt) {
+            // CRÍTICO: quitar líneas de comentario `-- ...` ANTES de split por `;`.
+            // Si no, mysqldump produce bloques como "-- Dumping data\n-- ...\nINSERT INTO ..."
+            // que arrancan con `--` y mi check los skipeaba enteros, perdiendo el INSERT real.
+            $dianLineas = preg_split('~\r?\n~', $dianSql);
+            $dianLineas = array_filter($dianLineas, fn($l) => !preg_match('~^\s*--~', $l));
+            $dianSql = implode("\n", $dianLineas);
+            // Split por `;`
+            foreach (explode(';', $dianSql) as $stmt) {
                 $stmt = trim($stmt);
-                if ($stmt === '' || strpos($stmt, '--') === 0) continue;
+                if ($stmt === '') continue;
                 try { $pdo->exec($stmt); } catch (Exception $e) { /* ignorar: dialecto o duplicados */ }
             }
         }

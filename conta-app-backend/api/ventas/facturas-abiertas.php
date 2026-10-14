@@ -59,7 +59,7 @@ try {
                 $stmt->execute([$fecha, $termino, $dias, $codigo_cli, $identificacion, $nombres, $lista_precio, $total, $id]);
                 $db->prepare("DELETE FROM detalle_fact_abietas WHERE id_fac_ab = ?")->execute([$id]);
             } else {
-                $stmt = $db->prepare("INSERT INTO facturasv_abiertas (fecha, termino, dias, codigo_cli, identificacion_cli, nombres_cli, lista_precio, total_factura, fecha_hora_creado) VALUES (?,?,?,?,?,?,?,?,NOW())");
+                $stmt = $db->prepare("INSERT INTO facturasv_abiertas (fecha, termino, dias, codigo_cli, identificacion_cli, nombres_cli, lista_precio, total_factura, fecha_hora_creado) VALUES (?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)");
                 $stmt->execute([$fecha, $termino, $dias, $codigo_cli, $identificacion, $nombres, $lista_precio, $total]);
                 $id = $db->lastInsertId();
             }

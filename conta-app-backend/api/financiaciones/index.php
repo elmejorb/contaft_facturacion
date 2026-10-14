@@ -67,9 +67,9 @@ try {
                 // Marca en mora si al menos una cuota está vencida (fecha < hoy) sin pagar
                 // dias_mora = antigüedad de la cuota MÁS vieja vencida (para bucketing 30/60/90+)
                 $stmtMora = $db->prepare("SELECT COUNT(*) AS c,
-                        COALESCE(MAX(DATEDIFF(CURDATE(), FechaVencimiento)),0) AS dias
+                        COALESCE(MAX(DATEDIFF(CURRENT_DATE, FechaVencimiento)),0) AS dias
                     FROM tblfinanciacion_cuotas
-                    WHERE Id_Financiacion = ? AND Estado <> 'Pagada' AND FechaVencimiento < CURDATE()");
+                    WHERE Id_Financiacion = ? AND Estado <> 'Pagada' AND FechaVencimiento < CURRENT_DATE");
                 $stmtMora->execute([$r['Id_Financiacion']]);
                 $m = $stmtMora->fetch();
                 $r['cuotas_vencidas'] = intval($m['c']);

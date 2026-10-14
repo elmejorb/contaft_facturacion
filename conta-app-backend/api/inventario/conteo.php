@@ -130,7 +130,7 @@ try {
                 // Crear cabecera
                 $stmt = $db->prepare("
                     INSERT INTO tblconteo_inventario (Fecha, Usuario, Observacion, Tipo, Filtro_Categoria, Filtro_Proveedor, Estado)
-                    VALUES (NOW(), :usuario, :obs, :tipo, :cat, :prov, 'Abierto')
+                    VALUES (CURRENT_TIMESTAMP, :usuario, :obs, :tipo, :cat, :prov, 'Abierto')
                 ");
                 $stmt->execute([
                     ':usuario' => $usuario,
@@ -282,7 +282,7 @@ try {
 
                 $stmtKardex = $db->prepare("
                     INSERT INTO tblkardex (Fecha, Mes, Items, Detalle, C_D, Cant_Ent, Cost_Ent, Cant_Sal, Cost_Sal, Cant_Saldo, Cost_Saldo, Cost_Unit)
-                    VALUES (NOW(), :mes, :items, :detalle, :cd, :cant_ent, :cost_ent, :cant_sal, :cost_sal, :cant_saldo, :cost_saldo, :cost_unit)
+                    VALUES (CURRENT_TIMESTAMP, :mes, :items, :detalle, :cd, :cant_ent, :cost_ent, :cant_sal, :cost_sal, :cant_saldo, :cost_saldo, :cost_unit)
                 ");
 
                 $stmtArticulo = $db->prepare("UPDATE tblarticulos SET Existencia = :exist WHERE Items = :items");
@@ -367,7 +367,7 @@ try {
                 // Close conteo
                 $stmt = $db->prepare("
                     UPDATE tblconteo_inventario
-                    SET Estado = 'Cerrado', Fecha_Cierre = NOW(),
+                    SET Estado = 'Cerrado', Fecha_Cierre = CURRENT_TIMESTAMP,
                         Items_Contados = (SELECT COUNT(*) FROM tblconteo_detalle WHERE Id_Conteo = :id AND Existencia_Contada IS NOT NULL),
                         Items_Con_Diferencia = (SELECT COUNT(*) FROM tblconteo_detalle WHERE Id_Conteo = :id2 AND Diferencia != 0 AND Diferencia IS NOT NULL)
                     WHERE Id_Conteo = :id3

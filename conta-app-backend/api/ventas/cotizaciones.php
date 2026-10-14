@@ -69,7 +69,7 @@ try {
                 $stmt->execute([$fecha, $termino, $dias, $codigo_cli, $nombre, $telefono, $total, $id]);
                 $db->prepare("DELETE FROM detalle_cotizacion WHERE id_cotizacion = ?")->execute([$id]);
             } else {
-                $stmt = $db->prepare("INSERT INTO tblcotizaciones (fecha, termino, dias, codigo_cli, nombre_cliente, telefono_cli, total_factura, fecha_hora_creado) VALUES (?,?,?,?,?,?,?,NOW())");
+                $stmt = $db->prepare("INSERT INTO tblcotizaciones (fecha, termino, dias, codigo_cli, nombre_cliente, telefono_cli, total_factura, fecha_hora_creado) VALUES (?,?,?,?,?,?,?,CURRENT_TIMESTAMP)");
                 $stmt->execute([$fecha, $termino, $dias, $codigo_cli, $nombre, $telefono, $total]);
                 $id = $db->lastInsertId();
             }

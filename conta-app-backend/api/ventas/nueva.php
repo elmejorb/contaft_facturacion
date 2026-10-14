@@ -18,9 +18,7 @@ try {
         // Fix defensivo: detectar columnas de conversion agregadas en 4.3.95.
         // Clientes que no corrieron actualizacion_completa no las tienen y el
         // SELECT crashea con "Unknown column FactorConversion".
-        $colStmt = $db->query("SELECT COLUMN_NAME FROM information_schema.COLUMNS
-            WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tblarticulos'");
-        $artCols = array_column($colStmt->fetchAll(PDO::FETCH_ASSOC), 'COLUMN_NAME');
+        $artCols = conta_columnas_tabla($db, 'tblarticulos');
         $selFactor    = in_array('FactorConversion', $artCols)   ? 'COALESCE(a.FactorConversion, 1)' : '1';
         $selNombreEmp = in_array('NombreEmpaque', $artCols)      ? 'a.NombreEmpaque'                 : 'NULL';
         $selVenderEmp = in_array('VenderComoEmpaque', $artCols)  ? 'COALESCE(a.VenderComoEmpaque, 0)' : '0';
@@ -233,7 +231,7 @@ try {
     $pago = $tipo === 'Contado' ? ($efectivo + $valorPagado) : $abono;
     $cambio = $tipo === 'Contado' ? max(($efectivo + $valorPagado) - $total, 0) : 0;
 
-    // Fecha de la venta. Default = NOW() (timestamp con fecha+hora actuales).
+    // Fecha de la venta. Default = CURRENT_TIMESTAMP (timestamp con fecha+hora actuales).
     // Si el frontend manda una fecha custom (toggle "Permitir cambiar la fecha
     // de la venta" en Reglas de Venta), validamos formato YYYY-MM-DD y la
     // combinamos con la hora actual. N_Mes y anio se derivan de esa fecha
@@ -241,7 +239,7 @@ try {
     $fechaCustom = isset($data->fecha) && $data->fecha
         ? trim((string)$data->fecha)
         : null;
-    $fechaParaInsert = 'NOW()';
+    $fechaParaInsert = 'CURRENT_TIMESTAMP';
     $fechaParams = [];
     if ($fechaCustom !== null && preg_match('/^\d{4}-\d{2}-\d{2}$/', $fechaCustom)) {
         // Combinamos la fecha custom con la hora actual para mantener trazabilidad
@@ -292,7 +290,7 @@ try {
 
         // Columna 'saldo' no está en todas las BDs (existe en distrisalsa, no
         // en innovacion). Chequeo defensivo para INSERT compatible.
-        $tieneSaldo = (int)$db->query("SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='electronic_documents' AND COLUMN_NAME='saldo'")->fetchColumn() > 0;
+        $tieneSaldo = conta_tiene_columna($db, 'electronic_documents', 'saldo');
         $colSaldo = $tieneSaldo ? ', saldo' : '';
         $valSaldo = $tieneSaldo ? ', ?' : '';
 
@@ -331,7 +329,7 @@ try {
         // Columna 'entregado' defensiva — solo existe desde v4.7. Si no está
         // (BD sin migrar) el INSERT se ejecuta sin ella y la columna queda
         // en su default.
-        $tieneEntregadoFE = (int)$db->query("SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='detalle_document_electronic' AND COLUMN_NAME='entregado'")->fetchColumn() > 0;
+        $tieneEntregadoFE = conta_tiene_columna($db, 'detalle_document_electronic', 'entregado');
         $colEntregadoFE = $tieneEntregadoFE ? ', entregado' : '';
         $valEntregadoFE = $tieneEntregadoFE ? ', ?' : '';
         $stmtDetFE = $db->prepare("
@@ -402,7 +400,7 @@ try {
                 INSERT INTO tblpagos (RecCajaN, Codigo, Fact_N, ValorPago, Fecha, DetallePago,
                     ValorFact, SaldoAct, Descuento, Retencion, Estado, Afectada, id_mediopago,
                     NFactAnt, Nfact_electronica, FechaMod, id_usuario)
-                VALUES (?, ?, NULL, ?, NOW(), ?, ?, ?, 0, 0, 'Valida', '1110', ?, '', ?, NOW(), ?)
+                VALUES (?, ?, NULL, ?, CURRENT_TIMESTAMP, ?, ?, ?, 0, 0, 'Valida', '1110', ?, '', ?, CURRENT_TIMESTAMP, ?)
             ")->execute([
                 $rec, $clienteId, $abono,
                 "Abono inicial FE $refKardex",
@@ -470,7 +468,7 @@ try {
 
     $stmtKardex = $db->prepare("
         INSERT INTO tblkardex (Fecha, Mes, Items, Detalle, C_D, Cant_Ent, Cost_Ent, Cant_Sal, Cost_Sal, Cant_Saldo, Cost_Saldo, Cost_Unit)
-        VALUES (NOW(), :mes, :items, :det, 2, 0, 0, :cant, :cost_sal, :saldo_cant, :saldo_cost, :cost_unit)
+        VALUES (CURRENT_TIMESTAMP, :mes, :items, :det, 2, 0, 0, :cant, :cost_sal, :saldo_cant, :saldo_cost, :cost_unit)
     ");
 
     foreach ($data->items as $item) {
@@ -627,9 +625,9 @@ try {
             INSERT INTO tblpagos (RecCajaN, Codigo, Fact_N, ValorPago, Fecha, DetallePago,
                 ValorFact, SaldoAct, Descuento, Retencion, Estado, Afectada, id_mediopago,
                 NFactAnt, Nfact_electronica, FechaMod, id_usuario)
-            VALUES (:rec, :codigo, :fact_n, :valor, NOW(), :detalle,
+            VALUES (:rec, :codigo, :fact_n, :valor, CURRENT_TIMESTAMP, :detalle,
                 :valor_fact, :saldo_act, 0, 0, 'Valida', '1110', :medio,
-                '', '', NOW(), :id_user)
+                '', '', CURRENT_TIMESTAMP, :id_user)
         ");
         $stmtAbonoPago->execute([
             ':rec'        => $recCajaN,

@@ -43,8 +43,8 @@ class TestFlujoCompletoDia extends TestCase {
         // Servicio (Servicio=1 → no mueve inventario ni kardex)
         $this->db->exec("INSERT INTO tblarticulos (Items, Codigo, Nombres_Articulo, Id_Categoria, Existencia, Existencia_minima, Precio_Costo, Iva, Precio_Venta, Servicio, Estado, unit_measure_id) VALUES (11, 'E2E-SERV', 'ASESORIA CONTABLE', 1, 0, 0, 0, 0, 80000, 1, 1, 70)");
         $this->itemsIdServicio = 11;
-        // Cliente real
-        $this->db->exec("INSERT INTO tblclientes (CodigoClien, Razon_Social, Nombres, Apellidos, Nit, Direccion, Telefonos, CupoAutorizado, Email, Identificacion) VALUES (2001, 'JUAN PEREZ E2E', 'JUAN', 'PEREZ', '79000111', 'CLL 10 # 5-20', '3101234567', 500000, 'juan@e2e.co', 79000111)");
+        // Cliente real — Whatsapp='' porque en SQLite la columna es NOT NULL sin default
+        $this->db->exec("INSERT INTO tblclientes (CodigoClien, Razon_Social, Nombres, Apellidos, Nit, Direccion, Telefonos, CupoAutorizado, Email, Identificacion, Whatsapp) VALUES (2001, 'JUAN PEREZ E2E', 'JUAN', 'PEREZ', '79000111', 'CLL 10 # 5-20', '3101234567', 500000, 'juan@e2e.co', 79000111, '')");
         $this->clienteId = 2001;
         // Proveedor
         $this->db->exec("INSERT INTO tblproveedores (RazonSocial, Nit, Direccion, Telefonos) VALUES ('DISTRIBUIDORA LACTEOS E2E', '830111222', 'CRA 50', '3200000')");
@@ -64,11 +64,11 @@ class TestFlujoCompletoDia extends TestCase {
         // Para la compra registramos directo porque el endpoint tiene muchos
         // parámetros y lo crítico es verificar la cadena pedido→kardex→stock.
         $this->db->beginTransaction();
-        $this->db->exec("INSERT INTO tblpedidos (CodigoPro, TipoPedido, Dias, FacturaCompra_N, Fecha, Total, Saldo, EstadoPedido, opcion_factura) VALUES ({$this->proveedorId}, 'Contado', 0, 'FP-001', NOW(), 300000, 0, 'Recibido', 1)");
+        $this->db->exec("INSERT INTO tblpedidos (CodigoPro, TipoPedido, Dias, FacturaCompra_N, Fecha, Total, Saldo, EstadoPedido, opcion_factura) VALUES ({$this->proveedorId}, 'Contado', 0, 'FP-001', CURRENT_TIMESTAMP, 300000, 0, 'Recibido', 1)");
         $this->pedidoCompra = (int)$this->db->lastInsertId();
         $this->db->exec("INSERT INTO tbldetalle_pedido (Pedido_N, Items, Cantidad, PrecioC, PrecioV, IvaPct, Subtotal) VALUES ({$this->pedidoCompra}, {$this->itemsIdNuevo}, 100, 3000, 4500, 19, 300000)");
         $this->db->exec("UPDATE tblarticulos SET Existencia = Existencia + 100 WHERE Items = {$this->itemsIdNuevo}");
-        $this->db->exec("INSERT INTO tblkardex (Fecha, Mes, Items, Detalle, C_D, Cant_Ent, Cost_Ent, Cant_Sal, Cost_Sal, Cant_Saldo, Cost_Saldo, Cost_Unit) VALUES (NOW(), 'Octubre', {$this->itemsIdNuevo}, 'Compra Nº {$this->pedidoCompra}', 1, 100, 300000, 0, 0, 100, 300000, 3000)");
+        $this->db->exec("INSERT INTO tblkardex (Fecha, Mes, Items, Detalle, C_D, Cant_Ent, Cost_Ent, Cant_Sal, Cost_Sal, Cant_Saldo, Cost_Saldo, Cost_Unit) VALUES (CURRENT_TIMESTAMP, 'Octubre', {$this->itemsIdNuevo}, 'Compra Nº {$this->pedidoCompra}', 1, 100, 300000, 0, 0, 100, 300000, 3000)");
         $this->db->commit();
 
         $this->assertEquals(100, (float)$this->fetchValue("SELECT Existencia FROM tblarticulos WHERE Items = ?", [$this->itemsIdNuevo]),

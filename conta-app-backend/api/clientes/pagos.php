@@ -25,8 +25,8 @@ try {
         // Facturas con saldo pendiente — usa las vistas (saldo dinámico),
         // une POS + FE + facturas anteriores. Las vistas ya filtran anuladas
         // y solo traen las que tienen Saldo > 0.
-        $tieneFE = $db->query("SHOW TABLES LIKE 'electronic_documents'")->fetch();
-        $tieneFA = $db->query("SHOW TABLES LIKE 'tblfacturasanteriores'")->fetch();
+        $tieneFE = conta_tiene_tabla($db, "electronic_documents");
+        $tieneFA = conta_tiene_tabla($db, "tblfacturasanteriores");
 
         $sql = "
             SELECT Factura_N, Fecha, Total, Saldo, Dias, Tipo, 'venta' AS Origen
@@ -115,7 +115,7 @@ try {
             $h['SaldoAct'] = floatval($h['SaldoAct']);
             // Defensa fecha: si Fecha viene NULL o '0000-00-00 00:00:00'
             // (pagos legacy VB6 migrados mal), devolvemos string vacío para
-            // que el frontend aplique su fallback (NOW()). Sin esto el
+            // que el frontend aplique su fallback (CURRENT_TIMESTAMP). Sin esto el
             // recibo salía en blanco con "Invalid Date".
             if (empty($h['Fecha']) || $h['Fecha'] === '0000-00-00 00:00:00') {
                 $h['Fecha'] = '';
@@ -179,7 +179,7 @@ try {
                 INSERT INTO tblpagos (RecCajaN, Codigo, Fact_N, ValorPago, Fecha, DetallePago,
                     ValorFact, SaldoAct, Descuento, Retencion, Estado, Afectada, id_mediopago, NFactAnt, Nfact_electronica, FechaMod, id_usuario)
                 VALUES (:rec, :codigo, :fact_n, :valor, :fecha, :detalle, :valor_fact, :saldo_act,
-                    :descuento, 0, 'Valida', '1110', :medio, '', '', NOW(), :id_user)
+                    :descuento, 0, 'Valida', '1110', :medio, '', '', CURRENT_TIMESTAMP, :id_user)
             ");
 
             // El UPDATE delta (Saldo = Saldo - :pago) compone errores si el
@@ -196,7 +196,7 @@ try {
                 INSERT INTO tblpagos (RecCajaN, Codigo, Fact_N, ValorPago, Fecha, DetallePago,
                     ValorFact, SaldoAct, Descuento, Retencion, Estado, Afectada, id_mediopago, NFactAnt, Nfact_electronica, FechaMod, id_usuario)
                 VALUES (:rec, :codigo, 0, :valor, :fecha, :detalle, :valor_fact, :saldo_act,
-                    :descuento, 0, 'Valida', '1110', :medio, :nfact_ant, '', NOW(), :id_user)
+                    :descuento, 0, 'Valida', '1110', :medio, :nfact_ant, '', CURRENT_TIMESTAMP, :id_user)
             ");
             $stmtUpdateAnt = $db->prepare("
                 UPDATE tblfacturasanteriores
@@ -277,7 +277,7 @@ try {
                             ValorFact, SaldoAct, Descuento, Retencion, Estado, Afectada, id_mediopago,
                             NFactAnt, Nfact_electronica, FechaMod, id_usuario)
                         VALUES (:rec, :codigo, 0, :valor, :fecha, :detalle, :valor_fact, :saldo_act,
-                            :descuento, 0, 'Valida', '1110', :medio, '', :nfe, NOW(), :id_user)
+                            :descuento, 0, 'Valida', '1110', :medio, '', :nfe, CURRENT_TIMESTAMP, :id_user)
                     ");
                     $stmtInsertFE->execute([
                         ':rec' => $recCaja,
@@ -432,8 +432,8 @@ try {
             // de POS + FE + anteriores), leído de las vistas de verdad. El recibo
             // lo muestra para que el cliente sepa cuánto le queda debiendo en TOTAL,
             // no solo de la factura que acaba de abonar.
-            $tieneFE = $db->query("SHOW TABLES LIKE 'electronic_documents'")->fetch();
-            $tieneFA = $db->query("SHOW TABLES LIKE 'tblfacturasanteriores'")->fetch();
+            $tieneFE = conta_tiene_tabla($db, "electronic_documents");
+            $tieneFA = conta_tiene_tabla($db, "tblfacturasanteriores");
             $sqlSaldo = "SELECT COALESCE(SUM(Saldo),0) AS s FROM vw_facturas_cliente_saldos WHERE CodigoCli = :id AND Saldo > 0";
             $paramsSaldo = [':id' => $clienteId];
             if ($tieneFE) {
@@ -477,7 +477,7 @@ try {
             $db->beginTransaction();
 
             // Mark as annulled
-            $stmt = $db->prepare("UPDATE tblpagos SET Estado = 'Anulada', FechaMod = NOW() WHERE Id_Pagos = :id");
+            $stmt = $db->prepare("UPDATE tblpagos SET Estado = 'Anulada', FechaMod = CURRENT_TIMESTAMP WHERE Id_Pagos = :id");
             $stmt->execute([':id' => $idPago]);
 
             // Reverse: restaurar saldo de la factura.
@@ -557,7 +557,7 @@ try {
             $factN = $pago['NFactAnt'] ?: $pago['Fact_N'];
 
             // Update pago
-            $updates = "ValorPago = :valor, FechaMod = NOW()";
+            $updates = "ValorPago = :valor, FechaMod = CURRENT_TIMESTAMP";
             $params = [':valor' => $nuevoValorFloat, ':id' => $idPago];
 
             if ($nuevoMedio !== null) {

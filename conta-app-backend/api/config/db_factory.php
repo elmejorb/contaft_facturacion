@@ -107,3 +107,44 @@ function conta_driver_actual(): string {
     $cfg = conta_config_cargar();
     return $cfg['driver'] ?? 'legacy';
 }
+
+/**
+ * Devuelve los nombres de las columnas de una tabla, funciona en MySQL y SQLite.
+ * Reemplaza al patrón MySQL-only:
+ *   "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='X'"
+ */
+function conta_columnas_tabla(PDO $db, string $tabla): array {
+    $driver = $db->getAttribute(PDO::ATTR_DRIVER_NAME);
+    if ($driver === 'sqlite') {
+        $rows = $db->query("PRAGMA table_info(\"$tabla\")")->fetchAll(PDO::FETCH_ASSOC);
+        return array_column($rows, 'name');
+    }
+    // MySQL (default): usa information_schema
+    $stmt = $db->prepare("SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=?");
+    $stmt->execute([$tabla]);
+    return $stmt->fetchAll(PDO::FETCH_COLUMN);
+}
+
+/**
+ * Chequea si una columna existe. Portable MySQL+SQLite.
+ * Reemplaza al patrón:
+ *   "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='X' AND COLUMN_NAME='Y'"
+ */
+function conta_tiene_columna(PDO $db, string $tabla, string $columna): bool {
+    return in_array($columna, conta_columnas_tabla($db, $tabla), true);
+}
+
+/**
+ * Chequea si una tabla existe. Portable MySQL+SQLite.
+ */
+function conta_tiene_tabla(PDO $db, string $tabla): bool {
+    $driver = $db->getAttribute(PDO::ATTR_DRIVER_NAME);
+    if ($driver === 'sqlite') {
+        $stmt = $db->prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name = ?");
+        $stmt->execute([$tabla]);
+        return (bool)$stmt->fetchColumn();
+    }
+    $stmt = $db->prepare("SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=?");
+    $stmt->execute([$tabla]);
+    return (bool)$stmt->fetchColumn();
+}

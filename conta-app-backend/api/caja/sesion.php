@@ -338,7 +338,7 @@ try {
                 exit;
             }
 
-            $stmt = $db->prepare("INSERT INTO tblsesiones_caja (Id_Caja, Id_Usuario, FechaApertura, BaseInicial, Estado) VALUES (?, ?, NOW(), ?, 'abierta')");
+            $stmt = $db->prepare("INSERT INTO tblsesiones_caja (Id_Caja, Id_Usuario, FechaApertura, BaseInicial, Estado) VALUES (?, ?, CURRENT_TIMESTAMP, ?, 'abierta')");
             $stmt->execute([$cajaId, $usuarioId, $base]);
 
             $stmt = $db->prepare("SELECT Nombre FROM tblcajas WHERE Id_Caja = ?");
@@ -485,7 +485,7 @@ try {
             $totalEf = $base + floatval($vc['ef']) + floatval($pg['ef']) - floatval($eg['t']) - floatval($an['t']) - $ret;
             $diferencia = $conteo - $totalEf;
 
-            $db->prepare("UPDATE tblsesiones_caja SET FechaCierre = NOW(), VentasContadoEfectivo = ?, VentasContadoTransf = ?, VentasCredito = ?, PagosEfectivo = ?, PagosTransf = ?, Egresos = ?, Anulaciones = ?, RetirosParciales = ?, TotalEfectivoSistema = ?, ConteoFinal = ?, DiferenciaFinal = ?, Estado = 'cerrada', Observacion = ? WHERE Id_Sesion = ?")
+            $db->prepare("UPDATE tblsesiones_caja SET FechaCierre = CURRENT_TIMESTAMP, VentasContadoEfectivo = ?, VentasContadoTransf = ?, VentasCredito = ?, PagosEfectivo = ?, PagosTransf = ?, Egresos = ?, Anulaciones = ?, RetirosParciales = ?, TotalEfectivoSistema = ?, ConteoFinal = ?, DiferenciaFinal = ?, Estado = 'cerrada', Observacion = ? WHERE Id_Sesion = ?")
                ->execute([floatval($vc['ef']), floatval($vc['tr']), floatval($vcr['t']), floatval($pg['ef']), floatval($pg['tr']), floatval($eg['t']), floatval($an['t']), $ret, $totalEf, $conteo, $diferencia, $observacion, $sesionId]);
 
             // Trasladar según opción

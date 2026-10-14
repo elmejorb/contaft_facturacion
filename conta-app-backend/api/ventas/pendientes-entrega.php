@@ -38,7 +38,7 @@ try {
                d.PrecioV AS precio,
                (d.Cantidad - COALESCE(d.CantidadEntregada, 0)) * d.PrecioV AS subtotal,
                d.Id_DetalleVenta AS id_detalle,
-               DATEDIFF(CURDATE(), DATE(v.Fecha)) AS dias_transcurridos
+               DATEDIFF(CURRENT_DATE, DATE(v.Fecha)) AS dias_transcurridos
         FROM tbldetalle_venta d
         INNER JOIN tblventas v ON v.Factura_N = d.Factura_N
         LEFT JOIN tblarticulos a ON a.Items = d.Items
@@ -49,8 +49,7 @@ try {
     ";
 
     // FE: detalle_document_electronic (solo si existe)
-    $tieneFE = (int)$db->query("SELECT COUNT(*) FROM information_schema.COLUMNS
-        WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='detalle_document_electronic' AND COLUMN_NAME='entregado'")->fetchColumn() > 0;
+    $tieneFE = conta_tiene_columna($db, 'detalle_document_electronic', 'entregado');
 
     $rows = [];
     $stmt = $db->prepare($sqlPos);
@@ -75,7 +74,7 @@ try {
                    d.price_amount AS precio,
                    (d.invoiced_quantity - COALESCE(d.cantidad_entregada, 0)) * d.price_amount AS subtotal,
                    d.id_detalle_document AS id_detalle,
-                   DATEDIFF(CURDATE(), e.fecha) AS dias_transcurridos
+                   DATEDIFF(CURRENT_DATE, e.fecha) AS dias_transcurridos
             FROM detalle_document_electronic d
             INNER JOIN electronic_documents e ON e.id = d.factura_n
             LEFT JOIN tblarticulos a ON a.Items = d.items

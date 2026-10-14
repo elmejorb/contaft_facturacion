@@ -20,9 +20,7 @@ try {
             $cod = trim($_GET['codigo'] ?? '');
             if ($cod === '') { echo json_encode(["success" => true, "articulos" => []]); exit; }
             // Detectar columnas de conversion (defensivo, igual que en buscar)
-            $colStmt = $db->query("SELECT COLUMN_NAME FROM information_schema.COLUMNS
-                WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tblarticulos'");
-            $artCols = array_column($colStmt->fetchAll(PDO::FETCH_ASSOC), 'COLUMN_NAME');
+            $artCols = conta_columnas_tabla($db, 'tblarticulos');
             $selFactor    = in_array('FactorConversion', $artCols)   ? 'COALESCE(a.FactorConversion, 1)' : '1';
             $selNombreEmp = in_array('NombreEmpaque', $artCols)      ? 'a.NombreEmpaque'                 : 'NULL';
             $selVenderEmp = in_array('VenderComoEmpaque', $artCols)  ? 'COALESCE(a.VenderComoEmpaque, 0)' : '0';
@@ -66,9 +64,7 @@ try {
         if (isset($_GET['buscar'])) {
             // Fix defensivo: detectar columnas 4.3.95 (FactorConversion etc).
             // Clientes sin actualizacion_completa no las tienen y el SELECT crashea.
-            $colStmt = $db->query("SELECT COLUMN_NAME FROM information_schema.COLUMNS
-                WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tblarticulos'");
-            $artCols = array_column($colStmt->fetchAll(PDO::FETCH_ASSOC), 'COLUMN_NAME');
+            $artCols = conta_columnas_tabla($db, 'tblarticulos');
             $selFactor    = in_array('FactorConversion', $artCols)   ? 'COALESCE(a.FactorConversion, 1)' : '1';
             $selNombreEmp = in_array('NombreEmpaque', $artCols)      ? 'a.NombreEmpaque'                 : 'NULL';
             $selVenderEmp = in_array('VenderComoEmpaque', $artCols)  ? 'COALESCE(a.VenderComoEmpaque, 0)' : '0';

@@ -46,7 +46,7 @@ try {
             if ($valor <= 0 || $anio < 2020 || $anio > 2100) {
                 echo json_encode(['success'=>false,'message'=>'Valor o año inválido']); exit;
             }
-            $db->exec("UPDATE tbldatosempresa SET uvt_valor = $valor, uvt_anio = $anio, uvt_actualizado_at = NOW()");
+            $db->exec("UPDATE tbldatosempresa SET uvt_valor = $valor, uvt_anio = $anio, uvt_actualizado_at = CURRENT_TIMESTAMP");
             echo json_encode(['success'=>true,'message'=>"UVT $anio actualizado a $valor"]);
             exit;
         }
@@ -67,7 +67,7 @@ try {
                 exit;
             }
 
-            $db->exec("UPDATE tbldatosempresa SET uvt_valor = $valorAutoDian, uvt_anio = $anioActual, uvt_actualizado_at = NOW()");
+            $db->exec("UPDATE tbldatosempresa SET uvt_valor = $valorAutoDian, uvt_anio = $anioActual, uvt_actualizado_at = CURRENT_TIMESTAMP");
             echo json_encode([
                 'success' => true,
                 'message' => "UVT $anioActual sincronizado: $" . number_format($valorAutoDian, 0, ',', '.'),

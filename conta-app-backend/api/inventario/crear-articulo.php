@@ -45,9 +45,7 @@ try {
     // Detectar columnas presentes en tblarticulos. Los campos de conversion se
     // agregaron en 4.3.95 — si el cliente no corrio actualizacion_completa,
     // el INSERT rigido crashea con "Unknown column" (frontend: "error de conexion").
-    $colStmt = $db->query("SELECT COLUMN_NAME FROM information_schema.COLUMNS
-        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tblarticulos'");
-    $cols = array_column($colStmt->fetchAll(PDO::FETCH_ASSOC), 'COLUMN_NAME');
+    $cols = conta_columnas_tabla($db, 'tblarticulos');
     $tieneFactor = in_array('FactorConversion', $cols);
     $tieneNombreEmp = in_array('NombreEmpaque', $cols);
     $tieneVenderEmp = in_array('VenderComoEmpaque', $cols);
@@ -106,7 +104,7 @@ try {
         $campos[] = 'Id_Bodega'; $placeholders[] = ':idBodega';
         $params[':idBodega'] = max(1, intval($input['Id_Bodega'] ?? 1));
     }
-    $campos[] = 'FechaMod'; $placeholders[] = 'NOW()';
+    $campos[] = 'FechaMod'; $placeholders[] = 'CURRENT_TIMESTAMP';
 
     $query = 'INSERT INTO tblarticulos (' . implode(', ', $campos) . ') VALUES ('
              . implode(', ', $placeholders) . ')';
@@ -115,7 +113,7 @@ try {
 
     // Si hay existencia inicial y existe la tabla kardex, registrar la carga inicial.
     if ($existenciaInicial > 0) {
-        $tieneKardex = $db->query("SHOW TABLES LIKE 'tblkardex'")->fetch();
+        $tieneKardex = conta_tiene_tabla($db, "tblkardex");
         if ($tieneKardex) {
             $costoTotal = $existenciaInicial * $costoUnit;
             $mesNombre = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'][intval(date('n'))-1];
@@ -123,7 +121,7 @@ try {
                 INSERT INTO tblkardex
                   (Fecha, Mes, Items, Detalle, C_D, Cant_Ent, Cost_Ent, Cant_Sal, Cost_Sal, Cant_Saldo, Cost_Saldo, Cost_Unit)
                 VALUES
-                  (NOW(), :mes, :items, :detalle, 0, :cant, :costo_total, 0, 0, :saldo_cant, :saldo_costo, :costo_unit)
+                  (CURRENT_TIMESTAMP, :mes, :items, :detalle, 0, :cant, :costo_total, 0, 0, :saldo_cant, :saldo_costo, :costo_unit)
             ");
             $kStmt->execute([
                 ':mes'         => $mesNombre,

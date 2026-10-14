@@ -40,9 +40,7 @@ try {
     // se agregaron en 4.3.95 — clientes que NO han corrido actualizacion_completa
     // no las tienen. Sin este chequeo el UPDATE crashea con "Unknown column"
     // y el frontend muestra "error de conexion" al guardar.
-    $colStmt = $db->query("SELECT COLUMN_NAME FROM information_schema.COLUMNS
-        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tblarticulos'");
-    $cols = array_column($colStmt->fetchAll(PDO::FETCH_ASSOC), 'COLUMN_NAME');
+    $cols = conta_columnas_tabla($db, 'tblarticulos');
     $tieneFactor = in_array('FactorConversion', $cols);
     $tieneNombreEmp = in_array('NombreEmpaque', $cols);
     $tieneVenderEmp = in_array('VenderComoEmpaque', $cols);
@@ -122,7 +120,7 @@ try {
         $sets[] = 'Id_Bodega = :idBodega';
         $params[':idBodega'] = max(1, intval($input['Id_Bodega']));
     }
-    $sets[] = 'FechaMod = NOW()';
+    $sets[] = 'FechaMod = CURRENT_TIMESTAMP';
 
     $query = 'UPDATE tblarticulos SET ' . implode(', ', $sets) . ' WHERE Items = :items';
     $stmt = $db->prepare($query);
@@ -132,7 +130,7 @@ try {
     // como entrada (suma) o salida (resta) — preserva el libro inmutable.
     $diferencia = $existNueva - $existActual;
     if (abs($diferencia) > 0.0001) {
-        $tieneKardex = $db->query("SHOW TABLES LIKE 'tblkardex'")->fetch();
+        $tieneKardex = conta_tiene_tabla($db, "tblkardex");
         if ($tieneKardex) {
             $mesNombre = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'][intval(date('n'))-1];
             $costoDiff = abs($diferencia) * $costoUnit;
@@ -144,7 +142,7 @@ try {
                 INSERT INTO tblkardex
                   (Fecha, Mes, Items, Detalle, C_D, Cant_Ent, Cost_Ent, Cant_Sal, Cost_Sal, Cant_Saldo, Cost_Saldo, Cost_Unit)
                 VALUES
-                  (NOW(), :mes, :items, :detalle, 0, :cant_ent, :cost_ent, :cant_sal, :cost_sal, :saldo_cant, :saldo_costo, :costo_unit)
+                  (CURRENT_TIMESTAMP, :mes, :items, :detalle, 0, :cant_ent, :cost_ent, :cant_sal, :cost_sal, :saldo_cant, :saldo_costo, :costo_unit)
             ");
             $kStmt->execute([
                 ':mes'         => $mesNombre,

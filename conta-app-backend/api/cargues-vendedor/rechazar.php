@@ -81,7 +81,7 @@ try {
         UPDATE tbl_cargues_vendedor SET
             estado = 'rechazado',
             notas_admin = ?,
-            updated_at = NOW()
+            updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
     ")->execute([$notasAdmin, $id]);
 

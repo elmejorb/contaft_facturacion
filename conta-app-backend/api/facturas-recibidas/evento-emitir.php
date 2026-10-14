@@ -213,7 +213,7 @@ try {
         (factura_recibida_id, event_code, event_label,
          rejection_code, rejection_description, note,
          estado, usuario_id, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, 'pendiente', ?, NOW())
+        VALUES (?, ?, ?, ?, ?, ?, 'pendiente', ?, CURRENT_TIMESTAMP)
     ");
     $stmtIns->execute([
         $facturaId, $eventCode, EVENT_LABELS[$eventCode],
@@ -250,7 +250,7 @@ try {
         UPDATE eventos_factura_recibida
         SET cude_evento = ?, event_id_remoto = ?,
             dian_status = ?, dian_message = ?, api_response = ?,
-            estado = ?, enviado_at = NOW()
+            estado = ?, enviado_at = CURRENT_TIMESTAMP
         WHERE id = ?
     ");
     $stmtUpd->execute([

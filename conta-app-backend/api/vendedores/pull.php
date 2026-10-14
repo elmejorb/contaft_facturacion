@@ -106,7 +106,7 @@ try {
                         INSERT INTO electronic_documents
                         (fecha, cod_cliente, customer_identification, total, cufe, status,
                          origen, id_vendedor_remoto, nombre_vendedor, created_at)
-                        VALUES (?, ?, ?, ?, ?, ?, 'movil', ?, ?, NOW())
+                        VALUES (?, ?, ?, ?, ?, ?, 'movil', ?, ?, CURRENT_TIMESTAMP)
                     ")->execute([
                         $fecha,
                         $v['id_cliente'] ?? 0,
@@ -135,7 +135,7 @@ try {
                             nit_cliente = ?, id_vendedor_remoto = ?, nombre_vendedor = ?,
                             fecha = ?, subtotal = ?, impuestos = ?, total = ?,
                             forma_pago = ?, observaciones = ?, estado = ?, items_json = ?,
-                            fecha_mod = NOW()
+                            fecha_mod = CURRENT_TIMESTAMP
                         WHERE id_remoto = ?
                     ")->execute([
                         $v['numero_factura'] ?? '',
@@ -161,7 +161,7 @@ try {
                         (id_remoto, numero_pedido, id_cliente_remoto, nombre_cliente, nit_cliente,
                          id_vendedor_remoto, nombre_vendedor, fecha, subtotal, impuestos, total,
                          forma_pago, observaciones, estado, items_json, fecha_descarga, fecha_mod)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                     ")->execute([
                         $idRemoto,
                         $v['numero_factura'] ?? '',
@@ -188,7 +188,7 @@ try {
         // Actualizar último pull
         $db->prepare("
             UPDATE tbl_config_vendedores
-            SET ultimo_pull_id = ?, ultimo_pull_ventas = NOW(), fecha_mod = NOW()
+            SET ultimo_pull_id = ?, ultimo_pull_ventas = CURRENT_TIMESTAMP, fecha_mod = CURRENT_TIMESTAMP
             WHERE id = 1
         ")->execute([$maxId]);
 
@@ -243,7 +243,7 @@ try {
                     INSERT INTO tbl_vendedores_movil
                         (id_remoto, codigo, nombre, email, password_hash, telefono, cedula, zona,
                          can_edit_clients, activo, sincronizado, fecha_mod)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, NOW())
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP)
                 ");
                 $stmtIns->execute([
                     $vr['id_vendedor_conta'] ?: null,
@@ -380,7 +380,7 @@ try {
                         INSERT INTO tblclientes
                             (CodigoClien, Razon_Social, Nit, Identificacion, Telefonos, Whatsapp, Email, Direccion,
                              CodigoEmp, Cargo_C, Fecha_Ingreso, latitud, longitud, precision_gps_metros, gps_capturado_at, FechaMod)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, ?, ?, ?, NOW())
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                     ");
                     $stmtIns->execute([
                         $nuevoCodigo,
@@ -519,7 +519,7 @@ try {
                     $idsConfirmar[] = $ed['id_edicion'];
                     continue;
                 }
-                $sets[] = '`FechaMod` = NOW()';
+                $sets[] = '`FechaMod` = CURRENT_TIMESTAMP';
                 $vals[] = intval($codvb6);
                 $sql = "UPDATE tblclientes SET " . implode(', ', $sets) . " WHERE CodigoClien = ?";
 

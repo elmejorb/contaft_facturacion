@@ -48,7 +48,7 @@ try {
     // Acción: desactivar (alternativa cuando tiene movimientos)
     // -----------------------------------------------------------
     if ($method === 'POST' && $action === 'desactivar') {
-        $stmt = $db->prepare("UPDATE tblarticulos SET Estado = 0, FechaMod = NOW() WHERE Items = ?");
+        $stmt = $db->prepare("UPDATE tblarticulos SET Estado = 0, FechaMod = CURRENT_TIMESTAMP WHERE Items = ?");
         $stmt->execute([$items]);
         echo json_encode([
             'success' => true,
@@ -77,7 +77,7 @@ try {
         if ($cntCompras > 0) $dependencias[] = "$cntCompras registro(s) de compras";
 
         // Kardex
-        $tieneKardex = $db->query("SHOW TABLES LIKE 'tblkardex'")->fetch();
+        $tieneKardex = conta_tiene_tabla($db, "tblkardex");
         if ($tieneKardex) {
             $r = $db->prepare("SELECT COUNT(*) FROM tblkardex WHERE Items = ?");
             $r->execute([$items]);
@@ -86,7 +86,7 @@ try {
         }
 
         // Lotes
-        $tieneLotes = $db->query("SHOW TABLES LIKE 'tblproductos_lotes'")->fetch();
+        $tieneLotes = conta_tiene_tabla($db, "tblproductos_lotes");
         if ($tieneLotes) {
             $r = $db->prepare("SELECT COUNT(*) FROM tblproductos_lotes WHERE Items = ?");
             $r->execute([$items]);

@@ -165,16 +165,16 @@ try {
 
         // Asegurar columna email_recipient (silencioso si ya existe)
         try {
-            $colExists = $db->query("SELECT COUNT(*) FROM information_schema.columns WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='electronic_documents' AND COLUMN_NAME='email_recipient'")->fetchColumn();
+            $colExists =conta_tiene_columna($db, 'electronic_documents', 'email_recipient');
             if (intval($colExists) === 0) {
                 $db->exec("ALTER TABLE electronic_documents ADD COLUMN email_recipient VARCHAR(500) NULL");
                 $logWrite(['event' => 'schema_fix', 'message' => 'Columna email_recipient agregada']);
             }
-            $db->prepare("UPDATE electronic_documents SET email_sent = 1, email_sent_at = NOW(), email_recipient = ? WHERE cufe = ?")
+            $db->prepare("UPDATE electronic_documents SET email_sent = 1, email_sent_at = CURRENT_TIMESTAMP, email_recipient = ? WHERE cufe = ?")
                ->execute([$listaTxt, $cufe]);
         } catch (Exception $exCol) {
             // Fallback: actualizar solo lo que sí existe
-            $db->prepare("UPDATE electronic_documents SET email_sent = 1, email_sent_at = NOW() WHERE cufe = ?")
+            $db->prepare("UPDATE electronic_documents SET email_sent = 1, email_sent_at = CURRENT_TIMESTAMP WHERE cufe = ?")
                ->execute([$cufe]);
             $logWrite(['event' => 'schema_error', 'message' => $exCol->getMessage()]);
         }

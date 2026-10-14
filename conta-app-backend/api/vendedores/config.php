@@ -42,7 +42,7 @@ try {
                     modo_pedidos = ?,
                     modo_factura_pos = ?,
                     modo_factura_electronica = ?,
-                    fecha_mod = NOW()
+                    fecha_mod = CURRENT_TIMESTAMP
                 WHERE id = 1
             ");
             $stmt->execute([

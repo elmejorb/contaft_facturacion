@@ -15,9 +15,7 @@ $db = (new Database())->getConnection();
 try {
     // Detección defensiva de columnas / tabla opcional para tolerar BDs
     // que aún no corrieron actualizacion_completa.sql.
-    $colStmt = $db->query("SELECT COLUMN_NAME FROM information_schema.COLUMNS
-        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tblarticulos'");
-    $artCols = array_column($colStmt->fetchAll(PDO::FETCH_ASSOC), 'COLUMN_NAME');
+    $artCols = conta_columnas_tabla($db, 'tblarticulos');
     $tblStmt = $db->query("SELECT TABLE_NAME FROM information_schema.TABLES
         WHERE TABLE_SCHEMA = DATABASE()");
     $tblExists = array_column($tblStmt->fetchAll(PDO::FETCH_ASSOC), 'TABLE_NAME');

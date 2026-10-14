@@ -14,6 +14,10 @@ header("Access-Control-Allow-Headers: Content-Type, Authorization");
 header("Content-Type: application/json; charset=UTF-8");
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') { http_response_code(200); exit(); }
 
+// Igual que el database.php productivo: cargamos la factory para que estén
+// disponibles los helpers portables (conta_tiene_columna, conta_columnas_tabla).
+require_once __DIR__ . '/db_factory.php';
+
 class Database {
     private $host = "localhost";
     private $db_name = "conta_test";

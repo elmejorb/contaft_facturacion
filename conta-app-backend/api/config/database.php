@@ -12,7 +12,7 @@
  */
 
 // Zona horaria — debe coincidir con la de Colombia para que las fechas
-// generadas en PHP (date(), strtotime(), etc.) cuadren con NOW() de MySQL.
+// generadas en PHP (date(), strtotime(), etc.) cuadren con CURRENT_TIMESTAMP de MySQL.
 date_default_timezone_set('America/Bogota');
 
 header("Access-Control-Allow-Origin: *");

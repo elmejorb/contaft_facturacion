@@ -84,7 +84,7 @@ try {
             $stmt = $db->prepare("
                 INSERT INTO tbl_vendedores_movil
                 (id_remoto, codigo, nombre, email, password_hash, telefono, cedula, zona, can_edit_clients, activo, sincronizado, fecha_mod)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NOW())
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP)
             ");
             $stmt->execute([
                 $codigoEmp > 0 ? $codigoEmp : null,
@@ -112,7 +112,7 @@ try {
                     codigo = ?, nombre = ?, email = ?, telefono = ?, cedula = ?, zona = ?,
                     can_edit_clients = ?, activo = ?,
                     sincronizado = 0,
-                    fecha_mod = NOW()
+                    fecha_mod = CURRENT_TIMESTAMP
                 WHERE id = ?
             ");
             $stmt->execute([

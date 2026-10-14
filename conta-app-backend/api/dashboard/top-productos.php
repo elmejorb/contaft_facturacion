@@ -16,16 +16,16 @@ try {
     $fechaInicio = '';
     switch ($periodo) {
         case 'dia':
-            $fechaInicio = 'DATE_SUB(NOW(), INTERVAL 1 DAY)';
+            $fechaInicio = 'DATE_SUB(CURRENT_TIMESTAMP, INTERVAL 1 DAY)';
             break;
         case 'semana':
-            $fechaInicio = 'DATE_SUB(NOW(), INTERVAL 7 DAY)';
+            $fechaInicio = 'DATE_SUB(CURRENT_TIMESTAMP, INTERVAL 7 DAY)';
             break;
         case 'mes':
-            $fechaInicio = 'DATE_SUB(NOW(), INTERVAL 30 DAY)';
+            $fechaInicio = 'DATE_SUB(CURRENT_TIMESTAMP, INTERVAL 30 DAY)';
             break;
         default:
-            $fechaInicio = 'DATE_SUB(NOW(), INTERVAL 7 DAY)';
+            $fechaInicio = 'DATE_SUB(CURRENT_TIMESTAMP, INTERVAL 7 DAY)';
     }
 
     $query = "SELECT

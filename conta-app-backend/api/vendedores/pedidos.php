@@ -73,7 +73,7 @@ try {
                          Nombres, Apellidos, Direcion_R, Nombre_C, Apellidos_C, Telefonos_C, Direccion_C, Cargo_C,
                          Termino, FacVenc, Preciocosto{$extrasSql})
                         VALUES
-                        (?, ?, ?, ?, '', '', '', '', 0, NOW(),
+                        (?, ?, ?, ?, '', '', '', '', 0, CURRENT_TIMESTAMP,
                          '', '', '', '', '', '', '', '',
                          0, 0, 0{$extrasVals})
                     ")->execute([
@@ -392,7 +392,7 @@ try {
                     // Actualizar pedido
                     $db->prepare("
                         UPDATE tbl_pedidos_vendedor
-                        SET estado = 'procesado', convertido_factura_n = ?, fecha_mod = NOW()
+                        SET estado = 'procesado', convertido_factura_n = ?, fecha_mod = CURRENT_TIMESTAMP
                         WHERE id = ?
                     ")->execute([$ventaId, $id]);
 
@@ -414,7 +414,7 @@ try {
 
         if ($action === 'anular') {
             $id = intval($data['id'] ?? 0);
-            $stmt = $db->prepare("UPDATE tbl_pedidos_vendedor SET estado = 'anulado', fecha_mod = NOW() WHERE id = ?");
+            $stmt = $db->prepare("UPDATE tbl_pedidos_vendedor SET estado = 'anulado', fecha_mod = CURRENT_TIMESTAMP WHERE id = ?");
             $stmt->execute([$id]);
             echo json_encode(['success' => true, 'message' => 'Pedido anulado'], JSON_UNESCAPED_UNICODE);
             exit;
@@ -423,7 +423,7 @@ try {
         if ($action === 'marcar_procesado') {
             $id = intval($data['id'] ?? 0);
             $facturaN = intval($data['factura_n'] ?? 0);
-            $db->prepare("UPDATE tbl_pedidos_vendedor SET estado = 'procesado', convertido_factura_n = ?, fecha_mod = NOW() WHERE id = ?")
+            $db->prepare("UPDATE tbl_pedidos_vendedor SET estado = 'procesado', convertido_factura_n = ?, fecha_mod = CURRENT_TIMESTAMP WHERE id = ?")
                ->execute([$facturaN, $id]);
 
             // Propagar el vendedor móvil a la factura: resolvemos el CodigoEmp

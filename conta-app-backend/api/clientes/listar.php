@@ -97,7 +97,7 @@ try {
                     Email, Whatsapp, CupoAutorizado, Fecha_Ingreso, FechaCumple,
                     Nombres, Apellidos, Direcion_R, Nombre_C, Apellidos_C, Telefonos_C, Direccion_C, Cargo_C,
                     Termino, FacVenc, Preciocosto, UltimoPrecio, id_documento, id_municipio, id_type_liability, id_type_organization, id_type_regime)
-                VALUES (:id, :razon, :nit, :ident, :tel, :dir, :email, :whats, :cupo, NOW(), :cumple,
+                VALUES (:id, :razon, :nit, :ident, :tel, :dir, :email, :whats, :cupo, CURRENT_TIMESTAMP, :cumple,
                     :nombres, :apellidos, :dir_r, :nom_c, :ape_c, :tel_c, :dir_c, :cargo_c,
                     :termino, :facvenc, :preciocosto, :ultimoprecio, :id_doc, :id_mun, :id_liab, :id_org, :id_reg)
             ");
@@ -162,7 +162,7 @@ try {
                     Termino = :termino, FacVenc = :facvenc, Preciocosto = :preciocosto, UltimoPrecio = :ultimoprecio,
                     id_documento = :id_doc, id_municipio = :id_mun,
                     id_type_liability = :id_liab, id_type_organization = :id_org, id_type_regime = :id_reg,
-                    FechaMod = NOW()
+                    FechaMod = CURRENT_TIMESTAMP
                 WHERE CodigoClien = :id
             ");
             $stmt->execute([

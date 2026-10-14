@@ -176,7 +176,7 @@ try {
 
     $db->prepare("
         UPDATE tbl_ordenes_compra
-        SET Estado = ?, pedido_generado_n = ?, FechaMod = NOW()
+        SET Estado = ?, pedido_generado_n = ?, FechaMod = CURRENT_TIMESTAMP
         WHERE id_oc = ?
     ")->execute([$nuevoEstado, $pedidoN, $idOc]);
 

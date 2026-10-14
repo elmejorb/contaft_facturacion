@@ -63,7 +63,7 @@ try {
             exit;
         }
 
-        $db->prepare("INSERT INTO tblfacturasanteriores (FacturaN, Fecha, Dias, Valor, Saldo, CodigoCli, FechaMod) VALUES (?, ?, ?, ?, ?, ?, NOW())")
+        $db->prepare("INSERT INTO tblfacturasanteriores (FacturaN, Fecha, Dias, Valor, Saldo, CodigoCli, FechaMod) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)")
            ->execute([$facturaN, $fecha, $dias, $valor, $saldo, $clienteId]);
 
         echo json_encode(['success' => true, 'message' => "Factura anterior $facturaN agregada con saldo \$" . number_format($saldo, 0, ',', '.')], JSON_UNESCAPED_UNICODE);

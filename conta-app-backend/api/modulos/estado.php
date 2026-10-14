@@ -98,10 +98,10 @@ try {
             $stmt = $db->prepare("SELECT COUNT(*) FROM tbl_modulos_activos WHERE Nombre=?");
             $stmt->execute([$modulo]);
             if (intval($stmt->fetchColumn()) === 0) {
-                $db->prepare("INSERT INTO tbl_modulos_activos (Nombre, Activo, Fecha_Activacion) VALUES (?, 1, NOW())")
+                $db->prepare("INSERT INTO tbl_modulos_activos (Nombre, Activo, Fecha_Activacion) VALUES (?, 1, CURRENT_TIMESTAMP)")
                    ->execute([$modulo]);
             } else {
-                $db->prepare("UPDATE tbl_modulos_activos SET Activo=1, Fecha_Activacion=NOW() WHERE Nombre=?")
+                $db->prepare("UPDATE tbl_modulos_activos SET Activo=1, Fecha_Activacion=CURRENT_TIMESTAMP WHERE Nombre=?")
                    ->execute([$modulo]);
             }
 

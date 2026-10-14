@@ -163,7 +163,7 @@ try {
             //  porque Fecha=YYYY-MM-DD 00:00:00 < FechaApertura de la sesión).
             $fechaIn = $data['fecha'] ?? null;
             if ($fechaIn && preg_match('/^\d{4}-\d{2}-\d{2}$/', $fechaIn)) {
-                // Si el gasto original ya tenía hora, la conservamos; si no, usamos NOW().
+                // Si el gasto original ya tenía hora, la conservamos; si no, usamos CURRENT_TIMESTAMP.
                 $horaOrig = substr($gasto['Fecha'], 11, 8);
                 if ($horaOrig && $horaOrig !== '00:00:00') {
                     $fecha = $fechaIn . ' ' . $horaOrig;

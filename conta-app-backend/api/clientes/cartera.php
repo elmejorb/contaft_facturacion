@@ -24,10 +24,7 @@ try {
     ";
 
     // Detectar si tblclientes tiene las columnas de comportamiento (migración v5.5)
-    $tieneCols = (int) $db->query("
-        SELECT COUNT(*) FROM information_schema.COLUMNS
-        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tblclientes' AND COLUMN_NAME = 'cartera_castigada'
-    ")->fetchColumn();
+    $tieneCols = conta_tiene_columna($db, 'tblclientes', 'cartera_castigada');
 
     $selectCols = $tieneCols
         ? "c.CodigoClien, c.Razon_Social, c.Nit, c.Telefonos, c.CupoAutorizado,
@@ -59,9 +56,9 @@ try {
                COUNT(*) as Facturas_Pendientes,
                SUM(f.Saldo) as Saldo_Total,
                MIN(f.Fecha) as Factura_Mas_Antigua,
-               DATEDIFF(CURDATE(), MIN(f.Fecha)) as Dias_Mayor_Vencimiento,
+               DATEDIFF(CURRENT_DATE, MIN(f.Fecha)) as Dias_Mayor_Vencimiento,
                MAX(CASE
-                     WHEN DATEDIFF(DATE_ADD(f.Fecha, INTERVAL f.Dias DAY), CURDATE()) BETWEEN 0 AND 7
+                     WHEN DATEDIFF(DATE_ADD(f.Fecha, INTERVAL f.Dias DAY), CURRENT_DATE) BETWEEN 0 AND 7
                      THEN 1 ELSE 0
                    END) as Vence_Prox_7d
         FROM tblclientes c
@@ -94,7 +91,7 @@ try {
     if ($detallado) {
         $stmtFact = $db->query("
             SELECT CodigoCli, Factura_N, Fecha, Dias, Total, Saldo, Origen,
-                   DATEDIFF(CURDATE(), Fecha) AS Dias_Mora
+                   DATEDIFF(CURRENT_DATE, Fecha) AS Dias_Mora
             FROM ($sqlFacturas) f
             ORDER BY CodigoCli, Fecha
         ");

@@ -47,7 +47,7 @@ try {
         if ($items > 0) {
             $stmt = $db->prepare("
                 SELECT l.*, a.Codigo, a.Nombres_Articulo,
-                       DATEDIFF(l.Fecha_Vencimiento, CURDATE()) AS dias_restantes
+                       DATEDIFF(l.Fecha_Vencimiento, CURRENT_DATE) AS dias_restantes
                 FROM tblproductos_lotes l
                 INNER JOIN tblarticulos a ON l.Items = a.Items
                 WHERE l.Items = ?

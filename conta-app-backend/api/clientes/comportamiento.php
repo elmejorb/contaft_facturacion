@@ -54,7 +54,7 @@ try {
             INNER JOIN tblventas v ON v.Factura_N = p.Fact_N
             WHERE c.CodigoClien = ?
               AND COALESCE(p.Estado, 'Valida') = 'Valida'
-              AND p.Fecha >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)
+              AND p.Fecha >= DATE_SUB(CURRENT_DATE, INTERVAL 12 MONTH)
         ");
         $stmt->execute([$codigoClien]);
         $r = $stmt->fetch();
@@ -70,7 +70,7 @@ try {
             INNER JOIN tblclientes c ON c.CodigoClien = s.CodigoCli
             WHERE c.CodigoClien = ?
               AND s.Saldo > 0
-              AND DATEDIFF(CURDATE(), DATE_ADD(s.Fecha, INTERVAL COALESCE(c.Termino,0) DAY)) > 90
+              AND DATEDIFF(CURRENT_DATE, DATE_ADD(s.Fecha, INTERVAL COALESCE(c.Termino,0) DAY)) > 90
         ");
         $stmt->execute([$codigoClien]);
         $criticas = intval($stmt->fetch()['criticas'] ?? 0);
@@ -104,7 +104,7 @@ try {
         $stmt = $db->prepare("
             UPDATE tblclientes
             SET cartera_castigada = 1,
-                fecha_castigo = NOW(),
+                fecha_castigo = CURRENT_TIMESTAMP,
                 motivo_castigo = ?,
                 motivo_detalle = ?,
                 id_usuario_castigo = ?,

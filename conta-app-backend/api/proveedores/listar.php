@@ -35,7 +35,7 @@ try {
                 // Mismo cálculo que el software VB6 original.
                 $stmt = $db->prepare("
                     SELECT ID_FactAnterioresP, FacturaN, Fecha, Dias, Valor, Saldo, Origen,
-                           DATEDIFF(CURDATE(), Fecha) AS Dias_Mora
+                           DATEDIFF(CURRENT_DATE, Fecha) AS Dias_Mora
                     FROM (
                         SELECT NULL AS ID_FactAnterioresP, FacturaN, Fecha, Dias, Total AS Valor,
                                Saldo, 'anterior' AS Origen, CodigoPro
@@ -137,7 +137,7 @@ try {
                         SELECT CodigoPro AS CodigoProv,
                                COUNT(*) AS Facturas_Pendientes,
                                SUM(Saldo) AS Saldo_Total,
-                               DATEDIFF(CURDATE(), MIN(Fecha)) AS Dias_Mayor
+                               DATEDIFF(CURRENT_DATE, MIN(Fecha)) AS Dias_Mayor
                         FROM vw_prov_cxp_aging
                         GROUP BY CodigoPro
                     ) sld ON p.CodigoPro = sld.CodigoProv
@@ -222,7 +222,7 @@ try {
                 $stmtInsert = $db->prepare("
                     INSERT INTO tblegresos (N_Comprobante, Fecha, Orden, Concepto, Valor, Descuento,
                         Estado, Cuentas, FactN, CodigoPro, NFacturaAnt, ValorFact, Saldoact, Cedula, TipoPago, id_usuario)
-                    VALUES (:comp, NOW(), :orden, :concepto, :valor, :desc, 'Valida', :cuentas, '0',
+                    VALUES (:comp, CURRENT_TIMESTAMP, :orden, :concepto, :valor, :desc, 'Valida', :cuentas, '0',
                         :prov, :nfact, :valfact, :saldo, :cedula, :tipo, :id_user)
                 ");
 
@@ -326,7 +326,7 @@ try {
 
             $stmt = $db->prepare("
                 INSERT INTO tblproveedores (CodigoPro, RazonSocial, Nit, Telefonos, Direccion, Nombres, Apellidos, Fecha_Iingreso)
-                VALUES (:id, :razon, :nit, :tel, :dir, :nom, :ape, NOW())
+                VALUES (:id, :razon, :nit, :tel, :dir, :nom, :ape, CURRENT_TIMESTAMP)
             ");
             $stmt->execute([
                 ':id' => $nextId, ':razon' => trim($data->RazonSocial),
@@ -350,7 +350,7 @@ try {
             }
             $stmt = $db->prepare("
                 UPDATE tblproveedores SET RazonSocial = :razon, Nit = :nit, Telefonos = :tel,
-                    Direccion = :dir, Nombres = :nom, Apellidos = :ape, FechaMod = NOW()
+                    Direccion = :dir, Nombres = :nom, Apellidos = :ape, FechaMod = CURRENT_TIMESTAMP
                 WHERE CodigoPro = :id
             ");
             $stmt->execute([

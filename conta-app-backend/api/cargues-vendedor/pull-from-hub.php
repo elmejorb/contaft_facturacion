@@ -98,7 +98,7 @@ try {
                         notas_admin = ?,
                         aprobado_at = ?,
                         cerrado_at = ?,
-                        updated_at = NOW()
+                        updated_at = CURRENT_TIMESTAMP
                     WHERE id = ?
                 ");
                 $stmtU->execute([
@@ -121,7 +121,7 @@ try {
                         (id_vendedor_movil, id_cargue_hub, fecha, estado,
                          total_valor_cargue, total_valor_devuelto, total_valor_danado, dinero_recibido,
                          notas_vendedor, notas_admin, aprobado_at, cerrado_at, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                 ");
                 $stmtI->execute([
                     $idVendedorLocal,

@@ -191,7 +191,7 @@ try {
             }
 
             // Crear nueva
-            $stmt = $db->prepare("INSERT INTO tblcontrolcaja (Fecha, Base, Estado, Id_Usuario) VALUES (NOW(), ?, 1, ?)");
+            $stmt = $db->prepare("INSERT INTO tblcontrolcaja (Fecha, Base, Estado, Id_Usuario) VALUES (CURRENT_TIMESTAMP, ?, 1, ?)");
             $stmt->execute([$base, $usuario]);
             echo json_encode(['success' => true, 'message' => 'Caja abierta con base de $' . number_format($base, 0, ',', '.'), 'id' => $db->lastInsertId()]);
 
@@ -233,7 +233,7 @@ try {
                     ValorInicalCaja = ?, Villetes = ?, Monedas = ?, Cheques = ?,
                     ValorTotal = ?, SaldoEnLibros = ?, Diferencia = ?,
                     VContado = ?, VCredito = ?, Pagos = ?, Egresos = ?,
-                    Estado = 0, FechaCierre = NOW()
+                    Estado = 0, FechaCierre = CURRENT_TIMESTAMP
                 WHERE Cod_ControlCaja = ?
             ")->execute([
                 $base, $billetes, $monedas, $cheques,
