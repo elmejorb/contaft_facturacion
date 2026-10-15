@@ -1,93 +1,103 @@
 import { useEffect, useState } from 'react';
 import ActivarLicenciaModal from './ActivarLicenciaModal';
 
-// Banner superior que combina:
-//   - Estado real de la suscripción desde el CRM (subscription:check)
-//   - Fallback a trial local (trial:getStatus) en modo embebido/offline
+// Banner superior que muestra el estado real del ciclo de suscripción del
+// cliente, leído desde /consulta-vencimiento del CRM (campo canónico
+// estado_suscripcion).
 //
-// Muestra:
-//   - Nada: si la suscripción está activa y faltan >=15 días para vencer
-//   - Amarillo: faltan <15 días
-//   - Rojo: vencida/suspendida
-//   - Verde: en trial (modo embebido) con N días restantes
+// IMPORTANTE: NO confundir con el estado de licencia del software que usa
+// SubscriptionGate (/consulta-plan). Este banner es sobre el ciclo
+// comercial: trial / activa / por vencer / vencida / suspendida.
 //
-// Al clickear "Activar" abre ActivarLicenciaModal (planes + Wompi/comprobante).
+// Niveles:
+//   - verde: trial con >=7 días o activa sin urgencia
+//   - amarillo: trial <7 días o faltan <15 días de la suscripción
+//   - rojo: vencida, suspendida, cancelada o urgente
 
-type EstadoSuscripcion = {
-  allowed: boolean;
-  source?: string;
-  estado?: string;      // activa | prueba | por_vencer | vencida | suspendida
-  fecha_fin?: string;
+type Datos = {
   empresa?: string;
-  plan_nombre?: string;
-  dias_restantes?: number;
-  reason?: string;
+  estado?: string;              // viejo (software licencia) — no usar aquí
+  estado_suscripcion?: string;  // CANÓNICO: activa | prueba | suspendida | cancelada | vencida | sin_suscripcion
+  fecha_fin?: string;
+  dias_restantes?: number | null;
+  en_trial?: boolean;
+  urgente?: boolean;
+  pago_al_dia?: boolean;
+  pagos_pendientes_revision?: number;
+  ultimo_rechazo?: { fecha: string; motivo: string } | null;
 };
 
-type EstadoTrial = {
-  activo: boolean;
-  iniciado?: boolean;
-  dias_restantes?: number;
-  vencido?: boolean;
-  nivel?: 'verde' | 'amarillo' | 'rojo';
-  suscripcion?: boolean;
-};
+type Respuesta = { ok: boolean; source?: string; data?: Datos; reason?: string };
 
 function ipc() {
   return (window as any).require?.('electron')?.ipcRenderer;
 }
 
 export function useLicenciaEstado() {
-  const [sub, setSub] = useState<EstadoSuscripcion | null>(null);
-  const [trial, setTrial] = useState<EstadoTrial | null>(null);
+  const [resp, setResp] = useState<Respuesta | null>(null);
 
   const refrescar = () => {
     const api = ipc();
     if (!api) return;
-    api.invoke('subscription:check').then(setSub).catch(() => {});
-    api.invoke('trial:getStatus').then(setTrial).catch(() => {});
+    api.invoke('subscription:getVencimiento').then(setResp).catch(() => {});
   };
 
   useEffect(() => {
     refrescar();
-    // Polling cada 12h — es lo que pide el spec para consulta-vencimiento.
-    // Al mismo tiempo lo refrescamos al focus de la ventana para que no quede desactualizado.
+    // Spec: cada 12 h. Y además al focus para no quedar desactualizado.
     const intervalo = setInterval(refrescar, 12 * 60 * 60 * 1000);
     const alFocus = () => refrescar();
     window.addEventListener('focus', alFocus);
     return () => { clearInterval(intervalo); window.removeEventListener('focus', alFocus); };
   }, []);
 
-  // Resumir: ¿hay que mostrar banner? ¿Está bloqueado?
-  const bloqueado = sub?.allowed === false;
-  // El CRM puede devolver "activa" o "activo" (concordancia variable); normalizamos.
-  const estadoCrm = (sub?.estado || '').toLowerCase();
-  const esActivo = estadoCrm === 'activa' || estadoCrm === 'activo';
-  const esSuspendida = estadoCrm === 'suspendida' || estadoCrm === 'suspendido';
-  const esTrial = estadoCrm === 'prueba' || estadoCrm === 'trial';
-  const esPorVencer = estadoCrm === 'por_vencer';
-  const diasRestantes = sub?.dias_restantes ?? null;
+  const d = resp?.data || {};
+  const estado = (d.estado_suscripcion || '').toLowerCase();
+  const dias = d.dias_restantes ?? null;
+
+  const esActiva = estado === 'activa';
+  const esTrial = estado === 'prueba' || d.en_trial === true;
+  const esVencida = estado === 'vencida';
+  const esSuspendida = estado === 'suspendida';
+  const esCancelada = estado === 'cancelada';
+  const esSinSuscripcion = estado === 'sin_suscripcion';
+
+  const bloqueado = esVencida || esSuspendida || esCancelada || esSinSuscripcion;
+  const urgente = d.urgente === true || (esActiva && dias !== null && dias < 15);
 
   let mostrar = false;
   let nivel: 'verde' | 'amarillo' | 'rojo' = 'verde';
   let mensaje = '';
 
   if (bloqueado) {
-    mostrar = true; nivel = 'rojo';
+    mostrar = true;
+    nivel = 'rojo';
     mensaje = esSuspendida
       ? 'Tu suscripción está suspendida. Regularizá el pago para seguir facturando.'
-      : 'Tu licencia venció. Activá tu suscripción para seguir facturando — tu información queda intacta.';
-  } else if (esPorVencer || (esActivo && diasRestantes !== null && diasRestantes >= 0 && diasRestantes < 15)) {
+      : esCancelada
+      ? 'Tu suscripción fue cancelada. Activá una nueva para seguir facturando.'
+      : esSinSuscripcion
+      ? 'No tenés suscripción activa. Activá para seguir facturando.'
+      : 'Tu licencia venció. Activá tu suscripción — tu información queda intacta.';
+  } else if (esTrial) {
     mostrar = true;
-    nivel = diasRestantes !== null && diasRestantes < 7 ? 'rojo' : 'amarillo';
-    mensaje = `Tu licencia vence en ${diasRestantes ?? '?'} días — renová con descuento pagando ahora`;
-  } else if (esTrial && trial?.activo) {
+    nivel = (dias ?? 0) < 7 ? 'amarillo' : 'verde';
+    mensaje = `Prueba gratis — ${dias ?? '?'} días restantes`;
+  } else if (urgente) {
     mostrar = true;
-    nivel = (trial.dias_restantes ?? 0) < 7 ? 'amarillo' : 'verde';
-    mensaje = `Prueba gratis — ${trial.dias_restantes} días restantes`;
+    nivel = (dias ?? 0) < 7 ? 'rojo' : 'amarillo';
+    mensaje = `Tu suscripción vence en ${dias ?? '?'} días — renová ahora`;
+  } else if (d.pagos_pendientes_revision && d.pagos_pendientes_revision > 0) {
+    mostrar = true;
+    nivel = 'amarillo';
+    mensaje = 'Tu comprobante de pago está en revisión. Te avisaremos por email.';
+  } else if (d.ultimo_rechazo) {
+    mostrar = true;
+    nivel = 'rojo';
+    mensaje = `Comprobante rechazado: ${d.ultimo_rechazo.motivo}. Volvé a subir uno nuevo.`;
   }
 
-  return { sub, trial, mostrar, nivel, mensaje, bloqueado, refrescar };
+  return { data: d, mostrar, nivel, mensaje, bloqueado, esTrial, refrescar };
 }
 
 export default function TrialBanner() {

@@ -655,6 +655,39 @@ async function obtenerTokenCliente() {
   return { ok: true, token: t.token };
 }
 
+// Consulta el ciclo de suscripción del cliente (F4). Es DISTINTO del endpoint
+// /consulta-plan que usa el software de licencia (SubscriptionGate):
+//   - /consulta-plan           → gate del software (campos: estado, allowed)
+//   - /consulta-vencimiento    → ciclo del cliente (campos: estado_suscripcion,
+//                                dias_restantes, pagos_pendientes_revision, etc.)
+// El banner y el modal de activación consumen esto.
+async function consultarVencimiento() {
+  const t = await getApiTokenFromBackend();
+  if (!t.ok) return { ok: false, reason: t.reason };
+  try {
+    const url = `${SUBS_API_BASE}/consulta-vencimiento/${encodeURIComponent(t.token)}`;
+    const { status, body } = await httpGetJson(url, 10000);
+    if (status !== 200 || body?.code !== 'OK' || !body?.data) {
+      return { ok: false, reason: 'crm-error', status, code: body?.code };
+    }
+    // Cachear para operar offline hasta 24h
+    writeConfig({
+      _vencimiento_cache: { data: body.data, checked_at: Date.now() },
+    });
+    return { ok: true, source: 'online', data: body.data };
+  } catch (e) {
+    // Fallback a cache si no hay red
+    const cfg = readConfig();
+    const cache = cfg._vencimiento_cache;
+    if (cache?.data && Date.now() - (cache.checked_at || 0) < 24 * 60 * 60 * 1000) {
+      return { ok: true, source: 'cache', data: cache.data };
+    }
+    return { ok: false, reason: 'sin-red', message: e?.message };
+  }
+}
+
+ipcMain.handle('subscription:getVencimiento', () => consultarVencimiento());
+
 ipcMain.handle('pago:planes', async () => {
   try {
     const url = `${SUBS_API_BASE}/planes-publicos`;
