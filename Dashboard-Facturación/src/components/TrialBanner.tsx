@@ -60,24 +60,28 @@ export function useLicenciaEstado() {
 
   // Resumir: ¿hay que mostrar banner? ¿Está bloqueado?
   const bloqueado = sub?.allowed === false;
-  const estadoCrm = sub?.estado;
+  // El CRM puede devolver "activa" o "activo" (concordancia variable); normalizamos.
+  const estadoCrm = (sub?.estado || '').toLowerCase();
+  const esActivo = estadoCrm === 'activa' || estadoCrm === 'activo';
+  const esSuspendida = estadoCrm === 'suspendida' || estadoCrm === 'suspendido';
+  const esTrial = estadoCrm === 'prueba' || estadoCrm === 'trial';
+  const esPorVencer = estadoCrm === 'por_vencer';
   const diasRestantes = sub?.dias_restantes ?? null;
 
-  // ¿Mostrar banner?
   let mostrar = false;
   let nivel: 'verde' | 'amarillo' | 'rojo' = 'verde';
   let mensaje = '';
 
   if (bloqueado) {
     mostrar = true; nivel = 'rojo';
-    mensaje = estadoCrm === 'suspendida'
+    mensaje = esSuspendida
       ? 'Tu suscripción está suspendida. Regularizá el pago para seguir facturando.'
       : 'Tu licencia venció. Activá tu suscripción para seguir facturando — tu información queda intacta.';
-  } else if (estadoCrm === 'por_vencer' || (diasRestantes !== null && diasRestantes >= 0 && diasRestantes < 15)) {
+  } else if (esPorVencer || (esActivo && diasRestantes !== null && diasRestantes >= 0 && diasRestantes < 15)) {
     mostrar = true;
     nivel = diasRestantes !== null && diasRestantes < 7 ? 'rojo' : 'amarillo';
     mensaje = `Tu licencia vence en ${diasRestantes ?? '?'} días — renová con descuento pagando ahora`;
-  } else if (estadoCrm === 'prueba' && trial?.activo) {
+  } else if (esTrial && trial?.activo) {
     mostrar = true;
     nivel = (trial.dias_restantes ?? 0) < 7 ? 'amarillo' : 'verde';
     mensaje = `Prueba gratis — ${trial.dias_restantes} días restantes`;
