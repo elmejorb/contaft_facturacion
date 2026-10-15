@@ -196,15 +196,20 @@ El beneficio de "la app funciona apenas la abro, sin pedir configuración" se ma
 
 ---
 
-### Fase 4 — Comprobante de pago en la app + verificación en CRM (1-2 semanas)
+### Fase 4 — Activación de licencia anual: Wompi + Comprobante híbrido (2 semanas)
 
-El cliente paga por su cuenta (transferencia Bancolombia, Nequi, PSE donde él quiera) y **adjunta la foto/PDF del comprobante dentro de la propia app**. El CRM recibe el comprobante, vos (o quien revise) lo verifica contra el extracto bancario, aprueba con un click → la suscripción se activa sola.
+**Modelo de negocio confirmado**: suscripciones **anuales** de $300.000 – $600.000. Ciclos largos, pagos grandes, renovación 1 vez al año.
 
-**Por qué este modelo y no una pasarela**:
-- **Cero comisiones de intermediario**. Wompi se come 2.65% + $700 por cada cobro — en 100 clientes a $29.900 son ~$150.000/mes perdidos.
-- **Encaja con cómo paga el PYME colombiano hoy**: la tiendita no quiere digitar tarjeta en una app, prefiere pasarte transferencia de su Bancolombia como lo hace con cualquier proveedor.
-- **Cero KYC con pasarela**, cero problemas de contracargos, cero PCI compliance.
-- **Más control**: vos ves cada pago antes de que entre.
+**Flujo doble** — el cliente elige entre pagar en línea (automático) o subir comprobante de transferencia (manual con revisión):
+
+| Opción | Ventaja al cliente | Comisión | Activación |
+|---|---|---|---|
+| **A — Wompi (PSE/Tarjeta/Nequi)** | Inmediato, 24/7, cuotas con tarjeta | ~1.4% promedio (PSE $2.900 fijo) | 3 min |
+| **B — Transferencia + comprobante** | Sin comisión | 0 | Max 24h (revisión manual) |
+
+Para pagos anuales grandes la mayoría elige PSE: tarifa fija $2.900 sobre $500.000 es 0.58%. Si todos pagaran PSE: te queda <1% de pérdida por 100% de automatización + cobros los findes/noches.
+
+**Por qué híbrido**: cubrí ambos segmentos sin forzar a nadie. El cliente con prisa paga Wompi. El cliente ahorrador pasa transferencia. Vos solo revisás un subconjunto chico de comprobantes manuales.
 
 #### 4.1 Flujo técnico
 
