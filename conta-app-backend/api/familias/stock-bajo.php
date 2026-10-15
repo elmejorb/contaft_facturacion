@@ -16,9 +16,7 @@ try {
     // Detección defensiva de columnas / tabla opcional para tolerar BDs
     // que aún no corrieron actualizacion_completa.sql.
     $artCols = conta_columnas_tabla($db, 'tblarticulos');
-    $tblStmt = $db->query("SELECT TABLE_NAME FROM information_schema.TABLES
-        WHERE TABLE_SCHEMA = DATABASE()");
-    $tblExists = array_column($tblStmt->fetchAll(PDO::FETCH_ASSOC), 'TABLE_NAME');
+    $tblExists = conta_tablas_schema($db);
 
     $selFactor    = in_array('FactorConversion', $artCols) ? 'COALESCE(a.FactorConversion, 1)' : '1';
     $selNombreEmp = in_array('NombreEmpaque', $artCols)    ? 'a.NombreEmpaque'                 : 'NULL';
@@ -34,8 +32,7 @@ try {
     // El nombre del proveedor puede vivir en distintas columnas según la BD.
     // Usar COALESCE con las opciones más comunes (RazonSocial > Nombres > Nombre).
     $provCols = in_array('tblproveedores', $tblExists)
-        ? array_column($db->query("SELECT COLUMN_NAME FROM information_schema.COLUMNS
-            WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tblproveedores'")->fetchAll(PDO::FETCH_ASSOC), 'COLUMN_NAME')
+        ? conta_columnas_tabla($db, 'tblproveedores')
         : [];
     $selNomProv = "''";
     if (in_array('CodigoPro', $artCols) && in_array('tblproveedores', $tblExists)) {

@@ -1294,9 +1294,19 @@ async function startEmbeddedPHP() {
 
   phpPortActivo = await puertoLibre(cfg.phpPreferredPort || 8089);
   const docRoot = path.join(backendDir, 'api');
+  const prependPath = path.join(backendDir, 'prepend.php');
 
   console.log(`[php] arrancando built-in server en 127.0.0.1:${phpPortActivo} (doc root: ${docRoot})`);
-  phpProcess = spawn(phpExe, ['-c', phpIni, '-S', `127.0.0.1:${phpPortActivo}`, '-t', docRoot], {
+  // auto_prepend_file hace chdir() al directorio del script antes de cada
+  // request, para que `require_once '../config/database.php'` resuelva igual
+  // que en Apache. Sin esto, el built-in server mantiene CWD en api/ y los
+  // requires relativos del backend se rompen (cientos de ocurrencias).
+  const phpArgs = ['-c', phpIni];
+  if (fs.existsSync(prependPath)) {
+    phpArgs.push('-d', `auto_prepend_file=${prependPath}`);
+  }
+  phpArgs.push('-S', `127.0.0.1:${phpPortActivo}`, '-t', docRoot);
+  phpProcess = spawn(phpExe, phpArgs, {
     cwd: docRoot,
     env: { ...process.env, CONTA_CONFIG_PATH: configBackendPath },
     stdio: ['ignore', 'pipe', 'pipe'],

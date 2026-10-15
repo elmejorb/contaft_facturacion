@@ -1,6 +1,6 @@
 {
       "name": "dashboard-facturacion",
-      "version": "4.7.14",
+      "version": "4.8.0",
       "private": true,
       "main": "electron/main.js",
       "dependencies": {
@@ -103,7 +103,6 @@
                         "to": "backend",
                         "filter": [
                               "**/*",
-                              "!api/config/database.php",
                               "!api/config/config.json",
                               "!tests/**",
                               "!**/*.log",

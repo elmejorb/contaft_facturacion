@@ -10,7 +10,7 @@ $database = new Database();
 $db = $database->getConnection();
 
 // ¿La BD tiene módulo FE? Si no, solo lee tblventas.
-$tieneFE = (int)$db->query("SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='electronic_documents'")->fetchColumn() > 0;
+$tieneFE = conta_tiene_tabla($db, 'electronic_documents');
 
 // Helper: suma (count, total) de POS + FE para un filtro de fecha dado.
 // $wherePos filtra tblventas; $whereFE filtra electronic_documents.

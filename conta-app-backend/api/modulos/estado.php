@@ -25,9 +25,7 @@ $MODULO_SQL = [
 try {
     // Guard: si la tabla aún no existe (BD sin migración), devolver estado vacío
     // en vez de crashear.
-    $existe = $db->query("SELECT COUNT(*) FROM information_schema.TABLES
-        WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='tbl_modulos_activos'")->fetchColumn();
-    if (intval($existe) === 0) {
+    if (!conta_tiene_tabla($db, 'tbl_modulos_activos')) {
         echo json_encode([
             'success' => true,
             'modulos' => [],

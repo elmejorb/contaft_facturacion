@@ -16,8 +16,7 @@ $db = $database->getConnection();
 // Clientes sin Facturación Electrónica no tienen `electronic_documents`.
 // Cualquier query a esa tabla revienta el endpoint completo — miss-mostrando
 // la caja como "Cerrada" aunque tenga sesión activa. Detectamos una sola vez.
-$_tieneFE_stmt = $db->query("SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='electronic_documents'");
-$tieneFE = intval($_tieneFE_stmt->fetchColumn()) > 0;
+$tieneFE = conta_tiene_tabla($db, 'electronic_documents');
 
 try {
     if ($_SERVER['REQUEST_METHOD'] === 'GET') {

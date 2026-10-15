@@ -29,9 +29,7 @@ $_tablaExisteCache = [];
 function tablaExiste($db, $nombre) {
     global $_tablaExisteCache;
     if (isset($_tablaExisteCache[$nombre])) return $_tablaExisteCache[$nombre];
-    $stmt = $db->prepare("SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?");
-    $stmt->execute([$nombre]);
-    return $_tablaExisteCache[$nombre] = (intval($stmt->fetchColumn()) > 0);
+    return $_tablaExisteCache[$nombre] = conta_tiene_tabla($db, $nombre);
 }
 $tieneFE = tablaExiste($db, 'electronic_documents') && tablaExiste($db, 'detalle_document_electronic');
 

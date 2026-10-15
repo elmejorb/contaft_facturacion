@@ -35,7 +35,7 @@ try {
     $grpRet    = $agr === 'mes' ? "DATE_FORMAT(rp.Fecha, '%Y-%m')" : "DATE(rp.Fecha)";
 
     // Detectar tabla electronic_documents (puede no existir en BDs viejas)
-    $tieneFE = intval($db->query("SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='electronic_documents'")->fetchColumn()) > 0;
+    $tieneFE = conta_tiene_tabla($db, 'electronic_documents');
 
     // 1) Ventas POS (tblventas Valida)
     $sql = "

@@ -81,3 +81,4 @@ conta-app-backend/api/config/secrets.php
 spike-sqlite/conta.db
 conta-app-backend/tests/fixtures/conta_test.db*
 Dashboard-Facturación/php-portable/
+dist-electron-480/

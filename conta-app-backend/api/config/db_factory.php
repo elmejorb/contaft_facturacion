@@ -135,6 +135,17 @@ function conta_tiene_columna(PDO $db, string $tabla, string $columna): bool {
 }
 
 /**
+ * Lista todas las tablas del schema actual. Portable MySQL+SQLite.
+ */
+function conta_tablas_schema(PDO $db): array {
+    $driver = $db->getAttribute(PDO::ATTR_DRIVER_NAME);
+    if ($driver === 'sqlite') {
+        return $db->query("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")->fetchAll(PDO::FETCH_COLUMN);
+    }
+    return $db->query("SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE()")->fetchAll(PDO::FETCH_COLUMN);
+}
+
+/**
  * Chequea si una tabla existe. Portable MySQL+SQLite.
  */
 function conta_tiene_tabla(PDO $db, string $tabla): bool {
