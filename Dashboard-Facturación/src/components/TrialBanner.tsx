@@ -97,6 +97,12 @@ export function useLicenciaEstado() {
     mensaje = `Comprobante rechazado: ${d.ultimo_rechazo.motivo}. Volvé a subir uno nuevo.`;
   }
 
+  // Fallback: si estamos en modo QA (FORCE_SHOW_BANNER sin un estado que lo
+  // dispare naturalmente), al menos mostramos un texto informativo.
+  if (!mostrar && !mensaje && esActiva) {
+    mensaje = `Suscripción activa — ${dias ?? '?'} días restantes`;
+  }
+
   return { data: d, mostrar, nivel, mensaje, bloqueado, esTrial, refrescar };
 }
 
@@ -104,7 +110,17 @@ export default function TrialBanner() {
   const { mostrar, nivel, mensaje, bloqueado, refrescar } = useLicenciaEstado();
   const [modalAbierto, setModalAbierto] = useState(false);
 
-  if (!mostrar && !modalAbierto) return null;
+  // Flag solo para QA visual: forzar banner y/o modal sin tener que esperar
+  // un vencimiento real. Se activa poniendo en la consola:
+  //   localStorage.FORCE_SHOW_BANNER='1'   → ver banner (nivel verde demo)
+  //   localStorage.FORCE_SHOW_MODAL='1'    → ver modal con planes y pago
+  const forzarBanner = typeof window !== 'undefined' && window.localStorage?.FORCE_SHOW_BANNER === '1';
+  const forzarModal  = typeof window !== 'undefined' && window.localStorage?.FORCE_SHOW_MODAL === '1';
+
+  const mostrarEfectivo = mostrar || forzarBanner;
+  const modalEfectivo = modalAbierto || forzarModal;
+
+  if (!mostrarEfectivo && !modalEfectivo) return null;
 
   const colores = {
     verde:    { bg: '#dcfce7', border: '#86efac', text: '#166534' },
@@ -115,7 +131,7 @@ export default function TrialBanner() {
 
   return (
     <>
-      {mostrar && (
+      {mostrarEfectivo && (
         <div style={{
           background: c.bg,
           borderBottom: `1px solid ${c.border}`,
@@ -144,8 +160,12 @@ export default function TrialBanner() {
           </button>
         </div>
       )}
-      {modalAbierto && (
-        <ActivarLicenciaModal onClose={() => { setModalAbierto(false); refrescar(); }} />
+      {modalEfectivo && (
+        <ActivarLicenciaModal onClose={() => {
+          setModalAbierto(false);
+          try { window.localStorage.removeItem('FORCE_SHOW_MODAL'); } catch {}
+          refrescar();
+        }} />
       )}
     </>
   );
