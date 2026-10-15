@@ -7,6 +7,7 @@ import { ConfirmDialogProvider, confirmar } from './components/ConfirmDialog';
 import { ConfigurarServidor } from './components/ConfigurarServidor';
 import { AutoUpdater } from './components/AutoUpdater';
 import { SubscriptionGate } from './components/SubscriptionGate';
+import TrialBanner from './components/TrialBanner';
 import { isApiConfigured, loadConfigFromFile } from './config/api';
 
 function AppContent() {
@@ -80,6 +81,7 @@ function AppContent() {
     <SubscriptionGate>
       <div className="min-h-screen bg-gray-50">
         <AutoUpdater />
+        <TrialBanner />
         {!isAuthenticated ? (
           <LoginPage />
         ) : (

@@ -1,494 +1,205 @@
-# Especificación de Integración con el CRM
+# Especificación de Integración con el CRM — **REVISADA (lado CRM real)**
 
-> **Propósito**: documento para pasar al equipo/dev del CRM de Innovación Digital.
-> Describe exactamente qué debe implementar el CRM para que la App Conta FT local
-> pueda consultar vigencia de suscripción, generar links de pago Wompi, recibir
-> comprobantes manuales y validar el estado del cliente.
-
----
-
-## 1. Resumen del flujo
-
-```
-┌──────────────────────────┐          ┌─────────────────────────────┐
-│  App Conta FT (cliente)  │          │  CRM Innovación Digital     │
-│  — Electron desktop —    │          │  — Hostinger —              │
-└──────────────────────────┘          └─────────────────────────────┘
-         │                                        │
-         │  GET /api/suscripcion/estado?nit=X     │
-         │ ─────────────────────────────────────> │
-         │                                        │
-         │ <────────────────────────────────────  │
-         │  { estado:"activa", fecha_fin:"..."}   │
-         │                                        │
-         │  [cliente elige: Wompi | Comprobante]  │
-         │                                        │
-         │  POST /api/suscripcion/wompi/crear-link│
-         │ ─────────────────────────────────────> │
-         │                                        │  → llama Wompi
-         │ <────────────────────────────────────  │
-         │  { url_checkout: "..." }               │
-         │                                        │
-         │  [shell.openExternal(url_checkout)]    │
-         │                                        │
-         │                           webhook      │
-         │                           Wompi ──────>│  POST /api/wompi/webhook
-         │                                        │  → marca suscripción activa
-         │                                        │
-         │  [polling cada 12h]                    │
-         │  GET /api/suscripcion/estado?nit=X     │
-         │ ─────────────────────────────────────> │
-         │ <────────────────────────────────────  │
-         │  { estado:"activa", fecha_fin:"+365d"} │
-         │                                        │
-         │                                        │
-         │  — Alternativa: Comprobante manual —   │
-         │  POST /api/suscripcion/comprobante     │
-         │  (multipart con imagen/PDF)            │
-         │ ─────────────────────────────────────> │
-         │                                        │  [admin revisa y aprueba]
-         │ <────────────────────────────────────  │
-         │  { estado:"pendiente_revision" }       │
-         │                                        │
-```
+> **Reemplaza** a `CRM_INTEGRATION_SPEC.md`. El original fue escrito sin conocer el CRM
+> real; aquí se corrige con los endpoints, el modelo de datos y las piezas que el CRM
+> **ya tiene**, para no reconstruir lo existente. Lo marcado **[YA EXISTE]** no se toca;
+> **[NUEVO]** es lo que se construye.
+>
+> **Meta:** el cliente paga solo desde la App (Wompi) y la suscripción se **activa
+> automáticamente** por webhook — sin intervención manual. El comprobante manual queda
+> como alternativa de respaldo.
 
 ---
 
-## 2. Tablas que debe tener el CRM
+## 0. Cambios clave frente al documento original
 
-### `suscripciones`
-
-Una fila por cliente activo.
-
-| Campo | Tipo | Notas |
+| Original decía | Realidad del CRM | Qué se hace |
 |---|---|---|
-| `id` | int PK | auto |
-| `nit_cliente` | varchar(20) | único (es la llave desde la app) |
-| `nombre_empresa` | varchar(200) | para emails y panel admin |
-| `email` | varchar(200) | para notificaciones |
-| `plan` | enum('basico','pro','premium') | |
-| `monto_anual` | int | 300000 / 450000 / 600000 |
-| `estado` | enum('trial','activa','vencida','suspendida') | |
-| `fecha_inicio_trial` | date | cuando arrancó el trial 30 días |
-| `fecha_pago` | date | último pago exitoso |
-| `fecha_fin` | date | **CLAVE** — se compara contra hoy para saber si está vigente |
-| `metodo_ultimo_pago` | enum('wompi','comprobante') | |
-| `ref_ultimo_pago` | varchar(100) | ref Wompi o id del comprobante |
-| `created_at` | timestamp | |
-| `updated_at` | timestamp | |
-
-### `pagos_wompi`
-
-Historial de intentos de pago vía Wompi (uno por cobro, exitoso o no).
-
-| Campo | Tipo | Notas |
-|---|---|---|
-| `id` | int PK | auto |
-| `nit_cliente` | varchar(20) | FK lógica a suscripciones |
-| `plan` | varchar(20) | plan al momento del pago |
-| `monto` | int | monto cobrado |
-| `referencia` | varchar(100) | ref única `CFT-{nit}-{yyyymmdd-hhmmss}` |
-| `transaction_id` | varchar(100) | id que devuelve Wompi |
-| `estado` | enum('creado','aprobado','rechazado','cancelado') | |
-| `metodo_pago` | enum('CARD','PSE','NEQUI','BANCOLOMBIA_TRANSFER') | de Wompi |
-| `payload_webhook` | text | JSON crudo que mandó Wompi (auditoría) |
-| `created_at` | timestamp | |
-| `confirmed_at` | timestamp | cuando llegó el webhook de aprobado |
-
-### `pagos_comprobante`
-
-Historial de comprobantes subidos manualmente.
-
-| Campo | Tipo | Notas |
-|---|---|---|
-| `id` | int PK | auto |
-| `nit_cliente` | varchar(20) | |
-| `plan` | varchar(20) | |
-| `monto_declarado` | int | lo que dijo el cliente que pagó |
-| `fecha_pago` | date | según el cliente |
-| `banco_origen` | varchar(60) | Bancolombia / Nequi / etc |
-| `referencia_transaccion` | varchar(100) | número del comprobante |
-| `url_comprobante` | varchar(500) | ruta donde se guardó el archivo |
-| `estado` | enum('pendiente','aprobado','rechazado') | |
-| `motivo_rechazo` | varchar(255) | si fue rechazado, por qué |
-| `revisado_por` | varchar(100) | user que aprobó/rechazó |
-| `revisado_at` | timestamp | |
-| `created_at` | timestamp | |
-
-### `configuracion_empresa` (datos tuyos que la app lee)
-
-Para que la pantalla de "subir comprobante" muestre los datos bancarios tuyos sin hardcodearlos en la app.
-
-| Campo | Valor ejemplo |
-|---|---|
-| `cuentas_bancarias` | JSON: `[{"banco":"Bancolombia","tipo":"Ahorros","numero":"123456","titular":"..."}]` |
-| `nequi_persona` | `3105550123` |
-| `planes` | JSON: `[{"id":"basico","nombre":"Básico","monto":300000,"features":[...]}]` |
-| `email_soporte` | `soporte@innovacion-digital.com` |
+| Identifica al cliente por **NIT** (`?nit=X`) | El CRM identifica por **`token_consulta`** (cada cliente tiene uno). Muchos NIT son 0/NULL. | **Se usa `token`, no NIT.** |
+| Base `https://innovacion-digital.com/crm` | Base real **`https://crm.innovacion-digital.com/api/public/api/v1`** | URLs corregidas. |
+| Crear tabla `suscripciones` plana | Ya existe modelo normalizado (`clientes`+`planes`+`suscripciones`+`facturas`+`pagos`) | Se **mapea**, no se duplica. |
+| Planes `basico/pro/premium` 300/450/600k | Planes reales en tabla `planes`/`productos` (variados) | Endpoint sirve los **reales**. |
+| Cron de recordatorios nuevo | Ya corre **`notificaciones:vencimientos`** (7/3/1d) + `reporte:diario` | Se **extiende**, no se duplica. |
+| Preguntar si hay SMTP | Ya hay **Resend** (`ResendMailer`) | Nada que configurar. |
+| Panel admin HTML suelto | El CRM es **React SPA** | Es un **módulo** React. |
 
 ---
 
-## 3. Endpoints que debe exponer el CRM
+## 1. Identidad del cliente: **token, no NIT**
 
-Base: `https://innovacion-digital.com/crm` (o donde esté el CRM).
+Cada cliente en el CRM tiene un `token_consulta` (string largo). La App Conta FT ya lo usa
+hoy para consultar licencia/módulos. **Toda** llamada de la App va con ese token:
 
-### 3.1 `GET /api/suscripcion/estado?nit=XXXXXXXXX`
+- En GET: `.../consulta-vencimiento/{token}`
+- En POST: el token en la ruta o en el body.
 
-**Lo llama la app cada 12 horas** para saber si la suscripción está vigente.
+> El NIT puede ir como dato informativo, pero **nunca** como llave de búsqueda.
 
-**Respuesta esperada:**
+**Base URL:** `https://crm.innovacion-digital.com/api/public/api/v1`
+
+---
+
+## 2. Endpoints
+
+### 2.1 Estado de suscripción — **[YA EXISTE, se extiende]**
+`GET /consulta-vencimiento/{token}` y `GET /validar-pago/{token}`
+
+Ya devuelven vigencia / pago al día / facturas pendientes. Se **amplía** la respuesta de
+`consulta-vencimiento` para que la App tenga todo en una sola llamada:
+
 ```json
 {
   "success": true,
-  "nit": "900123456",
-  "nombre_empresa": "DEMO SAS",
-  "estado": "activa",
-  "plan": "pro",
-  "fecha_fin": "2027-10-14",
-  "dias_restantes": 365,
-  "en_trial": false,
-  "pagos_pendientes_revision": 0,
-  "ultimo_rechazo": null
-}
-```
-
-Si está en trial:
-```json
-{ "success": true, "nit": "900123456", "estado": "trial", "dias_restantes_trial": 23 }
-```
-
-Si venció:
-```json
-{ "success": true, "nit": "900123456", "estado": "vencida", "dias_restantes": -3, "fecha_fin": "2027-10-11" }
-```
-
-Si tiene un comprobante en revisión:
-```json
-{ "success": true, "nit": "900123456", "estado": "activa", "fecha_fin": "...", "pagos_pendientes_revision": 1 }
-```
-
-Si fue rechazado:
-```json
-{
-  "success": true,
-  "nit": "900123456",
-  "estado": "vencida",
-  "ultimo_rechazo": {
-    "fecha": "2026-10-14",
-    "motivo": "El comprobante no es legible"
+  "code": "OK",
+  "data": {
+    "empresa": "DEMO SAS",
+    "estado": "activa",                // prueba | activa | suspendida | cancelada | vencida
+    "en_trial": false,
+    "fecha_fin": "2027-10-14",
+    "dias_restantes": 365,
+    "urgente": false,                  // true cuando faltan <=7 días
+    "pago_al_dia": true,
+    "facturas_pendientes": 0,
+    "total_adeudado": 0,
+    "pagos_pendientes_revision": 0,    // comprobantes en revisión
+    "ultimo_rechazo": null             // o { "fecha": "...", "motivo": "..." }
   }
 }
 ```
+La App la llama **cada 12h** y cachea 24h para operar offline.
 
-### 3.2 `GET /api/suscripcion/planes`
+### 2.2 Planes disponibles — **[NUEVO, sobre datos reales]**
+`GET /planes-publicos`
 
-Devuelve los planes disponibles para que la app los muestre al cliente.
-
-**Respuesta:**
+Devuelve los planes **reales** desde la tabla `planes` (no un enum inventado) + datos
+bancarios desde `configuraciones`:
 ```json
 {
   "success": true,
   "planes": [
-    {
-      "id": "basico",
-      "nombre": "Básico",
-      "monto_anual": 300000,
-      "features": ["Facturación POS", "Facturación electrónica", "Hasta 2 usuarios"]
-    },
-    {
-      "id": "pro",
-      "nombre": "Pro",
-      "monto_anual": 450000,
-      "features": ["Todo lo del Básico", "Módulo Nómina", "Hasta 5 usuarios", "Soporte prioritario"],
-      "recomendado": true
-    },
-    {
-      "id": "premium",
-      "nombre": "Premium",
-      "monto_anual": 600000,
-      "features": ["Todo lo del Pro", "Usuarios ilimitados", "Multiempresa", "Capacitación"]
-    }
+    { "id": 3, "nombre": "CNotas Anual", "periodo": "anual", "monto": 400000, "features": ["..."] }
   ],
-  "cuentas_bancarias": [
-    { "banco": "Bancolombia", "tipo": "Ahorros", "numero": "123456789", "titular": "Innovación Digital SAS" }
-  ],
-  "nequi_persona": "3105550123"
+  "cuentas_bancarias": [ { "banco": "Bancolombia", "tipo": "Ahorros", "numero": "...", "titular": "Innovación Digital" } ],
+  "nequi": "3105550123"
 }
 ```
+> `features` sale del **sistema de módulos/entitlements** que ya existe (los módulos del plan).
 
-### 3.3 `POST /api/suscripcion/wompi/crear-link`
+### 2.3 Crear link de pago Wompi — **[NUEVO]**
+`POST /pago/wompi/crear-link/{token}`
 
-La app llama cuando el cliente eligió "Pagar con Wompi".
+Body: `{ "plan_id": 3 }` (el monto lo pone el CRM desde el plan, no el cliente).
 
-**Body:**
+El CRM: valida token → crea fila en `pagos_wompi` (estado `creado`, referencia única
+`CFT-{clienteId}-{yyyymmddHHmmss}`) → llama Wompi → devuelve el checkout:
 ```json
-{
-  "nit": "900123456",
-  "nombre_empresa": "DEMO SAS",
-  "email": "contacto@demo.co",
-  "plan": "pro",
-  "monto": 450000
-}
+{ "success": true, "referencia": "CFT-33-20261015-143022", "url_checkout": "https://checkout.wompi.co/l/XXX", "expira_en_minutos": 30 }
 ```
+La App abre `url_checkout` con `shell.openExternal`.
 
-**El CRM debe:**
-1. Validar NIT.
-2. Crear fila en `pagos_wompi` con estado `creado` y referencia única.
-3. Llamar a Wompi API (ver sección 4 abajo).
-4. Devolver la URL del checkout.
+### 2.4 Webhook Wompi — **[NUEVO, núcleo del auto-pago]**
+`POST /wompi/webhook` (lo llama Wompi, no la App)
 
-**Respuesta:**
-```json
-{
-  "success": true,
-  "referencia": "CFT-900123456-20261014-143022",
-  "url_checkout": "https://checkout.wompi.co/l/ABC123",
-  "expira_en_minutos": 30
-}
-```
+1. **Valida la firma** (events secret, HMAC-SHA256) — crítico.
+2. Busca la referencia en `pagos_wompi`.
+3. Si `APPROVED`:
+   - `pagos_wompi.estado='aprobado'`, guarda `transaction_id` + `payload`.
+   - **Genera/paga la factura** y **extiende la suscripción** reutilizando la lógica ya
+     existente (`Factura::reactivarSuscripcionSiCorresponde` / `marcarPagada`): `estado='activa'`,
+     `siguiente_cobro`/`fecha_fin` +1 periodo.
+   - Correo de bienvenida vía Resend.
+   - **→ Esto es el "sin meter mano": el cliente paga y queda activo solo.**
+4. Si `DECLINED`/`VOIDED`: `pagos_wompi.estado='rechazado'`, no toca la suscripción.
+5. **Siempre responde 200** (si no, Wompi reintenta).
 
-### 3.4 `POST /api/wompi/webhook`
+### 2.5 Subir comprobante — **[NUEVO = el "portal de comprobantes" que teníamos pendiente]**
+`POST /pago/comprobante/{token}` (multipart)
 
-**Lo llama Wompi** cuando el pago se completa (exitoso o no). El CRM NO lo expone a la app.
+Campos: `plan_id`, `monto_declarado`, `fecha_pago`, `banco_origen`,
+`referencia_transaccion`, `comprobante` (jpg/png/pdf ≤5MB).
 
-**Qué hacer:**
-1. **Validar firma HMAC** (ver sección 4.3) — crítico, si no, cualquiera activa suscripciones gratis.
-2. Buscar la referencia en `pagos_wompi`.
-3. Si el estado del evento es `APPROVED`:
-   - Marcar `pagos_wompi.estado = 'aprobado'`.
-   - Actualizar `suscripciones`: `estado='activa'`, `fecha_pago=hoy`, `fecha_fin=hoy+365d`, `metodo_ultimo_pago='wompi'`, `ref_ultimo_pago=<referencia>`.
-   - Enviar email de bienvenida al cliente.
-4. Si es `DECLINED` o `VOIDED`: marcar `pagos_wompi.estado='rechazado'`, no tocar la suscripción.
-5. **Siempre devolver 200 OK** a Wompi (si no, reintenta).
+El CRM: valida token + archivo → guarda en `storage/comprobantes/{clienteId}_{ts}.{ext}`
+→ fila en `pagos_comprobante` (estado `pendiente`) → notifica al admin (campanita + correo
+Resend) → responde `{ "success": true, "id_comprobante": 123, "mensaje": "..." }`.
 
-### 3.5 `POST /api/suscripcion/comprobante` (multipart)
+### 2.6 Revisión de comprobantes (admin) — **[NUEVO, módulo React]**
+Protegido con JWT (ya existe el login):
+- `GET /comprobantes?estado=pendiente` — lista.
+- `POST /comprobantes/{id}/aprobar` `{ "fecha_pago": "..." }` → marca pagado + extiende suscripción (misma lógica del webhook) + correo al cliente.
+- `POST /comprobantes/{id}/rechazar` `{ "motivo": "..." }` → correo al cliente; el motivo aparece como `ultimo_rechazo` en 2.1.
 
-La app sube un comprobante de transferencia.
-
-**Content-Type:** `multipart/form-data`
-
-**Campos:**
-- `nit` (string)
-- `nombre_empresa` (string)
-- `email` (string)
-- `plan` (string: basico/pro/premium)
-- `monto_declarado` (int)
-- `fecha_pago` (date YYYY-MM-DD)
-- `banco_origen` (string)
-- `referencia_transaccion` (string)
-- `comprobante` (file: jpg/png/pdf, max 5MB)
-
-**El CRM debe:**
-1. Validar NIT + que haya archivo.
-2. Guardar archivo en `/uploads/comprobantes/{nit}_{timestamp}.{ext}`.
-3. Crear fila en `pagos_comprobante` con estado `pendiente`.
-4. Notificar al operador (email a vos / Slack / etc).
-5. Devolver confirmación.
-
-**Respuesta:**
-```json
-{
-  "success": true,
-  "id_comprobante": 123,
-  "mensaje": "Comprobante recibido. Verificaremos en máximo 24 horas y te notificaremos por email."
-}
-```
-
-### 3.6 `POST /api/admin/comprobante/aprobar` (protegido con auth admin)
-
-**Panel interno del CRM**, lo usás vos. No lo llama la app.
-
-**Body:**
-```json
-{ "id_comprobante": 123, "fecha_pago_efectiva": "2026-10-14" }
-```
-
-**Qué hace:**
-1. Actualizar `pagos_comprobante.estado='aprobado'`, `revisado_por=admin`, `revisado_at=now()`.
-2. Actualizar `suscripciones`: `estado='activa'`, `fecha_fin=hoy+365d`.
-3. Enviar email al cliente: *"Tu pago fue verificado. Suscripción activada hasta <fecha>."*
-
-### 3.7 `POST /api/admin/comprobante/rechazar`
-
-**Body:**
-```json
-{ "id_comprobante": 123, "motivo": "El comprobante está borroso, por favor reenviar." }
-```
-
-**Qué hace:**
-1. `pagos_comprobante.estado='rechazado'`, guardar motivo.
-2. Enviar email al cliente con el motivo.
-3. En la próxima consulta `GET /suscripcion/estado`, incluir `ultimo_rechazo` para que la app lo muestre.
-
-### 3.8 Panel admin `/crm/pagos-pendientes`
-
-**UI web interna** (HTML+JS). No se consume desde la app.
-
-- Lista de `pagos_comprobante WHERE estado='pendiente'` ordenados por `created_at ASC`.
-- Para cada uno muestra: empresa, NIT, monto declarado, banco, referencia, miniatura del comprobante.
-- Click en miniatura abre el archivo en nueva pestaña.
-- Dos botones: **Aprobar** / **Rechazar** (abre modal pidiendo motivo).
+Un **módulo "Comprobantes"** en el menú del CRM (no HTML suelto): lista con miniatura,
+abrir archivo, botones Aprobar/Rechazar.
 
 ---
 
-## 4. Integración con Wompi (lado del CRM)
+## 3. Modelo de datos (reconciliado)
 
-### 4.1 Credenciales que necesita el CRM
+**Reusar** (no crear): `clientes`, `suscripciones`, `planes`, `productos`, `facturas`,
+`pagos`, `configuraciones` (datos bancarios), `notificaciones`, `correos`, módulos/entitlements.
 
-Las obtenés al activar cuenta Wompi para Innovación Digital SAS:
-- `WOMPI_PUBLIC_KEY` (sandbox + producción)
-- `WOMPI_PRIVATE_KEY` (sandbox + producción)
-- `WOMPI_WEBHOOK_SECRET` (para validar firma HMAC)
-- `WOMPI_BASE_URL`: `https://sandbox.wompi.co/v1` (pruebas) o `https://production.wompi.co/v1`
+**Nuevas tablas (solo estas):**
 
-### 4.2 Crear link de pago
+### `pagos_wompi`
+`id, cliente_id, plan_id, monto, referencia (único), transaction_id, estado(creado|aprobado|rechazado|cancelado), metodo_pago, payload_webhook TEXT, created_at, confirmed_at`
 
-`POST https://production.wompi.co/v1/payment_links`
+### `pagos_comprobante`
+`id, cliente_id, plan_id, monto_declarado, fecha_pago, banco_origen, referencia_transaccion, url_comprobante, estado(pendiente|aprobado|rechazado), motivo_rechazo, revisado_por, revisado_at, created_at`
 
-```http
-Authorization: Bearer <WOMPI_PRIVATE_KEY>
-Content-Type: application/json
-```
-
-```json
-{
-  "name": "Suscripción Pro Conta FT 2026",
-  "description": "Licencia anual Conta FT - DEMO SAS",
-  "single_use": true,
-  "collect_shipping": false,
-  "currency": "COP",
-  "amount_in_cents": 45000000,
-  "redirect_url": "https://innovacion-digital.com/pago-ok",
-  "customer_data": {
-    "customer_references": [
-      { "label": "NIT", "value": "900123456" },
-      { "label": "Referencia", "value": "CFT-900123456-20261014-143022" }
-    ]
-  }
-}
-```
-
-**Respuesta:**
-```json
-{
-  "data": {
-    "id": "abc123def",
-    "permalink": "https://checkout.wompi.co/l/abc123def"
-  }
-}
-```
-
-Devolvés `permalink` a la app como `url_checkout`.
-
-### 4.3 Webhook: validar firma HMAC
-
-Wompi firma cada webhook con HMAC-SHA256 del body + timestamp usando `WOMPI_WEBHOOK_SECRET`.
-
-**En PHP:**
-```php
-$body = file_get_contents('php://input');
-$evento = json_decode($body, true);
-
-$timestamp = $evento['timestamp'] ?? '';
-$firma_recibida = $evento['signature']['checksum'] ?? '';
-$props = $evento['signature']['properties'] ?? [];
-
-$concatenado = '';
-foreach ($props as $p) {
-    $concatenado .= jsonPathGet($evento['data'], $p);
-}
-$concatenado .= $timestamp;
-$concatenado .= getenv('WOMPI_WEBHOOK_SECRET');
-
-$firma_calculada = hash('sha256', $concatenado);
-
-if (!hash_equals($firma_calculada, $firma_recibida)) {
-    http_response_code(401);
-    exit('firma inválida');
-}
-
-// Procesar evento...
-if ($evento['event'] === 'transaction.updated' &&
-    $evento['data']['transaction']['status'] === 'APPROVED') {
-    // Activar suscripción
-}
-```
-
-### 4.4 Flujo de pruebas
-
-Wompi tiene sandbox gratis con tarjetas de prueba. Antes de producción:
-- `4242 4242 4242 4242` → aprueba
-- `4111 1111 1111 1111` → rechaza
+> Ambas se enlazan a `clientes.id` (vía token resuelto), no por NIT.
 
 ---
 
-## 5. Lógica de recordatorios (cron del CRM)
+## 4. Wompi (lado CRM)
 
-Se corre **1 vez al día** (ej. 9 AM).
+Credenciales en el **`.env` del servidor** (nunca en el repo):
+`WOMPI_PUBLIC_KEY`, `WOMPI_PRIVATE_KEY`, `WOMPI_EVENTS_SECRET` (firma del webhook),
+`WOMPI_INTEGRITY_SECRET` (firma al crear), `WOMPI_BASE_URL`
+(`https://sandbox.wompi.co/v1` o `https://production.wompi.co/v1`).
 
-```sql
--- 60 días antes del vencimiento: email suave
-SELECT * FROM suscripciones
-WHERE estado = 'activa'
-  AND DATEDIFF(fecha_fin, CURDATE()) IN (60, 30, 7, 1)
-  AND (ultimo_recordatorio_dias IS NULL OR ultimo_recordatorio_dias > DATEDIFF(fecha_fin, CURDATE()));
-```
+Crear link: `POST {WOMPI_BASE_URL}/payment_links` con `Authorization: Bearer {PRIVATE_KEY}`,
+`amount_in_cents`, `currency:"COP"`, `single_use:true`, `redirect_url`,
+`customer_references` (NIT + referencia). Se devuelve `data.permalink` como `url_checkout`.
 
-Para cada fila:
-- **60 días antes**: email *"Tu licencia vence el X. Renueva con descuento de $50.000 pagando antes del Y."*
-- **30 días antes**: email + anotar en `suscripciones.ultimo_recordatorio_dias = 30`
-- **7 días antes**: email + marcar banner urgente en app (via GET /suscripcion/estado flag `urgente=true`).
-- **1 día antes**: email final.
-- **Día de vencimiento**: la app detecta `fecha_fin < hoy` y muestra modal de bloqueo.
+Webhook: validar HMAC con `WOMPI_EVENTS_SECRET` (concatenar las `signature.properties` +
+`timestamp` + secret, `sha256`, comparar con `hash_equals`). Empezar en **sandbox**
+(tarjetas `4242…`=aprueba, `4111…`=rechaza) y pasar a producción al validar.
 
 ---
 
-## 6. Lo que necesita hacer el CRM — checklist
-
-Para que podamos integrar la app:
-
-- [ ] Crear las 4 tablas (`suscripciones`, `pagos_wompi`, `pagos_comprobante`, `configuracion_empresa`)
-- [ ] Implementar los 5 endpoints públicos (3.1–3.5)
-- [ ] Implementar los 2 endpoints admin (3.6–3.7)
-- [ ] Panel admin web `/crm/pagos-pendientes` (3.8)
-- [ ] Integrar Wompi (4.1–4.4) una vez tengas la cuenta
-- [ ] Cron de recordatorios (sección 5)
-- [ ] Email templates: bienvenida, pago aprobado, pago rechazado, recordatorio 60/30/7 días, pago vencido
+## 5. Recordatorios — **[YA EXISTE, se extiende]**
+`notificaciones:vencimientos` ya avisa 7/3/1 días (campanita + correo a admin y cliente).
+Se **añaden** 60 y 30 días y el flag `urgente` que consume la App (2.1). No se crea cron nuevo.
 
 ---
 
-## 7. Lo que necesita hacer la app (nuestro lado — ya tenemos la base)
-
-- [x] Trial 30 días con BD limpia (F3 — ya hecho)
-- [x] IPC `trial:getStatus` (F3 — ya hecho)
-- [ ] Pantalla "Activar licencia" con las 2 opciones (Wompi + comprobante)
-- [ ] Consulta a `GET /suscripcion/estado` cada 12h, cachear 24h offline
-- [ ] Pantalla "Subir comprobante" con formulario + upload
-- [ ] Pantalla "Pagar con Wompi": llama al CRM, abre URL en navegador con `shell.openExternal`
-- [ ] Banner de días restantes (verde/amarillo/rojo) ← **ya tenemos el componente**
-- [ ] Bloqueo de Nueva Venta / Nueva Compra cuando `estado='vencida'`
-- [ ] Modal persistente con botón "Activar ahora" al vencer
+## 6. Trial
+Se mapea al estado **`prueba`** de `suscripciones` con `fecha_fin` = inicio + 30 días. La App
+lee `en_trial` / `dias_restantes` de 2.1.
 
 ---
 
-## 8. Preguntas al equipo CRM
+## 7. Checklist CRM (lo que implemento yo)
 
-Para que arranques la conversación con quien lo mantenga:
+- [ ] 2 tablas nuevas: `pagos_wompi`, `pagos_comprobante`.
+- [ ] Extender `consulta-vencimiento` con los campos de 2.1.
+- [ ] `GET /planes-publicos` (2.2).
+- [ ] `POST /pago/comprobante/{token}` + guardado de archivo (2.5).
+- [ ] Módulo React "Comprobantes" + endpoints admin aprobar/rechazar (2.6).
+- [ ] `POST /pago/wompi/crear-link/{token}` (2.3) — requiere creds Wompi.
+- [ ] `POST /wompi/webhook` con validación HMAC + auto-activación (2.4) — requiere creds Wompi.
+- [ ] Extender `notificaciones:vencimientos` a 60/30 + flag urgente (5).
+- [ ] Plantillas de correo: bienvenida, pago aprobado, comprobante recibido/aprobado/rechazado.
 
-1. **¿El CRM está en PHP o Node?** El código de ejemplo arriba está en PHP, se puede traducir.
-2. **¿Tiene SMTP ya configurado para los emails?** Si no, hay que configurar (SendGrid, Mailgun, Postmark).
-3. **¿Hay auth admin funcional** para el panel de aprobar pagos? Si no, qué sistema de login usar.
-4. **¿Cuándo abren la cuenta Wompi?** Mientras tanto arrancamos con el flujo del comprobante solo.
+## 8. Checklist App (lado facturador)
+- [ ] La App ya debe tener el **`token_consulta`** del cliente (igual que para licencia). **No** usar NIT.
+- [ ] Pantalla "Activar licencia" con 2 opciones (Wompi + comprobante).
+- [ ] Llamar `consulta-vencimiento/{token}` cada 12h, cachear 24h.
+- [ ] Pantalla "Pagar con Wompi" → `crear-link` → `shell.openExternal`.
+- [ ] Pantalla "Subir comprobante" → multipart a `pago/comprobante/{token}`.
+- [ ] Banner días restantes + bloqueo cuando `estado` ∈ {vencida, suspendida}.
 
----
-
-## 9. Siguiente paso
-
-Cuando el CRM tenga listos los **5 endpoints públicos (3.1–3.5)**, aviso y arranco con la implementación del lado de la app:
-
-- Pantalla de activación con las 2 opciones.
-- Upload de comprobante.
-- Polling de estado.
-- Bloqueo cuando vence.
-
-Esto es ~1 semana de trabajo del lado de la app una vez que el CRM esté listo.
+## 9. Lo que necesito de ti (Luis)
+1. **Credenciales Wompi**: `WOMPI_PUBLIC_KEY`, `WOMPI_PRIVATE_KEY`, `WOMPI_EVENTS_SECRET`, `WOMPI_INTEGRITY_SECRET`, y si arrancamos en **sandbox** o **producción**.
+2. Confirmar que la App Conta FT ya recibe/guarda el **token** del cliente (como para la licencia).
+3. Qué **planes reales** se ofrecen para auto-pago (puedo tomarlos de la tabla `planes` tal cual).

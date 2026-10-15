@@ -322,6 +322,88 @@ function httpGetJson(url, timeoutMs = 10000) {
   });
 }
 
+// POST JSON genérico (sin Bearer). Para endpoints públicos del CRM que
+// identifican por {token} en la ruta y no exigen Authorization.
+function httpPostJson(url, payload, timeoutMs = 15000) {
+  return new Promise((resolve, reject) => {
+    const client = new URL(url).protocol === 'https:' ? https : http;
+    const bodyStr = JSON.stringify(payload || {});
+    const req = client.request(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'Content-Length': Buffer.byteLength(bodyStr),
+      },
+    }, (res) => {
+      let data = '';
+      res.on('data', (chunk) => { data += chunk; });
+      res.on('end', () => {
+        try {
+          const clean = stripBom(data);
+          resolve({ status: res.statusCode, body: clean ? JSON.parse(clean) : null });
+        } catch (e) {
+          resolve({ status: res.statusCode, body: { _raw: String(data).slice(0, 400) } });
+        }
+      });
+    });
+    req.on('error', reject);
+    req.setTimeout(timeoutMs, () => req.destroy(new Error('Timeout')));
+    req.write(bodyStr);
+    req.end();
+  });
+}
+
+// POST multipart/form-data: sube un archivo + campos de formulario.
+// Lo usamos para enviar el comprobante de pago al CRM.
+function httpPostMultipart(url, fields, filePath, fileField = 'comprobante', timeoutMs = 30000) {
+  return new Promise((resolve, reject) => {
+    const client = new URL(url).protocol === 'https:' ? https : http;
+    const boundary = '----ContaFT' + crypto.randomBytes(16).toString('hex');
+    const parts = [];
+    for (const [k, v] of Object.entries(fields || {})) {
+      parts.push(Buffer.from(
+        `--${boundary}\r\nContent-Disposition: form-data; name="${k}"\r\n\r\n${v}\r\n`
+      ));
+    }
+    if (filePath && fs.existsSync(filePath)) {
+      const filename = path.basename(filePath);
+      const ext = path.extname(filename).toLowerCase().replace('.', '');
+      const mime = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', pdf: 'application/pdf' }[ext] || 'application/octet-stream';
+      parts.push(Buffer.from(
+        `--${boundary}\r\nContent-Disposition: form-data; name="${fileField}"; filename="${filename}"\r\nContent-Type: ${mime}\r\n\r\n`
+      ));
+      parts.push(fs.readFileSync(filePath));
+      parts.push(Buffer.from('\r\n'));
+    }
+    parts.push(Buffer.from(`--${boundary}--\r\n`));
+    const body = Buffer.concat(parts);
+    const req = client.request(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': `multipart/form-data; boundary=${boundary}`,
+        'Accept': 'application/json',
+        'Content-Length': body.length,
+      },
+    }, (res) => {
+      let data = '';
+      res.on('data', (chunk) => { data += chunk; });
+      res.on('end', () => {
+        try {
+          const clean = stripBom(data);
+          resolve({ status: res.statusCode, body: clean ? JSON.parse(clean) : null });
+        } catch (e) {
+          resolve({ status: res.statusCode, body: { _raw: String(data).slice(0, 400) } });
+        }
+      });
+    });
+    req.on('error', reject);
+    req.setTimeout(timeoutMs, () => req.destroy(new Error('Timeout')));
+    req.write(body);
+    req.end();
+  });
+}
+
 async function getApiTokenFromBackend() {
   const cfg = readConfig();
   const apiUrl = cfg.apiUrl;
@@ -556,6 +638,94 @@ ipcMain.handle('subscription:setOfflineCode', (_, code) => {
 ipcMain.handle('subscription:clearOfflineCode', () => {
   writeConfig({ offline_activation: null });
   return { ok: true };
+});
+
+// ============================================================
+// Pago de licencia (F4 — ver CRM_INTEGRATION_SPEC.md)
+// Expone 3 operaciones al frontend:
+//   pago:planes          → lista planes + datos bancarios
+//   pago:crearLinkWompi  → genera link y lo abre en el navegador
+//   pago:subirComprobante → upload del comprobante manual
+// Todos identifican al cliente por su api_token del backend local
+// (igual que validateForUsage).
+// ============================================================
+async function obtenerTokenCliente() {
+  const t = await getApiTokenFromBackend();
+  if (!t.ok) return { ok: false, reason: t.reason, message: t.message };
+  return { ok: true, token: t.token };
+}
+
+ipcMain.handle('pago:planes', async () => {
+  try {
+    const url = `${SUBS_API_BASE}/planes-publicos`;
+    const { status, body } = await httpGetJson(url, 10000);
+    if (status !== 200 || !body?.success) {
+      return { ok: false, reason: 'crm-error', status, body };
+    }
+    return { ok: true, planes: body.planes || [], cuentas_bancarias: body.cuentas_bancarias || [], nequi: body.nequi || null };
+  } catch (e) {
+    return { ok: false, reason: 'red', message: e?.message || String(e) };
+  }
+});
+
+ipcMain.handle('pago:crearLinkWompi', async (_e, { plan_id }) => {
+  const t = await obtenerTokenCliente();
+  if (!t.ok) return t;
+  try {
+    const url = `${SUBS_API_BASE}/pago/wompi/crear-link/${encodeURIComponent(t.token)}`;
+    const { status, body } = await httpPostJson(url, { plan_id }, 20000);
+    if (status !== 200 || !body?.success) {
+      return { ok: false, reason: 'crm-rechazo', status, message: body?.message || body?._raw };
+    }
+    // Abrir el checkout en el navegador default — nunca embebemos la pasarela
+    const { shell } = require('electron');
+    if (body.url_checkout) await shell.openExternal(body.url_checkout);
+    return { ok: true, referencia: body.referencia, url_checkout: body.url_checkout };
+  } catch (e) {
+    return { ok: false, reason: 'red', message: e?.message || String(e) };
+  }
+});
+
+ipcMain.handle('pago:subirComprobante', async (_e, { plan_id, monto_declarado, fecha_pago, banco_origen, referencia_transaccion, file_path }) => {
+  const t = await obtenerTokenCliente();
+  if (!t.ok) return t;
+  if (!file_path || !fs.existsSync(file_path)) {
+    return { ok: false, reason: 'archivo-faltante' };
+  }
+  try {
+    const url = `${SUBS_API_BASE}/pago/comprobante/${encodeURIComponent(t.token)}`;
+    const fields = {
+      plan_id: String(plan_id),
+      monto_declarado: String(monto_declarado),
+      fecha_pago: String(fecha_pago),
+      banco_origen: String(banco_origen || ''),
+      referencia_transaccion: String(referencia_transaccion || ''),
+    };
+    const { status, body } = await httpPostMultipart(url, fields, file_path, 'comprobante', 60000);
+    if (status !== 200 || !body?.success) {
+      return { ok: false, reason: 'crm-rechazo', status, message: body?.message || body?._raw };
+    }
+    return { ok: true, id_comprobante: body.id_comprobante, mensaje: body.mensaje };
+  } catch (e) {
+    return { ok: false, reason: 'red', message: e?.message || String(e) };
+  }
+});
+
+// Diálogo de archivo para seleccionar el comprobante.
+// El frontend lo invoca desde el formulario de "Subir comprobante".
+ipcMain.handle('pago:elegirArchivoComprobante', async () => {
+  const r = await dialog.showOpenDialog({
+    title: 'Seleccionar comprobante de pago',
+    filters: [{ name: 'Comprobante', extensions: ['jpg', 'jpeg', 'png', 'pdf'] }],
+    properties: ['openFile'],
+  });
+  if (r.canceled || !r.filePaths?.length) return { ok: false };
+  const filePath = r.filePaths[0];
+  const stat = fs.statSync(filePath);
+  if (stat.size > 5 * 1024 * 1024) {
+    return { ok: false, reason: 'archivo-grande', message: 'El archivo supera los 5 MB.' };
+  }
+  return { ok: true, path: filePath, name: path.basename(filePath), size: stat.size };
 });
 
 // Configurar el api_token de la empresa (instalación inicial).
