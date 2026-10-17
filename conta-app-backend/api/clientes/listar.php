@@ -147,7 +147,7 @@ try {
             }
             if (intval($data->CodigoClien) === 130500) {
                 http_response_code(403);
-                echo json_encode(["success" => false, "message" => "El cliente genérico VENTAS AL CONTADO es del sistema y no puede modificarse."]);
+                echo json_encode(["success" => false, "message" => "El cliente genérico CONSUMIDOR FINAL es del sistema y no puede modificarse."]);
                 exit;
             }
 
@@ -207,7 +207,7 @@ try {
             }
             if (intval($id) === 130500) {
                 http_response_code(403);
-                echo json_encode(["success" => false, "message" => "El cliente genérico VENTAS AL CONTADO es del sistema y no puede eliminarse."]);
+                echo json_encode(["success" => false, "message" => "El cliente genérico CONSUMIDOR FINAL es del sistema y no puede eliminarse."]);
                 exit;
             }
             // Check if has invoices

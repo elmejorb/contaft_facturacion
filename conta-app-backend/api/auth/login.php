@@ -50,8 +50,10 @@ try {
     $stmt->bindParam(':usuario', $username);
     $stmt->execute();
 
-    if ($stmt->rowCount() > 0) {
-        $usuario = $stmt->fetch(PDO::FETCH_ASSOC);
+    // IMPORTANTE: no usar rowCount() en SELECTs — en SQLite devuelve 0 o
+    // un valor imprevisible. Mejor fetch() directo y chequear si hay fila.
+    $usuario = $stmt->fetch(PDO::FETCH_ASSOC);
+    if ($usuario) {
 
         // Comparar la contraseña codificada
         if ($usuario['contrasena'] === $passwordCodificada) {

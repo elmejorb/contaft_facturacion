@@ -69,7 +69,7 @@ function conta_abrir_pdo(array $cfg): PDO {
         $dir = dirname($path);
         if (!is_dir($dir)) @mkdir($dir, 0777, true);
 
-        $pdo = new PDO("sqlite:$path");
+        $pdo = new ContaSqlitePDO("sqlite:$path");
         $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
         $pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
         // Foreign keys: SQLite las ignora por default — hay que activarlas por conexión.
@@ -80,6 +80,10 @@ function conta_abrir_pdo(array $cfg): PDO {
         $pdo->exec('PRAGMA synchronous = NORMAL');
         // busy_timeout: esperar hasta 5s si otro proceso está escribiendo antes de dar error.
         $pdo->exec('PRAGMA busy_timeout = 5000');
+        // Emular funciones MySQL comunes en SQLite (MONTH, YEAR, DAY, etc).
+        // La MAYORÍA del backend se escribió para MySQL — esto evita rewrite
+        // de cientos de queries y errores en runtime.
+        conta_sqlite_registrar_funciones_mysql($pdo);
         return $pdo;
     }
 
@@ -143,6 +147,187 @@ function conta_tablas_schema(PDO $db): array {
         return $db->query("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")->fetchAll(PDO::FETCH_COLUMN);
     }
     return $db->query("SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE()")->fetchAll(PDO::FETCH_COLUMN);
+}
+
+/**
+ * PDO extendida para SQLite que reescribe sintaxis MySQL-only ANTES de
+ * ejecutar. Cubre lo que `sqliteCreateFunction` no puede: `INTERVAL N UNIT`
+ * (que no es una función, es una expresión sintáctica).
+ *
+ * Transformaciones:
+ *   - DATE_SUB(X, INTERVAL N DAY)   → date(X, '-N days')
+ *   - DATE_ADD(X, INTERVAL N DAY)   → date(X, '+N days')
+ *   - DATE_SUB(X, INTERVAL N MONTH) → date(X, '-N months')
+ *   - DATE_ADD(X, INTERVAL N MONTH) → date(X, '+N months')
+ *   - DATE_SUB(X, INTERVAL N YEAR)  → date(X, '-N years')
+ *   - DATE_ADD(X, INTERVAL N YEAR)  → date(X, '+N years')
+ *
+ * Las funciones MONTH/YEAR/DAY/NOW/CURDATE/DATE_FORMAT son emuladas vía
+ * sqliteCreateFunction (ver conta_sqlite_registrar_funciones_mysql).
+ */
+class ContaSqlitePDO extends PDO {
+    private static function rewrite(string $sql): string {
+        // INTERVAL con unidades: cubre las unidades reales usadas en el backend.
+        // El segundo argumento puede ser un literal (7) o una columna (f.Dias) —
+        // en ambos casos lo pasamos a SQLite como '-' || N || ' days' para que
+        // el motor haga la concatenación en runtime.
+        $units = ['DAY' => 'days', 'MONTH' => 'months', 'YEAR' => 'years',
+                  'HOUR' => 'hours', 'MINUTE' => 'minutes', 'SECOND' => 'seconds'];
+        foreach ($units as $mysqlU => $sqliteU) {
+            // DATE_SUB(expr, INTERVAL N UNIT) → date(expr, ('-' || N || ' units'))
+            $sql = preg_replace_callback(
+                "~\bDATE_SUB\s*\(\s*([^,]+?)\s*,\s*INTERVAL\s+(.+?)\s+$mysqlU\s*\)~i",
+                fn($m) => "date({$m[1]}, ('-' || ({$m[2]}) || ' $sqliteU'))",
+                $sql
+            );
+            $sql = preg_replace_callback(
+                "~\bDATE_ADD\s*\(\s*([^,]+?)\s*,\s*INTERVAL\s+(.+?)\s+$mysqlU\s*\)~i",
+                fn($m) => "date({$m[1]}, ('+' || ({$m[2]}) || ' $sqliteU'))",
+                $sql
+            );
+        }
+        return $sql;
+    }
+
+    public function prepare($query, $options = []): PDOStatement|false {
+        return parent::prepare(self::rewrite($query), $options);
+    }
+
+    public function query($query, $fetchMode = null, ...$fetchModeArgs): PDOStatement|false {
+        $query = self::rewrite($query);
+        return $fetchMode === null
+            ? parent::query($query)
+            : parent::query($query, $fetchMode, ...$fetchModeArgs);
+    }
+
+    public function exec($statement): int|false {
+        return parent::exec(self::rewrite($statement));
+    }
+}
+
+/**
+ * Registra en SQLite las funciones MySQL más usadas por el backend.
+ * Hace falta porque SQLite no tiene MONTH/YEAR/DAY/DATE_FORMAT/NOW/CURDATE
+ * nativos — devolvía "no such function". Al emularlas acá, cientos de
+ * queries que fueron escritas para MySQL funcionan sin cambios.
+ */
+function conta_sqlite_registrar_funciones_mysql(PDO $pdo): void {
+    // Parse una fecha/datetime SQL de MySQL. Devuelve timestamp o false.
+    $parseDate = function($value) {
+        if ($value === null || $value === '') return false;
+        if (is_numeric($value)) return (int)$value;
+        $ts = strtotime($value);
+        return $ts === false ? false : $ts;
+    };
+
+    $pdo->sqliteCreateFunction('MONTH', function($value) use ($parseDate) {
+        $ts = $parseDate($value);
+        return $ts === false ? null : (int) date('n', $ts);
+    }, 1);
+
+    $pdo->sqliteCreateFunction('YEAR', function($value) use ($parseDate) {
+        $ts = $parseDate($value);
+        return $ts === false ? null : (int) date('Y', $ts);
+    }, 1);
+
+    $pdo->sqliteCreateFunction('DAY', function($value) use ($parseDate) {
+        $ts = $parseDate($value);
+        return $ts === false ? null : (int) date('j', $ts);
+    }, 1);
+
+    $pdo->sqliteCreateFunction('DAYOFMONTH', function($value) use ($parseDate) {
+        $ts = $parseDate($value);
+        return $ts === false ? null : (int) date('j', $ts);
+    }, 1);
+
+    $pdo->sqliteCreateFunction('HOUR', function($value) use ($parseDate) {
+        $ts = $parseDate($value);
+        return $ts === false ? null : (int) date('G', $ts);
+    }, 1);
+
+    $pdo->sqliteCreateFunction('MINUTE', function($value) use ($parseDate) {
+        $ts = $parseDate($value);
+        return $ts === false ? null : (int) date('i', $ts);
+    }, 1);
+
+    $pdo->sqliteCreateFunction('NOW', function() {
+        return date('Y-m-d H:i:s');
+    }, 0);
+
+    $pdo->sqliteCreateFunction('CURDATE', function() {
+        return date('Y-m-d');
+    }, 0);
+
+    $pdo->sqliteCreateFunction('CURRENT_DATE', function() {
+        return date('Y-m-d');
+    }, 0);
+
+    $pdo->sqliteCreateFunction('DATEDIFF', function($a, $b) use ($parseDate) {
+        $ta = $parseDate($a); $tb = $parseDate($b);
+        if ($ta === false || $tb === false) return null;
+        // MySQL DATEDIFF: días entre a y b, puede ser negativo.
+        return (int) floor(($ta - $tb) / 86400);
+    }, 2);
+
+    $pdo->sqliteCreateFunction('MONTHNAME', function($value) use ($parseDate) {
+        $ts = $parseDate($value);
+        if ($ts === false) return null;
+        $m = ['', 'Enero','Febrero','Marzo','Abril','Mayo','Junio',
+              'Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+        return $m[(int) date('n', $ts)] ?? null;
+    }, 1);
+
+    $pdo->sqliteCreateFunction('DAYNAME', function($value) use ($parseDate) {
+        $ts = $parseDate($value);
+        if ($ts === false) return null;
+        $d = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'];
+        return $d[(int) date('N', $ts) - 1] ?? null;
+    }, 1);
+
+    $pdo->sqliteCreateFunction('QUARTER', function($value) use ($parseDate) {
+        $ts = $parseDate($value);
+        return $ts === false ? null : (int) ceil(((int) date('n', $ts)) / 3);
+    }, 1);
+
+    $pdo->sqliteCreateFunction('UNIX_TIMESTAMP', function($value = null) use ($parseDate) {
+        if ($value === null) return time();
+        $ts = $parseDate($value);
+        return $ts === false ? null : $ts;
+    }, -1);
+
+    // DATE_FORMAT(fecha, formato_mysql) → equivalente a strftime pero con
+    // tokens MySQL (%Y, %m, %d, %H, %i, %s). Tokens frecuentes mapeados.
+    $pdo->sqliteCreateFunction('DATE_FORMAT', function($value, $fmt) use ($parseDate) {
+        $ts = $parseDate($value);
+        if ($ts === false) return null;
+        $mapa = ['%Y' => 'Y', '%y' => 'y', '%m' => 'm', '%c' => 'n',
+                 '%d' => 'd', '%e' => 'j', '%H' => 'H', '%k' => 'G',
+                 '%i' => 'i', '%s' => 's', '%S' => 's', '%M' => 'F',
+                 '%b' => 'M', '%W' => 'l', '%a' => 'D', '%p' => 'A',
+                 '%r' => 'h:i:s A', '%T' => 'H:i:s'];
+        $out = '';
+        $i = 0; $len = strlen($fmt);
+        while ($i < $len) {
+            if ($fmt[$i] === '%' && $i + 1 < $len) {
+                $tok = substr($fmt, $i, 2);
+                $out .= date($mapa[$tok] ?? '%', $ts);
+                $i += 2;
+            } else {
+                $out .= $fmt[$i];
+                $i++;
+            }
+        }
+        return $out;
+    }, 2);
+
+    // IF() de MySQL: IF(cond, a, b) — en SQLite se usa CASE pero muchos lugares
+    // tienen IF() literal; lo emulamos como función escalar.
+    $pdo->sqliteCreateFunction('IF', function($cond, $a, $b) {
+        return $cond ? $a : $b;
+    }, 3);
+
+    // IFNULL ya es nativo de SQLite, no hace falta registrarlo.
+    // COALESCE ya es nativo de SQLite, no hace falta registrarlo.
 }
 
 /**

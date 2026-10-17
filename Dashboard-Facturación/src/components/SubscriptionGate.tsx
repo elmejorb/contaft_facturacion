@@ -30,10 +30,10 @@ const REASON_TEXT: Record<string, string> = {
   'sin-plan': 'No hay una suscripción activa para esta empresa.',
   'no-activa': 'La suscripción está vencida o suspendida.',
   'sin-red': 'No se pudo contactar el servidor de suscripciones y no hay caché vigente.',
-  'no-api-url': 'El sistema no tiene configurada la URL del backend (config.json).',
-  'token-vacio': 'La empresa no tiene un api_token configurado en la base de datos.',
-  'token-invalido': 'El api_token de la empresa no es válido en el CRM.',
-  'backend-inaccesible': 'El backend local no responde. Verifica que Apache/XAMPP esté corriendo.',
+  'no-api-url': 'El servidor interno aún no está listo. Vuelve a intentar en unos segundos.',
+  'token-vacio': 'Aún no has configurado tu token de suscripción. Pega el token que recibiste de Innovación Digital.',
+  'token-invalido': 'El token no es válido en el CRM. Verifica que lo copiaste completo.',
+  'backend-inaccesible': 'El servidor interno no responde.',
   'sin-validacion': 'No se pudo validar la suscripción.',
 };
 
@@ -247,7 +247,7 @@ export function SubscriptionGate({ children }: { children: ReactNode }) {
 
         {!showOfflineForm && !showTokenForm ? (
           <>
-            {(reason === 'token-vacio' || reason === 'token-invalido') && (
+            {(reason === 'token-vacio' || reason === 'token-invalido' || reason === 'no-api-url' || reason === 'backend-inaccesible' || reason === 'sin-plan') && (
               <button onClick={() => setShowTokenForm(true)}
                 style={{ width: '100%', height: 44, marginBottom: 10, background: 'linear-gradient(135deg, #16a34a, #059669)', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, boxShadow: '0 4px 12px rgba(22,163,74,0.3)' }}>
                 <Sparkles size={15} /> Configurar token de suscripción (instalación inicial)

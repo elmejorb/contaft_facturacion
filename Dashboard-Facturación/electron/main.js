@@ -406,7 +406,15 @@ function httpPostMultipart(url, fields, filePath, fileField = 'comprobante', tim
 
 async function getApiTokenFromBackend() {
   const cfg = readConfig();
-  const apiUrl = cfg.apiUrl;
+  // Prioridad 1 (desde 4.8.2 — modo embebido / cliente nuevo):
+  // el api_token lo ingresa el cliente en la pantalla de activación y
+  // vive en config.json. Es lo que vendedor/soporte le entrega.
+  if (cfg.api_token && String(cfg.api_token).length >= 10) {
+    return { ok: true, token: cfg.api_token };
+  }
+  // Prioridad 2 (clientes legacy): leer del backend que lo tiene en la BD
+  // (tbldatosempresa.api_token sincronizado por el panel admin).
+  const apiUrl = cfg.apiUrlRuntime || cfg.apiUrl;
   if (!apiUrl) return { ok: false, reason: 'no-api-url' };
   try {
     const url = `${apiUrl.replace(/\/$/, '')}/empresa/datos.php`;
@@ -665,7 +673,17 @@ async function consultarVencimiento() {
   const t = await getApiTokenFromBackend();
   if (!t.ok) return { ok: false, reason: t.reason };
   try {
-    const url = `${SUBS_API_BASE}/consulta-vencimiento/${encodeURIComponent(t.token)}`;
+    // Mandar los mismos params de telemetría que /consulta-plan.
+    // El CRM los usa para "Actividad de Clientes" → detecta multi-máquina
+    // (misma suscripción corriendo en varios equipos con el mismo token).
+    const appVersion = encodeURIComponent(app.getVersion());
+    const m = getMachineInfo();
+    const params = `version=${appVersion}` +
+      `&machine_id=${encodeURIComponent(m.machineId)}` +
+      `&machine_name=${encodeURIComponent(m.machineName)}` +
+      `&username=${encodeURIComponent(m.username)}` +
+      `&platform=${encodeURIComponent(m.platform)}`;
+    const url = `${SUBS_API_BASE}/consulta-vencimiento/${encodeURIComponent(t.token)}?${params}`;
     const { status, body } = await httpGetJson(url, 10000);
     if (status !== 200 || body?.code !== 'OK' || !body?.data) {
       return { ok: false, reason: 'crm-error', status, code: body?.code };
@@ -761,19 +779,35 @@ ipcMain.handle('pago:elegirArchivoComprobante', async () => {
   return { ok: true, path: filePath, name: path.basename(filePath), size: stat.size };
 });
 
-// Configurar el api_token de la empresa (instalación inicial).
-// Llama al backend local para guardar el token en tbldatosempresa.api_token.
+// Configurar el api_token de la empresa (instalación inicial / activación).
+//
+// Desde 4.8.2 el token es la fuente de verdad directo en config.json —
+// consultarCRM() lo lee de ahí antes de ir a la BD. Esto habilita el flujo
+// de cliente nuevo: no hay BD con empresa cargada todavía, el cliente pega
+// el token que le dio soporte y el programa valida contra CRM.
+//
+// Para clientes legacy también se intenta POST al backend
+// (empresa/configurar-token.php) para mantener tbldatosempresa.api_token
+// sincronizado. Si ese POST falla, el guardado en config.json es suficiente.
 ipcMain.handle('subscription:setApiToken', async (_, token) => {
   const cfg = readConfig();
-  const apiUrl = cfg.apiUrl;
-  if (!apiUrl) return { ok: false, reason: 'no-api-url', message: 'apiUrl no configurada en config.json' };
-  if (!token || String(token).trim().length < 32) {
+  const tok = String(token || '').trim();
+  if (tok.length < 32) {
     return { ok: false, reason: 'token-corto', message: 'El token debe tener al menos 32 caracteres' };
+  }
+
+  // Siempre guardar en config.json (fuente primaria desde 4.8.2).
+  writeConfig({ api_token: tok });
+
+  // Si hay backend disponible, intentar también persistir en la BD legacy.
+  const apiUrl = cfg.apiUrlRuntime || cfg.apiUrl;
+  if (!apiUrl) {
+    return { ok: true, source: 'config-only' };
   }
 
   return new Promise((resolve) => {
     const url = `${apiUrl.replace(/\/$/, '')}/empresa/configurar-token.php`;
-    const body = JSON.stringify({ api_token: String(token).trim() });
+    const body = JSON.stringify({ api_token: tok });
     const u = new URL(url);
     const client = u.protocol === 'https:' ? https : http;
     const req = client.request(url, {
@@ -785,13 +819,13 @@ ipcMain.handle('subscription:setApiToken', async (_, token) => {
       res.on('end', () => {
         try {
           const parsed = JSON.parse(data || '{}');
-          resolve(parsed.success ? { ok: true } : { ok: false, reason: 'rechazado', message: parsed.message || 'Backend rechazó el token' });
+          resolve(parsed.success ? { ok: true, source: 'config-and-db' } : { ok: true, source: 'config-only', backendWarning: parsed.message });
         } catch {
-          resolve({ ok: false, reason: 'parse-error', message: 'Respuesta inválida del backend' });
+          resolve({ ok: true, source: 'config-only', backendWarning: 'Backend respondió inválido pero el token quedó en config.json' });
         }
       });
     });
-    req.on('error', (e) => resolve({ ok: false, reason: 'sin-red', message: e?.message }));
+    req.on('error', () => resolve({ ok: true, source: 'config-only', backendWarning: 'Backend no respondió, token solo en config.json' }));
     req.setTimeout(8000, () => req.destroy(new Error('Timeout')));
     req.write(body);
     req.end();
@@ -856,7 +890,31 @@ function writeConfig(data) {
 function ensureConfigExists() {
   try {
     const configPath = getConfigPath();
-    if (fs.existsSync(configPath)) return; // ya existe, nada que hacer
+    if (fs.existsSync(configPath)) {
+      // Upgrade silencioso 4.8.0: config.json dejado por un build pre-fix
+      // apuntaba a XAMPP (apiUrl=localhost:80 y SIN backendMode). Si lo
+      // detectamos, lo migramos a embebido para que el cliente no tenga que
+      // desinstalar y volver a instalar.
+      try {
+        const existing = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+        const esDefaultXamppRoto = !existing.backendMode
+          && typeof existing.apiUrl === 'string'
+          && (existing.apiUrl.includes('localhost:80') || existing.apiUrl.includes('127.0.0.1:80'))
+          && typeof existing.backendPath === 'string'
+          && existing.backendPath.toLowerCase().startsWith('c:\\xampp');
+        if (esDefaultXamppRoto) {
+          const upgraded = { ...existing, backendMode: 'embedded' };
+          delete upgraded.apiUrl;
+          delete upgraded.apiUrlRuntime;
+          delete upgraded.backendPath;
+          fs.writeFileSync(configPath, JSON.stringify(upgraded, null, 2), 'utf8');
+          console.log('[config] upgrade 4.8.0: config XAMPP roto → modo embebido');
+        }
+      } catch (e) {
+        console.warn('[config] no se pudo evaluar upgrade:', e?.message || e);
+      }
+      return; // ya existe, nada que hacer
+    }
 
     // Migración: intentar leer el config viejo del path junto al .exe.
     // Si el usuario ya tenía apiUrl configurado allí, lo respetamos.
@@ -873,9 +931,12 @@ function ensureConfigExists() {
       }
     }
 
+    // Desde 4.8.0: default = modo embebido (PHP+SQLite incluidos en el .exe).
+    // Un cliente que instale limpio NUNCA debe tocar XAMPP. Clientes viejos
+    // conservan su config.json legacy (modo apache/mysql) porque la rama
+    // de migración de arriba se dispara antes y copia la config vieja.
     const defaults = {
-      apiUrl: 'http://localhost:80/conta-app-backend/api',
-      backendPath: 'C:\\xampp\\htdocs\\conta-app-backend',
+      backendMode: 'embedded',
     };
     fs.mkdirSync(path.dirname(configPath), { recursive: true });
     fs.writeFileSync(configPath, JSON.stringify(defaults, null, 2), 'utf8');
@@ -917,6 +978,12 @@ function syncBackend() {
   }
   try {
     const cfg = readConfig();
+    // En modo embebido no se despliega a XAMPP — el backend se sirve desde
+    // process.resourcesPath/backend con php.exe embebido (ver startEmbeddedPHP).
+    if (cfg.backendMode === 'embedded') {
+      console.log('[backend] modo embebido — sync a htdocs omitido');
+      return;
+    }
     const targetRoot = cfg.backendPath || 'C:\\xampp\\htdocs\\conta-app-backend';
     const sourceRoot = path.join(process.resourcesPath, 'backend');
 
@@ -1180,24 +1247,82 @@ function bootstrapSqliteDb() {
     : path.join(__dirname, '..', '..', 'conta-app-backend', 'sql');
   const schemaPath = path.join(sqlDir, 'schema_sqlite_cliente.sql');
   const dianPath   = path.join(sqlDir, 'dian_catalog_sqlite.sql');
+  const seedPath   = path.join(sqlDir, 'seed_sqlite_cliente.sql');
+  const migPath    = path.join(sqlDir, 'migraciones_sqlite.sql');
   const dbPath = path.join(app.getPath('userData'), 'conta.db');
 
-  if (fs.existsSync(dbPath)) return; // Ya existe — no re-bootstrapear.
-  if (!fs.existsSync(schemaPath)) {
-    console.warn('[bootstrap] No se encontró schema SQLite en', schemaPath);
-    return;
-  }
-
-  console.log('[bootstrap] creando BD SQLite nueva en', dbPath);
-  // Usamos el PHP portable con sqlite para cargar el schema. No podemos usar
-  // better-sqlite3 porque no es dependencia del proyecto. PHP ya está en
-  // php-portable/ (lo necesitamos para el server embebido).
   const phpDir = isPackaged
     ? path.join(process.resourcesPath, 'php-portable')
     : path.join(__dirname, '..', 'php-portable');
   const phpExe = path.join(phpDir, 'php.exe');
   const phpIni = path.join(phpDir, 'php.ini');
 
+  // Caso especial 4.8.4: clientes que instalaron una 4.8.x anterior defectuosa
+  // tienen conta.db creado PERO vacío (sin usuario root, cajas, etc). Al
+  // actualizar hay que reparar sin re-crear la BD. INSERT OR IGNORE del seed
+  // es idempotente, no pisa datos reales si los hay.
+  if (fs.existsSync(dbPath)) {
+    if (!fs.existsSync(phpExe) || !fs.existsSync(seedPath)) return;
+    const checkScript = `
+      try {
+        $pdo = new PDO('sqlite:' . ${JSON.stringify(dbPath).replace(/"/g, "'")});
+        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+        $n = (int) $pdo->query("SELECT COUNT(*) FROM tblusuarios")->fetchColumn();
+        echo "usuarios=$n\\n";
+      } catch (Exception $e) {
+        echo "usuarios=err\\n";
+      }
+    `.trim();
+    const check = require('child_process').spawnSync(
+      phpExe, ['-c', phpIni, '-r', checkScript],
+      { encoding: 'utf8', timeout: 10000 }
+    );
+    const usuarios = (check.stdout || '').match(/usuarios=(\d+)/)?.[1];
+    if (usuarios && parseInt(usuarios, 10) > 0) {
+      // BD ya tiene usuarios — está sembrada. Pero puede haber columnas nuevas
+      // de versiones posteriores que no se agregaron al schema de ese cliente.
+      // Las migraciones son idempotentes, así que las aplicamos SIEMPRE.
+      aplicarMigracionesSqlite(phpExe, phpIni, dbPath, migPath);
+      return;
+    }
+
+    console.log('[bootstrap] BD existe pero sin usuarios — aplicando seed de reparación');
+    const repairScript = `
+      $pdo = new PDO('sqlite:' . ${JSON.stringify(dbPath).replace(/"/g, "'")});
+      $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+      $sql = file_get_contents(${JSON.stringify(seedPath).replace(/"/g, "'")});
+      $lineas = preg_split('~\\r?\\n~', $sql);
+      $lineas = array_filter($lineas, fn($l) => !preg_match('~^\\s*--~', $l));
+      $sql = implode("\\n", $lineas);
+      foreach (explode(';', $sql) as $stmt) {
+        $stmt = trim($stmt);
+        if ($stmt === '') continue;
+        try { $pdo->exec($stmt); } catch (Exception $e) { /* ignore */ }
+      }
+      echo "repair=ok\\n";
+    `.trim();
+    const repair = require('child_process').spawnSync(
+      phpExe, ['-c', phpIni, '-r', repairScript],
+      { encoding: 'utf8', timeout: 15000 }
+    );
+    if (repair.status === 0) {
+      console.log('[bootstrap] reparación OK:', (repair.stdout || '').trim());
+    } else {
+      console.warn('[bootstrap] reparación falló:', repair.stderr || repair.stdout);
+    }
+    // Después de reparar, aplicar migraciones (idempotentes) para que la BD
+    // vieja quede al día con las columnas más recientes.
+    aplicarMigracionesSqlite(phpExe, phpIni, dbPath, migPath);
+    return;
+  }
+
+  if (!fs.existsSync(schemaPath)) {
+    console.warn('[bootstrap] No se encontró schema SQLite en', schemaPath);
+    return;
+  }
+
+  console.log('[bootstrap] creando BD SQLite nueva en', dbPath);
+  // phpDir / phpExe / phpIni ya declarados arriba (lado "reparación").
   const loadScript = `
     $pdo = new PDO('sqlite:' . ${JSON.stringify(dbPath).replace(/"/g, "'")});
     $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
@@ -1220,6 +1345,7 @@ function bootstrapSqliteDb() {
     }
     cargar($pdo, ${JSON.stringify(schemaPath).replace(/"/g, "'")});
     cargar($pdo, ${JSON.stringify(dianPath).replace(/"/g, "'")});
+    cargar($pdo, ${JSON.stringify(seedPath).replace(/"/g, "'")});
     $pdo->exec('PRAGMA foreign_keys = ON');
     $n = $pdo->query("SELECT COUNT(*) FROM sqlite_master WHERE type='table'")->fetchColumn();
     echo "tablas=\$n\\n";
@@ -1233,6 +1359,54 @@ function bootstrapSqliteDb() {
     console.log('[bootstrap] BD SQLite creada:', (result.stdout || '').trim());
   } else {
     console.error('[bootstrap] falló:', result.stderr || result.stdout);
+  }
+  // Aplicar migraciones acumuladas (idempotentes). Esto cubre cambios de
+  // schema que fueron saliendo entre versiones y que no están en el
+  // schema_sqlite_cliente.sql base.
+  aplicarMigracionesSqlite(phpExe, phpIni, dbPath, migPath);
+}
+
+// Aplica migraciones_sqlite.sql: ALTER TABLE ADD COLUMN con tolerancia a
+// "duplicate column" (SQLite no soporta ADD COLUMN IF NOT EXISTS, así que la
+// idempotencia se maneja atrapando el error cuando la columna ya existe).
+//
+// Se llama en TRES momentos:
+//   - Después del bootstrap completo (BD nueva).
+//   - Después del seed de reparación (BD vacía recuperada).
+//   - Siempre al arrancar la app, por si la BD vieja no tiene columnas nuevas.
+function aplicarMigracionesSqlite(phpExe, phpIni, dbPath, migPath) {
+  if (!phpExe || !fs.existsSync(phpExe)) return;
+  if (!migPath || !fs.existsSync(migPath)) {
+    console.log('[migraciones] no hay migraciones_sqlite.sql, se omite');
+    return;
+  }
+  const script = `
+    $pdo = new PDO('sqlite:' . ${JSON.stringify(dbPath).replace(/"/g, "'")});
+    $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+    $sql = file_get_contents(${JSON.stringify(migPath).replace(/"/g, "'")});
+    $lineas = preg_split('~\\r?\\n~', $sql);
+    $lineas = array_filter($lineas, fn($l) => !preg_match('~^\\s*--~', $l));
+    $sql = implode("\\n", $lineas);
+    $ok = 0; $ya = 0; $err = 0;
+    foreach (explode(';', $sql) as $stmt) {
+      $stmt = trim($stmt);
+      if ($stmt === '') continue;
+      try { $pdo->exec($stmt); $ok++; }
+      catch (Exception $e) {
+        if (stripos($e->getMessage(), 'duplicate column') !== false) $ya++;
+        else { $err++; error_log('[migraciones] ' . $e->getMessage()); }
+      }
+    }
+    echo "mig_ok=$ok mig_ya=$ya mig_err=$err\\n";
+  `.trim();
+  const res = require('child_process').spawnSync(
+    phpExe, ['-c', phpIni, '-r', script],
+    { encoding: 'utf8', timeout: 15000 }
+  );
+  if (res.status === 0) {
+    console.log('[migraciones]', (res.stdout || '').trim());
+  } else {
+    console.warn('[migraciones] falló:', res.stderr || res.stdout);
   }
 }
 
@@ -1249,7 +1423,10 @@ function getTrialStatus() {
   const cfg = readConfig();
   if (!cfg.trial_inicio) return { activo: false, iniciado: false };
   if (cfg.suscripcion_activa) return { activo: false, suscripcion: true, dias_restantes: null };
-  const DURACION = 30;
+  // Trial inicial: 7 días. Pensado para la primera ola de clientes nuevos
+  // (expansión de mercado). Si en el futuro se controla desde CRM, este
+  // valor se sobreescribe desde /consulta-vencimiento al vincular.
+  const DURACION = 7;
   const inicio = new Date(cfg.trial_inicio + 'T00:00:00');
   const hoy = new Date();
   const dias_transcurridos = Math.floor((hoy - inicio) / (1000 * 60 * 60 * 24));

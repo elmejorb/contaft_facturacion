@@ -98,7 +98,12 @@ export async function loadConfigFromFile(): Promise<void> {
   if (!_ipcRenderer) { _configLoaded = true; return; }
   try {
     const config = await _ipcRenderer.invoke('config:read');
-    if (config?.apiUrl) {
+    // apiUrlRuntime (modo embebido, puerto dinámico) tiene prioridad sobre
+    // apiUrl (modo legacy, apache externo). main.js lo escribe en memoria
+    // después de arrancar el PHP built-in server.
+    if (config?.apiUrlRuntime) {
+      _cachedUrl = config.apiUrlRuntime;
+    } else if (config?.apiUrl) {
       _cachedUrl = config.apiUrl;
     }
   } catch (e) {

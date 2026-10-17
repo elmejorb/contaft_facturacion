@@ -1,6 +1,6 @@
 {
       "name": "dashboard-facturacion",
-      "version": "4.8.0",
+      "version": "4.8.5",
       "private": true,
       "main": "electron/main.js",
       "dependencies": {
@@ -135,7 +135,7 @@
             "publish": [
                   {
                         "provider": "generic",
-                        "url": "https://innovacion-digital.com/updates/contaft/",
+                        "url": "https://innovacion-digital.com/updates/contaft4.8/",
                         "channel": "latest"
                   }
             ]
