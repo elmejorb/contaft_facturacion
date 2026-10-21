@@ -2884,6 +2884,7 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
                           setPagoAbono(raw);
                         }
                       }}
+                      onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); confirmarVenta(); } }}
                       autoFocus
                       style={{
                         width: 130, height: 32, textAlign: 'right',
