@@ -2642,15 +2642,43 @@ WHERE d.Entregado = 'S'
   AND d.Cantidad > 0;
 
 -- ============================================================
--- Fix Nutrigranos (2026-10-21): TipoPago en egresos de compra
--- Pagos de compra con id_mediopago>0 (transferencia/tarjeta/Nequi)
--- quedaban con TipoPago=0 y el cuadre los descontaba del efectivo.
--- Deivison Garcia vio Total en Efectivo = -2.742.684 cuando debia
--- dar +2.477.752. Codigo corregido en api/compras/nueva.php.
--- Idempotente — solo toca filas con el patron erroneo.
+-- Fix Nutrigranos (2026-10-21): TipoPago en egresos — 3 capas
+-- Tercer reporte del mismo bug; esta vez va blindado.
+--
+-- Historial:
+--   v4.3.98 (2026-09-08) arreglo el filtro del cuadre pero nunca toco los
+--   INSERTs — compras/nueva.php y gastos.php seguian insertando TipoPago=0
+--   hardcoded aunque id_mediopago fuera 2 (banco), dejando los pagos por
+--   transferencia saliendo del efectivo. Nutrigranos lo vio como "Total
+--   Efectivo = -2.742.684" en la caja de Deivison.
+--
+-- Capa 1 (codigo PHP): compras/nueva.php y movimientos/gastos.php ahora
+--   setean TipoPago = (id_mediopago>0 ? 1 : 0). Nomina y proveedores ya
+--   estaban bien.
+--
+-- Capa 2 (trigger abajo): BEFORE INSERT que corrige automaticamente
+--   cualquier INSERT futuro que olvide setear TipoPago cuando hay
+--   id_mediopago>0. Defensa contra regresion si un nuevo endpoint
+--   olvida el patron.
+--
+-- Capa 3 (backfill): corrige todos los egresos historicos mal clasificados.
+-- Idempotente — las tres capas se pueden aplicar varias veces sin problema.
 -- ============================================================
+
+-- Backfill
 UPDATE tblegresos
    SET TipoPago = 1
  WHERE Estado = 'Valida'
    AND COALESCE(TipoPago, 0) = 0
    AND COALESCE(id_mediopago, 0) > 0;
+
+-- Trigger defensivo. Si NEW.id_mediopago>0 y NEW.TipoPago quedo en 0/NULL,
+-- lo subimos a 1. Si TipoPago ya viene con un valor explicito distinto de 0
+-- (nomina usa el id del banco), se respeta.
+DROP TRIGGER IF EXISTS trg_egresos_tipopago_sync;
+CREATE TRIGGER trg_egresos_tipopago_sync BEFORE INSERT ON tblegresos
+FOR EACH ROW
+  SET NEW.TipoPago = CASE
+    WHEN COALESCE(NEW.id_mediopago, 0) > 0 AND COALESCE(NEW.TipoPago, 0) = 0 THEN 1
+    ELSE COALESCE(NEW.TipoPago, 0)
+  END;
