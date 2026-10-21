@@ -74,13 +74,35 @@ try {
     $rechazados = count(array_filter($docs, fn($d) => $d['status'] === 'rechazado'));
     $anulados = count(array_filter($docs, fn($d) => $d['status'] === 'anulada'));
 
-    // Also check tblventas with CUFE for docs not in electronic_documents
+    // Also check tblventas with CUFE for docs not in electronic_documents.
+    //
+    // Fix Nutrigranos 2026-10-21: antes esto traia TODAS las ventas con
+    // enviada_dian=1, aunque la FE ya existiera en electronic_documents con
+    // el mismo CUFE. El cliente las veia duplicadas y al hacer click en
+    // "Ver detalle" del grid legacy, se mandaba el Factura_N de tblventas
+    // al endpoint detalle.php?id=X que busca por electronic_documents.id —
+    // devolvia una FE completamente diferente (la que casualmente tuviera
+    // ese id). En 203 FEs legacy, todas estaban duplicadas con la version
+    // moderna. Con este LEFT JOIN excluyente, solo quedan en el grid las
+    // ventas marcadas enviada_dian=1 que NO esten en electronic_documents
+    // (BDs muy viejas sin migrar al modelo v4.6).
+    // Detectar presencia de electronic_documents (no todos los clientes la tienen)
+    $tieneED = true;
+    try { $db->query("SELECT 1 FROM electronic_documents LIMIT 1"); }
+    catch (PDOException $e) { $tieneED = false; }
+    $joinExcluir = $tieneED
+        ? "LEFT JOIN electronic_documents e ON e.cufe = v.cufe AND v.cufe <> '' "
+        : '';
+    $filtroExcluir = $tieneED ? ' AND (v.cufe = \'\' OR v.cufe IS NULL OR e.id IS NULL)' : '';
     $stmt2 = $db->prepare("
-        SELECT Factura_N, Fecha, A_nombre, Identificacion, Total, cufe, enviada_dian, fecha_envio_dian
-        FROM tblventas
-        WHERE enviada_dian = 1 AND YEAR(Fecha) = :anio
-        " . ($mes ? " AND MONTH(Fecha) = :mes" : "") . "
-        ORDER BY Factura_N DESC
+        SELECT v.Factura_N, v.Fecha, v.A_nombre, v.Identificacion, v.Total,
+               v.cufe, v.enviada_dian, v.fecha_envio_dian
+          FROM tblventas v
+          $joinExcluir
+         WHERE v.enviada_dian = 1 AND YEAR(v.Fecha) = :anio
+        " . ($mes ? " AND MONTH(v.Fecha) = :mes" : "") . "
+         $filtroExcluir
+         ORDER BY v.Factura_N DESC
     ");
     $params2 = [':anio' => $anio];
     if ($mes) $params2[':mes'] = $mes;
