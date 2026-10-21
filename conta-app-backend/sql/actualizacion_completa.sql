@@ -2640,3 +2640,17 @@ WHERE d.Entregado = 'S'
   AND (d.CantidadEntregada = 0 OR d.CantidadEntregada IS NULL)
   AND d.FechaEntrega IS NULL
   AND d.Cantidad > 0;
+
+-- ============================================================
+-- Fix Nutrigranos (2026-10-21): TipoPago en egresos de compra
+-- Pagos de compra con id_mediopago>0 (transferencia/tarjeta/Nequi)
+-- quedaban con TipoPago=0 y el cuadre los descontaba del efectivo.
+-- Deivison Garcia vio Total en Efectivo = -2.742.684 cuando debia
+-- dar +2.477.752. Codigo corregido en api/compras/nueva.php.
+-- Idempotente — solo toca filas con el patron erroneo.
+-- ============================================================
+UPDATE tblegresos
+   SET TipoPago = 1
+ WHERE Estado = 'Valida'
+   AND COALESCE(TipoPago, 0) = 0
+   AND COALESCE(id_mediopago, 0) > 0;

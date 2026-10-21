@@ -635,16 +635,23 @@ try {
                 $mpOriginal = intval($egresoExistente['id_mediopago']);
                 $conceptoNuevo = "Pago compra #$pedidoN - Factura proveedor: $facturaCompra";
 
+                // Mantiene el id_mediopago original (regla acordada), pero
+                // sincroniza TipoPago segun ese mp — asi un egreso heredado
+                // con TipoPago=0 pero id_mediopago=2 (transferencia) queda
+                // con TipoPago=1 y deja de descuadrar el efectivo. Fix 2026-10-21.
+                $tipoPagoEgresoUpd = $mpOriginal === 0 ? 0 : 1;
                 $db->prepare("
                     UPDATE tblegresos
                        SET FactN = ?, NFacturaAnt = ?, Valor = ?, ValorFact = ?,
                            Concepto = ?, Cedula = (SELECT Nit FROM tblproveedores WHERE CodigoPro = ?),
-                           Orden = (SELECT RazonSocial FROM tblproveedores WHERE CodigoPro = ?)
+                           Orden = (SELECT RazonSocial FROM tblproveedores WHERE CodigoPro = ?),
+                           TipoPago = ?
                      WHERE N_Comprobante = ?
                 ")->execute([
                     strval($facturaCompra), strval($facturaCompra),
                     $totalCompra, $totalCompra,
                     $conceptoNuevo, $codigoPro, $codigoPro,
+                    $tipoPagoEgresoUpd,
                     $nCompEgr
                 ]);
 
@@ -836,17 +843,23 @@ try {
             $concepto = "Pago compra #$pedidoN - Factura proveedor: $facturaCompra";
             $cuentas = '51 1305'; // egreso de caja
 
+            // TipoPago refleja si la plata sale del efectivo (0) o de otro
+            // medio como Bancolombia/Nequi/Tarjeta (1). El cuadre de caja usa
+            // ESE campo (COALESCE(TipoPago,0)=0) para restar del efectivo
+            // real — si queda en 0 cuando fue transferencia, el cuadre se
+            // descuadra en negativo. Reporte Nutrigranos 2026-10-21.
+            $tipoPagoEgreso = $medioPago === 0 ? 0 : 1;
             $db->prepare("
                 INSERT INTO tblegresos
                   (N_Comprobante, Fecha, Cedula, Orden, Suma, Concepto, Valor, Descuento, Estado,
                    Cuentas, FactN, CodigoPro, NFacturaAnt, ValorFact, Saldoact, TipoPago, id_usuario, id_mediopago)
-                VALUES (?, ?, ?, ?, '-', ?, ?, 0, 'Valida', ?, ?, ?, ?, ?, 0, 0, ?, ?)
+                VALUES (?, ?, ?, ?, '-', ?, ?, 0, 'Valida', ?, ?, ?, ?, ?, 0, ?, ?, ?)
             ")->execute([
                 $nCompEgreso, $fecha, $provNit, $provNombre,
                 $concepto, $totalCompra,
                 $cuentas, strval($facturaCompra), $codigoPro,
                 strval($facturaCompra), $totalCompra,
-                $idUsuario, $medioPago
+                $tipoPagoEgreso, $idUsuario, $medioPago
             ]);
 
             // Movimiento de caja SOLO cuando el pago es efectivo (medio_pago=0).
