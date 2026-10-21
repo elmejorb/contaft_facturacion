@@ -59,6 +59,16 @@ function AppContent() {
     return () => ipcRenderer.removeListener('app:intento-cierre', onIntentoCierre);
   }, [isAuthenticated, user?.id]);
 
+  // En desarrollo, saltar la configuración del servidor
+  const isDev = import.meta.env.DEV;
+
+  // Hotfixes de BD aplicados en remoto (ver hooks/useAutoHotfixes).
+  // Se ejecuta 1 vez cada 6h, silencioso. Permite distribuir correcciones
+  // criticas sin esperar al ciclo de release del .exe.
+  // IMPORTANTE: todos los hooks DEBEN estar antes del primer `return`
+  // condicional (regla de hooks).
+  useAutoHotfixes(isDev);
+
   // Bloquear render hasta que se cargue config.json — evita que componentes
   // hagan fetch con DEFAULT_URL antes de que loadConfigFromFile termine.
   if (loading || !configLoaded) {
@@ -71,14 +81,6 @@ function AppContent() {
       </div>
     );
   }
-
-  // En desarrollo, saltar la configuración del servidor
-  const isDev = import.meta.env.DEV;
-
-  // Hotfixes de BD aplicados en remoto (ver hooks/useAutoHotfixes).
-  // Se ejecuta 1 vez cada 6h, silencioso. Permite distribuir correcciones
-  // criticas sin esperar al ciclo de release del .exe.
-  useAutoHotfixes(isDev);
 
   if (!isDev && !serverConfigured) {
     return <ConfigurarServidor onConfigured={() => { setServerConfigured(true); window.location.reload(); }} />;
