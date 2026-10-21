@@ -101,11 +101,19 @@ try {
 
             $db->beginTransaction();
 
+            // TipoPago refleja si el gasto sale del efectivo (0) o del banco (1).
+            // El cuadre filtra WHERE COALESCE(TipoPago,0)=0 para "egresos
+            // efectivo"; si queda en 0 cuando fue por banco, el cuadre se
+            // descuadra. Fix hermano del aplicado en compras/nueva.php el
+            // 2026-10-21 (reporte Nutrigranos). Igualmente registra
+            // id_mediopago para informes financieros.
+            $tipoPagoGasto = $origen === 'banco' ? 1 : 0;
+            $idMedioPagoGasto = intval($data['id_mediopago'] ?? ($origen === 'banco' ? 2 : 0));
             $stmt = $db->prepare("
-                INSERT INTO tblegresos (N_Comprobante, Fecha, Cedula, Orden, Suma, Concepto, Valor, Descuento, Estado, Cuentas, FactN, CodigoPro, NFacturaAnt, ValorFact, Saldoact, TipoPago, categoria_gasto, id_usuario)
-                VALUES (?, ?, ?, ?, ?, ?, ?, 0, 'Valida', ?, '-1', 0, '', 0, 0, 0, ?, ?)
+                INSERT INTO tblegresos (N_Comprobante, Fecha, Cedula, Orden, Suma, Concepto, Valor, Descuento, Estado, Cuentas, FactN, CodigoPro, NFacturaAnt, ValorFact, Saldoact, TipoPago, categoria_gasto, id_usuario, id_mediopago)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 0, 'Valida', ?, '-1', 0, '', 0, 0, ?, ?, ?, ?)
             ");
-            $stmt->execute([$nComp, $fecha, $cedula, $beneficiario, $suma, $concepto, $valor, $cuentas, $categoria, $idUsuario]);
+            $stmt->execute([$nComp, $fecha, $cedula, $beneficiario, $suma, $concepto, $valor, $cuentas, $tipoPagoGasto, $categoria, $idUsuario, $idMedioPagoGasto]);
 
             // Register in tblmov_caja if from caja
             if ($origen === 'caja' && $cajaId > 0) {
