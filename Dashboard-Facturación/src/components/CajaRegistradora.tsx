@@ -372,9 +372,13 @@ export function CajaRegistradora() {
               const cantEfec      = res.ventas_contado_efectivo_cantidad ?? res.ventas_contado_cantidad;
               const cantTransf    = res.ventas_contado_transferencia_cantidad ?? 0;
               const cantCredito   = res.ventas_credito_cantidad || 0;
-              const notaAnuladas  = (res.anulaciones || 0) > 0
-                ? `<tr><td colspan="2" style="padding:1px 4px;font-size:10px;color:#666;font-style:italic;">(no incluye ${res.anulaciones_cantidad} venta(s) anulada(s) por ${fmtMon(res.anulaciones)})</td></tr>`
-                : '';
+              // Antes mostrábamos "(no incluye X venta anulada por Y)" acá, pero
+              // `res.anulaciones` viene de tblmov_caja (reembolsos por devolución),
+              // NO de ventas con EstadoFact='Anulada'. La etiqueta confundía al
+              // cajero porque hablaba de ventas anuladas del día que no existen.
+              // El reembolso se muestra correctamente abajo en los egresos como
+              // "REEMBOLSO POR DEVOLUCIÓN". Caso Manos Creativas 2026-10-19.
+              const notaAnuladas  = '';
               return `
                 ${linea('BASE', res.base, true)}
                 ${linea(`VENTAS CONTADO EFECTIVO (${cantEfec})`, ventaEfectivo, true)}
@@ -398,7 +402,7 @@ export function CajaRegistradora() {
               true, true)}
             ${espacio(6)}
             ${linea(`GASTOS (${res.egresos_cantidad})`, res.egresos)}
-            ${linea(`ANULACIONES (${res.anulaciones_cantidad})`, res.anulaciones)}
+            ${linea(`REEMBOLSO POR DEVOLUCIÓN (${res.anulaciones_cantidad})`, res.anulaciones)}
             ${linea('RETIROS PARCIALES', res.retiros_parciales)}
             ${separador}
             ${linea('TOTAL EN EFECTIVO (SISTEMA)', res.total_efectivo, true, true)}
@@ -415,24 +419,15 @@ export function CajaRegistradora() {
             </tr>
             ${espacio(8)}
 
-            ${linea('TOTAL VENTA DEL DÍA', res.total_venta_dia, true, true)}
+            ${linea('TOTAL FACTURADO DEL DÍA (contado + crédito)', res.total_venta_dia, true, true)}
           </table>
 
-          <!-- Si hubo ventas a crédito con saldo pendiente, destacarlo
-               claramente (feedback del cliente: 'información clara cuando hay deuda'). -->
-          ${(res.ventas_credito_saldo_pendiente || 0) > 0 ? `
-            <div style="margin-top:12px;padding:8px 10px;border:2px solid #000;background:#fff;font-size:12px;">
-              <div style="font-weight:700;text-align:center;margin-bottom:4px;letter-spacing:0.5px;">
-                ⚠ DEUDA GENERADA HOY (CRÉDITO)
-              </div>
-              <table style="width:100%;border-collapse:collapse;font-size:11px;">
-                <tr><td>${res.ventas_credito_cantidad} venta(s) a crédito</td>
-                    <td style="text-align:right;">${fmtMon(res.ventas_credito)}</td></tr>
-                <tr><td style="padding-top:3px;font-weight:700;">Saldo que deben los clientes</td>
-                    <td style="text-align:right;padding-top:3px;font-weight:700;">${fmtMon(res.ventas_credito_saldo_pendiente)}</td></tr>
-              </table>
-            </div>
-          ` : ''}
+          <!-- Antes había un bloque "DEUDA GENERADA HOY (CRÉDITO)" acá,
+               quitado a pedido de Manos Creativas (2026-10-19): el saldo
+               que mostraba no cuadraba con el real (sumaba el total de la
+               venta crédito en vez del saldo pendiente a hoy) y confundía
+               a la cajera. Si otro cliente lo pide, hacerlo opcional vía
+               config antes de volver a renderizar. -->
 
           <!-- Informativo post-cuadre: traslado hecho DESPUÉS del cierre.
                No forma parte del cálculo del cuadre, va al final para dejar

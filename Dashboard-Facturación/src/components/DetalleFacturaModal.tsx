@@ -459,6 +459,21 @@ export function DetalleFacturaModal({ factN, onClose, onUpdate }: Props) {
                         <td style={{ padding: '4px 8px', textAlign: 'center', color: dev > 0 ? '#dc2626' : '#9ca3af', fontWeight: dev > 0 ? 700 : 400 }}>{dev > 0 ? dev : '-'}</td>
                         <td style={{ padding: '4px 4px', textAlign: 'center' }}>
                           {(() => {
+                            // DEFENSA (bug Manos Creativas): hubo una ventana donde
+                            // nueva.php guardaba Entregado='S' pero NO rellenaba
+                            // CantidadEntregada ni FechaEntrega. Si vemos esa combo
+                            // la tratamos como entregada al vender para no mostrar
+                            // el botón "Entregar" sobre una línea ya entregada.
+                            const flagEntregado = String(item.Entregado ?? '').toUpperCase() === 'S';
+                            const sinTracking = !item.CantidadEntregada && !item.FechaEntrega;
+                            if (flagEntregado && sinTracking) {
+                              return (
+                                <span style={{ fontSize: 10, color: '#16a34a', fontWeight: 600 }}
+                                      title="Entregado al vender (sin tracking detallado)">
+                                  ✓ Entregado
+                                </span>
+                              );
+                            }
                             const cantEntreg = parseFloat(item.CantidadEntregada) || 0;
                             const cantFalt = cant - cantEntreg;
                             if (cantFalt > 0) {

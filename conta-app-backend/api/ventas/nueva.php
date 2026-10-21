@@ -456,9 +456,17 @@ try {
     // Fabricación (v4.7), el frontend puede mandar 'N' por línea → la línea
     // se guarda como pendiente, NO descuenta stock ni mueve kardex hasta
     // que se marque como entregada después desde DetalleFacturaModal.
+    //
+    // CantidadEntregada / FechaEntrega: cuando Entregado='S' se setean
+    // iguales a Cantidad y now() respectivamente, para que la UI de preview
+    // no muestre botón "Entregar" sobre líneas ya entregadas al vender.
+    // Antes faltaba este par y provocaba "falso pendiente" en Manos Creativas.
     $stmtDetalle = $db->prepare("
-        INSERT INTO tbldetalle_venta (Factura_N, Items, Cantidad, PrecioC, PrecioV, Impuesto, Subtotal, IVA, Descuento, Entregado, DescripcionTemp)
-        VALUES (:fact, :items, :cant, :pc, :pv, :imp, :sub, :iva, :desc, :entregado, :desc_temp)
+        INSERT INTO tbldetalle_venta (Factura_N, Items, Cantidad, PrecioC, PrecioV,
+            Impuesto, Subtotal, IVA, Descuento, Entregado,
+            CantidadEntregada, FechaEntrega, DescripcionTemp)
+        VALUES (:fact, :items, :cant, :pc, :pv, :imp, :sub, :iva, :desc, :entregado,
+                :cant_entreg, :fecha_entreg, :desc_temp)
     ");
 
     $stmtStock = $db->prepare("UPDATE tblarticulos SET Existencia = Existencia - :cant WHERE Items = :items");
@@ -510,11 +518,19 @@ try {
             $lineaIva = $iva > 0 ? round($lineaSubtotal * ($iva / 100), 2) : 0;
         }
 
+        // Entregado 'S' => cantidad entregada = cantidad y fecha = ahora.
+        // Entregado 'N' (fabricación pendiente) => 0 y null hasta que la
+        // entrega se marque explícitamente desde DetalleFacturaModal.
+        $cantEntregada = $entregadoLinea === 'S' ? $cant : 0;
+        $fechaEntrega  = $entregadoLinea === 'S' ? date('Y-m-d H:i:s') : null;
+
         $stmtDetalle->execute([
             ':fact' => $factN, ':items' => $itemId, ':cant' => $cant,
             ':pc' => $precioC, ':pv' => $precioV, ':imp' => $lineaIva,
             ':sub' => $lineaSubtotal, ':iva' => $iva, ':desc' => $desc,
             ':entregado' => $entregadoLinea,
+            ':cant_entreg' => $cantEntregada,
+            ':fecha_entreg' => $fechaEntrega,
             ':desc_temp' => $descTemp,
         ]);
 

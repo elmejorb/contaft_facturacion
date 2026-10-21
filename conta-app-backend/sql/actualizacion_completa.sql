@@ -2622,3 +2622,21 @@ DROP TRIGGER IF EXISTS trg_sync_articulo_update;
 CREATE TRIGGER trg_sync_articulo_update AFTER UPDATE ON tblarticulos
 FOR EACH ROW INSERT INTO tbl_sync_outbox (Entidad, Id_Entidad, Operacion)
   VALUES ('articulo', NEW.Items, 'upsert');
+
+-- ============================================================
+-- Fix Manos Creativas (2026-10-19): CantidadEntregada "falso pendiente"
+-- Afectó ventas con Entregado='S' donde nueva.php no rellenaba
+-- CantidadEntregada ni FechaEntrega. El preview mostraba el botón
+-- "Entregar" sobre líneas ya entregadas al vender.
+-- Idempotente — se puede re-aplicar sin efecto.
+-- ============================================================
+UPDATE tbldetalle_venta d
+INNER JOIN tblventas v ON v.Factura_N = d.Factura_N
+SET
+    d.CantidadEntregada = d.Cantidad,
+    d.FechaEntrega = COALESCE(v.Fecha, NOW())
+WHERE d.Entregado = 'S'
+  AND d.Factura_N > 0
+  AND (d.CantidadEntregada = 0 OR d.CantidadEntregada IS NULL)
+  AND d.FechaEntrega IS NULL
+  AND d.Cantidad > 0;
