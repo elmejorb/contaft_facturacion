@@ -9,6 +9,7 @@ import { AutoUpdater } from './components/AutoUpdater';
 import { SubscriptionGate } from './components/SubscriptionGate';
 import TrialBanner from './components/TrialBanner';
 import { isApiConfigured, loadConfigFromFile } from './config/api';
+import { useAutoHotfixes } from './hooks/useAutoHotfixes';
 
 function AppContent() {
   const { isAuthenticated, user, logout, loading } = useAuth();
@@ -73,6 +74,12 @@ function AppContent() {
 
   // En desarrollo, saltar la configuración del servidor
   const isDev = import.meta.env.DEV;
+
+  // Hotfixes de BD aplicados en remoto (ver hooks/useAutoHotfixes).
+  // Se ejecuta 1 vez cada 6h, silencioso. Permite distribuir correcciones
+  // criticas sin esperar al ciclo de release del .exe.
+  useAutoHotfixes(isDev);
+
   if (!isDev && !serverConfigured) {
     return <ConfigurarServidor onConfigured={() => { setServerConfigured(true); window.location.reload(); }} />;
   }
