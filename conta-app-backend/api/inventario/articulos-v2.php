@@ -12,7 +12,8 @@ $db = $database->getConnection();
 
 try {
     // Primero obtener todas las columnas sin filtros
-    $query = "SELECT * FROM tblArticulos LIMIT 0, 1000";
+    // Sintaxis portable (MySQL + SQLite). LIMIT N, M era MySQL-only.
+    $query = "SELECT * FROM tblArticulos LIMIT 1000 OFFSET 0";
 
     $stmt = $db->prepare($query);
     $stmt->execute();

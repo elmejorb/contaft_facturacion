@@ -4,23 +4,11 @@
 -- ------------------------------------------------------
 -- Server version	11.4.4-MariaDB
 
-
-
-
-
-
-
-
-
-
-
-
 --
 -- Table structure for table "countries"
 --
 
 DROP TABLE IF EXISTS "countries";
-
 
 CREATE TABLE "countries" (  "id" INTEGER PRIMARY KEY AUTOINCREMENT,
   "code" varchar(255) NOT NULL,
@@ -29,22 +17,15 @@ CREATE TABLE "countries" (  "id" INTEGER PRIMARY KEY AUTOINCREMENT,
   "created_at" timestamp NULL DEFAULT NULL,
   "updated_at" timestamp NULL DEFAULT NULL);
 
-
 --
 -- Dumping data for table "countries"
 --
-
-LOCK TABLES "countries" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "departments"
 --
 
 DROP TABLE IF EXISTS "departments";
-
 
 CREATE TABLE "departments" (  "id" INTEGER PRIMARY KEY AUTOINCREMENT,
   "country_id" INTEGER unsigned NOT NULL,
@@ -53,22 +34,15 @@ CREATE TABLE "departments" (  "id" INTEGER PRIMARY KEY AUTOINCREMENT,
   "created_at" timestamp NULL DEFAULT NULL,
   "updated_at" timestamp NULL DEFAULT NULL);
 
-
 --
 -- Dumping data for table "departments"
 --
-
-LOCK TABLES "departments" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "detalle_cotizacion"
 --
 
 DROP TABLE IF EXISTS "detalle_cotizacion";
-
 
 CREATE TABLE "detalle_cotizacion" (  "id_detalle_cotiza" INTEGER PRIMARY KEY AUTOINCREMENT,
   "item_pro" INTEGER NOT NULL,
@@ -77,22 +51,15 @@ CREATE TABLE "detalle_cotizacion" (  "id_detalle_cotiza" INTEGER PRIMARY KEY AUT
   "descuento" double NOT NULL,
   "id_cotizacion" INTEGER NOT NULL);
 
-
 --
 -- Dumping data for table "detalle_cotizacion"
 --
-
-LOCK TABLES "detalle_cotizacion" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "detalle_document_electronic"
 --
 
 DROP TABLE IF EXISTS "detalle_document_electronic";
-
 
 CREATE TABLE "detalle_document_electronic" (  "id_detalle_document" INTEGER PRIMARY KEY AUTOINCREMENT,
   "factura_n" INTEGER DEFAULT NULL,
@@ -117,22 +84,15 @@ CREATE TABLE "detalle_document_electronic" (  "id_detalle_document" INTEGER PRIM
   CONSTRAINT "detalle_document_electronic_ibfk_2" FOREIGN KEY ("unit_measure_id") REFERENCES "unit_measures" ("id")
 );
 
-
 --
 -- Dumping data for table "detalle_document_electronic"
 --
-
-LOCK TABLES "detalle_document_electronic" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "detalle_fact_abietas"
 --
 
 DROP TABLE IF EXISTS "detalle_fact_abietas";
-
 
 CREATE TABLE "detalle_fact_abietas" (  "id_detalle_ab" INTEGER PRIMARY KEY AUTOINCREMENT,
   "id_fac_ab" INTEGER NOT NULL,
@@ -141,22 +101,15 @@ CREATE TABLE "detalle_fact_abietas" (  "id_detalle_ab" INTEGER PRIMARY KEY AUTOI
   "precio_v" double NOT NULL,
   "descuento" double NOT NULL);
 
-
 --
 -- Dumping data for table "detalle_fact_abietas"
 --
-
-LOCK TABLES "detalle_fact_abietas" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "detalle_factura_recibida"
 --
 
 DROP TABLE IF EXISTS "detalle_factura_recibida";
-
 
 CREATE TABLE "detalle_factura_recibida" (  "id" INTEGER PRIMARY KEY AUTOINCREMENT,
   "factura_recibida_id" INTEGER NOT NULL,
@@ -172,22 +125,15 @@ CREATE TABLE "detalle_factura_recibida" (  "id" INTEGER PRIMARY KEY AUTOINCREMEN
   "subtotal" NUMERIC DEFAULT 0.00,
   "total_linea" NUMERIC DEFAULT 0.00);
 
-
 --
 -- Dumping data for table "detalle_factura_recibida"
 --
-
-LOCK TABLES "detalle_factura_recibida" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "electronic_documents"
 --
 
 DROP TABLE IF EXISTS "electronic_documents";
-
 
 CREATE TABLE "electronic_documents" (  "id" INTEGER PRIMARY KEY AUTOINCREMENT,
   "origen" varchar(20) DEFAULT 'local',
@@ -228,22 +174,15 @@ CREATE TABLE "electronic_documents" (  "id" INTEGER PRIMARY KEY AUTOINCREMENT,
   "customer_name" varchar(200) DEFAULT NULL,
   "customer_email" varchar(150) DEFAULT NULL);
 
-
 --
 -- Dumping data for table "electronic_documents"
 --
-
-LOCK TABLES "electronic_documents" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "eventos_factura_recibida"
 --
 
 DROP TABLE IF EXISTS "eventos_factura_recibida";
-
 
 CREATE TABLE "eventos_factura_recibida" (  "id" INTEGER PRIMARY KEY AUTOINCREMENT,
   "factura_recibida_id" INTEGER NOT NULL,
@@ -263,22 +202,15 @@ CREATE TABLE "eventos_factura_recibida" (  "id" INTEGER PRIMARY KEY AUTOINCREMEN
   "created_at" timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   "aprobado_marker" varchar(4) GENERATED ALWAYS AS (case when "estado" = 'aprobado' then "event_code" else NULL end) STORED);
 
-
 --
 -- Dumping data for table "eventos_factura_recibida"
 --
-
-LOCK TABLES "eventos_factura_recibida" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "facturas_recibidas"
 --
 
 DROP TABLE IF EXISTS "facturas_recibidas";
-
 
 CREATE TABLE "facturas_recibidas" (  "id" INTEGER PRIMARY KEY AUTOINCREMENT,
   "cufe" varchar(200) NOT NULL,
@@ -304,22 +236,15 @@ CREATE TABLE "facturas_recibidas" (  "id" INTEGER PRIMARY KEY AUTOINCREMENT,
   "compra_id" INTEGER DEFAULT NULL,
   "created_at" timestamp NULL DEFAULT CURRENT_TIMESTAMP);
 
-
 --
 -- Dumping data for table "facturas_recibidas"
 --
-
-LOCK TABLES "facturas_recibidas" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "facturasv_abiertas"
 --
 
 DROP TABLE IF EXISTS "facturasv_abiertas";
-
 
 CREATE TABLE "facturasv_abiertas" (  "id_fac_ab" INTEGER PRIMARY KEY AUTOINCREMENT,
   "fecha" date NOT NULL,
@@ -332,22 +257,15 @@ CREATE TABLE "facturasv_abiertas" (  "id_fac_ab" INTEGER PRIMARY KEY AUTOINCREME
   "total_factura" double NOT NULL,
   "fecha_hora_creado" datetime NOT NULL);
 
-
 --
 -- Dumping data for table "facturasv_abiertas"
 --
-
-LOCK TABLES "facturasv_abiertas" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "municipalities"
 --
 
 DROP TABLE IF EXISTS "municipalities";
-
 
 CREATE TABLE "municipalities" (  "id" INTEGER PRIMARY KEY AUTOINCREMENT,
   "country_id" INTEGER unsigned NOT NULL,
@@ -357,15 +275,9 @@ CREATE TABLE "municipalities" (  "id" INTEGER PRIMARY KEY AUTOINCREMENT,
   "created_at" timestamp NULL DEFAULT NULL,
   "updated_at" timestamp NULL DEFAULT NULL);
 
-
 --
 -- Dumping data for table "municipalities"
 --
-
-LOCK TABLES "municipalities" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "payment_methods"
@@ -373,29 +285,21 @@ UNLOCK TABLES;
 
 DROP TABLE IF EXISTS "payment_methods";
 
-
 CREATE TABLE "payment_methods" (  "id" INTEGER PRIMARY KEY AUTOINCREMENT,
   "code" varchar(2) NOT NULL,
   "name" varchar(255) NOT NULL,
   "created_at" timestamp NULL DEFAULT NULL,
   "updated_at" timestamp NULL DEFAULT NULL);
 
-
 --
 -- Dumping data for table "payment_methods"
 --
-
-LOCK TABLES "payment_methods" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "taxes"
 --
 
 DROP TABLE IF EXISTS "taxes";
-
 
 CREATE TABLE "taxes" (  "id" INTEGER PRIMARY KEY AUTOINCREMENT,
   "name" varchar(255) NOT NULL,
@@ -404,22 +308,15 @@ CREATE TABLE "taxes" (  "id" INTEGER PRIMARY KEY AUTOINCREMENT,
   "created_at" timestamp NULL DEFAULT NULL,
   "updated_at" timestamp NULL DEFAULT NULL);
 
-
 --
 -- Dumping data for table "taxes"
 --
-
-LOCK TABLES "taxes" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "tbl_clientes_comportamiento"
 --
 
 DROP TABLE IF EXISTS "tbl_clientes_comportamiento";
-
 
 CREATE TABLE "tbl_clientes_comportamiento" (  "id" INTEGER PRIMARY KEY AUTOINCREMENT,
   "CodigoClien" INTEGER NOT NULL,
@@ -436,22 +333,15 @@ CREATE TABLE "tbl_clientes_comportamiento" (  "id" INTEGER PRIMARY KEY AUTOINCRE
   "created_at" datetime DEFAULT CURRENT_TIMESTAMP,
   "updated_at" datetime DEFAULT CURRENT_TIMESTAMP);
 
-
 --
 -- Dumping data for table "tbl_clientes_comportamiento"
 --
-
-LOCK TABLES "tbl_clientes_comportamiento" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "tbl_config_vendedores"
 --
 
 DROP TABLE IF EXISTS "tbl_config_vendedores";
-
 
 CREATE TABLE "tbl_config_vendedores" (
   "id" INTEGER NOT NULL DEFAULT 1,
@@ -466,22 +356,15 @@ CREATE TABLE "tbl_config_vendedores" (
   PRIMARY KEY ("id")
 );
 
-
 --
 -- Dumping data for table "tbl_config_vendedores"
 --
-
-LOCK TABLES "tbl_config_vendedores" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "tbl_pedidos_vendedor"
 --
 
 DROP TABLE IF EXISTS "tbl_pedidos_vendedor";
-
 
 CREATE TABLE "tbl_pedidos_vendedor" (  "id" INTEGER PRIMARY KEY AUTOINCREMENT,
   "id_remoto" INTEGER NOT NULL,
@@ -503,22 +386,15 @@ CREATE TABLE "tbl_pedidos_vendedor" (  "id" INTEGER PRIMARY KEY AUTOINCREMENT,
   "fecha_descarga" datetime DEFAULT CURRENT_TIMESTAMP,
   "fecha_mod" datetime DEFAULT CURRENT_TIMESTAMP);
 
-
 --
 -- Dumping data for table "tbl_pedidos_vendedor"
 --
-
-LOCK TABLES "tbl_pedidos_vendedor" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "tbl_vendedores_movil"
 --
 
 DROP TABLE IF EXISTS "tbl_vendedores_movil";
-
 
 CREATE TABLE "tbl_vendedores_movil" (  "id" INTEGER PRIMARY KEY AUTOINCREMENT,
   "id_remoto" INTEGER DEFAULT NULL,
@@ -534,22 +410,15 @@ CREATE TABLE "tbl_vendedores_movil" (  "id" INTEGER PRIMARY KEY AUTOINCREMENT,
   "sincronizado" INTEGER DEFAULT 0,
   "fecha_mod" datetime DEFAULT CURRENT_TIMESTAMP);
 
-
 --
 -- Dumping data for table "tbl_vendedores_movil"
 --
-
-LOCK TABLES "tbl_vendedores_movil" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "tblanticipo_movs"
 --
 
 DROP TABLE IF EXISTS "tblanticipo_movs";
-
 
 CREATE TABLE "tblanticipo_movs" (  "Id_Mov" INTEGER PRIMARY KEY AUTOINCREMENT,
   "Id_Anticipo" INTEGER NOT NULL,
@@ -563,22 +432,15 @@ CREATE TABLE "tblanticipo_movs" (  "Id_Mov" INTEGER PRIMARY KEY AUTOINCREMENT,
   "Estado" varchar(10) NOT NULL DEFAULT 'Valida',
   "FechaCreacion" timestamp NULL DEFAULT CURRENT_TIMESTAMP);
 
-
 --
 -- Dumping data for table "tblanticipo_movs"
 --
-
-LOCK TABLES "tblanticipo_movs" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "tblanticipos_cliente"
 --
 
 DROP TABLE IF EXISTS "tblanticipos_cliente";
-
 
 CREATE TABLE "tblanticipos_cliente" (  "Id_Anticipo" INTEGER PRIMARY KEY AUTOINCREMENT,
   "Consecutivo" varchar(20) DEFAULT NULL,
@@ -593,22 +455,15 @@ CREATE TABLE "tblanticipos_cliente" (  "Id_Anticipo" INTEGER PRIMARY KEY AUTOINC
   "FechaCreacion" timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   "FechaMod" timestamp NULL DEFAULT NULL);
 
-
 --
 -- Dumping data for table "tblanticipos_cliente"
 --
-
-LOCK TABLES "tblanticipos_cliente" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "tblarticulos"
 --
 
 DROP TABLE IF EXISTS "tblarticulos";
-
 
 CREATE TABLE "tblarticulos" (
   "Items" INTEGER NOT NULL,
@@ -648,22 +503,15 @@ CREATE TABLE "tblarticulos" (
   "Id_Etiqueta" INTEGER DEFAULT NULL,
   PRIMARY KEY ("Items"));
 
-
 --
 -- Dumping data for table "tblarticulos"
 --
-
-LOCK TABLES "tblarticulos" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "tblarticulos2"
 --
 
 DROP TABLE IF EXISTS "tblarticulos2";
-
 
 CREATE TABLE "tblarticulos2" (
   "Items" INTEGER NOT NULL,
@@ -699,22 +547,15 @@ CREATE TABLE "tblarticulos2" (
   "free_of_charge_indicator" INTEGER DEFAULT 0,
   PRIMARY KEY ("Items"));
 
-
 --
 -- Dumping data for table "tblarticulos2"
 --
-
-LOCK TABLES "tblarticulos2" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "tblauxiliarbanco"
 --
 
 DROP TABLE IF EXISTS "tblauxiliarbanco";
-
 
 CREATE TABLE "tblauxiliarbanco" (
   "idAuxiliarBanco" INTEGER NOT NULL,
@@ -728,22 +569,15 @@ CREATE TABLE "tblauxiliarbanco" (
   "NRemision" INTEGER DEFAULT NULL
 );
 
-
 --
 -- Dumping data for table "tblauxiliarbanco"
 --
-
-LOCK TABLES "tblauxiliarbanco" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "tblauxiliares"
 --
 
 DROP TABLE IF EXISTS "tblauxiliares";
-
 
 CREATE TABLE "tblauxiliares" (
   "Id_Auxiliar" INTEGER NOT NULL DEFAULT 0,
@@ -758,22 +592,15 @@ CREATE TABLE "tblauxiliares" (
   "Saldo" NUMERIC DEFAULT 0.0000,
   PRIMARY KEY ("Id_Auxiliar"));
 
-
 --
 -- Dumping data for table "tblauxiliares"
 --
-
-LOCK TABLES "tblauxiliares" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "tblbancos"
 --
 
 DROP TABLE IF EXISTS "tblbancos";
-
 
 CREATE TABLE "tblbancos" (  "idBancos" INTEGER PRIMARY KEY AUTOINCREMENT,
   "FechaCreacion" datetime DEFAULT NULL,
@@ -785,22 +612,15 @@ CREATE TABLE "tblbancos" (  "idBancos" INTEGER PRIMARY KEY AUTOINCREMENT,
   "TipoCuenta" varchar(20) DEFAULT 'ahorros',
   "Activa" INTEGER DEFAULT 1);
 
-
 --
 -- Dumping data for table "tblbancos"
 --
-
-LOCK TABLES "tblbancos" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "tblcajas"
 --
 
 DROP TABLE IF EXISTS "tblcajas";
-
 
 CREATE TABLE "tblcajas" (  "Id_Caja" INTEGER PRIMARY KEY AUTOINCREMENT,
   "Nombre" varchar(50) NOT NULL,
@@ -809,15 +629,9 @@ CREATE TABLE "tblcajas" (  "Id_Caja" INTEGER PRIMARY KEY AUTOINCREMENT,
   "Saldo" NUMERIC DEFAULT 0.0000,
   "FechaCreacion" datetime DEFAULT CURRENT_TIMESTAMP);
 
-
 --
 -- Dumping data for table "tblcajas"
 --
-
-LOCK TABLES "tblcajas" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "tblcategoria"
@@ -825,22 +639,15 @@ UNLOCK TABLES;
 
 DROP TABLE IF EXISTS "tblcategoria";
 
-
 CREATE TABLE "tblcategoria" (
   "Categoria" varchar(100) DEFAULT NULL,
   "Id_Categoria" INTEGER NOT NULL,
   PRIMARY KEY ("Id_Categoria")
 );
 
-
 --
 -- Dumping data for table "tblcategoria"
 --
-
-LOCK TABLES "tblcategoria" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "tblcategorias_gasto"
@@ -848,20 +655,13 @@ UNLOCK TABLES;
 
 DROP TABLE IF EXISTS "tblcategorias_gasto";
 
-
 CREATE TABLE "tblcategorias_gasto" (  "Id_Categoria" INTEGER PRIMARY KEY AUTOINCREMENT,
   "Nombre" varchar(50) NOT NULL,
   "Activa" INTEGER DEFAULT 1);
 
-
 --
 -- Dumping data for table "tblcategorias_gasto"
 --
-
-LOCK TABLES "tblcategorias_gasto" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "tblcliente_retenciones"
@@ -869,29 +669,21 @@ UNLOCK TABLES;
 
 DROP TABLE IF EXISTS "tblcliente_retenciones";
 
-
 CREATE TABLE "tblcliente_retenciones" (  "Id" INTEGER PRIMARY KEY AUTOINCREMENT,
   "CodigoClien" INTEGER NOT NULL,
   "Id_Retencion" INTEGER NOT NULL,
   CONSTRAINT "fk_cliret_ret" FOREIGN KEY ("Id_Retencion") REFERENCES "tblretenciones" ("Id_Retencion") ON DELETE CASCADE
 );
 
-
 --
 -- Dumping data for table "tblcliente_retenciones"
 --
-
-LOCK TABLES "tblcliente_retenciones" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "tblclientes"
 --
 
 DROP TABLE IF EXISTS "tblclientes";
-
 
 CREATE TABLE "tblclientes" (
   "CodigoClien" INTEGER NOT NULL,
@@ -939,22 +731,15 @@ CREATE TABLE "tblclientes" (
   "gps_capturado_at" datetime DEFAULT NULL,
   PRIMARY KEY ("CodigoClien"));
 
-
 --
 -- Dumping data for table "tblclientes"
 --
-
-LOCK TABLES "tblclientes" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "tblcomprobantediario"
 --
 
 DROP TABLE IF EXISTS "tblcomprobantediario";
-
 
 CREATE TABLE "tblcomprobantediario" (
   "N_Comprobante" INTEGER NOT NULL DEFAULT 0,
@@ -965,22 +750,15 @@ CREATE TABLE "tblcomprobantediario" (
   PRIMARY KEY ("N_Comprobante")
 );
 
-
 --
 -- Dumping data for table "tblcomprobantediario"
 --
-
-LOCK TABLES "tblcomprobantediario" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "tblconteo_detalle"
 --
 
 DROP TABLE IF EXISTS "tblconteo_detalle";
-
 
 CREATE TABLE "tblconteo_detalle" (  "Id_Detalle" INTEGER PRIMARY KEY AUTOINCREMENT,
   "Id_Conteo" INTEGER NOT NULL,
@@ -990,22 +768,15 @@ CREATE TABLE "tblconteo_detalle" (  "Id_Detalle" INTEGER PRIMARY KEY AUTOINCREME
   "Diferencia" float DEFAULT NULL,
   "Observacion" varchar(100) DEFAULT '');
 
-
 --
 -- Dumping data for table "tblconteo_detalle"
 --
-
-LOCK TABLES "tblconteo_detalle" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "tblconteo_inventario"
 --
 
 DROP TABLE IF EXISTS "tblconteo_inventario";
-
 
 CREATE TABLE "tblconteo_inventario" (  "Id_Conteo" INTEGER PRIMARY KEY AUTOINCREMENT,
   "Fecha" datetime NOT NULL,
@@ -1020,22 +791,15 @@ CREATE TABLE "tblconteo_inventario" (  "Id_Conteo" INTEGER PRIMARY KEY AUTOINCRE
   "Estado" TEXT DEFAULT 'Abierto',
   "Fecha_Cierre" datetime DEFAULT NULL);
 
-
 --
 -- Dumping data for table "tblconteo_inventario"
 --
-
-LOCK TABLES "tblconteo_inventario" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "tblconteodeinventario"
 --
 
 DROP TABLE IF EXISTS "tblconteodeinventario";
-
 
 CREATE TABLE "tblconteodeinventario" (
   "Cod_ConteoInv" INTEGER NOT NULL,
@@ -1044,22 +808,15 @@ CREATE TABLE "tblconteodeinventario" (
   "EnConteo" INTEGER DEFAULT NULL
 );
 
-
 --
 -- Dumping data for table "tblconteodeinventario"
 --
-
-LOCK TABLES "tblconteodeinventario" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "tblcontrolcaja"
 --
 
 DROP TABLE IF EXISTS "tblcontrolcaja";
-
 
 CREATE TABLE "tblcontrolcaja" (  "Cod_ControlCaja" INTEGER PRIMARY KEY AUTOINCREMENT,
   "Fecha" timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -1080,22 +837,15 @@ CREATE TABLE "tblcontrolcaja" (  "Cod_ControlCaja" INTEGER PRIMARY KEY AUTOINCRE
   "Id_Usuario" INTEGER DEFAULT NULL,
   "FechaCierre" datetime DEFAULT NULL);
 
-
 --
 -- Dumping data for table "tblcontrolcaja"
 --
-
-LOCK TABLES "tblcontrolcaja" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "tblcotizaciones"
 --
 
 DROP TABLE IF EXISTS "tblcotizaciones";
-
 
 CREATE TABLE "tblcotizaciones" (  "id_cotizacion" INTEGER PRIMARY KEY AUTOINCREMENT,
   "codigo_cli" INTEGER NOT NULL,
@@ -1107,22 +857,15 @@ CREATE TABLE "tblcotizaciones" (  "id_cotizacion" INTEGER PRIMARY KEY AUTOINCREM
   "total_factura" double NOT NULL,
   "fecha_hora_creado" timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP);
 
-
 --
 -- Dumping data for table "tblcotizaciones"
 --
-
-LOCK TABLES "tblcotizaciones" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "tblcuadrecaja"
 --
 
 DROP TABLE IF EXISTS "tblcuadrecaja";
-
 
 CREATE TABLE "tblcuadrecaja" (  "Id_CuadreCaja" INTEGER PRIMARY KEY AUTOINCREMENT,
   "Fecha" datetime DEFAULT NULL,
@@ -1131,22 +874,15 @@ CREATE TABLE "tblcuadrecaja" (  "Id_CuadreCaja" INTEGER PRIMARY KEY AUTOINCREMEN
   "Descripcion" varchar(80) DEFAULT NULL,
   "Valor" NUMERIC DEFAULT 0.0000);
 
-
 --
 -- Dumping data for table "tblcuadrecaja"
 --
-
-LOCK TABLES "tblcuadrecaja" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "tblcuentas"
 --
 
 DROP TABLE IF EXISTS "tblcuentas";
-
 
 CREATE TABLE "tblcuentas" (
   "N_Cuenta" varchar(20) NOT NULL,
@@ -1159,22 +895,15 @@ CREATE TABLE "tblcuentas" (
   PRIMARY KEY ("N_Cuenta")
 );
 
-
 --
 -- Dumping data for table "tblcuentas"
 --
-
-LOCK TABLES "tblcuentas" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "tbldatosempresa"
 --
 
 DROP TABLE IF EXISTS "tbldatosempresa";
-
 
 CREATE TABLE "tbldatosempresa" (  "Id_Empresa" INTEGER PRIMARY KEY AUTOINCREMENT,
   "Empresa" varchar(50) DEFAULT '-',
@@ -1217,22 +946,15 @@ CREATE TABLE "tbldatosempresa" (  "Id_Empresa" INTEGER PRIMARY KEY AUTOINCREMENT
   "ResolucionNextConsec" INTEGER DEFAULT NULL,
   "ResolucionTechnicalKey" varchar(150) DEFAULT NULL);
 
-
 --
 -- Dumping data for table "tbldatosempresa"
 --
-
-LOCK TABLES "tbldatosempresa" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "tbldetalle_pedido"
 --
 
 DROP TABLE IF EXISTS "tbldetalle_pedido";
-
 
 CREATE TABLE "tbldetalle_pedido" (  "Id_DetallePedido" INTEGER PRIMARY KEY AUTOINCREMENT,
   "Pedido_N" INTEGER DEFAULT NULL,
@@ -1252,22 +974,15 @@ CREATE TABLE "tbldetalle_pedido" (  "Id_DetallePedido" INTEGER PRIMARY KEY AUTOI
   "CostoAnterior" NUMERIC DEFAULT 0.0000,
   "CostoPromedio" NUMERIC DEFAULT 0.0000);
 
-
 --
 -- Dumping data for table "tbldetalle_pedido"
 --
-
-LOCK TABLES "tbldetalle_pedido" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "tbldetalle_venta"
 --
 
 DROP TABLE IF EXISTS "tbldetalle_venta";
-
 
 CREATE TABLE "tbldetalle_venta" (  "Id_DetalleVenta" INTEGER PRIMARY KEY AUTOINCREMENT,
   "Factura_N" INTEGER DEFAULT 0,
@@ -1289,15 +1004,9 @@ CREATE TABLE "tbldetalle_venta" (  "Id_DetalleVenta" INTEGER PRIMARY KEY AUTOINC
   "fecha_entrega" date DEFAULT NULL,
   "Id_Presentacion" INTEGER DEFAULT NULL);
 
-
 --
 -- Dumping data for table "tbldetalle_venta"
 --
-
-LOCK TABLES "tbldetalle_venta" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "tbldetallecomprobantediario"
@@ -1305,28 +1014,20 @@ UNLOCK TABLES;
 
 DROP TABLE IF EXISTS "tbldetallecomprobantediario";
 
-
 CREATE TABLE "tbldetallecomprobantediario" (  "Id_DetalleComproDiario" INTEGER PRIMARY KEY AUTOINCREMENT,
   "N_Comprobante" INTEGER DEFAULT 0,
   "Concepto" varchar(50) DEFAULT NULL,
   "Valor" NUMERIC DEFAULT 0.0000);
 
-
 --
 -- Dumping data for table "tbldetallecomprobantediario"
 --
-
-LOCK TABLES "tbldetallecomprobantediario" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "tbldetalleorden"
 --
 
 DROP TABLE IF EXISTS "tbldetalleorden";
-
 
 CREATE TABLE "tbldetalleorden" (  "Id_Detalle_Orden" INTEGER PRIMARY KEY AUTOINCREMENT,
   "Orden_N" INTEGER DEFAULT 0,
@@ -1336,22 +1037,15 @@ CREATE TABLE "tbldetalleorden" (  "Id_Detalle_Orden" INTEGER PRIMARY KEY AUTOINC
   "ValorUnit" NUMERIC DEFAULT 0.0000,
   "ValorTotal" NUMERIC DEFAULT 0.0000);
 
-
 --
 -- Dumping data for table "tbldetalleorden"
 --
-
-LOCK TABLES "tbldetalleorden" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "tbldetalleorden2"
 --
 
 DROP TABLE IF EXISTS "tbldetalleorden2";
-
 
 CREATE TABLE "tbldetalleorden2" (  "Cod_DetalleOrden2" INTEGER PRIMARY KEY AUTOINCREMENT,
   "Orden_N" INTEGER DEFAULT 0,
@@ -1361,22 +1055,15 @@ CREATE TABLE "tbldetalleorden2" (  "Cod_DetalleOrden2" INTEGER PRIMARY KEY AUTOI
   "valorUnit" NUMERIC DEFAULT 0.0000,
   "Subtotal" NUMERIC DEFAULT 0.0000);
 
-
 --
 -- Dumping data for table "tbldetalleorden2"
 --
-
-LOCK TABLES "tbldetalleorden2" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "tbldetalleorden3"
 --
 
 DROP TABLE IF EXISTS "tbldetalleorden3";
-
 
 CREATE TABLE "tbldetalleorden3" (  "Id_DetalleOrden3" INTEGER PRIMARY KEY AUTOINCREMENT,
   "Orden_N" INTEGER DEFAULT 0,
@@ -1385,22 +1072,15 @@ CREATE TABLE "tbldetalleorden3" (  "Id_DetalleOrden3" INTEGER PRIMARY KEY AUTOIN
   "Porcentaje" INTEGER DEFAULT 0,
   "Utilidad" NUMERIC DEFAULT 0.0000);
 
-
 --
 -- Dumping data for table "tbldetalleorden3"
 --
-
-LOCK TABLES "tbldetalleorden3" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "tbldetalleplansepare"
 --
 
 DROP TABLE IF EXISTS "tbldetalleplansepare";
-
 
 CREATE TABLE "tbldetalleplansepare" (  "Id_DetallePlanSepare" INTEGER PRIMARY KEY AUTOINCREMENT,
   "Id_PlanSepare" INTEGER DEFAULT 0,
@@ -1410,22 +1090,15 @@ CREATE TABLE "tbldetalleplansepare" (  "Id_DetallePlanSepare" INTEGER PRIMARY KE
   "PCosto" NUMERIC DEFAULT 0.0000,
   "Subtotal" NUMERIC DEFAULT 0.0000);
 
-
 --
 -- Dumping data for table "tbldetalleplansepare"
 --
-
-LOCK TABLES "tbldetalleplansepare" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "tbldevolucion_ventas"
 --
 
 DROP TABLE IF EXISTS "tbldevolucion_ventas";
-
 
 CREATE TABLE "tbldevolucion_ventas" (  "IdDevolVent" INTEGER PRIMARY KEY AUTOINCREMENT,
   "Id_DetalleVenta" INTEGER NOT NULL,
@@ -1434,22 +1107,15 @@ CREATE TABLE "tbldevolucion_ventas" (  "IdDevolVent" INTEGER PRIMARY KEY AUTOINC
   "fecha_fact" date NOT NULL,
   "fecha_mod" datetime NOT NULL);
 
-
 --
 -- Dumping data for table "tbldevolucion_ventas"
 --
-
-LOCK TABLES "tbldevolucion_ventas" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "tbldocumentos"
 --
 
 DROP TABLE IF EXISTS "tbldocumentos";
-
 
 CREATE TABLE "tbldocumentos" (
   "Id_Documentos" INTEGER NOT NULL DEFAULT 0,
@@ -1462,22 +1128,15 @@ CREATE TABLE "tbldocumentos" (
   "Cuenta" varchar(15) DEFAULT NULL,
   PRIMARY KEY ("Id_Documentos"));
 
-
 --
 -- Dumping data for table "tbldocumentos"
 --
-
-LOCK TABLES "tbldocumentos" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "tblegresos"
 --
 
 DROP TABLE IF EXISTS "tblegresos";
-
 
 CREATE TABLE "tblegresos" (  "Id_Egresos" INTEGER PRIMARY KEY AUTOINCREMENT,
   "N_Comprobante" INTEGER DEFAULT 0,
@@ -1500,22 +1159,15 @@ CREATE TABLE "tblegresos" (  "Id_Egresos" INTEGER PRIMARY KEY AUTOINCREMENT,
   "id_usuario" INTEGER DEFAULT NULL,
   "id_mediopago" INTEGER NOT NULL DEFAULT 0);
 
-
 --
 -- Dumping data for table "tblegresos"
 --
-
-LOCK TABLES "tblegresos" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "tblempleados"
 --
 
 DROP TABLE IF EXISTS "tblempleados";
-
 
 CREATE TABLE "tblempleados" (
   "CodigoEmp" INTEGER NOT NULL DEFAULT 0,
@@ -1535,15 +1187,9 @@ CREATE TABLE "tblempleados" (
   "Id_Usuario" INTEGER DEFAULT 0,
   PRIMARY KEY ("CodigoEmp"));
 
-
 --
 -- Dumping data for table "tblempleados"
 --
-
-LOCK TABLES "tblempleados" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "tblentidades"
@@ -1551,26 +1197,18 @@ UNLOCK TABLES;
 
 DROP TABLE IF EXISTS "tblentidades";
 
-
 CREATE TABLE "tblentidades" (  "Id_Entidades" INTEGER PRIMARY KEY AUTOINCREMENT,
   "Entidad" varchar(50) DEFAULT NULL);
-
 
 --
 -- Dumping data for table "tblentidades"
 --
-
-LOCK TABLES "tblentidades" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "tblentregaarticulos"
 --
 
 DROP TABLE IF EXISTS "tblentregaarticulos";
-
 
 CREATE TABLE "tblentregaarticulos" (  "idEntregaArt" INTEGER PRIMARY KEY AUTOINCREMENT,
   "Items" INTEGER NOT NULL,
@@ -1579,22 +1217,15 @@ CREATE TABLE "tblentregaarticulos" (  "idEntregaArt" INTEGER PRIMARY KEY AUTOINC
   "Concepto" varchar(45) NOT NULL,
   "Valido" INTEGER DEFAULT NULL);
 
-
 --
 -- Dumping data for table "tblentregaarticulos"
 --
-
-LOCK TABLES "tblentregaarticulos" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "tbletiquetas"
 --
 
 DROP TABLE IF EXISTS "tbletiquetas";
-
 
 CREATE TABLE "tbletiquetas" (  "Id_Etiqueta" INTEGER PRIMARY KEY AUTOINCREMENT,
   "Nombre" varchar(80) NOT NULL,
@@ -1603,22 +1234,15 @@ CREATE TABLE "tbletiquetas" (  "Id_Etiqueta" INTEGER PRIMARY KEY AUTOINCREMENT,
   "Activa" INTEGER DEFAULT 1,
   "Fecha_Creacion" timestamp NULL DEFAULT CURRENT_TIMESTAMP);
 
-
 --
 -- Dumping data for table "tbletiquetas"
 --
-
-LOCK TABLES "tbletiquetas" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "tblfacturasanteriores"
 --
 
 DROP TABLE IF EXISTS "tblfacturasanteriores";
-
 
 CREATE TABLE "tblfacturasanteriores" (  "ID_FactAnteriores" INTEGER PRIMARY KEY AUTOINCREMENT,
   "FacturaN" varchar(50) DEFAULT NULL,
@@ -1629,22 +1253,15 @@ CREATE TABLE "tblfacturasanteriores" (  "ID_FactAnteriores" INTEGER PRIMARY KEY 
   "CodigoCli" INTEGER DEFAULT NULL,
   "FechaMod" datetime DEFAULT NULL);
 
-
 --
 -- Dumping data for table "tblfacturasanteriores"
 --
-
-LOCK TABLES "tblfacturasanteriores" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "tblfacturasanterioresproveedor"
 --
 
 DROP TABLE IF EXISTS "tblfacturasanterioresproveedor";
-
 
 CREATE TABLE "tblfacturasanterioresproveedor" (  "ID_FactAnterioresP" INTEGER PRIMARY KEY AUTOINCREMENT,
   "FacturaN" varchar(50) DEFAULT NULL,
@@ -1657,22 +1274,15 @@ CREATE TABLE "tblfacturasanterioresproveedor" (  "ID_FactAnterioresP" INTEGER PR
   "Saldo" NUMERIC DEFAULT 0.0000,
   "CodigoProv" INTEGER DEFAULT 0);
 
-
 --
 -- Dumping data for table "tblfacturasanterioresproveedor"
 --
-
-LOCK TABLES "tblfacturasanterioresproveedor" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "tblfamilia_items"
 --
 
 DROP TABLE IF EXISTS "tblfamilia_items";
-
 
 CREATE TABLE "tblfamilia_items" (  "Id_Familia_Item" INTEGER PRIMARY KEY AUTOINCREMENT,
   "Id_Familia" INTEGER NOT NULL,
@@ -1682,15 +1292,9 @@ CREATE TABLE "tblfamilia_items" (  "Id_Familia_Item" INTEGER PRIMARY KEY AUTOINC
   CONSTRAINT "fk_fi_familia" FOREIGN KEY ("Id_Familia") REFERENCES "tblfamilias_producto" ("Id_Familia") ON DELETE CASCADE
 );
 
-
 --
 -- Dumping data for table "tblfamilia_items"
 --
-
-LOCK TABLES "tblfamilia_items" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "tblfamilias_producto"
@@ -1698,29 +1302,21 @@ UNLOCK TABLES;
 
 DROP TABLE IF EXISTS "tblfamilias_producto";
 
-
 CREATE TABLE "tblfamilias_producto" (  "Id_Familia" INTEGER PRIMARY KEY AUTOINCREMENT,
   "Nombre" varchar(100) NOT NULL,
   "Descripcion" varchar(255) DEFAULT NULL,
   "Activa" INTEGER DEFAULT 1,
   "Fecha_Creacion" timestamp NULL DEFAULT CURRENT_TIMESTAMP);
 
-
 --
 -- Dumping data for table "tblfamilias_producto"
 --
-
-LOCK TABLES "tblfamilias_producto" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "tblfinanciacion_cuotas"
 --
 
 DROP TABLE IF EXISTS "tblfinanciacion_cuotas";
-
 
 CREATE TABLE "tblfinanciacion_cuotas" (  "Id_Cuota" INTEGER PRIMARY KEY AUTOINCREMENT,
   "Id_Financiacion" INTEGER NOT NULL,
@@ -1732,22 +1328,15 @@ CREATE TABLE "tblfinanciacion_cuotas" (  "Id_Cuota" INTEGER PRIMARY KEY AUTOINCR
   "Estado" varchar(15) NOT NULL DEFAULT 'Pendiente',
   "FechaUltimoPago" date DEFAULT NULL);
 
-
 --
 -- Dumping data for table "tblfinanciacion_cuotas"
 --
-
-LOCK TABLES "tblfinanciacion_cuotas" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "tblfinanciacion_pagos"
 --
 
 DROP TABLE IF EXISTS "tblfinanciacion_pagos";
-
 
 CREATE TABLE "tblfinanciacion_pagos" (  "Id_FinancPago" INTEGER PRIMARY KEY AUTOINCREMENT,
   "Id_Cuota" INTEGER NOT NULL,
@@ -1761,22 +1350,15 @@ CREATE TABLE "tblfinanciacion_pagos" (  "Id_FinancPago" INTEGER PRIMARY KEY AUTO
   "FechaCreacion" timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   "EsInteresMora" INTEGER NOT NULL DEFAULT 0);
 
-
 --
 -- Dumping data for table "tblfinanciacion_pagos"
 --
-
-LOCK TABLES "tblfinanciacion_pagos" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "tblfinanciaciones"
 --
 
 DROP TABLE IF EXISTS "tblfinanciaciones";
-
 
 CREATE TABLE "tblfinanciaciones" (  "Id_Financiacion" INTEGER PRIMARY KEY AUTOINCREMENT,
   "Consecutivo" varchar(20) DEFAULT NULL,
@@ -1796,22 +1378,15 @@ CREATE TABLE "tblfinanciaciones" (  "Id_Financiacion" INTEGER PRIMARY KEY AUTOIN
   "FechaCreacion" timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   "FechaMod" timestamp NULL DEFAULT NULL);
 
-
 --
 -- Dumping data for table "tblfinanciaciones"
 --
-
-LOCK TABLES "tblfinanciaciones" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "tblformulario"
 --
 
 DROP TABLE IF EXISTS "tblformulario";
-
 
 CREATE TABLE "tblformulario" (  "Id_form" INTEGER PRIMARY KEY AUTOINCREMENT,
   "Formulario" varchar(100) DEFAULT NULL,
@@ -1820,22 +1395,15 @@ CREATE TABLE "tblformulario" (  "Id_form" INTEGER PRIMARY KEY AUTOINCREMENT,
   "Alto" float DEFAULT 0,
   "Ancho" float DEFAULT 0);
 
-
 --
 -- Dumping data for table "tblformulario"
 --
-
-LOCK TABLES "tblformulario" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "tblkardex"
 --
 
 DROP TABLE IF EXISTS "tblkardex";
-
 
 CREATE TABLE "tblkardex" (  "Id_kardex" INTEGER PRIMARY KEY AUTOINCREMENT,
   "Fecha" timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -1851,22 +1419,15 @@ CREATE TABLE "tblkardex" (  "Id_kardex" INTEGER PRIMARY KEY AUTOINCREMENT,
   "Cost_Saldo" NUMERIC DEFAULT 0.0000,
   "Cost_Unit" NUMERIC DEFAULT 0.0000);
 
-
 --
 -- Dumping data for table "tblkardex"
 --
-
-LOCK TABLES "tblkardex" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "tblmedios_pago"
 --
 
 DROP TABLE IF EXISTS "tblmedios_pago";
-
 
 CREATE TABLE "tblmedios_pago" (
   "id_mediopago" INTEGER NOT NULL,
@@ -1875,15 +1436,9 @@ CREATE TABLE "tblmedios_pago" (
   PRIMARY KEY ("id_mediopago")
 );
 
-
 --
 -- Dumping data for table "tblmedios_pago"
 --
-
-LOCK TABLES "tblmedios_pago" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "tblmeses"
@@ -1891,29 +1446,21 @@ UNLOCK TABLES;
 
 DROP TABLE IF EXISTS "tblmeses";
 
-
 CREATE TABLE "tblmeses" (
   "N_Mes" INTEGER NOT NULL DEFAULT 0,
   "Mes" varchar(15) DEFAULT NULL,
   PRIMARY KEY ("N_Mes")
 );
 
-
 --
 -- Dumping data for table "tblmeses"
 --
-
-LOCK TABLES "tblmeses" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "tblmov_banco"
 --
 
 DROP TABLE IF EXISTS "tblmov_banco";
-
 
 CREATE TABLE "tblmov_banco" (  "Id_Mov" INTEGER PRIMARY KEY AUTOINCREMENT,
   "Id_Cuenta" INTEGER NOT NULL,
@@ -1926,22 +1473,15 @@ CREATE TABLE "tblmov_banco" (  "Id_Mov" INTEGER PRIMARY KEY AUTOINCREMENT,
   "Id_Caja_Origen" INTEGER DEFAULT NULL,
   "Id_Caja_Destino" INTEGER DEFAULT NULL);
 
-
 --
 -- Dumping data for table "tblmov_banco"
 --
-
-LOCK TABLES "tblmov_banco" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "tblmov_caja"
 --
 
 DROP TABLE IF EXISTS "tblmov_caja";
-
 
 CREATE TABLE "tblmov_caja" (  "Id_Mov" INTEGER PRIMARY KEY AUTOINCREMENT,
   "Id_Sesion" INTEGER DEFAULT NULL,
@@ -1953,22 +1493,15 @@ CREATE TABLE "tblmov_caja" (  "Id_Mov" INTEGER PRIMARY KEY AUTOINCREMENT,
   "Tipo" TEXT NOT NULL,
   "Descripcion" varchar(255) DEFAULT '');
 
-
 --
 -- Dumping data for table "tblmov_caja"
 --
-
-LOCK TABLES "tblmov_caja" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "tblmovimiento"
 --
 
 DROP TABLE IF EXISTS "tblmovimiento";
-
 
 CREATE TABLE "tblmovimiento" (  "ID_Asi" INTEGER PRIMARY KEY AUTOINCREMENT,
   "Movimiento_N" INTEGER DEFAULT 0,
@@ -1981,22 +1514,15 @@ CREATE TABLE "tblmovimiento" (  "ID_Asi" INTEGER PRIMARY KEY AUTOINCREMENT,
   "Items" INTEGER DEFAULT 0,
   "Id_TipoMoviento" INTEGER DEFAULT 0);
 
-
 --
 -- Dumping data for table "tblmovimiento"
 --
-
-LOCK TABLES "tblmovimiento" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "tblmovimientos_distribucion"
 --
 
 DROP TABLE IF EXISTS "tblmovimientos_distribucion";
-
 
 CREATE TABLE "tblmovimientos_distribucion" (  "Id_Mov" INTEGER PRIMARY KEY AUTOINCREMENT,
   "Fecha" datetime DEFAULT CURRENT_TIMESTAMP,
@@ -2011,22 +1537,15 @@ CREATE TABLE "tblmovimientos_distribucion" (  "Id_Mov" INTEGER PRIMARY KEY AUTOI
   "Factura_N" INTEGER DEFAULT NULL,
   "Comentario" varchar(255) DEFAULT NULL);
 
-
 --
 -- Dumping data for table "tblmovimientos_distribucion"
 --
-
-LOCK TABLES "tblmovimientos_distribucion" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "tblnotas_articulo"
 --
 
 DROP TABLE IF EXISTS "tblnotas_articulo";
-
 
 CREATE TABLE "tblnotas_articulo" (  "Id_Nota" INTEGER PRIMARY KEY AUTOINCREMENT,
   "Fecha" timestamp NULL DEFAULT CURRENT_TIMESTAMP,
@@ -2043,22 +1562,15 @@ CREATE TABLE "tblnotas_articulo" (  "Id_Nota" INTEGER PRIMARY KEY AUTOINCREMENT,
   "Fecha_Anulacion" datetime DEFAULT NULL,
   "Motivo_Anulacion" varchar(200) DEFAULT NULL);
 
-
 --
 -- Dumping data for table "tblnotas_articulo"
 --
-
-LOCK TABLES "tblnotas_articulo" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "tblordenproduccion"
 --
 
 DROP TABLE IF EXISTS "tblordenproduccion";
-
 
 CREATE TABLE "tblordenproduccion" (
   "Orden_N" INTEGER NOT NULL DEFAULT 0,
@@ -2078,22 +1590,15 @@ CREATE TABLE "tblordenproduccion" (
   "Obervaciones" text DEFAULT NULL,
   PRIMARY KEY ("Orden_N"));
 
-
 --
 -- Dumping data for table "tblordenproduccion"
 --
-
-LOCK TABLES "tblordenproduccion" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "tblpagos"
 --
 
 DROP TABLE IF EXISTS "tblpagos";
-
 
 CREATE TABLE "tblpagos" (  "Id_Pagos" INTEGER PRIMARY KEY AUTOINCREMENT,
   "RecCajaN" INTEGER DEFAULT NULL,
@@ -2122,22 +1627,15 @@ CREATE TABLE "tblpagos" (  "Id_Pagos" INTEGER PRIMARY KEY AUTOINCREMENT,
   "id_usuario" INTEGER DEFAULT NULL,
   "Id_Anticipo" INTEGER DEFAULT NULL);
 
-
 --
 -- Dumping data for table "tblpagos"
 --
-
-LOCK TABLES "tblpagos" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "tblpedidos"
 --
 
 DROP TABLE IF EXISTS "tblpedidos";
-
 
 CREATE TABLE "tblpedidos" (  "Pedido_N" INTEGER PRIMARY KEY AUTOINCREMENT,
   "FacturaCompra_N" varchar(50) DEFAULT NULL,
@@ -2157,15 +1655,9 @@ CREATE TABLE "tblpedidos" (  "Pedido_N" INTEGER PRIMARY KEY AUTOINCREMENT,
   "Retencion" NUMERIC DEFAULT NULL,
   "opcion_factura" INTEGER NOT NULL);
 
-
 --
 -- Dumping data for table "tblpedidos"
 --
-
-LOCK TABLES "tblpedidos" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "tblporcentajeutilidad"
@@ -2173,28 +1665,20 @@ UNLOCK TABLES;
 
 DROP TABLE IF EXISTS "tblporcentajeutilidad";
 
-
 CREATE TABLE "tblporcentajeutilidad" (  "Id_Ganancia" INTEGER PRIMARY KEY AUTOINCREMENT,
   "Rango1" NUMERIC DEFAULT 0.0000,
   "Rango2" NUMERIC DEFAULT 0.0000,
   "Porcentaje" double DEFAULT 0);
 
-
 --
 -- Dumping data for table "tblporcentajeutilidad"
 --
-
-LOCK TABLES "tblporcentajeutilidad" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "tblpresentaciones"
 --
 
 DROP TABLE IF EXISTS "tblpresentaciones";
-
 
 CREATE TABLE "tblpresentaciones" (  "Id_Presentacion" INTEGER PRIMARY KEY AUTOINCREMENT,
   "Items" INTEGER NOT NULL,
@@ -2204,22 +1688,15 @@ CREATE TABLE "tblpresentaciones" (  "Id_Presentacion" INTEGER PRIMARY KEY AUTOIN
   "Codigo_Barras" varchar(25) DEFAULT NULL,
   "Activa" INTEGER DEFAULT 1);
 
-
 --
 -- Dumping data for table "tblpresentaciones"
 --
-
-LOCK TABLES "tblpresentaciones" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "tblproducto_componentes"
 --
 
 DROP TABLE IF EXISTS "tblproducto_componentes";
-
 
 CREATE TABLE "tblproducto_componentes" (  "Id_Componente" INTEGER PRIMARY KEY AUTOINCREMENT,
   "Items_Padre" INTEGER NOT NULL,
@@ -2228,22 +1705,15 @@ CREATE TABLE "tblproducto_componentes" (  "Id_Componente" INTEGER PRIMARY KEY AU
   "Comentario" varchar(150) DEFAULT NULL,
   "Fecha_Creacion" timestamp NULL DEFAULT CURRENT_TIMESTAMP);
 
-
 --
 -- Dumping data for table "tblproducto_componentes"
 --
-
-LOCK TABLES "tblproducto_componentes" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "tblproductos_lotes"
 --
 
 DROP TABLE IF EXISTS "tblproductos_lotes";
-
 
 CREATE TABLE "tblproductos_lotes" (  "Id_Lote" INTEGER PRIMARY KEY AUTOINCREMENT,
   "Items" INTEGER NOT NULL,
@@ -2256,15 +1726,9 @@ CREATE TABLE "tblproductos_lotes" (  "Id_Lote" INTEGER PRIMARY KEY AUTOINCREMENT
   "Pedido_N" INTEGER DEFAULT NULL,
   "Comentario" varchar(255) DEFAULT NULL);
 
-
 --
 -- Dumping data for table "tblproductos_lotes"
 --
-
-LOCK TABLES "tblproductos_lotes" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "tblproductosrelacionados"
@@ -2272,28 +1736,20 @@ UNLOCK TABLES;
 
 DROP TABLE IF EXISTS "tblproductosrelacionados";
 
-
 CREATE TABLE "tblproductosrelacionados" (  "ID_ProductoRelacionados" INTEGER PRIMARY KEY AUTOINCREMENT,
   "CodigoPro" INTEGER DEFAULT 0,
   "CodigoProRelacionado" INTEGER DEFAULT 0,
   "Cantidad" INTEGER DEFAULT 0);
 
-
 --
 -- Dumping data for table "tblproductosrelacionados"
 --
-
-LOCK TABLES "tblproductosrelacionados" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "tblproveedores"
 --
 
 DROP TABLE IF EXISTS "tblproveedores";
-
 
 CREATE TABLE "tblproveedores" (  "CodigoPro" INTEGER PRIMARY KEY AUTOINCREMENT,
   "RazonSocial" varchar(50) DEFAULT NULL,
@@ -2310,15 +1766,9 @@ CREATE TABLE "tblproveedores" (  "CodigoPro" INTEGER PRIMARY KEY AUTOINCREMENT,
   "Fecha_Iingreso" datetime DEFAULT NULL,
   "FechaMod" datetime DEFAULT NULL);
 
-
 --
 -- Dumping data for table "tblproveedores"
 --
-
-LOCK TABLES "tblproveedores" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "tblreferencia"
@@ -2326,19 +1776,12 @@ UNLOCK TABLES;
 
 DROP TABLE IF EXISTS "tblreferencia";
 
-
 CREATE TABLE "tblreferencia" (  "Id_Referencia" INTEGER PRIMARY KEY AUTOINCREMENT,
   "Referencia" varchar(20) DEFAULT NULL);
-
 
 --
 -- Dumping data for table "tblreferencia"
 --
-
-LOCK TABLES "tblreferencia" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "tblreferenciasarticulos"
@@ -2346,27 +1789,19 @@ UNLOCK TABLES;
 
 DROP TABLE IF EXISTS "tblreferenciasarticulos";
 
-
 CREATE TABLE "tblreferenciasarticulos" (  "idRefeArt" INTEGER PRIMARY KEY AUTOINCREMENT,
   "Id_DetalleVenta" INTEGER NOT NULL,
   "RerenciaPro" varchar(100) NOT NULL);
 
-
 --
 -- Dumping data for table "tblreferenciasarticulos"
 --
-
-LOCK TABLES "tblreferenciasarticulos" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "tblregistro"
 --
 
 DROP TABLE IF EXISTS "tblregistro";
-
 
 CREATE TABLE "tblregistro" (  "id_registro" INTEGER PRIMARY KEY AUTOINCREMENT,
   "propietario" varchar(30) NOT NULL,
@@ -2375,15 +1810,9 @@ CREATE TABLE "tblregistro" (  "id_registro" INTEGER PRIMARY KEY AUTOINCREMENT,
   "id_maquina" varchar(50) NOT NULL,
   "fecha_registro" date NOT NULL);
 
-
 --
 -- Dumping data for table "tblregistro"
 --
-
-LOCK TABLES "tblregistro" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "tblregistroproducto"
@@ -2391,28 +1820,20 @@ UNLOCK TABLES;
 
 DROP TABLE IF EXISTS "tblregistroproducto";
 
-
 CREATE TABLE "tblregistroproducto" (
   "ID_Registro" varchar(15) NOT NULL,
   "Codigo" text DEFAULT NULL,
   PRIMARY KEY ("ID_Registro"));
 
-
 --
 -- Dumping data for table "tblregistroproducto"
 --
-
-LOCK TABLES "tblregistroproducto" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "tblretenciones"
 --
 
 DROP TABLE IF EXISTS "tblretenciones";
-
 
 CREATE TABLE "tblretenciones" (  "Id_Retencion" INTEGER PRIMARY KEY AUTOINCREMENT,
   "Codigo" varchar(20) NOT NULL,
@@ -2422,15 +1843,9 @@ CREATE TABLE "tblretenciones" (  "Id_Retencion" INTEGER PRIMARY KEY AUTOINCREMEN
   "Activa" INTEGER DEFAULT 1,
   "Fecha_Creacion" timestamp NULL DEFAULT CURRENT_TIMESTAMP);
 
-
 --
 -- Dumping data for table "tblretenciones"
 --
-
-LOCK TABLES "tblretenciones" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "tblsaldosfact"
@@ -2438,28 +1853,20 @@ UNLOCK TABLES;
 
 DROP TABLE IF EXISTS "tblsaldosfact";
 
-
 CREATE TABLE "tblsaldosfact" (  "Id_SaldoF" INTEGER PRIMARY KEY AUTOINCREMENT,
   "Cuenta" varchar(15) DEFAULT NULL,
   "Valor" NUMERIC DEFAULT 0.0000,
   "Saldo" NUMERIC DEFAULT 0.0000);
 
-
 --
 -- Dumping data for table "tblsaldosfact"
 --
-
-LOCK TABLES "tblsaldosfact" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "tblsesiones_caja"
 --
 
 DROP TABLE IF EXISTS "tblsesiones_caja";
-
 
 CREATE TABLE "tblsesiones_caja" (  "Id_Sesion" INTEGER PRIMARY KEY AUTOINCREMENT,
   "Id_Caja" INTEGER NOT NULL,
@@ -2481,22 +1888,15 @@ CREATE TABLE "tblsesiones_caja" (  "Id_Sesion" INTEGER PRIMARY KEY AUTOINCREMENT
   "Estado" TEXT DEFAULT 'abierta',
   "Observacion" varchar(255) DEFAULT '');
 
-
 --
 -- Dumping data for table "tblsesiones_caja"
 --
-
-LOCK TABLES "tblsesiones_caja" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "tbltempfactutilidad"
 --
 
 DROP TABLE IF EXISTS "tbltempfactutilidad";
-
 
 CREATE TABLE "tbltempfactutilidad" (
   "Factura_N" INTEGER DEFAULT 0,
@@ -2512,22 +1912,15 @@ CREATE TABLE "tbltempfactutilidad" (
   "UtilidadBru" NUMERIC DEFAULT 0.0000
 );
 
-
 --
 -- Dumping data for table "tbltempfactutilidad"
 --
-
-LOCK TABLES "tbltempfactutilidad" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "tbltemplistadofactuvenc"
 --
 
 DROP TABLE IF EXISTS "tbltemplistadofactuvenc";
-
 
 CREATE TABLE "tbltemplistadofactuvenc" (
   "NFactura" varchar(30) DEFAULT NULL,
@@ -2547,22 +1940,15 @@ CREATE TABLE "tbltemplistadofactuvenc" (
   "de31a60" INTEGER DEFAULT 0
 );
 
-
 --
 -- Dumping data for table "tbltemplistadofactuvenc"
 --
-
-LOCK TABLES "tbltemplistadofactuvenc" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "tbltemplistadofactuvencpro"
 --
 
 DROP TABLE IF EXISTS "tbltemplistadofactuvencpro";
-
 
 CREATE TABLE "tbltemplistadofactuvencpro" (
   "NFactura" varchar(30) NOT NULL,
@@ -2580,22 +1966,15 @@ CREATE TABLE "tbltemplistadofactuvencpro" (
   "Mas60" NUMERIC NOT NULL
 );
 
-
 --
 -- Dumping data for table "tbltemplistadofactuvencpro"
 --
-
-LOCK TABLES "tbltemplistadofactuvencpro" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "tbltempmes"
 --
 
 DROP TABLE IF EXISTS "tbltempmes";
-
 
 CREATE TABLE "tbltempmes" (
   "Id" INTEGER NOT NULL DEFAULT 0,
@@ -2611,22 +1990,15 @@ CREATE TABLE "tbltempmes" (
   PRIMARY KEY ("Id")
 );
 
-
 --
 -- Dumping data for table "tbltempmes"
 --
-
-LOCK TABLES "tbltempmes" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "tbltempventas"
 --
 
 DROP TABLE IF EXISTS "tbltempventas";
-
 
 CREATE TABLE "tbltempventas" (  "IdTempVenta" INTEGER PRIMARY KEY AUTOINCREMENT,
   "NFacturaTemp" INTEGER DEFAULT 0,
@@ -2635,15 +2007,9 @@ CREATE TABLE "tbltempventas" (  "IdTempVenta" INTEGER PRIMARY KEY AUTOINCREMENT,
   "Dias" INTEGER DEFAULT 0,
   "FechaHora" datetime DEFAULT NULL);
 
-
 --
 -- Dumping data for table "tbltempventas"
 --
-
-LOCK TABLES "tbltempventas" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "tbltipomovimiento"
@@ -2651,19 +2017,12 @@ UNLOCK TABLES;
 
 DROP TABLE IF EXISTS "tbltipomovimiento";
 
-
 CREATE TABLE "tbltipomovimiento" (  "Id_TipoMoviento" INTEGER PRIMARY KEY AUTOINCREMENT,
   "Movimiento" varchar(50) DEFAULT NULL);
-
 
 --
 -- Dumping data for table "tbltipomovimiento"
 --
-
-LOCK TABLES "tbltipomovimiento" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "tbltiposusuario"
@@ -2671,28 +2030,20 @@ UNLOCK TABLES;
 
 DROP TABLE IF EXISTS "tbltiposusuario";
 
-
 CREATE TABLE "tbltiposusuario" (  "Id_TiposUsuario" INTEGER PRIMARY KEY AUTOINCREMENT,
   "Nombre_TipoUsuario" varchar(50) DEFAULT NULL,
   "Nivel" text DEFAULT NULL,
   "permisos" text DEFAULT NULL);
 
-
 --
 -- Dumping data for table "tbltiposusuario"
 --
-
-LOCK TABLES "tbltiposusuario" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "tblusuarios"
 --
 
 DROP TABLE IF EXISTS "tblusuarios";
-
 
 CREATE TABLE "tblusuarios" (  "Id_Usuario" INTEGER PRIMARY KEY AUTOINCREMENT,
   "Usuario" varchar(10) DEFAULT NULL,
@@ -2703,22 +2054,15 @@ CREATE TABLE "tblusuarios" (  "Id_Usuario" INTEGER PRIMARY KEY AUTOINCREMENT,
   "Id_TiposUsuario" INTEGER DEFAULT 0,
   "Id_Caja" INTEGER DEFAULT NULL);
 
-
 --
 -- Dumping data for table "tblusuarios"
 --
-
-LOCK TABLES "tblusuarios" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "tblventa_retenciones"
 --
 
 DROP TABLE IF EXISTS "tblventa_retenciones";
-
 
 CREATE TABLE "tblventa_retenciones" (  "Id" INTEGER PRIMARY KEY AUTOINCREMENT,
   "Factura_N" INTEGER NOT NULL,
@@ -2731,22 +2075,15 @@ CREATE TABLE "tblventa_retenciones" (  "Id" INTEGER PRIMARY KEY AUTOINCREMENT,
   "Modo" TEXT DEFAULT 'informativo',
   "Fecha" timestamp NULL DEFAULT CURRENT_TIMESTAMP);
 
-
 --
 -- Dumping data for table "tblventa_retenciones"
 --
-
-LOCK TABLES "tblventa_retenciones" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "tblventas"
 --
 
 DROP TABLE IF EXISTS "tblventas";
-
 
 CREATE TABLE "tblventas" (  "Factura_N" INTEGER PRIMARY KEY AUTOINCREMENT,
   "N_Mes" INTEGER DEFAULT NULL,
@@ -2788,22 +2125,15 @@ CREATE TABLE "tblventas" (  "Factura_N" INTEGER PRIMARY KEY AUTOINCREMENT,
   "contingencia_motivo" varchar(255) DEFAULT NULL,
   "email" varchar(150) DEFAULT NULL);
 
-
 --
 -- Dumping data for table "tblventas"
 --
-
-LOCK TABLES "tblventas" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "tipos_documentos"
 --
 
 DROP TABLE IF EXISTS "tipos_documentos";
-
 
 CREATE TABLE "tipos_documentos" (  "id" INTEGER PRIMARY KEY AUTOINCREMENT,
   "code" varchar(10) NOT NULL,
@@ -2812,22 +2142,15 @@ CREATE TABLE "tipos_documentos" (  "id" INTEGER PRIMARY KEY AUTOINCREMENT,
   "created_at" timestamp NULL DEFAULT NULL,
   "updated_at" timestamp NULL DEFAULT NULL);
 
-
 --
 -- Dumping data for table "tipos_documentos"
 --
-
-LOCK TABLES "tipos_documentos" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "type_documents"
 --
 
 DROP TABLE IF EXISTS "type_documents";
-
 
 CREATE TABLE "type_documents" (  "id" INTEGER PRIMARY KEY AUTOINCREMENT,
   "code" varchar(2) NOT NULL,
@@ -2836,22 +2159,15 @@ CREATE TABLE "type_documents" (  "id" INTEGER PRIMARY KEY AUTOINCREMENT,
   "created_at" timestamp NULL DEFAULT NULL,
   "updated_at" timestamp NULL DEFAULT NULL);
 
-
 --
 -- Dumping data for table "type_documents"
 --
-
-LOCK TABLES "type_documents" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "type_item_identifications"
 --
 
 DROP TABLE IF EXISTS "type_item_identifications";
-
 
 CREATE TABLE "type_item_identifications" (  "id" INTEGER PRIMARY KEY AUTOINCREMENT,
   "code" varchar(5) NOT NULL,
@@ -2860,22 +2176,15 @@ CREATE TABLE "type_item_identifications" (  "id" INTEGER PRIMARY KEY AUTOINCREME
   "created_at" timestamp NULL DEFAULT NULL,
   "updated_at" timestamp NULL DEFAULT NULL);
 
-
 --
 -- Dumping data for table "type_item_identifications"
 --
-
-LOCK TABLES "type_item_identifications" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "type_liabilities"
 --
 
 DROP TABLE IF EXISTS "type_liabilities";
-
 
 CREATE TABLE "type_liabilities" (
   "id" INTEGER NOT NULL,
@@ -2885,22 +2194,15 @@ CREATE TABLE "type_liabilities" (
   PRIMARY KEY ("id")
 );
 
-
 --
 -- Dumping data for table "type_liabilities"
 --
-
-LOCK TABLES "type_liabilities" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "type_organizations"
 --
 
 DROP TABLE IF EXISTS "type_organizations";
-
 
 CREATE TABLE "type_organizations" (
   "id" INTEGER NOT NULL,
@@ -2910,22 +2212,15 @@ CREATE TABLE "type_organizations" (
   PRIMARY KEY ("id")
 );
 
-
 --
 -- Dumping data for table "type_organizations"
 --
-
-LOCK TABLES "type_organizations" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "type_regimes"
 --
 
 DROP TABLE IF EXISTS "type_regimes";
-
 
 CREATE TABLE "type_regimes" (  "id" INTEGER PRIMARY KEY AUTOINCREMENT,
   "code" varchar(255) NOT NULL,
@@ -2934,15 +2229,9 @@ CREATE TABLE "type_regimes" (  "id" INTEGER PRIMARY KEY AUTOINCREMENT,
   "created_at" timestamp NULL DEFAULT NULL,
   "updated_at" timestamp NULL DEFAULT NULL);
 
-
 --
 -- Dumping data for table "type_regimes"
 --
-
-LOCK TABLES "type_regimes" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Table structure for table "unit_measures"
@@ -2950,31 +2239,21 @@ UNLOCK TABLES;
 
 DROP TABLE IF EXISTS "unit_measures";
 
-
 CREATE TABLE "unit_measures" (  "id" INTEGER PRIMARY KEY AUTOINCREMENT,
   "name" varchar(255) NOT NULL,
   "code" char(10) NOT NULL,
   "created_at" timestamp NULL DEFAULT NULL,
   "updated_at" timestamp NULL DEFAULT NULL);
 
-
 --
 -- Dumping data for table "unit_measures"
 --
-
-LOCK TABLES "unit_measures" WRITE;
-
-
-UNLOCK TABLES;
 
 --
 -- Temporary table structure for view "ver_factura"
 --
 
 DROP TABLE IF EXISTS "ver_factura";
-/*!50001 DROP VIEW IF EXISTS "ver_factura"*/;
-
-
 CREATE VIEW "ver_factura" AS SELECT
  1 AS "Factura_N",
   1 AS "Fecha",
@@ -2993,15 +2272,11 @@ CREATE VIEW "ver_factura" AS SELECT
   1 AS "Cambio",
   1 AS "Nombre" ;
 
-
 --
 -- Temporary table structure for view "view_detalles_ventas"
 --
 
 DROP TABLE IF EXISTS "view_detalles_ventas";
-/*!50001 DROP VIEW IF EXISTS "view_detalles_ventas"*/;
-
-
 CREATE VIEW "view_detalles_ventas" AS SELECT
  1 AS "Factura_N",
   1 AS "Items",
@@ -3015,15 +2290,11 @@ CREATE VIEW "view_detalles_ventas" AS SELECT
   1 AS "subtotal",
   1 AS "impuesto" ;
 
-
 --
 -- Temporary table structure for view "view_listado_facturas_electronica"
 --
 
 DROP TABLE IF EXISTS "view_listado_facturas_electronica";
-/*!50001 DROP VIEW IF EXISTS "view_listado_facturas_electronica"*/;
-
-
 CREATE VIEW "view_listado_facturas_electronica" AS SELECT
  1 AS "fecha",
   1 AS "num_factura",
@@ -3041,15 +2312,11 @@ CREATE VIEW "view_listado_facturas_electronica" AS SELECT
   1 AS "type_document_id",
   1 AS "email_sent" ;
 
-
 --
 -- Temporary table structure for view "vw_auditoria_inventario_90d"
 --
 
 DROP TABLE IF EXISTS "vw_auditoria_inventario_90d";
-/*!50001 DROP VIEW IF EXISTS "vw_auditoria_inventario_90d"*/;
-
-
 CREATE VIEW "vw_auditoria_inventario_90d" AS SELECT
  1 AS "Items",
   1 AS "Codigo",
@@ -3068,15 +2335,11 @@ CREATE VIEW "vw_auditoria_inventario_90d" AS SELECT
   1 AS "Proveedor",
   1 AS "Auditoria" ;
 
-
 --
 -- Temporary table structure for view "vw_capacidad_compuestos"
 --
 
 DROP TABLE IF EXISTS "vw_capacidad_compuestos";
-/*!50001 DROP VIEW IF EXISTS "vw_capacidad_compuestos"*/;
-
-
 CREATE VIEW "vw_capacidad_compuestos" AS SELECT
  1 AS "Items_Padre",
   1 AS "Codigo",
@@ -3086,15 +2349,11 @@ CREATE VIEW "vw_capacidad_compuestos" AS SELECT
   1 AS "Precio_Venta",
   1 AS "Num_Componentes" ;
 
-
 --
 -- Temporary table structure for view "vw_componentes_detalle"
 --
 
 DROP TABLE IF EXISTS "vw_componentes_detalle";
-/*!50001 DROP VIEW IF EXISTS "vw_componentes_detalle"*/;
-
-
 CREATE VIEW "vw_componentes_detalle" AS SELECT
  1 AS "Id_Componente",
   1 AS "Items_Padre",
@@ -3111,15 +2370,11 @@ CREATE VIEW "vw_componentes_detalle" AS SELECT
   1 AS "Costo_Unit_Componente",
   1 AS "Costo_Aporte" ;
 
-
 --
 -- Temporary table structure for view "vw_diagnostico_inventario_30d"
 --
 
 DROP TABLE IF EXISTS "vw_diagnostico_inventario_30d";
-/*!50001 DROP VIEW IF EXISTS "vw_diagnostico_inventario_30d"*/;
-
-
 CREATE VIEW "vw_diagnostico_inventario_30d" AS SELECT
  1 AS "Items",
   1 AS "Nombres_Articulo",
@@ -3132,15 +2387,11 @@ CREATE VIEW "vw_diagnostico_inventario_30d" AS SELECT
   1 AS "Capital_Invertido",
   1 AS "Diagnostico" ;
 
-
 --
 -- Temporary table structure for view "vw_facturas_anteriores_cliente"
 --
 
 DROP TABLE IF EXISTS "vw_facturas_anteriores_cliente";
-/*!50001 DROP VIEW IF EXISTS "vw_facturas_anteriores_cliente"*/;
-
-
 CREATE VIEW "vw_facturas_anteriores_cliente" AS SELECT
  1 AS "CodigoCli",
   1 AS "FacturaN",
@@ -3153,15 +2404,11 @@ CREATE VIEW "vw_facturas_anteriores_cliente" AS SELECT
   1 AS "DiasVenc",
   1 AS "Vencida" ;
 
-
 --
 -- Temporary table structure for view "vw_facturas_cliente_saldos"
 --
 
 DROP TABLE IF EXISTS "vw_facturas_cliente_saldos";
-/*!50001 DROP VIEW IF EXISTS "vw_facturas_cliente_saldos"*/;
-
-
 CREATE VIEW "vw_facturas_cliente_saldos" AS SELECT
  1 AS "Factura_N",
   1 AS "CodigoCli",
@@ -3178,15 +2425,11 @@ CREATE VIEW "vw_facturas_cliente_saldos" AS SELECT
   1 AS "DiasVenc",
   1 AS "Vencida" ;
 
-
 --
 -- Temporary table structure for view "vw_facturas_elec_cliente_saldos"
 --
 
 DROP TABLE IF EXISTS "vw_facturas_elec_cliente_saldos";
-/*!50001 DROP VIEW IF EXISTS "vw_facturas_elec_cliente_saldos"*/;
-
-
 CREATE VIEW "vw_facturas_elec_cliente_saldos" AS SELECT
  1 AS "DocID",
   1 AS "Factura_N",
@@ -3204,29 +2447,21 @@ CREATE VIEW "vw_facturas_elec_cliente_saldos" AS SELECT
   1 AS "DiasVenc",
   1 AS "Vencida" ;
 
-
 --
 -- Temporary table structure for view "vw_item_ventas_30d"
 --
 
 DROP TABLE IF EXISTS "vw_item_ventas_30d";
-/*!50001 DROP VIEW IF EXISTS "vw_item_ventas_30d"*/;
-
-
 CREATE VIEW "vw_item_ventas_30d" AS SELECT
  1 AS "Items",
   1 AS "Unidades_Vendidas_30d",
   1 AS "Veces_Vendido_30d" ;
-
 
 --
 -- Temporary table structure for view "vw_item_ventas_90d"
 --
 
 DROP TABLE IF EXISTS "vw_item_ventas_90d";
-/*!50001 DROP VIEW IF EXISTS "vw_item_ventas_90d"*/;
-
-
 CREATE VIEW "vw_item_ventas_90d" AS SELECT
  1 AS "Items",
   1 AS "Unidades_Vendidas_90d",
@@ -3234,15 +2469,11 @@ CREATE VIEW "vw_item_ventas_90d" AS SELECT
   1 AS "Total_Vendido_90d",
   1 AS "Ultima_Venta" ;
 
-
 --
 -- Temporary table structure for view "vw_lotes_por_vencer"
 --
 
 DROP TABLE IF EXISTS "vw_lotes_por_vencer";
-/*!50001 DROP VIEW IF EXISTS "vw_lotes_por_vencer"*/;
-
-
 CREATE VIEW "vw_lotes_por_vencer" AS SELECT
  1 AS "Id_Lote",
   1 AS "Items",
@@ -3258,15 +2489,11 @@ CREATE VIEW "vw_lotes_por_vencer" AS SELECT
   1 AS "Precio_Venta",
   1 AS "valor_costo" ;
 
-
 --
 -- Temporary table structure for view "vw_productos_stock_bajo"
 --
 
 DROP TABLE IF EXISTS "vw_productos_stock_bajo";
-/*!50001 DROP VIEW IF EXISTS "vw_productos_stock_bajo"*/;
-
-
 CREATE VIEW "vw_productos_stock_bajo" AS SELECT
  1 AS "Items",
   1 AS "Codigo",
@@ -3277,15 +2504,11 @@ CREATE VIEW "vw_productos_stock_bajo" AS SELECT
   1 AS "Id_Familia",
   1 AS "Familia_Nombre" ;
 
-
 --
 -- Temporary table structure for view "vw_prov_cxp_aging"
 --
 
 DROP TABLE IF EXISTS "vw_prov_cxp_aging";
-/*!50001 DROP VIEW IF EXISTS "vw_prov_cxp_aging"*/;
-
-
 CREATE VIEW "vw_prov_cxp_aging" AS SELECT
  1 AS "CodigoPro",
   1 AS "RazonSocial",
@@ -3300,15 +2523,11 @@ CREATE VIEW "vw_prov_cxp_aging" AS SELECT
   1 AS "Vencida",
   1 AS "Origen" ;
 
-
 --
 -- Temporary table structure for view "vw_prov_facturas_anteriores_saldos"
 --
 
 DROP TABLE IF EXISTS "vw_prov_facturas_anteriores_saldos";
-/*!50001 DROP VIEW IF EXISTS "vw_prov_facturas_anteriores_saldos"*/;
-
-
 CREATE VIEW "vw_prov_facturas_anteriores_saldos" AS SELECT
  1 AS "FacturaN",
   1 AS "CodigoPro",
@@ -3320,15 +2539,11 @@ CREATE VIEW "vw_prov_facturas_anteriores_saldos" AS SELECT
   1 AS "TotalPagos",
   1 AS "Saldo" ;
 
-
 --
 -- Temporary table structure for view "vw_prov_pedidos_credito_saldos"
 --
 
 DROP TABLE IF EXISTS "vw_prov_pedidos_credito_saldos";
-/*!50001 DROP VIEW IF EXISTS "vw_prov_pedidos_credito_saldos"*/;
-
-
 CREATE VIEW "vw_prov_pedidos_credito_saldos" AS SELECT
  1 AS "FacturaN",
   1 AS "CodigoPro",
@@ -3343,22 +2558,17 @@ CREATE VIEW "vw_prov_pedidos_credito_saldos" AS SELECT
   1 AS "EstadoPedido",
   1 AS "Pedido_N" ;
 
-
 --
 -- Temporary table structure for view "vw_proveedores_saldo_actual"
 --
 
 DROP TABLE IF EXISTS "vw_proveedores_saldo_actual";
-/*!50001 DROP VIEW IF EXISTS "vw_proveedores_saldo_actual"*/;
-
-
 CREATE VIEW "vw_proveedores_saldo_actual" AS SELECT
  1 AS "CodigoPro",
   1 AS "RazonSocial",
   1 AS "SaldoAnterior",
   1 AS "SaldoPedidos",
   1 AS "SaldoActual" ;
-
 
 --
 -- Dumping routines for database 'conta_template'
@@ -3372,34 +2582,7 @@ CREATE VIEW "vw_proveedores_saldo_actual" AS SELECT
  ;
  ;
  ;
-DELIMITER ;;
-CREATE DEFINER="root"@"localhost" PROCEDURE "InsertarDetalleVenta"(IN "FacturaN" INT, IN "Items" VARCHAR(50), IN "Cantidad" NUMERIC, IN "PrecioC" NUMERIC, IN "PrecioV" NUMERIC, IN "Iva" NUMERIC, IN "Impuesto" NUMERIC, IN "Subtotal" NUMERIC, IN "Descuento" NUMERIC, IN "Entregado" CHAR(1), IN "FacturarNegativo" BOOLEAN, IN "ActivarEntregados" BOOLEAN)
-BEGIN
-    DECLARE StockActual NUMERIC;
-
-    START TRANSACTION;
-
-    
-    IF FacturarNegativo = FALSE THEN
-        SELECT Existencia INTO StockActual FROM tblarticulos WHERE Items = Items;
-        IF StockActual < Cantidad THEN
-            SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Stock insuficiente para este producto';
-        END IF;
-    END IF;
-
-    
-    INSERT INTO tbldetalle_venta (Factura_N, Items, Cantidad, PrecioC, PrecioV, Iva, Impuesto, Subtotal, Descuento, Entregado)
-    VALUES (FacturaN, Items, Cantidad, PrecioC, PrecioV, Iva, Impuesto, Subtotal, Descuento, Entregado);
-
-    
-    IF ActivarEntregados = 0 OR Entregado = 'S' THEN
-        UPDATE tblarticulos SET Existencia = Existencia - Cantidad WHERE Items = Items;
-    END IF;
-
-    COMMIT;
-END ;;
-DELIMITER ;
- ;
+;
  ;
  ;
  ;
@@ -3412,30 +2595,7 @@ DELIMITER ;
  ;
  ;
  ;
-DELIMITER ;;
-CREATE DEFINER="root"@"localhost" PROCEDURE "InsertarVenta"(OUT "Nun_Factura" INT, IN "Fecha" VARCHAR(10), IN "N_Mes" VARCHAR(2), IN "Anio" VARCHAR(4), IN "Tipo" VARCHAR(20), IN "Dias" VARCHAR(4), IN "CodigoCli" VARCHAR(20), IN "A_nombre" VARCHAR(100), IN "Identificacion" VARCHAR(20), IN "Direccion" VARCHAR(100), IN "Telefono" VARCHAR(20), IN "Impuesto" VARCHAR(20), IN "Descuento" VARCHAR(20), IN "Total" VARCHAR(20), IN "Id_Usuario" INT, IN "CodigoEmp" INT, IN "EstadoPedido" VARCHAR(20), IN "Comentario" VARCHAR(100), IN "EstadoFact" VARCHAR(20), IN "Hora" VARCHAR(20), IN "Pago" VARCHAR(20), IN "Cambio" VARCHAR(20), IN "Abono" VARCHAR(20), IN "Saldo" VARCHAR(20), IN "id_mediopago" INT, IN "efectivo" VARCHAR(20), IN "valorpagado1" VARCHAR(20))
-BEGIN
-    DECLARE Nun_Factura INT;
-
-    INSERT INTO tblventas (
-        Fecha, N_Mes, Anio, Tipo, Dias, CodigoCli, A_nombre, Identificacion, Direccion, Telefono,
-        Impuesto, Descuento, Total, Id_Usuario, CodigoEmp, EstadoPedido, Comentario, EstadoFact,
-        Hora, Pago, Cambio, Abono, Saldo, id_mediopago, efectivo, valorpagado1
-    )
-    VALUES (
-        Fecha, N_Mes, Anio, Tipo, Dias, CodigoCli, A_nombre, Identificacion, Direccion, Telefono,
-        Impuesto, Descuento, Total, Id_Usuario, CodigoEmp, EstadoPedido, Comentario, EstadoFact,
-        Hora, Pago, Cambio, Abono, Saldo, id_mediopago, efectivo, valorpagado1
-    );
-
-    
-    SET Nun_Factura = LAST_INSERT_ID();
-
-    
-    SELECT Nun_Factura AS FacturaN;
-END ;;
-DELIMITER ;
- ;
+;
  ;
  ;
  ;
@@ -3448,21 +2608,7 @@ DELIMITER ;
  ;
  ;
  ;
-DELIMITER ;;
-CREATE DEFINER="root"@"localhost" PROCEDURE "prc_guardarCuentasCli"("CodigoCuenta" VARCHAR(20), "Nombre" VARCHAR(50))
-BEGIN
-		declare codigo int default null;
-                
-        set codigo = (select N_Cuenta from tblCuentas where N_Cuenta = CodigoCuenta);
-        
-        if codigo is null then
-           Insert Into tblcuentas (N_Cuenta, Cuenta, Saldo, FechaMod) Values (CodigoCuenta, Nombre, 0, now());
-        else 
-			Update tblcuentas set Cuenta = Nombre, FechaMod = now() Where N_Cuenta = CodigoCuenta;           
-        end if;
-END ;;
-DELIMITER ;
- ;
+;
  ;
  ;
  ;
@@ -3475,77 +2621,7 @@ DELIMITER ;
  ;
  ;
  ;
-DELIMITER ;;
-CREATE DEFINER="root"@"localhost" PROCEDURE "proc_GuardarCliente"("CodigoCli" INT, "RazonSocial" VARCHAR(50), "Nit" VARCHAR(15), "Telefonos" VARCHAR(25), "Direccion" VARCHAR(50), "Nombre_C" VARCHAR(25), "Apellidos_C" VARCHAR(25), "Telefono_C" VARCHAR(30), "Direccion_C" VARCHAR(50), "Cargo_C" VARCHAR(25), "Whatsapp" VARCHAR(15), "Cupo" DOUBLE, "PrecioCosto" INT, "CodigoEmp" INT, "FechaCumple" DATE, "Email" VARCHAR(50), "Termino" INT, "FacturarVenc" INT)
-BEGIN
-	
-    declare codigo int default null;
-    DECLARE "_rollback" BOOL DEFAULT 0;
-    DECLARE CONTINUE HANDLER FOR SQLEXCEPTION SET "_rollback" = 1;
-    
-    DECLARE EXIT HANDLER FOR 1062
-    BEGIN
-		select 0 as id, 'El Nit del cliente ya existe verifique';
-    END;
-    START TRANSACTION;
-   
-    
-    if CodigoCli is not null then           
-       set codigo = (select codigoCli from tblClientes where CodigoClien = CodigoCli);
-       if codigo is null then    
-			select 0 as id, 'El cliente solicita no se encontro en la base de datos';
-       else
-		   Update tblClientes 
-			set Razon_Social = RazonSocial, Nit = Nit, Telefonos = Telefonos, Direccion = Direccion,
-				Email = Email, Nombre_C = Nombre_C, Apellidos_C = Apellidos_C, Telefonos_C = Telefono_C,
-				Direccion_C = Direccion_C, Cargo_C = Cargo_C, Whatsapp = Whatsapp, CupoAutorizado = Cupo, Preciocosto = PrecioCosto, 
-				CodigoEmp = CodigoEmp, FechaCumple = FechaCumple, Termino = Termino, FacVenc = FacturarVenc, FechaMod = now() 
-				where CodigoClien = CodigoCli;    
-                
-              IF "_rollback" THEN
-					ROLLBACK;
-                    select 0 as id, "ERROR al guardar el Cliente";
-			  ELSE
-				    COMMIT;
-                   
-                    
-                    Update tblcuentas set Cuenta = RazonSocial, FechaMod = now() Where N_Cuenta = CodigoCli;
-                    call prc_guardarCuentasCli(CodigoCli, RazonSocial);
-                    
-                     select 1 as id, "Cliente Guardado con Exito";
-			  END IF;
-              
-              
-       end if;     
-    else
-     
-  	 set codigo = (Select max(CodigoClien) + 1 from tblClientes); 
-     if codigo is null then
-        set codigo = '130501';
-     end if;
-         
-         insert into tblClientes (CodigoClien, Razon_Social, Nit, Telefonos, Direccion, Email, Whatsapp, Nombre_C, 
-						Apellidos_C, Telefonos_C, Direccion_C, Cargo_C, CupoAutorizado, Preciocosto, CodigoEmp, 
-                        FechaCumple, Termino, FacVenc, Fecha_Ingreso)	values (codigo, RazonSocial, Nit, Telefonos, Direccion, Email, Whatsapp,  Nombre_C, Apellidos_C, Telefono_C, Direccion_C, Cargo_C, Cupo, PrecioCosto, CodigoEmp, FechaCumple, Termino, FacturarVenc, now());
-                        
-              IF "_rollback" THEN
-					ROLLBACK;
-                    select 0 as id, 'ERROR al Guardar el cliente, verifique';
-			  ELSE
-				COMMIT;
-               
-                call prc_guardarCuentasCli(CodigoCli, RazonSocial);
-                 
-				select 1 as id, 'El cliente se guardo con exito', codigo, now();
-			  END IF;
-              
-         
-    end if;
-    
-
-END ;;
-DELIMITER ;
- ;
+;
  ;
  ;
  ;
@@ -3558,75 +2634,7 @@ DELIMITER ;
  ;
  ;
  ;
-DELIMITER ;;
-CREATE DEFINER="root"@"localhost" PROCEDURE "proc_GuardarPagoCliente"("NumRecibo" INT, "CodigoCliente" INT, "FactAnt" VARCHAR(15), "FacturaN" INT, "Cuenta" VARCHAR(15), "ValorPago" DOUBLE, "Descuento" DOUBLE)
-BEGIN
-    declare UltimoNumRecibo int;
-    declare SaldoCliente double default 0;
-    declare SaldoActual double default 0;
-    declare PagosCliente double default 0;
-    declare TotalFactura double default 0;
-    declare TotalPagado double default 0;
-    DECLARE "_rollback" BOOL DEFAULT 0;
-    declare MESSAGE varchar(100);
-    declare codigoerrir int;
-
-	DECLARE EXIT HANDLER FOR SQLEXCEPTION
-    BEGIN
- 
-			 GET DIAGNOSTICS CONDITION 1
-			@p1 = RETURNED_SQLSTATE, @p2 = MESSAGE_TEXT;
-			SELECT @p1 as RETURNED_SQLSTATE  , @p2 as MESSAGE_TEXT;
-			ROLLBACK;
-			END;
-
-
-    select max(RecCajaN) + 1 into UltimoNumRecibo from tblPagos;
-    
-    
-    START TRANSACTION;
-    
-    if FactAnt is null then
-		   if NumRecibo is not null then     
-			  set UltimoNumRecibo = NumRecibo;
-		   end if;     
-
-            select Total into TotalFactura from tblVentas where Factura_N = FacturaN;
-       
-            select sum(ValorPago) into PagosCliente from tblPagos where Fact_N = FacturaN and Estado = 'V';  
-            
-            if PagosCliente is null then
-               set PagosCliente = 0;
-            end if;
-            
-            set SaldoActual = TotalFactura - PagosCliente;
-            set TotalPagado = ValorPago + Descuento;
-            
-            if SaldoActual >= TotalPagado then  
-				set SaldoCliente = SaldoActual - (ValorPago + Descuento);            
-            
-				Insert Into tblPagos (Codigo, NFactAnt, Fact_N, DetallePago, Afectada, RecCajaN, ValorPago, Fecha, Saldoact, Descuento, Estado, FechaMod )
-				values (CodigoCliente, null, FacturaN, 'Pago', Cuenta, UltimoNumRecibo,  ValorPago, now(), SaldoCliente,Descuento, 'V', now());
-                
-                 update tblventas set Saldo = SaldoCliente where Factura_N = FacturaN; 
-				
-				call proc_registro_saldo_cliente(CodigoCliente, 'ingr', FacturaN, UltimoNumRecibo, ValorPago);
-                if Descuento > 0 then
-                   call proc_registro_saldo_cliente(CodigoCliente, 'ntdv', FacturaN, UltimoNumRecibo, ValorPago);  
-                end if;
-                
-               
-				COMMIT;
-				
-			else
-                select 0, 'Error el Pago no puede superar el saldo de la factura', SaldoActual, TotalPagado;
-            end if;     
-            
-    end if;    
-    
-END ;;
-DELIMITER ;
- ;
+;
  ;
  ;
  ;
@@ -3639,49 +2647,7 @@ DELIMITER ;
  ;
  ;
  ;
-DELIMITER ;;
-CREATE DEFINER="root"@"localhost" PROCEDURE "proc_guardar_factura"("FechaF" DATE, "Tipo" VARCHAR(10), "Dias" INT, "CodigoCliente" VARCHAR(15), "NomCliente" VARCHAR(50), "Identificacion" VARCHAR(15), "DireccionCli" VARCHAR(40), "TelefonoCli" VARCHAR(25), "Impuesto" DOUBLE, "Descuento" DOUBLE, "Total" DOUBLE, "Hora" TIME, "idUsuario" INT, "Efectivo" VARCHAR(1), "Cambio" DOUBLE)
-BEGIN
-	    declare NuevoID int default null;
-        DECLARE "_rollback" BOOL DEFAULT 0;
-        DECLARE CONTINUE HANDLER FOR SQLEXCEPTION SET "_rollback" = 1;
-     
-       
-		SELECT Max(Factura_N) + 1
-        into NuevoId
-        FROM tblventas ORDER BY Max(Factura_N) DESC;
-        
-        if NuevoId is null then
-           set NuevoId = 1;
-        end if;
-        
-        START TRANSACTION;
-
-		
-        
-        if Tipo = 'Crédito' then
-			Insert into tblventas (Factura_N, fecha, tipo, dias, CodigoCli, A_nombre, Identificacion, Direccion, Telefono, Impuesto, Descuento, Total, Saldo, Hora, Id_Usuario, Pago, Cambio)
-			Values(NuevoId, FechaF,Tipo, Dias, CodigoCliente, NomCliente, Identificacion , DireccionCli, TelefonoCli, Impuesto, Descuento, Total, Total, Hora, idUsuario, Efectivo, Cambio);
-            
-            call proc_registro_saldo_cliente(CodigoCliente, 'vent', NuevoId, NuevoId, Total);
-        else
-			Insert into tblventas (Factura_N, fecha, tipo, dias, CodigoCli, A_nombre, Identificacion, Direccion, Telefono, Impuesto, Descuento, Total, Saldo, Hora, Id_Usuario, Pago, Cambio)
-			Values(NuevoId, FechaF,Tipo, Dias, CodigoCliente, NomCliente, Identificacion , DireccionCli, TelefonoCli, Impuesto, Descuento, Total, 0, Hora, idUsuario, Efectivo, Cambio);
-        end if;
-        
-         IF "_rollback" THEN 
-			ROLLBACK;
-            select 0 as id, "ERROR al guardar el Cliente";
-		ELSE
-		    COMMIT;
-        END IF;    
-                    
-        Select NuevoId, "Guardado con exito"; 
-        
-        
-END ;;
-DELIMITER ;
- ;
+;
  ;
  ;
  ;
@@ -3694,68 +2660,7 @@ DELIMITER ;
  ;
  ;
  ;
-DELIMITER ;;
-CREATE DEFINER="root"@"localhost" PROCEDURE "proc_registro_saldo_cliente"("CodigoCli" INT, "TipoDoc" VARCHAR(5), "NumFact" INT, "NumDoc" INT, "Ing_Egre" DOUBLE)
-BEGIN
-	declare SaldoCli double default 0;
-    
-    select saldo 
-    into SaldoCli 
-    from  tblmovimientos_cliente where codigoclien = CodigoCli Order by id_mov_cli DESC Limit 1;
-	 
-    if SaldoCli is null then
-       set SaldoCli = 0;
-    end if;
-    
-    if TipoDoc = 'vent' then  
-       set SaldoCli = SaldoCli + Ing_Egre;
-       insert into tblmovimientos_cliente (fecha_mov, codigoclien, 	tipo_mov, num_fact, num_doc, entreda_salida, saldo)
-       values (now(), CodigoCli, TipoDoc, NumFact, NumDoc, Ing_Egre, SaldoCli);
-       select SaldoCli;
-    end if;
-    
-	if TipoDoc = 'ingr' then 
-       
-       set SaldoCli = SaldoCli + Ing_Egre;
-       
-       insert into tblmovimientos_cliente (fecha_mov, codigoclien, 	tipo_mov, num_fact, num_doc, entreda_salida, saldo)
-       values (now(), CodigoCli, TipoDoc, NumFact, NumDoc, Ing_Egre, SaldoCli);
-       select SaldoCli,   CodigoCli;
-    end if;
-    
-	if TipoDoc = 'ntcr' then 
-       
-       set SaldoCli = SaldoCli - Ing_Egre;
-       
-       insert into tblmovimientos_cliente (fecha_mov, codigoclien, 	tipo_mov, num_fact, num_doc, entreda_salida, saldo)
-       values (now(), CodigoCli, TipoDoc, NumFact, NumDoc, Ing_Egre, SaldoCli);
-       select SaldoCli,   CodigoCli;
-    end if;    
-    
-	if TipoDoc = 'ntdv' then 
-       
-       set SaldoCli = SaldoCli + Ing_Egre;
-       
-       insert into tblmovimientos_cliente (fecha_mov, codigoclien, 	tipo_mov, num_fact, num_doc, entreda_salida, saldo)
-       values (now(), CodigoCli, TipoDoc, NumFact, NumDoc, Ing_Egre, SaldoCli);
-       select SaldoCli,   CodigoCli;
-    end if;
-    
- 	if TipoDoc = 'anul' then  
-       set SaldoCli = SaldoCli + Ing_Egre;
-       insert into tblmovimientos_cliente (fecha_mov, codigoclien, 	tipo_mov, num_fact, num_doc, entreda_salida, saldo)
-       values (now(), CodigoCli, TipoDoc, NumFact, NumDoc, Ing_Egre, SaldoCli);
-       
-        select SaldoCli;
-    end if;
-
-   
-    
-    
-    
-END ;;
-DELIMITER ;
- ;
+;
  ;
  ;
  ;
@@ -3768,35 +2673,7 @@ DELIMITER ;
  ;
  ;
  ;
-DELIMITER ;;
-CREATE DEFINER="root"@"localhost" PROCEDURE "proc_vent_desc_inventario"("num_fact" INT)
-BEGIN
-	DECLARE bDone INT;
-	DECLARE _cant float;
-    declare _items int;
-    declare contar int;
-    declare countRow int;
-    
-	DECLARE _curs CURSOR FOR  Select items, cantidad from tbldetalle_venta where Factura_NTemp = num_fact;
-    DECLARE CONTINUE HANDLER FOR NOT FOUND SET bDone = 1;
-    OPEN _curs;
-	set contar = 0;
-	SET bDone = 0;
-	REPEAT
-		FETCH _curs INTO _items, _cant;
-			if ! bDone then
-				update tblarticulos set existencia = (existencia - _cant) where items = _items;
-				COMMIT;			
-					set contar = contar + 1;
-            end if;
-       UNTIL bDone END REPEAT;     
-   CLOSE _curs;
-
-   Select 1, "Registros actualizados", countRow;
-   
-END ;;
-DELIMITER ;
- ;
+;
  ;
  ;
  ;
@@ -3809,46 +2686,7 @@ DELIMITER ;
  ;
  ;
  ;
-DELIMITER ;;
-CREATE DEFINER="root"@"localhost" PROCEDURE "reportar_kardex"("Tipo" INT, "CodigoPro" INT, "Cantidad" FLOAT, "Precio" DOUBLE, "Detalle" VARCHAR(50), "CD" INT)
-BEGIN
-	 declare Cant float default null;
-     declare Saldo float default 0;
-     
-     
-     
-     Select Existencia
-     into Cant
-     from tblarticulos  where items = CodigoPro;  
-     
-     if Tipo = 1 then  
-		 if Cant is not null then
-			set Saldo = Cant + Cantidad;
-			Update tblarticulos set Existencia = Saldo Where items = CodigoPro;
-			
-			Insert into tblkardex (Fecha, Items, Detalle,  C_D, Cant_Ent, Cant_Saldo, Cost_Unit)
-			values (now(), CodigoPro, Detalle, CD, Cantidad,  Saldo,  Precio);
-        else
-            Insert into tblkardex (Fecha, Items, Detalle,  C_D, Cant_Ent, Cant_Saldo, Cost_Unit)
-			values (now(), CodigoPro, Detalle, CD, Cantidad,  Cantidad,  Precio);
-		end if;        
-     else   
-		 if Cant is not null then
-			set Saldo = Cant - Cantidad;
-			Update tblarticulos set Existencia = Saldo Where items = CodigoPro;
-			
-			Insert into tblkardex (Fecha, Items, Detalle,  C_D, Cant_Sal, Cant_Saldo, Cost_Unit)
-			values (now(), CodigoPro, Detalle, CD, Cantidad,  Saldo,  Precio);
-        else  
-            Insert into tblkardex (Fecha, Items, Detalle,  C_D, Cant_Sal, Cant_Saldo, Cost_Unit)
-			values (now(), CodigoPro, Detalle, CD, Cantidad,  Cantidad,  Precio);
-		end if;   
-     end if;   
-     
-     
-END ;;
-DELIMITER ;
- ;
+;
  ;
  ;
  ;
@@ -3857,337 +2695,75 @@ DELIMITER ;
 -- Final view structure for view "ver_factura"
 --
 
-/*!50001 DROP VIEW IF EXISTS "ver_factura"*/;
-
-
-
-
-
-
-
-
-
-
-
-
-
 --
 -- Final view structure for view "view_detalles_ventas"
 --
-
-/*!50001 DROP VIEW IF EXISTS "view_detalles_ventas"*/;
-
-
-
-
-
-
-
-
-
-
-
-
 
 --
 -- Final view structure for view "view_listado_facturas_electronica"
 --
 
-/*!50001 DROP VIEW IF EXISTS "view_listado_facturas_electronica"*/;
-
-
-
-
-
-
-
-
-
-
-
-
-
 --
 -- Final view structure for view "vw_auditoria_inventario_90d"
 --
-
-/*!50001 DROP VIEW IF EXISTS "vw_auditoria_inventario_90d"*/;
-
-
-
-
-
-
-
-
-
-
-
-
 
 --
 -- Final view structure for view "vw_capacidad_compuestos"
 --
 
-/*!50001 DROP VIEW IF EXISTS "vw_capacidad_compuestos"*/;
-
-
-
-
-
-
-
-
-
-
-
-
-
 --
 -- Final view structure for view "vw_componentes_detalle"
 --
-
-/*!50001 DROP VIEW IF EXISTS "vw_componentes_detalle"*/;
-
-
-
-
-
-
-
-
-
-
-
-
 
 --
 -- Final view structure for view "vw_diagnostico_inventario_30d"
 --
 
-/*!50001 DROP VIEW IF EXISTS "vw_diagnostico_inventario_30d"*/;
-
-
-
-
-
-
-
-
-
-
-
-
-
 --
 -- Final view structure for view "vw_facturas_anteriores_cliente"
 --
-
-/*!50001 DROP VIEW IF EXISTS "vw_facturas_anteriores_cliente"*/;
-
-
-
-
-
-
-
-
-
-
-
-
 
 --
 -- Final view structure for view "vw_facturas_cliente_saldos"
 --
 
-/*!50001 DROP VIEW IF EXISTS "vw_facturas_cliente_saldos"*/;
-
-
-
-
-
-
-
-
-
-
-
-
-
 --
 -- Final view structure for view "vw_facturas_elec_cliente_saldos"
 --
-
-/*!50001 DROP VIEW IF EXISTS "vw_facturas_elec_cliente_saldos"*/;
-
-
-
-
-
-
-
-
-
-
-
-
 
 --
 -- Final view structure for view "vw_item_ventas_30d"
 --
 
-/*!50001 DROP VIEW IF EXISTS "vw_item_ventas_30d"*/;
-
-
-
-
-
-
-
-
-
-
-
-
-
 --
 -- Final view structure for view "vw_item_ventas_90d"
 --
-
-/*!50001 DROP VIEW IF EXISTS "vw_item_ventas_90d"*/;
-
-
-
-
-
-
-
-
-
-
-
-
 
 --
 -- Final view structure for view "vw_lotes_por_vencer"
 --
 
-/*!50001 DROP VIEW IF EXISTS "vw_lotes_por_vencer"*/;
-
-
-
-
-
-
-
-
-
-
-
-
-
 --
 -- Final view structure for view "vw_productos_stock_bajo"
 --
-
-/*!50001 DROP VIEW IF EXISTS "vw_productos_stock_bajo"*/;
-
-
-
-
-
-
-
-
-
-
-
-
 
 --
 -- Final view structure for view "vw_prov_cxp_aging"
 --
 
-/*!50001 DROP VIEW IF EXISTS "vw_prov_cxp_aging"*/;
-
-
-
-
-
-
-
-
-
-
-
-
-
 --
 -- Final view structure for view "vw_prov_facturas_anteriores_saldos"
 --
-
-/*!50001 DROP VIEW IF EXISTS "vw_prov_facturas_anteriores_saldos"*/;
-
-
-
-
-
-
-
-
-
-
-
-
 
 --
 -- Final view structure for view "vw_prov_pedidos_credito_saldos"
 --
 
-/*!50001 DROP VIEW IF EXISTS "vw_prov_pedidos_credito_saldos"*/;
-
-
-
-
-
-
-
-
-
-
-
-
-
 --
 -- Final view structure for view "vw_proveedores_saldo_actual"
 --
 
-/*!50001 DROP VIEW IF EXISTS "vw_proveedores_saldo_actual"*/;
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 -- Dump completed on 2026-08-20 15:10:25
-
 
 -- Índices extraídos de los CREATE TABLE
 CREATE INDEX IF NOT EXISTS "idx_departments_departments_country_id_foreign" ON "departments" ("country_id");
@@ -4229,7 +2805,7 @@ CREATE INDEX IF NOT EXISTS "idx_tblarticulos_idx_categoria" ON "tblarticulos" ("
 CREATE INDEX IF NOT EXISTS "idx_tblarticulos_idx_referencia" ON "tblarticulos" ("Id_Referencia");
 CREATE INDEX IF NOT EXISTS "idx_tblarticulos_idx_estado" ON "tblarticulos" ("Estado");
 CREATE INDEX IF NOT EXISTS "idx_tblarticulos_idx_codigopro" ON "tblarticulos" ("CodigoPro");
-CREATE INDEX IF NOT EXISTS "idx_tblarticulos_idx_nombre_articulo" ON "tblarticulos" ("Nombres_Articulo"(30);
+CREATE INDEX IF NOT EXISTS "idx_tblarticulos_idx_nombre_articulo" ON "tblarticulos" ("Nombres_Articulo");
 CREATE INDEX IF NOT EXISTS "idx_tblarticulos_idx_etiqueta" ON "tblarticulos" ("Id_Etiqueta");
 CREATE INDEX IF NOT EXISTS "idx_tblarticulos2_Codigo" ON "tblarticulos2" ("Codigo");
 CREATE INDEX IF NOT EXISTS "idx_tblarticulos2_Nombres_Articulo" ON "tblarticulos2" ("Nombres_Articulo");
@@ -4239,7 +2815,7 @@ CREATE INDEX IF NOT EXISTS "idx_tblarticulos2_idx_categoria" ON "tblarticulos2" 
 CREATE INDEX IF NOT EXISTS "idx_tblarticulos2_idx_referencia" ON "tblarticulos2" ("Id_Referencia");
 CREATE INDEX IF NOT EXISTS "idx_tblarticulos2_idx_estado" ON "tblarticulos2" ("Estado");
 CREATE INDEX IF NOT EXISTS "idx_tblarticulos2_idx_codigopro" ON "tblarticulos2" ("CodigoPro");
-CREATE INDEX IF NOT EXISTS "idx_tblarticulos2_idx_nombre_articulo" ON "tblarticulos2" ("Nombres_Articulo"(30);
+CREATE INDEX IF NOT EXISTS "idx_tblarticulos2_idx_nombre_articulo" ON "tblarticulos2" ("Nombres_Articulo");
 CREATE INDEX IF NOT EXISTS "idx_tblauxiliares_Id_Auxiliar" ON "tblauxiliares" ("Id_Auxiliar");
 CREATE UNIQUE INDEX IF NOT EXISTS "uq_tblcliente_retenciones_uk_cli_ret" ON "tblcliente_retenciones" ("CodigoClien","Id_Retencion");
 CREATE INDEX IF NOT EXISTS "idx_tblcliente_retenciones_idx_cliente" ON "tblcliente_retenciones" ("CodigoClien");

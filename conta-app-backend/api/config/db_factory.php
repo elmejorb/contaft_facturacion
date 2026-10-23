@@ -328,6 +328,64 @@ function conta_sqlite_registrar_funciones_mysql(PDO $pdo): void {
 
     // IFNULL ya es nativo de SQLite, no hace falta registrarlo.
     // COALESCE ya es nativo de SQLite, no hace falta registrarlo.
+
+    // CONCAT(a, b, c, ...) — SQLite tiene el operador || pero el backend usa
+    // CONCAT en >=10 lugares (informes/resumen, informes/vendedores, cumpleanos,
+    // facturas-recibidas, vendedores/*, etc). Lo emulamos escalar variadico.
+    // NULL en MySQL hace que CONCAT devuelva NULL; mantenemos ese comportamiento.
+    $pdo->sqliteCreateFunction('CONCAT', function(...$args) {
+        foreach ($args as $a) { if ($a === null) return null; }
+        return implode('', array_map('strval', $args));
+    }, -1);
+
+    // CONCAT_WS(sep, a, b, ...) — concatenacion con separador. En MySQL
+    // ignora los NULL (a diferencia de CONCAT). Usado en informes.
+    $pdo->sqliteCreateFunction('CONCAT_WS', function($sep, ...$args) {
+        if ($sep === null) return null;
+        $filtered = array_filter($args, fn($v) => $v !== null);
+        return implode((string)$sep, array_map('strval', $filtered));
+    }, -1);
+
+    // FIELD(x, v1, v2, ...) — devuelve la posicion (1-based) donde aparece x.
+    // Usado para ORDER BY FIELD(estado, 'pendiente','enviada','rechazada')
+    // en informes. Si no aparece devuelve 0.
+    $pdo->sqliteCreateFunction('FIELD', function($needle, ...$haystack) {
+        if ($needle === null) return 0;
+        foreach ($haystack as $i => $v) {
+            if ($v !== null && (string)$v === (string)$needle) return $i + 1;
+        }
+        return 0;
+    }, -1);
+
+    // LEAST / GREATEST — SQLite tiene MIN()/MAX() como agregados, pero cuando
+    // se usan como funciones escalares (LEAST(a, b, c)) hay que shimearlo.
+    $pdo->sqliteCreateFunction('LEAST', function(...$args) {
+        $vals = array_filter($args, fn($v) => $v !== null);
+        return empty($vals) ? null : min($vals);
+    }, -1);
+
+    $pdo->sqliteCreateFunction('GREATEST', function(...$args) {
+        $vals = array_filter($args, fn($v) => $v !== null);
+        return empty($vals) ? null : max($vals);
+    }, -1);
+
+    // REGEXP — SQLite soporta la sintaxis `col REGEXP 'pattern'` pero por
+    // default no viene con backend; hay que registrarlo. Usamos preg_match
+    // de PHP. Es compatible con los patrones MySQL simples (POSIX subset)
+    // usados en el backend (p.ej. '[a-zA-Z]+' para filtros de usuarios).
+    $pdo->sqliteCreateFunction('REGEXP', function($pattern, $value) {
+        if ($pattern === null || $value === null) return 0;
+        return @preg_match('/' . str_replace('/', '\/', $pattern) . '/u', (string)$value) ? 1 : 0;
+    }, 2);
+
+    // SUBSTRING / SUBSTR — SQLite ya tiene SUBSTR nativo pero algunas queries
+    // del backend usan SUBSTRING (nombre MySQL). Alias explicito.
+    $pdo->sqliteCreateFunction('SUBSTRING', function($str, $start, $length = null) {
+        if ($str === null) return null;
+        return $length === null
+            ? substr((string)$str, max(0, (int)$start - 1))
+            : substr((string)$str, max(0, (int)$start - 1), (int)$length);
+    }, -1);
 }
 
 /**
