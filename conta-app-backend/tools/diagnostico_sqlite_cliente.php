@@ -63,19 +63,29 @@ try {
 }
 
 // Registrar los mismos shims MySQL que usa el backend real.
-// db_factory.php tiene la lista completa — si no esta disponible,
-// seguimos con PDO plano (las pruebas de shim quedaran como FALTA).
+// db_factory.php vive dentro del backend que corre con la app. Buscamos en
+// rutas comunes porque este script puede ejecutarse desde Downloads, Desktop,
+// la carpeta del repo, o cualquier lado. En producción el backend lo carga
+// automáticamente por auto_prepend_file.
+$programFiles  = getenv('ProgramFiles')   ?: 'C:\\Program Files';
+$programFiles32 = getenv('ProgramFiles(x86)') ?: 'C:\\Program Files (x86)';
+$localPrograms = ($userProfile = getenv('USERPROFILE')) ? "$userProfile\\AppData\\Local\\Programs" : '';
 $dbFactoryPaths = [
-    __DIR__ . '/../api/config/db_factory.php',
-    dirname(__DIR__) . '/api/config/db_factory.php',
+    __DIR__ . '/../api/config/db_factory.php',          // ejecutado desde conta-app-backend/tools
+    dirname(__DIR__) . '/api/config/db_factory.php',    // en el repo del dev
+    "$localPrograms\\Conta FT 4.3\\resources\\backend\\api\\config\\db_factory.php",
+    "$programFiles\\Conta FT 4.3\\resources\\backend\\api\\config\\db_factory.php",
+    "$programFiles32\\Conta FT 4.3\\resources\\backend\\api\\config\\db_factory.php",
 ];
 $shimsCargados = false;
+$shimsPathUsado = null;
 foreach ($dbFactoryPaths as $p) {
     if (file_exists($p)) {
         require_once $p;
         if (function_exists('conta_sqlite_registrar_funciones_mysql')) {
             conta_sqlite_registrar_funciones_mysql($pdo);
             $shimsCargados = true;
+            $shimsPathUsado = $p;
             break;
         }
     }
@@ -174,7 +184,15 @@ try {
 echo "\n──────────────────────────────────────────────────────────────\n";
 echo "  3. SHIMS MySQL — qué funciones funcionan en SQLite\n";
 echo "──────────────────────────────────────────────────────────────\n";
-echo "  Shims " . ($shimsCargados ? "cargados desde db_factory.php (como en producción)" : "NO CARGADOS — db_factory.php no se encontró") . "\n\n";
+if ($shimsCargados) {
+    echo "  Shims cargados desde: $shimsPathUsado\n\n";
+} else {
+    echo "  Shims NO CARGADOS por el script — db_factory.php no se encontro.\n";
+    echo "  OJO: en producción, cuando el backend corre dentro de la app, SI los\n";
+    echo "  carga automaticamente (via auto_prepend_file). Esta prueba solo es\n";
+    echo "  util corriendola desde dentro del repo del backend. Los FALTA de\n";
+    echo "  abajo NO reflejan problemas reales si el cliente puede operar la app.\n\n";
+}
 
 $shimsAProbar = ['YEAR', 'MONTH', 'DAY', 'NOW', 'CURDATE', 'DATE_FORMAT',
                  'DATEDIFF', 'CONCAT', 'CONCAT_WS', 'FIELD', 'LEAST',
