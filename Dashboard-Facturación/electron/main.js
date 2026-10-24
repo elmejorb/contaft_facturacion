@@ -819,6 +819,25 @@ ipcMain.handle('pago:planes', async () => {
   }
 });
 
+// Plan ACTUAL del cliente (el que contrato) + sus precios reales. Usado por
+// ActivarLicenciaModal: cuando el cliente ya tiene plan activo, mostramos
+// directo ese sin la grilla de todos (regla del usuario: cambios de plan
+// se consultan con el administrador, no autoservicio).
+ipcMain.handle('pago:planActual', async () => {
+  try {
+    const t = await obtenerTokenCliente();
+    if (!t) return { ok: false, reason: 'sin-token' };
+    const url = `${SUBS_API_BASE}/consulta-plan/${encodeURIComponent(t)}`;
+    const { status, body } = await httpGetJson(url, 10000);
+    if (status !== 200 || !body?.success) {
+      return { ok: false, reason: 'crm-error', status, body };
+    }
+    return { ok: true, data: body.data };
+  } catch (e) {
+    return { ok: false, reason: 'red', message: e?.message || String(e) };
+  }
+});
+
 ipcMain.handle('pago:crearLinkWompi', async (_e, { plan_id }) => {
   const t = await obtenerTokenCliente();
   if (!t.ok) return t;

@@ -29,14 +29,41 @@ export default function ActivarLicenciaModal({ onClose }: { onClose: () => void 
   const [mensaje, setMensaje] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // Plan ACTUAL del cliente (si tiene uno). Si viene, el modal entra en modo
+  // "renovar" mostrando directamente el valor que debe pagar. Si no tiene,
+  // caemos al modo "elegir" clásico con la grilla de planes publicos.
+  const [planActual, setPlanActual] = useState<Plan | null>(null);
+  const [modoVerCatalogo, setModoVerCatalogo] = useState(false);
+
   useEffect(() => {
     const api = ipc();
     if (!api) { setError('IPC no disponible'); setCargandoPlanes(false); return; }
-    api.invoke('pago:planes').then((r: any) => {
-      if (r.ok) {
-        setDatos({ planes: r.planes, cuentas_bancarias: r.cuentas_bancarias || [], nequi: r.nequi });
+
+    // Carga en paralelo: plan actual del cliente + catálogo de planes públicos
+    Promise.all([
+      api.invoke('pago:planActual').then((r: any) => r),
+      api.invoke('pago:planes').then((r: any) => r),
+    ]).then(([actual, catalogo]) => {
+      if (catalogo?.ok) {
+        setDatos({ planes: catalogo.planes, cuentas_bancarias: catalogo.cuentas_bancarias || [], nequi: catalogo.nequi });
       } else {
-        setError('No se pudieron cargar los planes: ' + (r.message || r.reason || 'sin razón'));
+        setError('No se pudieron cargar los planes: ' + (catalogo?.message || catalogo?.reason || 'sin razón'));
+      }
+      // Si el cliente tiene plan activo, lo preseleccionamos. Usamos el precio
+      // real del CRM (valor_anual) — no el del catálogo público porque pueden
+      // haberse pactado tarifas diferentes.
+      if (actual?.ok && actual?.data?.tiene_plan && actual?.data?.plan) {
+        const p = actual.data.plan;
+        const planClienteActual: Plan = {
+          id: p.id,
+          nombre: p.nombre,
+          periodo: 'anual',
+          monto: Number(p.valor_anual) || Number(p.valor_mensual) || 0,
+          features: (p.caracteristicas || []).map((c: any) => c.caracteristica),
+          recomendado: false,
+        };
+        setPlanActual(planClienteActual);
+        setPlanElegido(planClienteActual);
       }
       setCargandoPlanes(false);
     });
@@ -107,24 +134,71 @@ export default function ActivarLicenciaModal({ onClose }: { onClose: () => void 
 
           {!cargandoPlanes && datos && metodo === 'elegir' && (
             <>
-              <h3 style={{ marginTop: 0, fontSize: 15, fontWeight: 600 }}>1. Elige tu plan</h3>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12, marginBottom: 20 }}>
-                {datos.planes.map((p) => (
-                  <div key={p.id} style={planCard(p, planElegido?.id === p.id)} onClick={() => setPlanElegido(p)}>
-                    {p.recomendado && (
-                      <span style={{ position: 'absolute', top: -10, right: 10, background: '#16a34a', color: '#fff', fontSize: 10, padding: '2px 8px', borderRadius: 10, fontWeight: 700 }}>RECOMENDADO</span>
-                    )}
-                    <div style={{ fontSize: 16, fontWeight: 700, color: '#111827' }}>{p.nombre}</div>
-                    <div style={{ fontSize: 24, fontWeight: 700, color: '#2563eb', margin: '6px 0' }}>{fmtMon(p.monto)}</div>
-                    <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 8 }}>{p.periodo || 'anual'}</div>
-                    {p.features && p.features.length > 0 && (
-                      <ul style={{ margin: 0, paddingLeft: 16, fontSize: 12, color: '#374151' }}>
-                        {p.features.slice(0, 4).map((f, i) => <li key={i}>{f}</li>)}
+              {/* MODO RENOVAR: cliente ya tiene plan → una sola card grande con su plan actual */}
+              {planActual && !modoVerCatalogo ? (
+                <>
+                  <h3 style={{ marginTop: 0, fontSize: 15, fontWeight: 600 }}>Tu plan actual</h3>
+                  <div style={{
+                    border: '2px solid #2563eb',
+                    borderRadius: 12,
+                    padding: 20,
+                    background: 'linear-gradient(135deg, #eff6ff 0%, #ffffff 100%)',
+                    marginBottom: 16,
+                    position: 'relative',
+                  }}>
+                    <div style={{ fontSize: 20, fontWeight: 700, color: '#111827' }}>{planActual.nombre}</div>
+                    <div style={{ fontSize: 36, fontWeight: 800, color: '#2563eb', margin: '8px 0 4px' }}>
+                      {fmtMon(planActual.monto)}
+                    </div>
+                    <div style={{ fontSize: 12, color: '#6b7280' }}>por año</div>
+                    {planActual.features && planActual.features.length > 0 && (
+                      <ul style={{ margin: '12px 0 0', paddingLeft: 18, fontSize: 13, color: '#374151' }}>
+                        {planActual.features.slice(0, 6).map((f, i) => <li key={i}>{f}</li>)}
                       </ul>
                     )}
                   </div>
-                ))}
-              </div>
+
+                  <div style={{ fontSize: 11, color: '#6b7280', textAlign: 'center', marginBottom: 16 }}>
+                    ¿Querés cambiar de plan? Contactá al administrador —{' '}
+                    <a
+                      href="#"
+                      onClick={(e) => { e.preventDefault(); setModoVerCatalogo(true); }}
+                      style={{ color: '#2563eb', textDecoration: 'underline' }}>
+                      ver otros planes
+                    </a>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <h3 style={{ marginTop: 0, fontSize: 15, fontWeight: 600 }}>
+                    {planActual ? 'Otros planes disponibles' : '1. Elige tu plan'}
+                  </h3>
+                  {planActual && (
+                    <div style={{ fontSize: 11, color: '#92400e', background: '#fef3c7', border: '1px solid #fcd34d', padding: 8, borderRadius: 6, marginBottom: 12 }}>
+                      ⚠ Para cambiar de plan hay que coordinarlo con el administrador. Esto es solo informativo.{' '}
+                      <a href="#" onClick={(e) => { e.preventDefault(); setModoVerCatalogo(false); setPlanElegido(planActual); }}
+                        style={{ color: '#92400e', fontWeight: 600 }}>← volver a mi plan</a>
+                    </div>
+                  )}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12, marginBottom: 20 }}>
+                    {datos.planes.map((p) => (
+                      <div key={p.id} style={planCard(p, planElegido?.id === p.id)} onClick={() => setPlanElegido(p)}>
+                        {p.recomendado && (
+                          <span style={{ position: 'absolute', top: -10, right: 10, background: '#16a34a', color: '#fff', fontSize: 10, padding: '2px 8px', borderRadius: 10, fontWeight: 700 }}>RECOMENDADO</span>
+                        )}
+                        <div style={{ fontSize: 16, fontWeight: 700, color: '#111827' }}>{p.nombre}</div>
+                        <div style={{ fontSize: 24, fontWeight: 700, color: '#2563eb', margin: '6px 0' }}>{fmtMon(p.monto)}</div>
+                        <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 8 }}>{p.periodo || 'anual'}</div>
+                        {p.features && p.features.length > 0 && (
+                          <ul style={{ margin: 0, paddingLeft: 16, fontSize: 12, color: '#374151' }}>
+                            {p.features.slice(0, 4).map((f, i) => <li key={i}>{f}</li>)}
+                          </ul>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
 
               {planElegido && (
                 <>

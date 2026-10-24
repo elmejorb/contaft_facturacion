@@ -106,9 +106,32 @@ export function useLicenciaEstado() {
   return { data: d, mostrar, nivel, mensaje, bloqueado, esTrial, refrescar };
 }
 
+// Snooze: el cliente puede ocultar el banner por 24h cuando NO esta bloqueado
+// (solo niveles verde/amarillo). Si esta rojo/bloqueado, no se puede ocultar
+// porque es informacion critica. Guardamos el timestamp en localStorage.
+const SNOOZE_KEY = 'trial_banner_snooze_until';
+const SNOOZE_MS = 24 * 60 * 60 * 1000; // 24h
+function estaSnoozed(): boolean {
+  try {
+    const hasta = parseInt(localStorage.getItem(SNOOZE_KEY) || '0', 10);
+    return !isNaN(hasta) && Date.now() < hasta;
+  } catch { return false; }
+}
+function activarSnooze() {
+  try { localStorage.setItem(SNOOZE_KEY, String(Date.now() + SNOOZE_MS)); } catch {}
+}
+
 export default function TrialBanner() {
   const { mostrar, nivel, mensaje, bloqueado, refrescar } = useLicenciaEstado();
   const [modalAbierto, setModalAbierto] = useState(false);
+  const [snoozed, setSnoozed] = useState(estaSnoozed());
+
+  // Rechequea snooze cada 5 min — asi el banner vuelve solo cuando pasan 24h
+  // sin que el cliente tenga que reiniciar la app.
+  useEffect(() => {
+    const i = setInterval(() => setSnoozed(estaSnoozed()), 5 * 60 * 1000);
+    return () => clearInterval(i);
+  }, []);
 
   // Flag solo para QA visual: forzar banner y/o modal sin tener que esperar
   // un vencimiento real. Se activa poniendo en la consola:
@@ -117,7 +140,11 @@ export default function TrialBanner() {
   const forzarBanner = typeof window !== 'undefined' && window.localStorage?.FORCE_SHOW_BANNER === '1';
   const forzarModal  = typeof window !== 'undefined' && window.localStorage?.FORCE_SHOW_MODAL === '1';
 
-  const mostrarEfectivo = mostrar || forzarBanner;
+  // Si está "snoozed" por el botón 'Recordar después' y NO está bloqueado,
+  // ocultamos el banner (seguimos permitiendo el modal si lo abre manualmente).
+  // En rojo/bloqueado ignoramos el snooze — es crítico que el banner se vea.
+  const puedeOcultarse = !bloqueado && nivel !== 'rojo';
+  const mostrarEfectivo = (mostrar && !(snoozed && puedeOcultarse)) || forzarBanner;
   const modalEfectivo = modalAbierto || forzarModal;
 
   if (!mostrarEfectivo && !modalEfectivo) return null;
@@ -144,7 +171,25 @@ export default function TrialBanner() {
           fontWeight: 500,
         }}>
           <span>{mensaje}</span>
-          <button
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            {puedeOcultarse && (
+              <button
+                onClick={() => { activarSnooze(); setSnoozed(true); }}
+                title="Volvemos a avisarte mañana"
+                style={{
+                  background: 'transparent',
+                  color: c.text,
+                  border: `1px solid ${c.text}44`,
+                  padding: '4px 10px',
+                  borderRadius: 4,
+                  fontSize: 11,
+                  fontWeight: 500,
+                  cursor: 'pointer',
+                }}>
+                Recordar después
+              </button>
+            )}
+            <button
             onClick={() => setModalAbierto(true)}
             style={{
               background: c.text,
@@ -158,6 +203,7 @@ export default function TrialBanner() {
             }}>
             {bloqueado ? 'Activar ahora' : 'Activar licencia'}
           </button>
+          </div>
         </div>
       )}
       {modalEfectivo && (
