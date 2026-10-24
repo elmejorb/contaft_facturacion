@@ -43,7 +43,9 @@ import {
   Gift,
   Smartphone,
   CalendarDays,
-  Warehouse
+  Warehouse,
+  Cloud,
+  CloudOff
 } from 'lucide-react';
 // LIGEROS (necesarios en el arranque) — imports estáticos
 import { PantallaInicio } from './PantallaInicio';
@@ -588,6 +590,20 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
   const { habilitado: vendedoresHabilitado, pedidosPendientes } = useVendedoresConfig();
   const { esActivo: esModuloActivo } = useModulos();
   const sincro = useSincronizacion();
+
+  // Estado del backup en nube — se carga del main process via IPC. Refresca
+  // cada 5 min para que el badge de la topbar siempre refleje el ultimo
+  // intento. Null = no hay copia todavia; { ts, saved_at, size_bytes, empresa }
+  // cuando hay una. El main.js hace el backup automatico (programarBackupNube).
+  const [backupCloud, setBackupCloud] = useState<{ ts: number; saved_at: string; size_bytes: number; empresa: string } | null>(null);
+  useEffect(() => {
+    let ipc: any = null;
+    try { ipc = window.require('electron').ipcRenderer; } catch { return; }
+    const leer = () => ipc.invoke('backup-cloud:estado').then((r: any) => setBackupCloud(r || null)).catch(() => {});
+    leer();
+    const int = setInterval(leer, 5 * 60 * 1000);
+    return () => clearInterval(int);
+  }, []);
   const { modulos: entitlements, source: entitSource, loading: entitLoading } = useEntitlements();
   // CRM manda 100%: el módulo Vendedores solo aparece si el CRM lo tiene
   // activo. Durante la carga inicial (~1 seg) usamos el valor local para
@@ -1169,6 +1185,53 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
                   </div>
                 );
               })()}
+
+              {/* Badge discreto del backup en nube — mismo patron que sincro.
+                  Icono Cloud (verde si copia <24h, ambar si <7d, rojo si >7d
+                  o nunca). Click abre la pantalla Respaldo de BD. */}
+              {(() => {
+                const horasDesde = backupCloud
+                  ? (Date.now() - backupCloud.ts) / 36e5
+                  : Infinity;
+                const color = horasDesde < 24
+                  ? '#22c55e'
+                  : horasDesde < 24 * 7
+                    ? '#facc15'
+                    : '#ef4444';
+                const estaOk = horasDesde < 24;
+                const label = !backupCloud
+                  ? 'Sin backup'
+                  : horasDesde < 1
+                    ? 'Backup OK'
+                    : horasDesde < 24
+                      ? `Backup ${Math.floor(horasDesde)}h`
+                      : horasDesde < 24 * 7
+                        ? `Backup ${Math.floor(horasDesde / 24)}d`
+                        : 'Backup viejo';
+                const titulo = !backupCloud
+                  ? 'No hay copia de seguridad en la nube todavía.\nClick para hacer una ahora.'
+                  : `Última copia: ${backupCloud.saved_at}\nEmpresa: ${backupCloud.empresa}\n\n(click para administrar)`;
+                const Icon = estaOk ? Cloud : CloudOff;
+                return (
+                  <div
+                    title={titulo}
+                    onClick={() => abrirEnTab('backup-bd')}
+                    style={{
+                      height: 32, padding: '0 10px',
+                      background: color + '28',
+                      border: '1px solid ' + color + '66',
+                      borderRadius: 8, color: '#fff',
+                      fontSize: 11, fontWeight: 600,
+                      display: 'flex', alignItems: 'center', gap: 6,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <Icon className="w-3.5 h-3.5" style={{ color }} />
+                    {label}
+                  </div>
+                );
+              })()}
+
               <DropdownMenu open={notifOpen} onOpenChange={setNotifOpen}>
                 <DropdownMenuTrigger asChild>
                   <button
