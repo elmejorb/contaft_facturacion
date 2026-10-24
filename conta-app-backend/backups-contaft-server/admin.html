@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Panel admin · Backups Conta FT</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, system-ui, 'Segoe UI', sans-serif;
+      margin: 0; padding: 20px; background: #f8fafc; color: #1e293b;
+    }
+    .wrap { max-width: 1100px; margin: 0 auto; }
+    h1 { font-size: 22px; margin: 0 0 4px; color: #0f172a; }
+    .sub { color: #64748b; font-size: 13px; margin: 0 0 20px; }
+    .kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 20px; }
+    .kpi { background: #fff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px; }
+    .kpi-label { font-size: 10px; color: #64748b; text-transform: uppercase; font-weight: 700; letter-spacing: .5px; }
+    .kpi-val { font-size: 22px; font-weight: 800; color: #0f172a; margin-top: 4px; }
+    .login { max-width: 400px; margin: 60px auto; background: #fff; padding: 30px; border-radius: 12px; border: 1px solid #e2e8f0; box-shadow: 0 1px 3px rgba(0,0,0,.05); }
+    .login h2 { margin: 0 0 20px; font-size: 18px; }
+    input {
+      width: 100%; padding: 10px 12px; border: 1px solid #cbd5e1; border-radius: 8px;
+      font-size: 14px; font-family: ui-monospace, monospace; outline: none;
+    }
+    input:focus { border-color: #3b82f6; }
+    button {
+      height: 36px; padding: 0 16px; background: #2563eb; color: #fff; border: 0;
+      border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer;
+    }
+    button:hover { background: #1d4ed8; }
+    button.sm { height: 28px; padding: 0 10px; font-size: 11px; }
+    button.secondary { background: #e2e8f0; color: #334155; }
+    button.secondary:hover { background: #cbd5e1; }
+    table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 10px; overflow: hidden; border: 1px solid #e2e8f0; }
+    th { text-align: left; font-size: 10px; text-transform: uppercase; color: #64748b; padding: 10px 12px; background: #f1f5f9; border-bottom: 1px solid #e2e8f0; font-weight: 700; letter-spacing: .3px; }
+    td { padding: 10px 12px; border-bottom: 1px solid #f1f5f9; font-size: 13px; }
+    tr:last-child td { border-bottom: 0; }
+    tr:hover { background: #f8fafc; }
+    .tag { display: inline-block; padding: 2px 6px; background: #dcfce7; color: #166534; border-radius: 10px; font-size: 10px; font-weight: 700; }
+    .tag.rojo { background: #fee2e2; color: #991b1b; }
+    .tag.ambar { background: #fef3c7; color: #92400e; }
+    .mono { font-family: ui-monospace, monospace; font-size: 11px; color: #475569; }
+    .toolbar { display: flex; gap: 10px; margin-bottom: 12px; align-items: center; }
+    .search { flex: 1; }
+    .empty { text-align: center; padding: 40px; color: #94a3b8; }
+    .err { color: #dc2626; font-size: 13px; margin-top: 8px; }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div id="login-view" style="display:none">
+    <div class="login">
+      <h2>Admin · Backups Conta FT</h2>
+      <input id="token" type="password" placeholder="Admin token..." autofocus>
+      <div id="login-err" class="err"></div>
+      <button onclick="iniciar()" style="width:100%; margin-top:12px; height:40px">Entrar</button>
+    </div>
+  </div>
+
+  <div id="panel-view" style="display:none">
+    <h1>Backups de clientes · Conta FT</h1>
+    <p class="sub">Último backup subido por cliente. Se sobreescribe diariamente — siempre tenés la copia más reciente.</p>
+
+    <div class="kpis">
+      <div class="kpi"><div class="kpi-label">Clientes con backup</div><div class="kpi-val" id="kpi-total">—</div></div>
+      <div class="kpi"><div class="kpi-label">Espacio total</div><div class="kpi-val" id="kpi-size">—</div></div>
+      <div class="kpi"><div class="kpi-label">Más antiguo</div><div class="kpi-val" id="kpi-antiguo" style="font-size:14px">—</div></div>
+    </div>
+
+    <div class="toolbar">
+      <input class="search" id="buscador" placeholder="Buscar por empresa…" oninput="filtrar()">
+      <button class="secondary sm" onclick="cargar()">↻ Refrescar</button>
+      <button class="secondary sm" onclick="salir()">Salir</button>
+    </div>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Empresa</th>
+          <th>Última copia</th>
+          <th>Tamaño</th>
+          <th>Versión</th>
+          <th style="text-align:right"></th>
+        </tr>
+      </thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+const API = '';  // mismo origen
+let token = sessionStorage.getItem('admin_token') || '';
+let backups = [];
+
+function fmtSize(b) {
+  if (b < 1024) return b + ' B';
+  if (b < 1024 * 1024) return (b / 1024).toFixed(1) + ' KB';
+  return (b / 1024 / 1024).toFixed(1) + ' MB';
+}
+function fmtHace(ts) {
+  const min = Math.floor((Date.now()/1000 - ts) / 60);
+  if (min < 1) return 'ahora';
+  if (min < 60) return `hace ${min} min`;
+  const h = Math.floor(min / 60);
+  if (h < 24) return `hace ${h} h`;
+  const d = Math.floor(h / 24);
+  return `hace ${d}d`;
+}
+
+function iniciar() {
+  const t = document.getElementById('token').value.trim();
+  if (!t) return;
+  token = t;
+  document.getElementById('login-err').textContent = '';
+  cargar();
+}
+
+async function cargar() {
+  try {
+    const r = await fetch(`${API}listar.php?admin_token=${encodeURIComponent(token)}`);
+    const d = await r.json();
+    if (!d.success) {
+      document.getElementById('login-err').textContent = d.message || 'Token inválido';
+      sessionStorage.removeItem('admin_token');
+      mostrar('login');
+      return;
+    }
+    sessionStorage.setItem('admin_token', token);
+    backups = d.backups;
+    renderKpis(d);
+    renderRows(backups);
+    mostrar('panel');
+  } catch (e) {
+    document.getElementById('login-err').textContent = 'Error de red: ' + e.message;
+  }
+}
+
+function renderKpis(d) {
+  document.getElementById('kpi-total').textContent = d.total;
+  document.getElementById('kpi-size').textContent = fmtSize(d.suma_bytes);
+  const masViejo = backups.slice().sort((a, b) => a.saved_ts - b.saved_ts)[0];
+  document.getElementById('kpi-antiguo').textContent = masViejo ? fmtHace(masViejo.saved_ts) : '—';
+}
+
+function renderRows(list) {
+  const tb = document.getElementById('rows');
+  if (list.length === 0) {
+    tb.innerHTML = '<tr><td colspan="5" class="empty">Sin backups todavía</td></tr>';
+    return;
+  }
+  tb.innerHTML = list.map(b => {
+    const hace = fmtHace(b.saved_ts);
+    const diasViejo = (Date.now()/1000 - b.saved_ts) / 86400;
+    const chip = diasViejo < 2 ? 'tag' : (diasViejo < 7 ? 'tag ambar' : 'tag rojo');
+    return `
+      <tr>
+        <td>
+          <div style="font-weight:600">${escapeHtml(b.empresa)}</div>
+          <div class="mono">${b.cliente_key}</div>
+        </td>
+        <td>
+          <span class="${chip}">${hace}</span>
+          <div class="mono" style="margin-top:2px">${b.saved_at}</div>
+        </td>
+        <td>${fmtSize(b.size_bytes)}</td>
+        <td><span class="mono">${escapeHtml(b.version)}</span></td>
+        <td style="text-align:right">
+          <button class="sm" onclick="descargar('${b.archivo}')">↓ Descargar</button>
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function filtrar() {
+  const q = document.getElementById('buscador').value.toLowerCase().trim();
+  const filt = backups.filter(b =>
+    !q || (b.empresa || '').toLowerCase().includes(q) || (b.cliente_key || '').includes(q)
+  );
+  renderRows(filt);
+}
+
+function descargar(archivo) {
+  const url = `${API}descargar.php?admin_token=${encodeURIComponent(token)}&archivo=${encodeURIComponent(archivo)}`;
+  window.open(url, '_blank');
+}
+
+function salir() {
+  sessionStorage.removeItem('admin_token');
+  token = '';
+  mostrar('login');
+}
+
+function mostrar(view) {
+  document.getElementById('login-view').style.display = view === 'login' ? 'block' : 'none';
+  document.getElementById('panel-view').style.display = view === 'panel' ? 'block' : 'none';
+}
+
+function escapeHtml(s) {
+  return String(s || '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+}
+
+// Entry
+if (token) cargar(); else mostrar('login');
+document.getElementById('token')?.addEventListener('keyup', e => { if (e.key === 'Enter') iniciar(); });
+</script>
+</body>
+</html>
