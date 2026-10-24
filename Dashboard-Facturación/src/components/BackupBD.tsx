@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Database, Download, RefreshCw, Trash2, HardDrive, CheckCircle2, AlertTriangle, Loader2 } from 'lucide-react';
+import { Database, Download, RefreshCw, Trash2, HardDrive, CheckCircle2, AlertTriangle, Loader2, Cloud, CloudUpload, CloudOff } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { confirmar } from './ConfirmDialog';
 
@@ -27,10 +27,60 @@ const fmtSize = (b: number): string => {
 };
 const fmtDate = (s: string): string => new Date(s).toLocaleString('es-CO');
 
+interface EstadoCloudBackup {
+  ts: number;
+  saved_at: string;
+  size_bytes: number;
+  empresa: string;
+}
+
+const fmtHaceCuanto = (ts: number): string => {
+  const min = Math.floor((Date.now() - ts) / 60000);
+  if (min < 1) return 'ahora mismo';
+  if (min < 60) return `hace ${min} min`;
+  const h = Math.floor(min / 60);
+  if (h < 24) return `hace ${h} h`;
+  const d = Math.floor(h / 24);
+  return `hace ${d} día${d === 1 ? '' : 's'}`;
+};
+
 export function BackupBD() {
   const [estado, setEstado] = useState<EstadoBackup | null>(null);
   const [loading, setLoading] = useState(true);
   const [generando, setGenerando] = useState(false);
+  const [cloud, setCloud] = useState<EstadoCloudBackup | null>(null);
+  const [subiendoCloud, setSubiendoCloud] = useState(false);
+
+  // Sólo en Electron: IPC para backup en la nube.
+  const ipc = (() => {
+    try { return window.require('electron').ipcRenderer; } catch { return null; }
+  })();
+
+  const cargarCloud = async () => {
+    if (!ipc) return;
+    try {
+      const r = await ipc.invoke('backup-cloud:estado');
+      setCloud(r);
+    } catch { /* silencioso */ }
+  };
+
+  const subirCloud = async () => {
+    if (!ipc || subiendoCloud) return;
+    setSubiendoCloud(true);
+    const toastId = toast.loading('Subiendo backup a la nube…');
+    try {
+      const r = await ipc.invoke('backup-cloud:subir');
+      if (r.success) {
+        toast.success(`Backup subido (${fmtSize(r.size_bytes)})`, { id: toastId });
+        await cargarCloud();
+      } else {
+        toast.error(r.message || 'Falló el backup en la nube', { id: toastId });
+      }
+    } catch (e: any) {
+      toast.error(e?.message || 'Error inesperado', { id: toastId });
+    }
+    setSubiendoCloud(false);
+  };
 
   const cargar = async () => {
     setLoading(true);
@@ -43,7 +93,7 @@ export function BackupBD() {
     setLoading(false);
   };
 
-  useEffect(() => { cargar(); }, []);
+  useEffect(() => { cargar(); cargarCloud(); }, []);
 
   const generar = async (forzar = false) => {
     if (generando) return;
@@ -108,6 +158,45 @@ export function BackupBD() {
           </p>
         </div>
       </div>
+
+      {/* Backup en la nube — solo si estamos en Electron modo embebido (ipc existe) */}
+      {ipc && (
+        <div style={{ ...card, marginBottom: 14, background: cloud ? '#eff6ff' : '#fef3c7', border: `1px solid ${cloud ? '#bfdbfe' : '#fde68a'}` }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+            {cloud ? (
+              <Cloud size={28} color="#2563eb" />
+            ) : (
+              <CloudOff size={28} color="#d97706" />
+            )}
+            <div style={{ flex: 1, minWidth: 220 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: cloud ? '#1e40af' : '#92400e' }}>
+                Respaldo en la nube {cloud ? '· activo' : '· todavía sin copia'}
+              </div>
+              <div style={{ fontSize: 11, color: cloud ? '#1e40af' : '#92400e', marginTop: 2 }}>
+                {cloud ? (
+                  <>Último backup <b>{fmtHaceCuanto(cloud.ts)}</b> · {fmtSize(cloud.size_bytes)} · {cloud.saved_at}</>
+                ) : (
+                  <>Si pierdes la máquina o se corrompe el disco, podemos restaurar tu BD si tienes al menos 1 copia en la nube.</>
+                )}
+              </div>
+            </div>
+            <button
+              onClick={subirCloud}
+              disabled={subiendoCloud}
+              style={{
+                height: 36, padding: '0 16px', background: subiendoCloud ? '#9ca3af' : '#2563eb',
+                color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700,
+                cursor: subiendoCloud ? 'wait' : 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6,
+              }}>
+              {subiendoCloud ? <Loader2 size={16} className="animate-spin" /> : <CloudUpload size={16} />}
+              {subiendoCloud ? 'Subiendo…' : (cloud ? 'Subir ahora' : 'Hacer primera copia')}
+            </button>
+          </div>
+          <div style={{ fontSize: 10, color: '#6b7280', marginTop: 10, borderTop: '1px dashed #e5e7eb', paddingTop: 8 }}>
+            Se sube automáticamente 1 vez al día. La copia reemplaza la anterior para no acumular (una por empresa).
+          </div>
+        </div>
+      )}
 
       {/* Estado hoy */}
       <div style={card}>

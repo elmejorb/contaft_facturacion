@@ -629,6 +629,106 @@ ipcMain.handle('updater:install', () => {
   // (bug reportado por múltiples clientes 2026-09-30).
   autoUpdater.quitAndInstall(true, true);
 });
+// ============================================================
+// Backup en la nube — sube conta.db gzip al servidor del hub.
+// Guardamos 1 copia por cliente (sobreescribe la anterior).
+// Autenticación: api_token del CRM que ya vive en config.json.
+// Scheduler: 1 vez cada 24h en background + bajo demanda via IPC.
+// ============================================================
+const zlib = require('zlib');
+const BACKUP_CLOUD_URL = 'https://innovacion-digital.com/backups-contaft/upload.php';
+const BACKUP_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24h
+
+async function subirBackupNube() {
+  const cfg = readConfig();
+  const token = cfg.api_token;
+  if (!token) return { success: false, message: 'Sin api_token en config — ¿el CRM está respondiendo?' };
+
+  const dbPath = path.join(app.getPath('userData'), 'conta.db');
+  if (!fs.existsSync(dbPath)) return { success: false, message: 'conta.db no existe aún' };
+
+  // Comprimir en memoria (BD típica 1-10 MB → compresa 200 KB-2 MB)
+  const raw = fs.readFileSync(dbPath);
+  const gz  = await new Promise((res, rej) =>
+    zlib.gzip(raw, { level: 6 }, (e, d) => e ? rej(e) : res(d))
+  );
+
+  // Multipart boundary a mano (evita dependencia FormData)
+  const boundary = '----ContaFTBoundary' + Date.now();
+  const encoder = new TextEncoder();
+  const parts = [];
+  const push = (s) => parts.push(typeof s === 'string' ? encoder.encode(s) : s);
+
+  push(`--${boundary}\r\nContent-Disposition: form-data; name="nombre_app"\r\n\r\nConta FT 4.3\r\n`);
+  push(`--${boundary}\r\nContent-Disposition: form-data; name="version"\r\n\r\n${app.getVersion()}\r\n`);
+  push(`--${boundary}\r\nContent-Disposition: form-data; name="backup"; filename="conta.db.gz"\r\n` +
+       `Content-Type: application/gzip\r\n\r\n`);
+  push(gz);
+  push(`\r\n--${boundary}--\r\n`);
+
+  const bodyBuf = Buffer.concat(parts.map(p => Buffer.from(p)));
+
+  const res = await fetch(BACKUP_CLOUD_URL, {
+    method: 'POST',
+    headers: {
+      'X-API-Token': token,
+      'Content-Type': `multipart/form-data; boundary=${boundary}`,
+    },
+    body: bodyBuf,
+  });
+  const data = await res.json().catch(() => ({ success: false, message: `HTTP ${res.status}` }));
+
+  if (data.success) {
+    writeConfig({
+      ultimo_backup_nube: {
+        ts: Date.now(),
+        saved_at: data.saved_at,
+        size_bytes: data.size_bytes,
+        empresa: data.empresa,
+      },
+    });
+  }
+  return data;
+}
+
+ipcMain.handle('backup-cloud:subir', async () => {
+  try {
+    return await subirBackupNube();
+  } catch (e) {
+    return { success: false, message: String(e?.message || e) };
+  }
+});
+
+ipcMain.handle('backup-cloud:estado', () => {
+  const cfg = readConfig();
+  return cfg.ultimo_backup_nube || null;
+});
+
+// Scheduler diario: dispara 5 min después del arranque si pasaron >24h desde
+// el último backup. Luego cada 24h. Si falla (sin internet, token caído),
+// reintenta en el siguiente ciclo. No molesta al usuario.
+function programarBackupNube() {
+  const cfg = readConfig();
+  if (cfg.backendMode !== 'embedded') return; // modo legacy no usa SQLite
+
+  const ultimo = cfg.ultimo_backup_nube?.ts || 0;
+  const now = Date.now();
+  const necesita = (now - ultimo) > BACKUP_INTERVAL_MS;
+
+  if (necesita) {
+    // Delay inicial aleatorio 5-15 min para no apiñar todos los clientes
+    // en el minuto cero. Mejora para el servidor cuando sean muchos.
+    const delay = 5 * 60 * 1000 + Math.random() * 10 * 60 * 1000;
+    setTimeout(() => {
+      subirBackupNube()
+        .then(r => console.log('[backup-cloud]', r.success ? 'OK' : 'FAIL', r.message || ''))
+        .catch(e => console.warn('[backup-cloud] excepción:', e.message));
+    }, delay);
+  }
+  // Siguiente ciclo
+  setTimeout(programarBackupNube, BACKUP_INTERVAL_MS);
+}
+
 // Trial 30 días (modo embebido) — el frontend lo lee para mostrar banner y
 // bloquear flujos cuando venza.
 ipcMain.handle('trial:getStatus', () => getTrialStatus());
@@ -1529,6 +1629,10 @@ app.whenReady().then(async () => {
   }
   await startEmbeddedPHP();
   createWindow();
+
+  // Backup diario en la nube (solo modo embebido con conta.db).
+  // No bloquea el arranque — corre con delay aleatorio en background.
+  programarBackupNube();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
