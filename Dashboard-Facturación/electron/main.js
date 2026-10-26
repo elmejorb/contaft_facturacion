@@ -826,8 +826,8 @@ ipcMain.handle('pago:planes', async () => {
 ipcMain.handle('pago:planActual', async () => {
   try {
     const t = await obtenerTokenCliente();
-    if (!t) return { ok: false, reason: 'sin-token' };
-    const url = `${SUBS_API_BASE}/consulta-plan/${encodeURIComponent(t)}`;
+    if (!t.ok) return { ok: false, reason: t.reason || 'sin-token' };
+    const url = `${SUBS_API_BASE}/consulta-plan/${encodeURIComponent(t.token)}`;
     const { status, body } = await httpGetJson(url, 10000);
     if (status !== 200 || !body?.success) {
       return { ok: false, reason: 'crm-error', status, body };
