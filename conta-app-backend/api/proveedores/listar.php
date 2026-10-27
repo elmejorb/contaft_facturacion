@@ -189,9 +189,18 @@ try {
             if (isset($data->action) && $data->action === 'pagar') {
                 $provId = $data->proveedor ?? null;
                 $pagos = $data->pagos ?? [];
-                $tipoPago = isset($data->tipo_pago) ? intval($data->tipo_pago) : 2;
+                // El frontend manda el id_mediopago del dropdown como tipo_pago
+                // (histórico — Efectivo=0, Tarjeta=1, Bancolombia=2, Nequi=3).
+                // Lo normalizamos a 2 campos coherentes:
+                //   - $idMedioPago: entra en la columna id_mediopago.
+                //   - $tipoPago: solo 0 (efectivo) o 1 (otro medio); el cuadre
+                //     de caja usa COALESCE(TipoPago,0)=0 para contar efectivo.
+                // Guardar los dos consistentemente evita el bug EyD 2026-10-27
+                // donde TipoPago=0 con id_mediopago=2 descuadraba el cuadre.
+                $idMedioPago = isset($data->tipo_pago) ? intval($data->tipo_pago) : 2;
+                $tipoPago    = $idMedioPago === 0 ? 0 : 1;
                 $idUsuario = intval($data->id_usuario ?? 0) ?: null;
-                $cajaIdPago = intval($data->caja_id ?? 0); // requerida si tipo_pago == 0 (efectivo)
+                $cajaIdPago = intval($data->caja_id ?? 0); // requerida si efectivo
 
                 if (!$provId || empty($pagos)) {
                     http_response_code(400);
@@ -221,9 +230,11 @@ try {
 
                 $stmtInsert = $db->prepare("
                     INSERT INTO tblegresos (N_Comprobante, Fecha, Orden, Concepto, Valor, Descuento,
-                        Estado, Cuentas, FactN, CodigoPro, NFacturaAnt, ValorFact, Saldoact, Cedula, TipoPago, id_usuario)
+                        Estado, Cuentas, FactN, CodigoPro, NFacturaAnt, ValorFact, Saldoact, Cedula,
+                        TipoPago, id_mediopago, id_usuario)
                     VALUES (:comp, CURRENT_TIMESTAMP, :orden, :concepto, :valor, :desc, 'Valida', :cuentas, '0',
-                        :prov, :nfact, :valfact, :saldo, :cedula, :tipo, :id_user)
+                        :prov, :nfact, :valfact, :saldo, :cedula,
+                        :tipo, :medio, :id_user)
                 ");
 
                 $stmtUpdAnt    = $db->prepare("UPDATE tblfacturasanterioresproveedor SET Saldo = Saldo - :pago WHERE ID_FactAnterioresP = :id");
@@ -271,6 +282,7 @@ try {
                         ':saldo' => max($nuevoSaldo, 0),
                         ':cedula' => $prov['Nit'],
                         ':tipo' => $tipoPago,
+                        ':medio' => $idMedioPago,
                         ':id_user' => $idUsuario,
                     ]);
 

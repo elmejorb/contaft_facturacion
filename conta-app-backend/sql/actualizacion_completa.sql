@@ -2652,9 +2652,10 @@ WHERE d.Entregado = 'S'
 --   transferencia saliendo del efectivo. Nutrigranos lo vio como "Total
 --   Efectivo = -2.742.684" en la caja de Deivison.
 --
--- Capa 1 (codigo PHP): compras/nueva.php y movimientos/gastos.php ahora
---   setean TipoPago = (id_mediopago>0 ? 1 : 0). Nomina y proveedores ya
---   estaban bien.
+-- Capa 1 (codigo PHP): compras/nueva.php, movimientos/gastos.php y
+--   proveedores/listar.php (fix EyD 2026-10-27 — ademas antes no guardaba
+--   id_mediopago en el INSERT) ahora setean TipoPago = (id_mediopago>0 ? 1 : 0).
+--   Nomina ya estaba bien.
 --
 -- Capa 2 (trigger abajo): BEFORE INSERT que corrige automaticamente
 --   cualquier INSERT futuro que olvide setear TipoPago cuando hay
