@@ -219,8 +219,17 @@ try {
         // (TipoPago>0) NO afectan el efectivo fisico de la caja.
         // Bug reportado por cliente: pagos a proveedor via "Bancolombia" restaban
         // del cuadre de caja como si fueran efectivo.
-        $stmt = $db->prepare("SELECT COALESCE(SUM(Valor),0) as t, COUNT(*) as c FROM tblegresos WHERE Fecha >= ? AND Estado = 'Valida' AND COALESCE(TipoPago, 0) = 0$filtroUsuarioPagos");
-        $stmt->execute($paramsUsuario);
+        // Rango por DIA de apertura (no por hora exacta): a diferencia de las
+        // ventas/pagos (que exigen caja abierta en el POS), los egresos pueden
+        // registrarse en cualquier momento, incluso antes de abrir caja.
+        // Bug Manos Creativas: 12 egresos registrados entre 08:39-10:21 no
+        // entraban al cuadre porque la caja se abrio a las 10:22 ($2.148.850
+        // fuera del cuadre).
+        $diaAp  = substr($fechaApertura, 0, 10);
+        $diaSig = date('Y-m-d', strtotime($diaAp . ' +1 day'));
+        $paramsEg = $idUsuarioSesion > 0 ? [$diaAp, $diaSig, $idUsuarioSesion] : [$diaAp, $diaSig];
+        $stmt = $db->prepare("SELECT COALESCE(SUM(Valor),0) as t, COUNT(*) as c FROM tblegresos WHERE Fecha >= ? AND Fecha < ? AND Estado = 'Valida' AND COALESCE(TipoPago, 0) = 0$filtroUsuarioPagos");
+        $stmt->execute($paramsEg);
         $eg = $stmt->fetch();
 
         // Anulaciones (reembolsos en efectivo en esta sesión)
@@ -472,8 +481,14 @@ try {
             $stmt->execute($params); $pg = $stmt->fetch();
 
             // Solo egresos en efectivo (TipoPago=0) restan del efectivo real de caja.
-            $stmt = $db->prepare("SELECT COALESCE(SUM(Valor),0) as t FROM tblegresos WHERE Fecha >= ? AND Estado = 'Valida' AND COALESCE(TipoPago, 0) = 0$filtroUm");
-            $stmt->execute($params); $eg = $stmt->fetch();
+            // Mismo criterio por dia de apertura que en el GET (ver comentario arriba
+            // sobre el bug Manos Creativas): un egreso registrado antes de abrir
+            // caja igual pertenece a esa jornada.
+            $diaApC  = substr($fa, 0, 10);
+            $diaSigC = date('Y-m-d', strtotime($diaApC . ' +1 day'));
+            $paramsEgC = $idUsuarioSesion > 0 ? [$diaApC, $diaSigC, $idUsuarioSesion] : [$diaApC, $diaSigC];
+            $stmt = $db->prepare("SELECT COALESCE(SUM(Valor),0) as t FROM tblegresos WHERE Fecha >= ? AND Fecha < ? AND Estado = 'Valida' AND COALESCE(TipoPago, 0) = 0$filtroUm");
+            $stmt->execute($paramsEgC); $eg = $stmt->fetch();
 
             $stmt = $db->prepare("SELECT COALESCE(SUM(Valor),0) as t FROM tblmov_caja WHERE Id_Sesion = ? AND Tipo = 'gasto' AND Descripcion LIKE 'Reembolso por %'");
             $stmt->execute([$sesionId]); $an = $stmt->fetch();
