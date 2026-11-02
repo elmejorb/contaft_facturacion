@@ -1250,6 +1250,213 @@ try {
         exit;
     }
 
+    /**
+     * GET ?tipo=panel_gerencial&anio=YYYY&mes=MM
+     *
+     * Panel gerencial "Mi Negocio en 1 vista" — responde la pregunta del dueño:
+     * ¿Cómo va el negocio?
+     *
+     * 4 bloques:
+     *   1. P&G del mes vs. mes anterior (ventas, costo, utilidad bruta, gastos, utilidad neta)
+     *   2. Patrimonio ahora (caja + bancos + inventario + cartera − deuda proveedores)
+     *   3. Indicadores de salud (margen bruto %, rotación inventario, días cartera, crecimiento)
+     *   4. Alertas (morosos, inventario estancado, compras anómalas)
+     */
+    if ($tipo === 'panel_gerencial') {
+        $anio = intval($_GET['anio'] ?? date('Y'));
+        $mes  = intval($_GET['mes']  ?? date('n'));
+        $mesAnt = $mes == 1 ? 12 : $mes - 1;
+        $anioAnt = $mes == 1 ? $anio - 1 : $anio;
+
+        // Función auxiliar: calcula ventas, costo y utilidad bruta de un mes.
+        $calcMes = function(PDO $db, int $anio, int $mes) use ($tieneFE) {
+            $w = "YEAR(v.Fecha)=$anio AND MONTH(v.Fecha)=$mes AND LOWER(v.EstadoFact)!='anulada'";
+            $sql = "SELECT COALESCE(SUM(v.Total),0) ventas, COUNT(*) num_fact
+                      FROM tblventas v WHERE $w";
+            $r = $db->query($sql)->fetch();
+            $sqlCosto = "SELECT COALESCE(SUM(dv.Cantidad * dv.PrecioC),0) costo
+                           FROM tbldetalle_venta dv
+                           JOIN tblventas v ON v.Factura_N = dv.Factura_N
+                          WHERE $w";
+            $costo = floatval($db->query($sqlCosto)->fetch()['costo']);
+            return [
+                'ventas'   => floatval($r['ventas']),
+                'num_fact' => intval($r['num_fact']),
+                'costo'    => $costo,
+                'util_bruta' => floatval($r['ventas']) - $costo,
+            ];
+        };
+
+        $gastosMes = function(PDO $db, int $anio, int $mes) {
+            // Gastos operacionales reales = egresos SIN proveedor asociado
+            // (pagos a proveedor son otra cosa, no "gasto del negocio").
+            $r = $db->query("SELECT COALESCE(SUM(Valor),0) t
+                               FROM tblegresos
+                              WHERE YEAR(Fecha)=$anio AND MONTH(Fecha)=$mes
+                                AND LOWER(COALESCE(Estado,'Activo'))!='anulado'
+                                AND (CodigoPro IS NULL OR CodigoPro = 0)")->fetch();
+            return floatval($r['t']);
+        };
+
+        $actual   = $calcMes($db, $anio, $mes);
+        $anterior = $calcMes($db, $anioAnt, $mesAnt);
+        $gastos   = $gastosMes($db, $anio, $mes);
+        $gastosAnt = $gastosMes($db, $anioAnt, $mesAnt);
+
+        $utilidadNeta    = $actual['util_bruta'] - $gastos;
+        $utilidadNetaAnt = $anterior['util_bruta'] - $gastosAnt;
+
+        $pct = fn($a, $b) => $b > 0 ? round((($a - $b) / $b) * 100, 1) : null;
+
+        // ===== PATRIMONIO HOY (foto puntual) =====
+        // Caja: suma de VContado + Pagos − Egresos de todos los movimientos
+        // activos (aproximado al saldo de caja operativa).
+        $cajaBase = floatval($db->query(
+            "SELECT COALESCE(SUM(VContado+Pagos-Egresos),0) t FROM tblcontrolcaja"
+        )->fetch()['t']);
+
+        // Bancos: saldo acumulado = suma de todos los auxiliar_banco.
+        $bancos = 0;
+        try {
+            $r = $db->query("SELECT COALESCE(SUM(IFNULL(Entrada,0)-IFNULL(Salida,0)),0) t FROM tblauxiliarbanco");
+            $bancos = floatval($r->fetch()['t']);
+        } catch (Exception $e) { $bancos = 0; }
+
+        $inventario = floatval($db->query(
+            "SELECT COALESCE(SUM(Existencia*Precio_Costo),0) t FROM tblarticulos WHERE Existencia>0"
+        )->fetch()['t']);
+
+        $cartera = floatval($db->query(
+            "SELECT COALESCE(SUM(Saldo),0) t FROM tblventas
+              WHERE Saldo > 0.01 AND LOWER(EstadoFact) != 'anulada'"
+        )->fetch()['t']);
+
+        $deudaProv = floatval($db->query(
+            "SELECT COALESCE(SUM(Saldo),0) t FROM tblpedidos
+              WHERE Saldo > 0.01 AND LOWER(COALESCE(EstadoPedido,'Recibido'))!='anulado'"
+        )->fetch()['t']);
+
+        $patrimonio = $cajaBase + $bancos + $inventario + $cartera - $deudaProv;
+
+        // ===== INDICADORES =====
+        $margenBrutoPct = $actual['ventas'] > 0 ? round(($actual['util_bruta'] / $actual['ventas']) * 100, 2) : 0;
+        $margenNetoPct  = $actual['ventas'] > 0 ? round(($utilidadNeta / $actual['ventas']) * 100, 2) : 0;
+
+        // Rotación de inventario del mes: costo de ventas / valor inventario promedio.
+        $rotacion = $inventario > 0 ? round($actual['costo'] / $inventario, 2) : 0;
+
+        // Días en cartera = (cartera / ventas crédito acumuladas últimos 90d) * 90.
+        $ventasCred90 = floatval($db->query(
+            "SELECT COALESCE(SUM(Total),0) t FROM tblventas
+              WHERE Tipo='Credito' AND LOWER(EstadoFact)!='anulada'
+                AND Fecha >= DATE_SUB(CURDATE(), INTERVAL 90 DAY)"
+        )->fetch()['t']);
+        $diasCartera = $ventasCred90 > 0 ? round(($cartera / $ventasCred90) * 90) : 0;
+
+        // Crecimiento 3 meses: ventas (mes actual) vs ventas (3 meses atrás).
+        $mes3 = $mes - 3; $anio3 = $anio;
+        while ($mes3 <= 0) { $mes3 += 12; $anio3--; }
+        $hace3 = $calcMes($db, $anio3, $mes3);
+        $crecim3m = $pct($actual['ventas'], $hace3['ventas']);
+
+        // ===== ALERTAS =====
+        $alertas = [];
+
+        // Clientes morosos (más de 60 días desde fecha factura con saldo).
+        $morosos = $db->query(
+            "SELECT COUNT(DISTINCT CodigoCli) n, COALESCE(SUM(Saldo),0) t
+               FROM tblventas
+              WHERE Saldo > 0.01 AND LOWER(EstadoFact)!='anulada'
+                AND Fecha < DATE_SUB(CURDATE(), INTERVAL 60 DAY)"
+        )->fetch();
+        if (intval($morosos['n']) > 0) {
+            $alertas[] = [
+                'tipo' => 'cartera_morosa',
+                'nivel' => 'warning',
+                'mensaje' => intval($morosos['n']) . " cliente(s) con más de 60 días de mora",
+                'valor' => floatval($morosos['t']),
+            ];
+        }
+
+        // Productos sin movimiento 90 días (no vendieron ninguno).
+        try {
+            $sinMov = $db->query(
+                "SELECT COUNT(*) n FROM tblarticulos a
+                  WHERE a.Existencia > 0
+                    AND NOT EXISTS (
+                      SELECT 1 FROM tbldetalle_venta dv
+                        JOIN tblventas v ON v.Factura_N = dv.Factura_N
+                       WHERE dv.Items = a.Items
+                         AND v.Fecha >= DATE_SUB(CURDATE(), INTERVAL 90 DAY)
+                         AND LOWER(v.EstadoFact)!='anulada'
+                    )"
+            )->fetch();
+            if (intval($sinMov['n']) >= 10) {
+                $alertas[] = [
+                    'tipo' => 'inventario_estancado',
+                    'nivel' => 'info',
+                    'mensaje' => intval($sinMov['n']) . " productos sin movimiento en 90 días",
+                    'valor' => null,
+                ];
+            }
+        } catch (Exception $e) { /* ignorar si falla */ }
+
+        // Compras del mes vs mes anterior.
+        $comprasMes = floatval($db->query(
+            "SELECT COALESCE(SUM(Total),0) t FROM tblpedidos
+              WHERE YEAR(Fecha)=$anio AND MONTH(Fecha)=$mes
+                AND LOWER(COALESCE(EstadoPedido,'Recibido'))!='anulado'"
+        )->fetch()['t']);
+        $comprasAnt = floatval($db->query(
+            "SELECT COALESCE(SUM(Total),0) t FROM tblpedidos
+              WHERE YEAR(Fecha)=$anioAnt AND MONTH(Fecha)=$mesAnt
+                AND LOWER(COALESCE(EstadoPedido,'Recibido'))!='anulado'"
+        )->fetch()['t']);
+        $pctCompras = $pct($comprasMes, $comprasAnt);
+        if ($pctCompras !== null && abs($pctCompras) > 30) {
+            $alertas[] = [
+                'tipo' => 'compras_anomalas',
+                'nivel' => $pctCompras > 0 ? 'warning' : 'info',
+                'mensaje' => "Compras " . ($pctCompras > 0 ? "aumentaron" : "bajaron") . " " . abs($pctCompras) . "% vs mes anterior",
+                'valor' => $comprasMes,
+            ];
+        }
+
+        echo json_encode([
+            'success' => true,
+            'periodo' => ['anio' => $anio, 'mes' => $mes],
+            'pyg' => [
+                'ventas'              => $actual['ventas'],
+                'ventas_num_fact'     => $actual['num_fact'],
+                'ventas_pct_vs_ant'   => $pct($actual['ventas'], $anterior['ventas']),
+                'costo'               => $actual['costo'],
+                'utilidad_bruta'      => $actual['util_bruta'],
+                'margen_bruto_pct'    => $margenBrutoPct,
+                'gastos'              => $gastos,
+                'utilidad_neta'       => $utilidadNeta,
+                'utilidad_neta_pct_vs_ant' => $pct($utilidadNeta, $utilidadNetaAnt),
+                'margen_neto_pct'     => $margenNetoPct,
+            ],
+            'patrimonio' => [
+                'caja'            => $cajaBase,
+                'bancos'          => $bancos,
+                'inventario'      => $inventario,
+                'cartera'         => $cartera,
+                'deuda_proveedores' => $deudaProv,
+                'total'           => $patrimonio,
+            ],
+            'kpis' => [
+                'margen_bruto_pct'       => $margenBrutoPct,
+                'margen_neto_pct'        => $margenNetoPct,
+                'rotacion_inventario'    => $rotacion,
+                'dias_cartera'           => $diasCartera,
+                'crecimiento_3m_pct'     => $crecim3m,
+            ],
+            'alertas' => $alertas,
+        ], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
     echo json_encode(['success' => false, 'message' => "Tipo no válido: $tipo"]);
 } catch (Exception $e) {
     echo json_encode(['success' => false, 'message' => $e->getMessage()]);

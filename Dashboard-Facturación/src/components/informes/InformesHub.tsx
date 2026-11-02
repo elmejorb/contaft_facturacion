@@ -9,6 +9,7 @@ import { LotesPorVencer } from '../LotesPorVencer';
 import { InformeCuadreCaja } from './InformeCuadreCaja';
 import { InformeCierreMes } from './InformeCierreMes';
 import { InformeEstadoResultados } from './InformeEstadoResultados';
+import { PanelGerencial } from './PanelGerencial';
 import { InformeVentasListado } from './InformeVentasListado';
 import { InformeComprasListado } from './InformeComprasListado';
 import { InformeTopProductos } from './InformeTopProductos';
@@ -33,6 +34,7 @@ import { InformeRetencionesRecibidas } from '../InformeRetencionesRecibidas';
 import { InformeIngresosTotales } from '../InformeIngresosTotales';
 
 type ReporteId =
+  | 'panel-gerencial'
   | 'cuadre' | 'cierre-mes' | 'estado-resultados' | 'iva' | 'retenciones-recibidas' | 'ingresos-totales'
   | 'ventas' | 'compras' | 'top-productos' | 'ventas-por-producto' | 'top-clientes' | 'ventas-categoria'
   | 'ventas-mensual' | 'ventas-diario' | 'facturas-vendedor'
@@ -53,6 +55,8 @@ interface ReporteDef {
 }
 
 const REPORTES: ReporteDef[] = [
+  // Panel ejecutivo — primero por relevancia
+  { id: 'panel-gerencial', titulo: '📊 Panel Gerencial — Mi Negocio en 1 Vista', desc: 'Para el dueño: utilidad del mes, patrimonio actual, indicadores de salud y alertas automáticas. El informe clave para saber cómo va el negocio.', icon: TrendingUpDown, color: '#7c3aed', bg: '#f3e8ff', categoria: 'financieros' },
   // Financieros
   { id: 'ingresos-totales', titulo: 'Ingresos Totales (por día o mes)', desc: 'Suma de TODOS los ingresos agrupados: ventas contado, crédito, pagos de cartera y retenciones recibidas. Con gráfica.', icon: TrendingUp, color: '#16a34a', bg: '#dcfce7', categoria: 'financieros' },
   { id: 'cuadre', titulo: 'Cuadre de Caja', desc: 'Cierre diario por medio de pago, ingresos y egresos del día.', icon: Wallet, color: '#7c3aed', bg: '#f3e8ff', categoria: 'financieros' },
@@ -116,6 +120,7 @@ export function InformesHub() {
         {activo === 'cuadre' && <InformeCuadreCaja />}
         {activo === 'cierre-mes' && <InformeCierreMes />}
         {activo === 'estado-resultados' && <InformeEstadoResultados />}
+        {activo === 'panel-gerencial' && <PanelGerencial />}
         {activo === 'ventas' && <InformeVentasListado />}
         {activo === 'compras' && <InformeComprasListado />}
         {activo === 'top-productos' && <InformeTopProductos />}
