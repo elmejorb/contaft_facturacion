@@ -9,18 +9,25 @@ export function InformeEstadoResultados() {
   const [hasta, setHasta] = useState(hoyLocal());
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const cargar = async () => {
     setLoading(true);
+    setError(null);
     try {
       const r = await fetch(`${API}?tipo=estado_resultados&desde=${desde}&hasta=${hasta}`);
+      if (!r.ok) throw new Error(`HTTP ${r.status} — el servidor devolvió error`);
       const d = await r.json();
       if (d.success) setData(d);
-    } catch (e) { /* ignored */ }
+      else throw new Error(d.message || d.error || 'El servidor rechazó la consulta');
+    } catch (e: any) {
+      setError(e?.message || String(e));
+      setData(null);
+    }
     setLoading(false);
   };
 
-  useEffect(() => { cargar(); }, []);
+  useEffect(() => { cargar(); }, [desde, hasta]);
 
   const fmtFecha = (f: string) => new Date(f + 'T00:00').toLocaleDateString('es-CO', { day: '2-digit', month: 'long', year: 'numeric' });
 
@@ -39,7 +46,12 @@ export function InformeEstadoResultados() {
             style={{ height: 30, border: '1px solid #d1d5db', borderRadius: 6, padding: '0 8px', fontSize: 13 }} />
         </>
       }>
-      {!data ? <div style={{ padding: 30, textAlign: 'center', color: '#999' }}>Cargando...</div> : (
+      {error ? (
+        <div style={{ padding: 20, background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 6, color: '#b91c1c', fontSize: 13 }}>
+          <b>Error al cargar el informe:</b> {error}
+          <div style={{ marginTop: 6, fontSize: 11, color: '#991b1b' }}>Verifica la conexión al servidor y el rango de fechas. Si persiste, revisa que la base de datos esté configurada correctamente.</div>
+        </div>
+      ) : !data ? <div style={{ padding: 30, textAlign: 'center', color: '#999' }}>Cargando...</div> : (
         <>
           <table style={tableStyle}>
             <tbody>
