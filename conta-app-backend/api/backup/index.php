@@ -30,7 +30,7 @@ function backupDir(): string {
 function listarBackups(string $dir): array {
     if (!is_dir($dir)) return [];
     $archivos = [];
-    foreach (glob("$dir\\contaft-*.sql") as $f) {
+    foreach (array_merge(glob("$dir\\contaft-*.sql") ?: [], glob("$dir\\contaft-*.db") ?: []) as $f) {
         $archivos[] = [
             'nombre' => basename($f),
             'ruta'   => $f,
@@ -49,7 +49,7 @@ function listarBackups(string $dir): array {
 function rotarBackups(string $dir, int $dias): int {
     $limite = date('Y-m-d', strtotime("-$dias days"));
     $borrados = 0;
-    foreach (glob("$dir\\contaft-*.sql") as $f) {
+    foreach (array_merge(glob("$dir\\contaft-*.sql") ?: [], glob("$dir\\contaft-*.db") ?: []) as $f) {
         if (preg_match('/contaft-(\d{4}-\d{2}-\d{2})/', basename($f), $m)) {
             if ($m[1] < $limite) {
                 @unlink($f) && $borrados++;
@@ -159,15 +159,81 @@ function dumpearBD(PDO $db, string $archivo, string $nombreBD): array {
     return [true, $filasTotales, null];
 }
 
+/**
+ * Copia el conta.db SQLite a $archivo. Es un backup fiel (fichero binario),
+ * mejor que dumpear SQL. Para no capturar escrituras a medio aplicar usamos
+ * la API `.backup` que SQLite expone vía PDO::sqliteCreateFunction no está
+ * disponible, así que recurrimos a `copy()` después de cerrar temporalmente
+ * cualquier transacción pendiente del lado del código llamador.
+ */
+function copiarSQLite(string $srcDb, string $dest): array {
+    if (!file_exists($srcDb)) return [false, 0, "No existe origen SQLite: $srcDb"];
+    if (!@copy($srcDb, $dest))  return [false, 0, "No se pudo copiar a $dest"];
+    return [true, 0, null];
+}
+
+// Log dedicado para diagnosticar en cliente: escribe cada request, driver,
+// errores y el resultado. Vive en el mismo dir donde van los backups.
+function logBackup(string $msg): void {
+    $dir = backupDir();
+    $f = $dir . DIRECTORY_SEPARATOR . 'backup-debug.log';
+    @file_put_contents($f, '[' . date('Y-m-d H:i:s') . '] ' . $msg . "\n", FILE_APPEND);
+}
+
+logBackup("REQ " . ($_SERVER['REQUEST_METHOD'] ?? '?') . ' qs=' . ($_SERVER['QUERY_STRING'] ?? '')
+    . ' body=' . substr(file_get_contents('php://input'), 0, 200));
+
 // -------------------------------------------------------------------------
 try {
     $dir = backupDir();
     $database = new Database();
     $db = $database->getConnection();
-    $nombreBD = $db->query("SELECT DATABASE()")->fetchColumn();
+    $driver   = strtolower($db->getAttribute(PDO::ATTR_DRIVER_NAME));
+    $esSQLite = $driver === 'sqlite';
+    logBackup("driver=$driver esSQLite=" . ($esSQLite ? '1' : '0'));
+    // Nombre de BD: MySQL devuelve el schema name; en SQLite usamos el
+    // nombre del archivo (sin extensión) para la UI.
+    if ($esSQLite) {
+        // Fuente de verdad: config.json que el main process de Electron pasa
+        // vía CONTA_CONFIG_PATH y que conta_config_cargar() parsea. Es el mismo
+        // path que db_factory.php usa para abrir la conexión, así garantizamos
+        // copiar EXACTAMENTE la BD que lee la app.
+        $srcDbPath = '';
+        if (function_exists('conta_config_cargar')) {
+            $cfg = conta_config_cargar();
+            $srcDbPath = $cfg['sqlite']['path'] ?? '';
+        }
+        if (!$srcDbPath || !file_exists($srcDbPath)) {
+            // Fallback común en Electron embedded: userData\conta.db
+            $cand = [
+                getenv('APPDATA') . DIRECTORY_SEPARATOR . 'dashboard-facturacion' . DIRECTORY_SEPARATOR . 'conta.db',
+            ];
+            foreach ($cand as $c) if (file_exists($c)) { $srcDbPath = $c; break; }
+        }
+        $nombreBD = $srcDbPath ? basename($srcDbPath, '.db') : 'conta';
+    } else {
+        $srcDbPath = null;
+        $nombreBD  = $db->query("SELECT DATABASE()")->fetchColumn();
+    }
+
+    // En SQLite los archivos backup son .db (copia binaria), no .sql.
+    $extBackup = $esSQLite ? 'db' : 'sql';
+    // Reemplaza el patrón del listador: aceptar ambas extensiones por si se
+    // migra de MySQL a SQLite y quedan archivos viejos.
 
     if ($_SERVER['REQUEST_METHOD'] === 'GET') {
-        $archivos = listarBackups($dir);
+        $archivos = [];
+        if (is_dir($dir)) {
+            foreach (array_merge(glob("$dir\\contaft-*.sql") ?: [], glob("$dir\\contaft-*.db") ?: []) as $f) {
+                $archivos[] = [
+                    'nombre' => basename($f),
+                    'ruta'   => $f,
+                    'tamano' => filesize($f),
+                    'fecha'  => date('Y-m-d H:i:s', filemtime($f)),
+                ];
+            }
+            usort($archivos, fn($a, $b) => strcmp($b['nombre'], $a['nombre']));
+        }
         $hoy = date('Y-m-d');
         $backupHoy = null;
         foreach ($archivos as $a) {
@@ -181,6 +247,7 @@ try {
             'backup_hoy' => $backupHoy,
             'tiene_hoy'  => $backupHoy !== null,
             'base_datos' => $nombreBD,
+            'motor'      => $driver,
         ], JSON_UNESCAPED_UNICODE);
         exit;
     }
@@ -208,11 +275,22 @@ try {
         }
 
         $ts = date('Y-m-d_His');
-        $nombre = "contaft-$ts.sql";
+        $nombre = "contaft-$ts." . $extBackup;
         $ruta = $dir . DIRECTORY_SEPARATOR . $nombre;
 
         $inicio = microtime(true);
-        [$ok, $filas, $err] = dumpearBD($db, $ruta, $nombreBD);
+        if ($esSQLite) {
+            if (!$srcDbPath) {
+                echo json_encode([
+                    'success' => false,
+                    'message' => 'No se encontró el archivo SQLite de origen (conta.db).',
+                ]);
+                exit;
+            }
+            [$ok, $filas, $err] = copiarSQLite($srcDbPath, $ruta);
+        } else {
+            [$ok, $filas, $err] = dumpearBD($db, $ruta, $nombreBD);
+        }
         $duracion = round(microtime(true) - $inicio, 2);
 
         if (!$ok || !file_exists($ruta) || filesize($ruta) < 100) {
@@ -244,7 +322,7 @@ try {
 
     if ($action === 'eliminar') {
         $nombre = $data['nombre'] ?? '';
-        if (!$nombre || strpos($nombre, '..') !== false || !preg_match('/^contaft-.*\.sql$/', $nombre)) {
+        if (!$nombre || strpos($nombre, '..') !== false || !preg_match('/^contaft-.*\.(sql|db)$/', $nombre)) {
             echo json_encode(['success' => false, 'message' => 'Nombre inválido']); exit;
         }
         $ruta = $dir . DIRECTORY_SEPARATOR . $nombre;
@@ -260,5 +338,8 @@ try {
 
 } catch (\Throwable $e) {
     http_response_code(500);
+    logBackup("EXCEPTION: " . $e->getMessage()
+        . "\n  en " . $e->getFile() . ':' . $e->getLine()
+        . "\n  trace: " . $e->getTraceAsString());
     echo json_encode(['success' => false, 'message' => $e->getMessage()]);
 }

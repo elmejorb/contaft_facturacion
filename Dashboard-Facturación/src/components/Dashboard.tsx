@@ -48,6 +48,7 @@ import {
   CloudOff
 } from 'lucide-react';
 // LIGEROS (necesarios en el arranque) — imports estáticos
+import { getApiUrl } from '../config/api';
 import { PantallaInicio } from './PantallaInicio';
 import { NotificacionEmergente } from './NotificacionEmergente';
 import { DashboardVendedor } from './DashboardVendedor';
@@ -557,8 +558,10 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
   // Respaldo automático diario en segundo plano — 1 vez por día natural.
   // El backend detecta si ya hay un backup de hoy y no genera duplicados,
   // así que aunque varios cajeros abran la app, solo se crea 1 archivo.
+  // Usa getApiUrl() en vez de hardcodear localhost:80 — en modo embebido
+  // (SQLite) el PHP corre en 127.0.0.1:<puerto dinámico>.
   useEffect(() => {
-    const API_BK = 'http://localhost:80/conta-app-backend/api/backup/';
+    const API_BK = `${getApiUrl()}/backup/`;
     fetch(`${API_BK}?estado`)
       .then(r => r.json())
       .then(d => {

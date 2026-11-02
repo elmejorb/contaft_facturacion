@@ -2,8 +2,13 @@ import { useEffect, useState } from 'react';
 import { Database, Download, RefreshCw, Trash2, HardDrive, CheckCircle2, AlertTriangle, Loader2, Cloud, CloudUpload, CloudOff } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { confirmar } from './ConfirmDialog';
+import { getApiUrl } from '../config/api';
 
-const API = 'http://localhost:80/conta-app-backend/api/backup/';
+// Antes esta URL estaba hardcoded a http://localhost:80 (Apache externo).
+// En modo embebido (SQLite) el PHP corre en 127.0.0.1:<puerto dinamico>,
+// así que leemos la URL del config runtime via getApiUrl() — el PHP embedded
+// sirve el backend desde api/ como docRoot, por eso basta `/backup/`.
+const apiBackup = () => `${getApiUrl()}/backup/`;
 
 interface BackupFile {
   nombre: string;
@@ -85,7 +90,7 @@ export function BackupBD() {
   const cargar = async () => {
     setLoading(true);
     try {
-      const r = await fetch(`${API}?estado`);
+      const r = await fetch(`${apiBackup()}?estado`);
       const d = await r.json();
       if (d.success) setEstado(d);
       else toast.error(d.message || 'Error consultando estado');
@@ -99,7 +104,7 @@ export function BackupBD() {
     if (generando) return;
     setGenerando(true);
     try {
-      const r = await fetch(API, {
+      const r = await fetch(apiBackup(), {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'generar', forzar }),
       });
@@ -122,7 +127,7 @@ export function BackupBD() {
     });
     if (!ok) return;
     try {
-      const r = await fetch(API, {
+      const r = await fetch(apiBackup(), {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'eliminar', nombre: b.nombre }),
       });
