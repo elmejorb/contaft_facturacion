@@ -644,14 +644,74 @@ async function subirBackupNube() {
   const token = cfg.api_token;
   if (!token) return { success: false, message: 'Sin api_token en config — ¿el CRM está respondiendo?' };
 
-  const dbPath = path.join(app.getPath('userData'), 'conta.db');
-  if (!fs.existsSync(dbPath)) return { success: false, message: 'conta.db no existe aún' };
+  // ===== Obtener el dump de la BD, sea SQLite o MySQL =====
+  // Preferir el endpoint PHP /backup/?action=generar que ya detecta driver.
+  // Fallback: copiar conta.db directo si estamos en SQLite y el PHP no corre.
+  let backupBuf = null;         // Buffer del dump
+  let filenameSrc = 'conta.db'; // nombre que se envía al upload
 
-  // Comprimir en memoria (BD típica 1-10 MB → compresa 200 KB-2 MB)
-  const raw = fs.readFileSync(dbPath);
-  const gz  = await new Promise((res, rej) =>
-    zlib.gzip(raw, { level: 6 }, (e, d) => e ? rej(e) : res(d))
+  // Leer backend-config.json para saber qué modo tenemos
+  let driver = 'sqlite';
+  try {
+    const bcfgPath = path.join(app.getPath('userData'), 'backend-config.json');
+    if (fs.existsSync(bcfgPath)) {
+      const bcfg = JSON.parse(fs.readFileSync(bcfgPath, 'utf8'));
+      driver = bcfg.driver || 'sqlite';
+    }
+  } catch {}
+
+  // Base URL del backend (modo embedded: PHP builtin, modo legacy: Apache/XAMPP)
+  const backendBase = phpPortActivo
+    ? `http://127.0.0.1:${phpPortActivo}`
+    : (cfg.apiUrlRuntime || cfg.apiUrl || '').replace(/\/$/, '');
+
+  // Camino 1 — pedir el dump al endpoint /backup/?action=generar.
+  // Funciona para SQLite (copia .db) y MySQL (dump .sql).
+  if (backendBase) {
+    try {
+      const genRes = await fetch(`${backendBase}/backup/?action=generar`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: '',
+      });
+      if (genRes.ok) {
+        const genJson = await genRes.json().catch(() => null);
+        if (genJson?.success && genJson.archivo) {
+          const localPath = path.join('C:\\ContaFT-Backups', genJson.archivo);
+          if (fs.existsSync(localPath)) {
+            backupBuf = fs.readFileSync(localPath);
+            filenameSrc = genJson.archivo;
+            driver = genJson.motor || driver;
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('[backup-cloud] fallo endpoint /backup/, cayendo a fallback:', e?.message);
+    }
+  }
+
+  // Camino 2 — fallback SQLite directo (si no hay PHP arriba o falló).
+  if (!backupBuf && driver === 'sqlite') {
+    const dbPath = path.join(app.getPath('userData'), 'conta.db');
+    if (!fs.existsSync(dbPath)) {
+      return { success: false, message: 'conta.db no existe aún y el PHP builtin no respondió' };
+    }
+    backupBuf = fs.readFileSync(dbPath);
+    filenameSrc = 'conta.db';
+  }
+
+  if (!backupBuf) {
+    return { success: false, message: driver === 'mysql'
+      ? 'No se pudo generar el dump MySQL. ¿El PHP builtin está arriba?'
+      : 'No se pudo obtener la BD para subir.' };
+  }
+
+  // Comprimir
+  const gz = await new Promise((res, rej) =>
+    zlib.gzip(backupBuf, { level: 6 }, (e, d) => e ? rej(e) : res(d))
   );
+  // Nombre final que ve el servidor (conserva extensión original + .gz)
+  const uploadName = `${filenameSrc}.gz`;
 
   // Multipart boundary a mano (evita dependencia FormData)
   const boundary = '----ContaFTBoundary' + Date.now();
@@ -661,7 +721,8 @@ async function subirBackupNube() {
 
   push(`--${boundary}\r\nContent-Disposition: form-data; name="nombre_app"\r\n\r\nConta FT 4.3\r\n`);
   push(`--${boundary}\r\nContent-Disposition: form-data; name="version"\r\n\r\n${app.getVersion()}\r\n`);
-  push(`--${boundary}\r\nContent-Disposition: form-data; name="backup"; filename="conta.db.gz"\r\n` +
+  push(`--${boundary}\r\nContent-Disposition: form-data; name="driver"\r\n\r\n${driver}\r\n`);
+  push(`--${boundary}\r\nContent-Disposition: form-data; name="backup"; filename="${uploadName}"\r\n` +
        `Content-Type: application/gzip\r\n\r\n`);
   push(gz);
   push(`\r\n--${boundary}--\r\n`);
@@ -709,7 +770,8 @@ ipcMain.handle('backup-cloud:estado', () => {
 // reintenta en el siguiente ciclo. No molesta al usuario.
 function programarBackupNube() {
   const cfg = readConfig();
-  if (cfg.backendMode !== 'embedded') return; // modo legacy no usa SQLite
+  // Scheduler activo en ambos modos (embedded y legacy). El dump lo
+  // obtiene subirBackupNube() del endpoint /backup/ que detecta driver.
 
   const ultimo = cfg.ultimo_backup_nube?.ts || 0;
   const now = Date.now();

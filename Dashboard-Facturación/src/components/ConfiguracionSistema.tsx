@@ -368,24 +368,72 @@ export function ConfiguracionSistema() {
   });
   const [vendLoading, setVendLoading] = useState(false);
 
+  // URL por default del Hub Lumen Vendedores. Todas las empresas del SaaS
+  // usan el MISMO hub (central), así que no tiene sentido pedirle al cliente
+  // que la pegue a mano.
+  const HUB_LUMEN_URL_DEFAULT = 'https://innovacion-digital.com/api-movil-contaft/public';
+
   useEffect(() => {
     fetch('http://localhost:80/conta-app-backend/api/vendedores/config.php')
       .then(r => r.json())
-      .then(d => {
+      .then(async d => {
+        let cfg: any = {
+          habilitado: 0,
+          api_url: HUB_LUMEN_URL_DEFAULT,
+          api_email: '',
+          api_token_empresa: '',
+          sync_intervalo_pull_min: 15,
+          modo_pedidos: 1,
+          modo_factura_pos: 0,
+          modo_factura_electronica: 0,
+        };
         if (d.success && d.config) {
-          setVendConfig({
+          // Si el api_url guardado está vacío, usar el default conocido.
+          const apiUrlEfectiva = (d.config.api_url && d.config.api_url.trim())
+            ? d.config.api_url
+            : HUB_LUMEN_URL_DEFAULT;
+          cfg = {
             habilitado: d.config.habilitado ?? 0,
-            api_url: d.config.api_url ?? '',
+            api_url: apiUrlEfectiva,
             api_email: d.config.api_email ?? '',
             api_token_empresa: d.config.api_token_empresa ?? '',
             sync_intervalo_pull_min: d.config.sync_intervalo_pull_min ?? 15,
             modo_pedidos: d.config.modo_pedidos ?? 1,
             modo_factura_pos: d.config.modo_factura_pos ?? 0,
             modo_factura_electronica: d.config.modo_factura_electronica ?? 0,
-          });
+          };
+        }
+        setVendConfig(cfg);
+
+        // Auto-handshake silencioso: si el CRM dice que el módulo está activo
+        // pero el cliente aún no tiene token local, pedimos uno al hub.
+        // Elimina el paso manual de "obtener token del hub" para clientes
+        // que recién pagan por el módulo.
+        try {
+          const ipc = (window as any).require?.('electron')?.ipcRenderer;
+          if (ipc && !cfg.api_token_empresa && cfg.api_url) {
+            const ent = await ipc.invoke('entitlements:get');
+            const activo = !!(ent?.modulos?.vendedor_movil?.activo || ent?.modulos?.sincronizacion?.activo);
+            if (activo) {
+              const r = await ipc.invoke('empresas:activar', { apiUrlLumen: cfg.api_url });
+              if (r?.ok && r.token_api) {
+                setVendConfig(c => ({
+                  ...c,
+                  api_token_empresa: r.token_api,
+                  api_email: c.api_email || r.empresa?.email || '',
+                }));
+                console.info('[auto-handshake] token hub precargado desde entitlement CRM');
+              }
+            }
+          }
+        } catch (e) {
+          // Silencioso: si falla, el usuario puede hacer el handshake manual
+          console.warn('[auto-handshake] no se pudo precargar token:', e);
         }
       })
-      .catch(() => {});
+      .catch(() => {
+        setVendConfig(c => ({ ...c, api_url: HUB_LUMEN_URL_DEFAULT }));
+      });
   }, []);
 
   // Handshake con el hub Lumen: si el módulo vendedor_movil está activo en el
