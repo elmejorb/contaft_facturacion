@@ -11,6 +11,7 @@
  * POST { eliminar_todos_rechazados: true } → barrer toda la lista de rechazados
  */
 require_once '../config/database.php';
+require_once __DIR__ . "/../config/helpers_polyfill.php";
 
 header('Content-Type: application/json; charset=utf-8');
 

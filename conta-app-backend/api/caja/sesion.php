@@ -10,6 +10,7 @@
  * POST action=deposito     → depositar en caja principal
  */
 require_once '../config/database.php';
+require_once __DIR__ . "/../config/helpers_polyfill.php";
 $database = new Database();
 $db = $database->getConnection();
 

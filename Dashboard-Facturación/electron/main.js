@@ -641,8 +641,14 @@ const BACKUP_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24h
 
 async function subirBackupNube() {
   const cfg = readConfig();
-  const token = cfg.api_token;
-  if (!token) return { success: false, message: 'Sin api_token en config — ¿el CRM está respondiendo?' };
+  // Usa getApiTokenFromBackend que primero mira config.json y, si no está,
+  // consulta el backend (tbldatosempresa.api_token) — así los clientes legacy
+  // XAMPP cuyo token vive solo en la BD también pueden subir backup.
+  const tokRes = await getApiTokenFromBackend();
+  if (!tokRes.ok) {
+    return { success: false, message: `Sin api_token (${tokRes.reason}). Activa la suscripción primero.` };
+  }
+  const token = tokRes.token;
 
   // ===== Obtener el dump de la BD, sea SQLite o MySQL =====
   // Preferir el endpoint PHP /backup/?action=generar que ya detecta driver.
@@ -1072,24 +1078,52 @@ function ensureConfigExists() {
   try {
     const configPath = getConfigPath();
     if (fs.existsSync(configPath)) {
-      // Upgrade silencioso 4.8.0: config.json dejado por un build pre-fix
-      // apuntaba a XAMPP (apiUrl=localhost:80 y SIN backendMode). Si lo
-      // detectamos, lo migramos a embebido para que el cliente no tenga que
-      // desinstalar y volver a instalar.
+      // 4.8.10 — PROTECCIÓN y RECUPERACIÓN de clientes XAMPP:
+      //
+      // (A) Blindaje: cliente con apiUrl + backendPath apuntando a XAMPP y SIN
+      //     backendMode era un cliente XAMPP legítimo. En 4.8.0..4.8.9 lo
+      //     migrábamos a embedded y rompía su conexión a MySQL (caso Ammi).
+      //     Ahora marcamos backendMode="legacy" explícito para blindarlo.
+      //
+      // (B) Recuperación: cliente con backendMode="embedded" pero que conserva
+      //     apiUrl + backendPath apuntando a XAMPP = fue migrado por error por
+      //     la 4.8.9. Revertimos a legacy automáticamente — su BD MySQL en
+      //     XAMPP sigue intacta, solo hay que apuntar el Conta FT ahí otra vez.
+      //     Un cliente SQLite real NO tiene esos campos (instalación limpia),
+      //     así que no se ve afectado.
       try {
         const existing = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-        const esDefaultXamppRoto = !existing.backendMode
-          && typeof existing.apiUrl === 'string'
-          && (existing.apiUrl.includes('localhost:80') || existing.apiUrl.includes('127.0.0.1:80'))
-          && typeof existing.backendPath === 'string'
-          && existing.backendPath.toLowerCase().startsWith('c:\\xampp');
-        if (esDefaultXamppRoto) {
-          const upgraded = { ...existing, backendMode: 'embedded' };
-          delete upgraded.apiUrl;
-          delete upgraded.apiUrlRuntime;
-          delete upgraded.backendPath;
+
+        // Huella de "cliente XAMPP legacy": tiene apiUrl apuntando a Apache
+        // local (puerto 80 explícito o implícito, nunca al PHP builtin 8089).
+        // backendPath puede o no estar — si no está, usa el default XAMPP.
+        // Una instalación limpia SQLite NUNCA pone apiUrl, así que esta
+        // detección NO la toca.
+        const apiUrlStr = typeof existing.apiUrl === 'string' ? existing.apiUrl : '';
+        const esApiUrlLocal =
+          apiUrlStr !== ''
+          && (apiUrlStr.includes('localhost') || apiUrlStr.includes('127.0.0.1'))
+          && !apiUrlStr.includes(':8089');  // excluir runtime del PHP builtin
+        const backendPathStr = typeof existing.backendPath === 'string' ? existing.backendPath : '';
+        const pareceXamppPath = backendPathStr.toLowerCase().includes('xampp')
+                             || backendPathStr.toLowerCase().includes('apache');
+
+        // Es cliente XAMPP si tiene apiUrl a Apache local (con o sin backendPath).
+        const esXamppLegacy = esApiUrlLocal && (pareceXamppPath || !backendPathStr);
+
+        if (esXamppLegacy && !existing.backendMode) {
+          // (A) blindaje — cliente que nunca tuvo backendMode
+          const upgraded = { ...existing, backendMode: 'legacy' };
+          if (!upgraded.backendPath) upgraded.backendPath = 'C:\\xampp\\htdocs\\conta-app-backend';
           fs.writeFileSync(configPath, JSON.stringify(upgraded, null, 2), 'utf8');
-          console.log('[config] upgrade 4.8.0: config XAMPP roto → modo embebido');
+          console.log('[config] cliente XAMPP legacy detectado → backendMode=legacy (blindado)');
+        } else if (esXamppLegacy && existing.backendMode === 'embedded') {
+          // (B) recuperación: 4.8.9 lo migró a embedded aunque era XAMPP
+          const upgraded = { ...existing, backendMode: 'legacy' };
+          if (!upgraded.backendPath) upgraded.backendPath = 'C:\\xampp\\htdocs\\conta-app-backend';
+          delete upgraded.apiUrlRuntime; // esto lo pone el PHP builtin, ya no aplica
+          fs.writeFileSync(configPath, JSON.stringify(upgraded, null, 2), 'utf8');
+          console.log('[config] cliente XAMPP migrado por error en 4.8.9 → revertido a legacy');
         }
       } catch (e) {
         console.warn('[config] no se pudo evaluar upgrade:', e?.message || e);

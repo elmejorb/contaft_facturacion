@@ -18,7 +18,13 @@ try {
         // Fix defensivo: detectar columnas de conversion agregadas en 4.3.95.
         // Clientes que no corrieron actualizacion_completa no las tienen y el
         // SELECT crashea con "Unknown column FactorConversion".
-        $artCols = conta_columnas_tabla($db, 'tblarticulos');
+        // Inline — no usar helpers externos (ver [[feedback-no-usar-helpers-externos-en-endpoints]])
+        $artCols = array_column(
+            $db->query("SELECT COLUMN_NAME FROM information_schema.COLUMNS
+                        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tblarticulos'")
+               ->fetchAll(PDO::FETCH_ASSOC),
+            'COLUMN_NAME'
+        );
         $selFactor    = in_array('FactorConversion', $artCols)   ? 'COALESCE(a.FactorConversion, 1)' : '1';
         $selNombreEmp = in_array('NombreEmpaque', $artCols)      ? 'a.NombreEmpaque'                 : 'NULL';
         $selVenderEmp = in_array('VenderComoEmpaque', $artCols)  ? 'COALESCE(a.VenderComoEmpaque, 0)' : '0';
@@ -290,7 +296,12 @@ try {
 
         // Columna 'saldo' no está en todas las BDs (existe en distrisalsa, no
         // en innovacion). Chequeo defensivo para INSERT compatible.
-        $tieneSaldo = conta_tiene_columna($db, 'electronic_documents', 'saldo');
+        $tieneSaldo = (int) $db->query("
+            SELECT COUNT(*) FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'electronic_documents'
+              AND COLUMN_NAME = 'saldo'
+        ")->fetchColumn();
         $colSaldo = $tieneSaldo ? ', saldo' : '';
         $valSaldo = $tieneSaldo ? ', ?' : '';
 
@@ -329,7 +340,12 @@ try {
         // Columna 'entregado' defensiva — solo existe desde v4.7. Si no está
         // (BD sin migrar) el INSERT se ejecuta sin ella y la columna queda
         // en su default.
-        $tieneEntregadoFE = conta_tiene_columna($db, 'detalle_document_electronic', 'entregado');
+        $tieneEntregadoFE = (int) $db->query("
+            SELECT COUNT(*) FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'detalle_document_electronic'
+              AND COLUMN_NAME = 'entregado'
+        ")->fetchColumn();
         $colEntregadoFE = $tieneEntregadoFE ? ', entregado' : '';
         $valEntregadoFE = $tieneEntregadoFE ? ', ?' : '';
         $stmtDetFE = $db->prepare("

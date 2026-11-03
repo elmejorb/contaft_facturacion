@@ -24,7 +24,15 @@ try {
     ";
 
     // Detectar si tblclientes tiene las columnas de comportamiento (migración v5.5)
-    $tieneCols = conta_tiene_columna($db, 'tblclientes', 'cartera_castigada');
+    // Query inline — NO usar helpers externos: database.php del cliente es viejo
+    // y nunca se actualiza (skipPaths), por eso no podemos require db_factory.php
+    // desde database.php. Mantener la verificación aquí sin dependencias.
+    $tieneCols = (int) $db->query("
+        SELECT COUNT(*) FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'tblclientes'
+          AND COLUMN_NAME = 'cartera_castigada'
+    ")->fetchColumn();
 
     $selectCols = $tieneCols
         ? "c.CodigoClien, c.Razon_Social, c.Nit, c.Telefonos, c.CupoAutorizado,

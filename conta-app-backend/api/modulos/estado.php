@@ -12,6 +12,7 @@
  * Solo el usuario 'root' puede activar/desactivar módulos.
  */
 require_once '../config/database.php';
+require_once __DIR__ . "/../config/helpers_polyfill.php";
 $db = (new Database())->getConnection();
 
 // SQL asociado a cada módulo. Se busca en ../sql/. `null` = módulo cuyas

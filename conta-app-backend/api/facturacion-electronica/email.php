@@ -165,7 +165,12 @@ try {
 
         // Asegurar columna email_recipient (silencioso si ya existe)
         try {
-            $colExists =conta_tiene_columna($db, 'electronic_documents', 'email_recipient');
+            $colExists = (int) $db->query("
+                SELECT COUNT(*) FROM information_schema.COLUMNS
+                WHERE TABLE_SCHEMA = DATABASE()
+                  AND TABLE_NAME = 'electronic_documents'
+                  AND COLUMN_NAME = 'email_recipient'
+            ")->fetchColumn();
             if (intval($colExists) === 0) {
                 $db->exec("ALTER TABLE electronic_documents ADD COLUMN email_recipient VARCHAR(500) NULL");
                 $logWrite(['event' => 'schema_fix', 'message' => 'Columna email_recipient agregada']);

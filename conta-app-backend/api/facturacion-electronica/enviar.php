@@ -1056,6 +1056,45 @@ try {
             $origPrefix  = $edRow['prefix'] ?? 'FCON';
             $origId      = $edRow['id'];                                // id local de electronic_documents
 
+            // GUARD anti-doble-NC: si ya existe una NC autorizada contra este CUFE,
+            // NO se envía otra. El caso Nutrigranos 2026-11-02 mandó NC7 y NC8 por
+            // la misma FE670 porque el primer envío falló al GUARDAR en BD aunque
+            // DIAN sí lo había aceptado, y el usuario reintentó pensando que falló.
+            $stmtDup = $db->prepare("
+                SELECT prefix, number, cufe, created_at
+                FROM electronic_documents
+                WHERE invoice_cufe = ?
+                  AND type_document_id = 2
+                  AND status = 'autorizado'
+                ORDER BY id DESC
+                LIMIT 1
+            ");
+            $stmtDup->execute([$factura['cufe']]);
+            $ncExistente = $stmtDup->fetch();
+            if ($ncExistente) {
+                echo json_encode([
+                    'success' => false,
+                    'already_cancelled' => true,
+                    'message' => "Esta factura ya fue anulada por {$ncExistente['prefix']}{$ncExistente['number']} el " . substr($ncExistente['created_at'], 0, 10) . ". No se puede enviar otra NC.",
+                    'nc_existente' => [
+                        'numero' => $ncExistente['prefix'] . $ncExistente['number'],
+                        'cufe'   => $ncExistente['cufe'],
+                        'fecha'  => $ncExistente['created_at'],
+                    ],
+                ]);
+                exit;
+            }
+
+            // Limpieza preventiva de uq_prefix_number: huerfanas con number=0
+            // (quedaron por un envío que falló DESPUÉS de que DIAN autorizó).
+            // Las sacamos del rango DIAN para que el placeholder 0 no choque.
+            $db->prepare("
+                UPDATE electronic_documents
+                SET number = 9000000000 + id
+                WHERE prefix IN ('NC', 'NCRE', 'NCRN', 'NCMA') AND number = 0
+                  AND status IN ('pendiente', 'rechazado', 'borrador')
+            ")->execute();
+
             // Build NC JSON — estructura idéntica a la que envía VB6 (probada y funcional)
             $ncJSON = buildInvoiceJSON($db, $factura, $items, $companyId);
             // Limpieza: la NC no usa estos campos

@@ -4,6 +4,7 @@
  */
 
 require_once '../config/database.php';
+require_once __DIR__ . "/../config/helpers_polyfill.php";
 
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     http_response_code(200);
@@ -45,7 +46,7 @@ try {
     // Detectar columnas presentes en tblarticulos. Los campos de conversion se
     // agregaron en 4.3.95 — si el cliente no corrio actualizacion_completa,
     // el INSERT rigido crashea con "Unknown column" (frontend: "error de conexion").
-    $cols = conta_columnas_tabla($db, 'tblarticulos');
+    $cols = array_column($db->query("SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tblarticulos'")->fetchAll(PDO::FETCH_ASSOC), 'COLUMN_NAME');
     $tieneFactor = in_array('FactorConversion', $cols);
     $tieneNombreEmp = in_array('NombreEmpaque', $cols);
     $tieneVenderEmp = in_array('VenderComoEmpaque', $cols);

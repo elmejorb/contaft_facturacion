@@ -49,7 +49,12 @@ try {
     ";
 
     // FE: detalle_document_electronic (solo si existe)
-    $tieneFE = conta_tiene_columna($db, 'detalle_document_electronic', 'entregado');
+    $tieneFE = (int) $db->query("
+        SELECT COUNT(*) FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'detalle_document_electronic'
+          AND COLUMN_NAME = 'entregado'
+    ")->fetchColumn();
 
     $rows = [];
     $stmt = $db->prepare($sqlPos);

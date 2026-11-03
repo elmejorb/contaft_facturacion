@@ -18,6 +18,7 @@
  * No duplica FE vinculada por CUFE a tblventas — en ese caso tomamos la POS.
  */
 require_once '../config/database.php';
+require_once __DIR__ . "/../config/helpers_polyfill.php";
 $db = (new Database())->getConnection();
 
 try {

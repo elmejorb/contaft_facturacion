@@ -35,7 +35,12 @@ const GROQ_MODEL = 'llama-3.3-70b-versatile';
 // luego cae al secrets.php global del servidor.
 function resolverApiKey($db): ?string {
     try {
-        $col =conta_tiene_columna($db, 'tbldatosempresa', 'groq_api_key');
+        $col = (int) $db->query("
+            SELECT COUNT(*) FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'tbldatosempresa'
+              AND COLUMN_NAME = 'groq_api_key'
+        ")->fetchColumn();
         if (intval($col) > 0) {
             $key = $db->query("SELECT groq_api_key FROM tbldatosempresa LIMIT 1")->fetchColumn();
             if ($key && trim($key) !== '') return trim($key);

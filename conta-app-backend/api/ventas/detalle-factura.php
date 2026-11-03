@@ -108,6 +108,31 @@ try {
                 exit;
             }
 
+            // Si la factura es FE (ya enviada/autorizada por DIAN), la Fecha
+            // NO se puede cambiar — queda sellada por la DIAN en el CUFE.
+            // Si llega una fecha distinta a la actual la forzamos a la original.
+            $stmtFE = $db->prepare("
+                SELECT fecha FROM electronic_documents
+                WHERE number = ? AND prefix = 'FE'
+                  AND status IN ('autorizado', 'enviado', 'pendiente')
+                LIMIT 1
+            ");
+            $stmtFE->execute([$factN]);
+            $feRow = $stmtFE->fetch();
+            if ($feRow) {
+                $fechaOriginalFE = substr($feRow['fecha'], 0, 10);
+                $fechaSolicitada = substr($data['fecha'] ?? '', 0, 10);
+                if ($fechaSolicitada && $fechaSolicitada !== $fechaOriginalFE) {
+                    echo json_encode([
+                        'success' => false,
+                        'message' => 'No se puede cambiar la fecha de una factura electrónica — fue sellada por la DIAN el ' . $fechaOriginalFE
+                    ]);
+                    exit;
+                }
+                // Forzar la fecha original aunque el frontend la mande igual.
+                $data['fecha'] = $fechaOriginalFE;
+            }
+
             // Calcular campos efectivo / valorpagado1 según el nuevo Tipo y medio.
             // Regla: id_mediopago=0 → efectivo; id_mediopago>0 → valorpagado1.
             $efectivoNuevo = 0.0;

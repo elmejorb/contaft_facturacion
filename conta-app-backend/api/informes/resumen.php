@@ -18,6 +18,7 @@
  *   → Clientes con saldo pendiente (cartera)
  */
 require_once '../config/database.php';
+require_once __DIR__ . "/../config/helpers_polyfill.php";
 
 $db = (new Database())->getConnection();
 $tipo = $_GET['tipo'] ?? '';

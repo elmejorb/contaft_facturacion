@@ -16,6 +16,7 @@
  *   GET  /api/vendedores/push-all.php  (también funciona, idempotente)
  */
 require_once '../config/database.php';
+require_once __DIR__ . "/../config/helpers_polyfill.php";
 header('Content-Type: application/json; charset=utf-8');
 
 $db = (new Database())->getConnection();
