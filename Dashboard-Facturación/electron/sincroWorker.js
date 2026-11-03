@@ -66,6 +66,34 @@ function leerDbConfig(readConfig) {
     };
   }
 
+  // backend-config.json del userData — fuente de verdad para embedded y
+  // clientes legacy ya migrados al patrón nuevo. Mismo archivo que el PHP
+  // builtin lee para abrir sus PDOs, así no hay forma de divergir.
+  try {
+    const { app } = require('electron');
+    const path = require('path');
+    const fs = require('fs');
+    const bcfgPath = path.join(app.getPath('userData'), 'backend-config.json');
+    if (fs.existsSync(bcfgPath)) {
+      const bcfg = JSON.parse(fs.readFileSync(bcfgPath, 'utf8'));
+      if (bcfg.driver === 'mysql' && bcfg.mysql?.host && bcfg.mysql?.database) {
+        const m = bcfg.mysql;
+        return {
+          host: m.host === 'localhost' ? '127.0.0.1' : m.host,
+          user: m.username || 'root',
+          password: m.password != null ? m.password : '',
+          database: m.database,
+        };
+      }
+      if (bcfg.driver === 'sqlite') {
+        throw new Error('Sincronización online no disponible: la base está en modo SQLite (embedded). Migrá a MySQL para activarla.');
+      }
+    }
+  } catch (e) {
+    if (e.message?.startsWith('Sincronización')) throw e;
+    // backend-config.json inválido o sin electron → caer al resto
+  }
+
   // Parsear database.php del backend que la app ya usa.
   // `backendPath` lo guarda la propia app en config.json al instalar/configurar
   // (es la MISMA ruta que usa el frontend para apuntar sus requests PHP).
@@ -375,6 +403,10 @@ async function cicloUnavez(mainWindow, readConfig, getEntitlements) {
   if (corriendo) return;
   corriendo = true;
   estado.ultimo_ciclo_at = new Date().toISOString();
+  // Reset del último error al inicio de cada ciclo: así el icono refleja el
+  // estado del ciclo actual, no el primer tropiezo desde que arrancó la app.
+  // Si hay error nuevo, se vuelve a setear abajo.
+  estado.ultimo_error = null;
 
   try {
     const cfgEarly = readConfig?.() || {};

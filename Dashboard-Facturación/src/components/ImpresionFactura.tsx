@@ -320,10 +320,14 @@ function mediaCarta(
   html += `<th style="text-align:right;padding:3px 5px;border:1px solid #000;width:75px;">Valor U.</th>`;
   html += `<th style="text-align:right;padding:3px 5px;border:1px solid #000;width:80px;">Subtotal</th>`;
   html += `</tr></thead><tbody>`;
+  const modoFabMediaCarta = esFabricacion();
   for (const item of d.items) {
-    // Si falta `entregado` o es cualquier valor != 'S', lo tratamos como
-    // pendiente — mejor avisarlo que ocultar un pendiente real.
-    const marcaPend = item.entregado !== 'S' ? ' <b style="color:#fff;background:#000;padding:1px 4px;font-size:9px;letter-spacing:1px;">POR ENTREGAR</b>' : '';
+    // "POR ENTREGAR" solo tiene sentido en Fabricación y en facturas de venta
+    // reales. En cotizaciones no aplica — aún no se vendió nada, no hay
+    // concepto de entrega.
+    const marcaPend = (!d.esCotizacion && modoFabMediaCarta && item.entregado !== 'S')
+      ? ' <b style="color:#fff;background:#000;padding:1px 4px;font-size:9px;letter-spacing:1px;">POR ENTREGAR</b>'
+      : '';
     html += `<tr>`;
     html += `<td style="padding:2px 5px;border-bottom:1px dotted #ccc;">${item.nombre}${marcaPend}</td>`;
     html += `<td style="text-align:center;padding:2px 5px;border-bottom:1px dotted #ccc;">${item.cantidad}</td>`;
@@ -482,8 +486,12 @@ function carta(
   html += `<th style="text-align:right;padding:3px 6px;border:1px solid #000;width:85px;">Subtotal</th>`;
   html += `</tr></thead><tbody>`;
 
+  const modoFabCarta = esFabricacion();
   for (const item of d.items) {
-    const marcaPend = item.entregado !== 'S' ? ' <b style="color:#fff;background:#000;padding:1px 4px;font-size:9px;letter-spacing:1px;">POR ENTREGAR</b>' : '';
+    // "POR ENTREGAR" solo en Fabricación y facturas reales — no en cotizaciones.
+    const marcaPend = (!d.esCotizacion && modoFabCarta && item.entregado !== 'S')
+      ? ' <b style="color:#fff;background:#000;padding:1px 4px;font-size:9px;letter-spacing:1px;">POR ENTREGAR</b>'
+      : '';
     html += `<tr>`;
     html += `<td style="padding:2px 6px;border-bottom:1px dotted #ccc;vertical-align:top;">${item.codigo}</td>`;
     html += `<td style="padding:2px 6px;border-bottom:1px dotted #ccc;vertical-align:top;word-wrap:break-word;">${item.nombre}${marcaPend}</td>`;
