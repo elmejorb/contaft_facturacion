@@ -9,6 +9,7 @@
  * por etiqueta con el mismo look de Inventario.
  */
 require_once '../config/database.php';
+require_once __DIR__ . '/../config/helpers_polyfill.php';
 
 $db = (new Database())->getConnection();
 

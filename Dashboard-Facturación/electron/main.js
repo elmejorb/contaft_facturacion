@@ -522,6 +522,7 @@ async function validateForUsage() {
 
   // 2. Cache vigente hasta fecha_fin
   const cache = cfg._subscription_cache;
+  const GRACIA_MS = 7 * 24 * 60 * 60 * 1000; // 7 días
   if (cache?.allowed && cache.fecha_fin) {
     const fin = new Date(cache.fecha_fin).getTime();
     if (!isNaN(fin) && Date.now() < fin) {
@@ -534,6 +535,52 @@ async function validateForUsage() {
         plan_nombre: cache.plan_nombre,
       };
     }
+    // 2b. GRACIA: cache venció pero el último contacto con CRM fue reciente.
+    // Permite 7 días más de operación para que el cliente renueve con calma.
+    if (cache.checked_at && (Date.now() - cache.checked_at) < GRACIA_MS) {
+      const diasRestantes = Math.ceil(
+        (GRACIA_MS - (Date.now() - cache.checked_at)) / (24 * 60 * 60 * 1000)
+      );
+      return {
+        allowed: true,
+        source: 'cache-grace',
+        estado: 'gracia',
+        fecha_fin: cache.fecha_fin,
+        empresa: cache.empresa,
+        plan_nombre: cache.plan_nombre,
+        gracia_dias_restantes: diasRestantes,
+        mensaje: `Operando en modo gracia. Renueva tu suscripción (${diasRestantes} día${diasRestantes === 1 ? '' : 's'} restante${diasRestantes === 1 ? '' : 's'}).`,
+      };
+    }
+  }
+
+  // 2c. FALLBACK — JWT del _entitlements_cache.
+  // Si por lo que sea _subscription_cache no está (bug previo, reseteo, etc)
+  // pero sí tenemos un JWT reciente firmado por el CRM, usamos ese. El JWT lleva
+  // en su payload `modulos.nucleo.vigencia_hasta`. Si esa fecha no ha pasado,
+  // dejamos operar sin red. (El cliente de la foto 2026-11-03 estaba en este
+  // caso: entitlements vigentes pero subscription_cache vacío por el fluir
+  // de versiones 4.8.9→4.8.13.)
+  const ent = cfg._entitlements_cache;
+  if (ent?.jwt && typeof ent.jwt === 'string') {
+    try {
+      const parts = ent.jwt.split('.');
+      if (parts.length === 3) {
+        const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf8'));
+        const vigNucleo = payload?.modulos?.nucleo?.vigencia_hasta;
+        const vigMs = vigNucleo ? new Date(vigNucleo).getTime() : NaN;
+        if (!isNaN(vigMs) && Date.now() < vigMs) {
+          return {
+            allowed: true,
+            source: 'entitlements',
+            estado: 'activa',
+            fecha_fin: vigNucleo,
+            empresa: payload.empresa,
+            plan_nombre: payload?.plan?.nombre,
+          };
+        }
+      }
+    } catch { /* JWT corrupto, seguir con bloque 3 */ }
   }
 
   // 3. Código de activación offline
@@ -656,15 +703,20 @@ async function subirBackupNube() {
   let backupBuf = null;         // Buffer del dump
   let filenameSrc = 'conta.db'; // nombre que se envía al upload
 
-  // Leer backend-config.json para saber qué modo tenemos
-  let driver = 'sqlite';
-  try {
-    const bcfgPath = path.join(app.getPath('userData'), 'backend-config.json');
-    if (fs.existsSync(bcfgPath)) {
-      const bcfg = JSON.parse(fs.readFileSync(bcfgPath, 'utf8'));
-      driver = bcfg.driver || 'sqlite';
-    }
-  } catch {}
+  // Leer backend-config.json para saber qué modo tenemos.
+  // IMPORTANTE: en modo legacy (Apache + MySQL), el backend-config.json puede
+  // quedar como 'sqlite' por residuos de la migración 4.8.9. Si estamos en
+  // legacy, forzamos driver='mysql' y nos vamos directo al endpoint PHP.
+  let driver = cfg.backendMode === 'legacy' ? 'mysql' : 'sqlite';
+  if (cfg.backendMode !== 'legacy') {
+    try {
+      const bcfgPath = path.join(app.getPath('userData'), 'backend-config.json');
+      if (fs.existsSync(bcfgPath)) {
+        const bcfg = JSON.parse(fs.readFileSync(bcfgPath, 'utf8'));
+        driver = bcfg.driver || 'sqlite';
+      }
+    } catch {}
+  }
 
   // Base URL del backend (modo embedded: PHP builtin, modo legacy: Apache/XAMPP)
   const backendBase = phpPortActivo

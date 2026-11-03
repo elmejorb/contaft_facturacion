@@ -4,6 +4,7 @@
  */
 
 require_once '../config/database.php';
+require_once __DIR__ . '/../config/helpers_polyfill.php';
 
 // Crear conexión a la base de datos
 $database = new Database();

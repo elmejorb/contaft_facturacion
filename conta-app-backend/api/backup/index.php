@@ -252,9 +252,16 @@ try {
         exit;
     }
 
-    // POST
+    // POST — aceptar action en JSON body, en form-urlencoded ($_POST) o en
+    // query string ($_GET). El main.js del Electron lo manda por query string
+    // con body vacío; no romper eso.
     $data = json_decode(file_get_contents('php://input'), true) ?: [];
-    $action = $data['action'] ?? '';
+    $action = $data['action'] ?? ($_POST['action'] ?? ($_GET['action'] ?? ''));
+    // Para 'eliminar', el nombre viene por el mismo medio.
+    if (!isset($data['nombre']) && isset($_POST['nombre'])) $data['nombre'] = $_POST['nombre'];
+    if (!isset($data['nombre']) && isset($_GET['nombre']))  $data['nombre'] = $_GET['nombre'];
+    if (!isset($data['forzar']) && isset($_POST['forzar'])) $data['forzar'] = $_POST['forzar'];
+    if (!isset($data['forzar']) && isset($_GET['forzar']))  $data['forzar'] = $_GET['forzar'];
 
     if ($action === 'generar') {
         $forzar = !empty($data['forzar']);

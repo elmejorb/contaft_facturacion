@@ -49,3 +49,13 @@ if (!function_exists('conta_columnas_tabla')) {
         return array_column($stmt->fetchAll(PDO::FETCH_ASSOC), 'COLUMN_NAME');
     }
 }
+
+if (!function_exists('conta_tablas_schema')) {
+    function conta_tablas_schema(PDO $db): array {
+        $driver = $db->getAttribute(PDO::ATTR_DRIVER_NAME);
+        if ($driver === 'sqlite') {
+            return $db->query("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")->fetchAll(PDO::FETCH_COLUMN);
+        }
+        return $db->query("SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE()")->fetchAll(PDO::FETCH_COLUMN);
+    }
+}
