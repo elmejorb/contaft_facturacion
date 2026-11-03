@@ -8,19 +8,33 @@ try {
         $stmt = $db->query("SELECT * FROM tbldatosempresa LIMIT 1");
         $empresa = $stmt->fetch();
 
-        // Logo: si tbldatosempresa.Logo guarda un path relativo (`uploads/logo.png`)
-        // y el archivo existe, devolvemos URL pública para que el frontend la
-        // muestre. La URL se construye dinámicamente para funcionar tanto en
-        // conta-app-backend como en conta-app-api u otras instalaciones.
+        // Logo: antes construíamos URL directa al archivo estático
+        // (`$host/<appName>/uploads/logo.png`). Eso funcionaba en modo legacy
+        // (Apache sirve toda la carpeta conta-app-backend/) pero FALLABA en
+        // embedded (PHP builtin tiene docRoot = api/, y uploads/ queda fuera).
+        //
+        // Fix: delegar a `empresa/logo.php` que vive DENTRO de api/ y por tanto
+        // es accesible en ambos modos. Ese endpoint lee el archivo desde donde
+        // esté y lo sirve con content-type correcto.
         $logoUrl = null;
         if ($empresa && !empty($empresa['Logo'])) {
             $backendRoot = realpath(__DIR__ . '/../..');
             $abs = $backendRoot . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $empresa['Logo']);
-            if (file_exists($abs)) {
+            $absApi = $backendRoot . DIRECTORY_SEPARATOR . 'api' . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $empresa['Logo']);
+            if (file_exists($abs) || file_exists($absApi)) {
                 $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
                 $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
-                $appName = basename($backendRoot);
-                $logoUrl = "$scheme://$host/$appName/" . str_replace('\\', '/', $empresa['Logo']);
+                $esEmbedded = strpos($host, ':8089') !== false;
+                // Cache-buster: cambia cuando cambia el archivo del logo
+                $cb = max(@filemtime($abs) ?: 0, @filemtime($absApi) ?: 0);
+                if ($esEmbedded) {
+                    // docRoot = api/, URL directa al endpoint
+                    $logoUrl = "$scheme://$host/empresa/logo.php?v=$cb";
+                } else {
+                    // Apache sirve /conta-app-backend/, el endpoint vive en /api/empresa/
+                    $appName = basename($backendRoot);
+                    $logoUrl = "$scheme://$host/$appName/api/empresa/logo.php?v=$cb";
+                }
             }
         }
         if ($empresa !== false) $empresa['Logo_url'] = $logoUrl;

@@ -749,7 +749,10 @@ async function subirBackupNube() {
   }
 
   // Camino 2 — fallback SQLite directo (si no hay PHP arriba o falló).
-  if (!backupBuf && driver === 'sqlite') {
+  // SOLO si estamos en modo embedded. En legacy nunca llegamos aquí porque
+  // driver siempre arranca como 'mysql'. Si por alguna razón el user tiene
+  // backendMode indefinido y la BD es MySQL (XAMPP), evitamos el falso toast.
+  if (!backupBuf && driver === 'sqlite' && cfg.backendMode !== 'legacy') {
     const dbPath = path.join(app.getPath('userData'), 'conta.db');
     if (!fs.existsSync(dbPath)) {
       return { success: false, message: 'conta.db no existe aún y el PHP builtin no respondió' };

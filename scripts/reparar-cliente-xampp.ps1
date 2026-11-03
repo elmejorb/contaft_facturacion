@@ -91,7 +91,10 @@ $h['backendPath'] = $backendPath
 $h.Remove('apiUrlRuntime') | Out-Null
 $h.Remove('trial_inicio') | Out-Null
 
-$h | ConvertTo-Json -Depth 20 | Set-Content -Path $configJson -Encoding UTF8
+$jsonTxt = $h | ConvertTo-Json -Depth 20
+# UTF-8 SIN BOM — Set-Content -Encoding UTF8 agrega BOM en PS5, lo que puede
+# confundir a Electron (Node fs.readFileSync no quita BOM antes de JSON.parse).
+[System.IO.File]::WriteAllText($configJson, $jsonTxt, (New-Object System.Text.UTF8Encoding $false))
 Write-Host "   OK config.json escrito: $configJson" -ForegroundColor Green
 
 # --- 4. Borrar backend-config.json ---
@@ -116,10 +119,49 @@ $php = [regex]::Replace($php, 'private\s+\$db_name\s*=\s*"[^"]*";',    "private 
 $php = [regex]::Replace($php, 'private\s+\$username\s*=\s*"[^"]*";',   "private `$username = `"$mysqlUser`";")
 $php = [regex]::Replace($php, 'private\s+\$password\s*=\s*"[^"]*";',   "private `$password = `"$mysqlPass`";")
 
-Set-Content -Path $databasePhp -Value $php -Encoding UTF8 -NoNewline
+[System.IO.File]::WriteAllText($databasePhp, $php, (New-Object System.Text.UTF8Encoding $false))
 Write-Host "   OK database.php escrito con BD=$dbName user=$mysqlUser" -ForegroundColor Green
 
-# --- 6. Verificacion ---
+# --- 6. Sincronizar PHP del backend desde el instalador ---
+#   El htdocs del cliente XAMPP no se autosincroniza en legacy. Si Conta FT
+#   esta instalada, copiamos los PHP del instalador al htdocs — pero NUNCA
+#   el database.php ni config.json (preservan credenciales).
+Write-Host ""
+Write-Host "-> Sincronizando backend PHP desde el instalador..." -ForegroundColor Yellow
+
+$posiblesInstal = @(
+    "$env:ProgramFiles\Conta FT 4.3\resources\backend",
+    "${env:ProgramFiles(x86)}\Conta FT 4.3\resources\backend",
+    "$env:LOCALAPPDATA\Programs\Conta FT 4.3\resources\backend"
+)
+$instalPath = $null
+foreach ($p in $posiblesInstal) {
+    if ($p -and (Test-Path $p)) { $instalPath = $p; break }
+}
+
+if ($instalPath) {
+    Write-Host "   Fuente: $instalPath"
+    $skipFiles = @('api\config\database.php', 'api\config\config.json')
+    $copiados = 0
+    Get-ChildItem -Path $instalPath -Recurse -File | ForEach-Object {
+        $rel = $_.FullName.Substring($instalPath.Length + 1)
+        $skip = $false
+        foreach ($s in $skipFiles) { if ($rel -eq $s) { $skip = $true; break } }
+        if ($skip) { return }
+        $destFile = Join-Path $backendPath $rel
+        $destDir = Split-Path $destFile -Parent
+        if (-not (Test-Path $destDir)) { New-Item -ItemType Directory -Path $destDir -Force | Out-Null }
+        Copy-Item $_.FullName $destFile -Force
+        $copiados++
+    }
+    Write-Host "   OK $copiados archivos sincronizados (database.php y config.json preservados)" -ForegroundColor Green
+} else {
+    Write-Host "   WARN: no encontre Conta FT instalada. Omito sync del backend." -ForegroundColor Yellow
+    Write-Host "   Si el cliente reporta errores en backup o endpoints nuevos, copia manual" -ForegroundColor Yellow
+    Write-Host "   desde: <RutaInstalacion>\resources\backend\  a:  $backendPath" -ForegroundColor Yellow
+}
+
+# --- 7. Verificacion ---
 Write-Host ""
 Write-Host "================================================" -ForegroundColor Cyan
 Write-Host "  Listo. Reabre Conta FT y verifica." -ForegroundColor Green

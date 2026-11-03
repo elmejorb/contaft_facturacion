@@ -273,7 +273,9 @@ try {
                     echo json_encode([
                         'success' => true,
                         'ya_existe' => true,
-                        'archivo' => $a,
+                        'archivo' => $a['nombre'],
+                        'archivo_info' => $a,
+                        'motor' => $driver,
                         'message' => 'Ya existe un respaldo de hoy',
                     ]);
                     exit;
@@ -313,12 +315,14 @@ try {
 
         echo json_encode([
             'success' => true,
-            'archivo' => [
+            'archivo' => $nombre,
+            'archivo_info' => [
                 'nombre' => $nombre,
                 'ruta'   => $ruta,
                 'tamano' => filesize($ruta),
                 'fecha'  => date('Y-m-d H:i:s', filemtime($ruta)),
             ],
+            'motor'         => $driver,
             'filas_totales' => $filas,
             'duracion_seg'  => $duracion,
             'rotados'       => $borrados,
