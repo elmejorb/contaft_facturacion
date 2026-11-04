@@ -36,6 +36,7 @@ function llamarEventosEstado($API_BASE, $cufe, $timeout = 6) {
         CURLOPT_SSL_VERIFYPEER => false,
         CURLOPT_TIMEOUT        => $timeout,
         CURLOPT_CONNECTTIMEOUT => 3,
+        CURLOPT_USERAGENT      => 'ContaFT/4.8.18 (+eventos-estado)',
     ]);
     $raw = curl_exec($ch);
     $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
@@ -63,6 +64,7 @@ function llamarEventos($API_BASE, $cufe) {
         CURLOPT_SSL_VERIFYPEER => false,
         CURLOPT_TIMEOUT        => 20,
         CURLOPT_CONNECTTIMEOUT => 5,
+        CURLOPT_USERAGENT      => 'ContaFT/4.8.18 (+eventos-refresh)',
     ]);
     $raw = curl_exec($ch);
     $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
@@ -93,13 +95,16 @@ try {
         $input = json_decode(file_get_contents('php://input'), true) ?: [];
         $cufes = array_values(array_filter(array_map('trim', $input['cufes'] ?? [])));
         if (!$cufes) { echo json_encode(['success' => true, 'data' => (object)[]]); exit; }
-        // Tope defensivo: no lanzar más de 30 conexiones concurrentes.
         $cufes = array_slice($cufes, 0, 100);
 
-        $mh = curl_multi_init();
-        $handles = [];
-        foreach ($cufes as $c) {
-            $url = "$API_BASE/api/documentos-electronicos/" . urlencode($c) . "/eventos-estado";
+        // Tope real de concurrencia: 8 conexiones simultáneas contra la API.
+        // El nginx del server rate-limita a 20 r/s burst=40 por IP; con 8 a ~150ms
+        // nos quedamos muy por debajo. Si lanzamos 40+ handles de golpe algunas
+        // caen en 503 (visto 2026-11-04 con GUTIERREZ SIMANCA y otros clientes
+        // con muchas facturas crédito).
+        $ua = 'ContaFT/4.8.18 (+eventos-batch)';
+        $buildHandle = function ($cufe) use ($API_BASE, $ua) {
+            $url = "$API_BASE/api/documentos-electronicos/" . urlencode($cufe) . "/eventos-estado";
             $ch = curl_init($url);
             curl_setopt_array($ch, [
                 CURLOPT_RETURNTRANSFER => true,
@@ -107,7 +112,17 @@ try {
                 CURLOPT_SSL_VERIFYPEER => false,
                 CURLOPT_TIMEOUT        => 8,
                 CURLOPT_CONNECTTIMEOUT => 3,
+                CURLOPT_USERAGENT      => $ua,
             ]);
+            return $ch;
+        };
+
+        $mh = curl_multi_init();
+        curl_multi_setopt($mh, CURLMOPT_MAX_TOTAL_CONNECTIONS, 8);
+        curl_multi_setopt($mh, CURLMOPT_MAX_HOST_CONNECTIONS, 8);
+        $handles = [];
+        foreach ($cufes as $c) {
+            $ch = $buildHandle($c);
             curl_multi_add_handle($mh, $ch);
             $handles[$c] = $ch;
         }
@@ -117,14 +132,44 @@ try {
         } while ($running > 0);
 
         $out = [];
+        $retry = [];    // cufes que respondieron 503/429: los reintentamos 1 vez con 1s de espera
         foreach ($handles as $c => $ch) {
-            $raw = curl_multi_getcontent($ch);
-            $data = $raw ? json_decode($raw, true) : null;
-            $out[$c] = is_array($data) ? $data : ['success' => false, 'message' => 'timeout/no-json', 'cufe' => $c];
+            $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            $raw  = curl_multi_getcontent($ch);
+            if (in_array($code, [429, 503, 502, 504], true)) {
+                $retry[] = $c;
+            } else {
+                $data = $raw ? json_decode($raw, true) : null;
+                $out[$c] = is_array($data) ? $data : ['success' => false, 'message' => "HTTP $code", 'cufe' => $c];
+            }
             curl_multi_remove_handle($mh, $ch);
             curl_close($ch);
         }
         curl_multi_close($mh);
+
+        if ($retry) {
+            usleep(1000000); // 1s — dejar que el bucket del rate limiter se recupere
+            $mh2 = curl_multi_init();
+            curl_multi_setopt($mh2, CURLMOPT_MAX_TOTAL_CONNECTIONS, 4);
+            curl_multi_setopt($mh2, CURLMOPT_MAX_HOST_CONNECTIONS, 4);
+            $h2 = [];
+            foreach ($retry as $c) {
+                $ch = $buildHandle($c);
+                curl_multi_add_handle($mh2, $ch);
+                $h2[$c] = $ch;
+            }
+            do { curl_multi_exec($mh2, $r2); if ($r2) curl_multi_select($mh2, 0.5); } while ($r2 > 0);
+            foreach ($h2 as $c => $ch) {
+                $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+                $raw  = curl_multi_getcontent($ch);
+                $data = $raw ? json_decode($raw, true) : null;
+                $out[$c] = is_array($data) ? $data : ['success' => false, 'message' => "HTTP $code (reintento)", 'cufe' => $c];
+                curl_multi_remove_handle($mh2, $ch);
+                curl_close($ch);
+            }
+            curl_multi_close($mh2);
+        }
+
         echo json_encode(['success' => true, 'data' => $out], JSON_UNESCAPED_UNICODE);
         exit;
     }

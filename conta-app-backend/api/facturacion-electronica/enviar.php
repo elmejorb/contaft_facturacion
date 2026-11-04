@@ -23,6 +23,7 @@ function apiRequest($url, $method, $data = null, $token = null) {
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($ch, CURLOPT_TIMEOUT, 60);
     curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+    curl_setopt($ch, CURLOPT_USERAGENT, 'ContaFT/4.8.18 (+enviar)');
 
     $headers = ['Content-Type: application/json'];
     if ($token) $headers[] = "Authorization: Bearer $token";
@@ -1085,14 +1086,18 @@ try {
                 exit;
             }
 
-            // Limpieza preventiva de uq_prefix_number: huerfanas con number=0
-            // (quedaron por un envío que falló DESPUÉS de que DIAN autorizó).
-            // Las sacamos del rango DIAN para que el placeholder 0 no choque.
+            // Limpieza preventiva de uq_prefix_number: huerfanas con number=0.
+            // Dos casos de origen:
+            //   (a) pendiente / rechazado / borrador: placeholder normal pre-envio.
+            //   (b) autorizado SIN cufe o con consecutive=0 devuelto: la API respondio
+            //       pero el INSERT local quedo sin numeracion real — bug visto en
+            //       Nutrigranos 2026-11-04. Si tiene cufe real pero quedo con
+            //       number=0 lo sacamos tambien: no perdemos la fila (queda con
+            //       number >= 9000000000), solo liberamos el slot UNIQUE.
             $db->prepare("
                 UPDATE electronic_documents
                 SET number = 9000000000 + id
                 WHERE prefix IN ('NC', 'NCRE', 'NCRN', 'NCMA') AND number = 0
-                  AND status IN ('pendiente', 'rechazado', 'borrador')
             ")->execute();
 
             // Build NC JSON — estructura idéntica a la que envía VB6 (probada y funcional)
@@ -1140,16 +1145,61 @@ try {
 
             @file_put_contents("{$logBase}_response.json", json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
 
+            // Caso especial: la API responde 409 con 'nota_existente' cuando ya
+            // hay una NC de anulacion autorizada para esta FE. NO fue a DIAN.
+            // Mostrar mensaje claro + datos de la NC previa para que el usuario
+            // la registre localmente si no quedo guardada.
+            if (!empty($result['nota_existente']) && is_array($result['nota_existente'])) {
+                echo json_encode([
+                    'success' => false,
+                    'already_cancelled' => true,
+                    'message' => $result['error'] ?? 'Esta factura ya fue anulada con otra NC.',
+                    'nc_existente' => [
+                        'prefix' => $result['nota_existente']['prefix'] ?? 'NC',
+                        'number' => $result['nota_existente']['number'] ?? 0,
+                        'numero' => ($result['nota_existente']['prefix'] ?? 'NC') . ($result['nota_existente']['number'] ?? ''),
+                        'cufe'   => $result['nota_existente']['cufe'] ?? null,
+                        'total'  => $result['nota_existente']['total'] ?? null,
+                    ],
+                    'sugerencia' => $result['sugerencia'] ?? null,
+                ], JSON_UNESCAPED_UNICODE);
+                exit;
+            }
+
             // La API Lumen a veces devuelve success=false aunque la DIAN aprobó.
             // Detectamos el éxito real por status_code='00' o por la presencia de CUFE.
             $ncCufe = $result['cufe'] ?? ($result['respuesta_dian']['cufe'] ?? '');
-            $ncConsecutive = $result['consecutive'] ?? ($result['respuesta_dian']['consecutive'] ?? 0);
+            // El numero real de la NC es 'number' (entero, p.ej. 9). 'consecutive'
+            // es un identificador compuesto (empresa+resolucion+numero, p.ej. "10129")
+            // que NO debe guardarse en electronic_documents.number. Mantenemos el
+            // fallback a 'consecutive' por si quedo algun endpoint antiguo que no
+            // devuelva 'number', pero extrayendo solo digitos y degradando a 0 si
+            // el valor pinta como id compuesto (>= 100 y sin campo 'number' explicito).
+            $ncConsecutive = $result['number'] ?? ($result['respuesta_dian']['number'] ?? 0);
             $ncPrefix = $result['prefix'] ?? ($result['respuesta_dian']['prefix'] ?? 'NCRE');
             $statusCode = $result['status_code'] ?? ($result['respuesta_dian']['status_code'] ?? '');
             $aprobada = (!empty($ncCufe)) || $statusCode === '00';
 
             $ncDocId = null;
             if ($aprobada) {
+                // Si DIAN autorizo pero no tenemos 'number' valido (respuesta anormal
+                // o endpoint que no incluye el campo), NUNCA pedir reintentar: la NC
+                // YA esta en DIAN y reintentar duplica. La guardamos con placeholder
+                // (9000000000 + id%1000000) y marcamos la nota con [REVISAR-NUMERO]
+                // para que el GUARD anti-doble-NC la detecte en reintentos y el
+                // usuario sepa que hay que verificar el numero manualmente.
+                $usoPlaceholder = false;
+                if (intval($ncConsecutive) <= 0) {
+                    $usoPlaceholder = true;
+                    $ncConsecutive = 9000000000 + (intval($origId) % 1000000);
+                    @file_put_contents("{$logBase}_sin_number.json", json_encode([
+                        'cufe'       => $ncCufe,
+                        'status_code'=> $statusCode,
+                        'result'     => $result,
+                        'nota'       => 'DIAN autorizo la NC pero la API no devolvio number — guardado con placeholder para revision manual.',
+                    ], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+                }
+
                 // 1) Guardar la NC en electronic_documents localmente
                 // type_document_id=2 = "Nota crédito" en la tabla type_documents
                 $stmtIns = $db->prepare("
@@ -1159,6 +1209,10 @@ try {
                      efectivo, valorpagado1, pagada, EstadoFact, email_sent, nota)
                     VALUES (?, ?, ?, 2, ?, ?, 'autorizado', ?, ?, ?, ?, ?, ?, ?, ?, 'N', 1, 0, ?)
                 ");
+                $notaNC = "NC anulacion factura #" . $factN . ". Motivo: " . substr($motivo, 0, 200);
+                if ($usoPlaceholder) {
+                    $notaNC = "[REVISAR-NUMERO] " . $notaNC;
+                }
                 $stmtIns->execute([
                     date('Y-m-d'),
                     $factura['CodigoCli'],
@@ -1173,7 +1227,7 @@ try {
                     $factura['id_mediopago'] ?? 0,
                     $factura['efectivo'] ?? 0,
                     $factura['valorpagado1'] ?? 0,
-                    "NC anulacion factura #" . $factN . ". Motivo: " . substr($motivo, 0, 200),
+                    $notaNC,
                 ]);
                 $ncDocId = $db->lastInsertId();
 
