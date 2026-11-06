@@ -1,0 +1,13 @@
+{
+  "_doc": "Métricas que una versión PUEDE cambiar al migrar (antes != después). Todo lo que no esté aquí debe quedar IGUAL. direccion: 'baja' | 'sube' | 'cualquiera'. Para métricas {n,total} se compara 'total'. Solo aplica a la versión indicada.",
+  "4.8.19": {
+    "cartera_fe": {
+      "direccion": "baja",
+      "motivo": "Fix deudas falsas: pagos FE guardados como texto ('FE9', 'FE-16') se enlazan a su documento."
+    },
+    "pagos_validos": {
+      "direccion": "baja",
+      "motivo": "Abonos iniciales de FE en borrador/rechazada pasan a 'Pendiente' (no suman en caja/cartera)."
+    }
+  }
+}

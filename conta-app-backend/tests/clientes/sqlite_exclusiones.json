@@ -1,0 +1,23 @@
+{
+  "_doc": "Tablas/columnas de MySQL que NO existen en el esquema SQLite de clientes embebidos y está bien que no existan (con motivo). Cualquier otra diferencia hace FALLAR la prueba: significa que el modo embebido no puede usar ese dato.",
+  "tablas": {
+    "tbl_sync_outbox": "Sincronización con SaaS: triggers trg_sync_* solo existen en MySQL.",
+    "tbl_sync_estado": "Sincronización con SaaS: solo MySQL."
+  },
+  "columnas": {
+    "tblcajas": [
+      "fecha_creacion"
+    ],
+    "electronic_documents": [
+      "saldo"
+    ],
+    "tbldetalle_venta": [
+      "id_usuario"
+    ]
+  },
+  "_motivos_columnas": {
+    "tblcajas.fecha_creacion": "Nombre legacy (BDs 4.3.x como AhorraMas) de la misma fecha que el esquema actual llama FechaCreacion. Ningún endpoint lee tblcajas.fecha_creacion (verificado con grep 2026-11-06).",
+    "electronic_documents.saldo": "Columna opcional (solo algunas BDs MySQL). ventas/nueva.php detecta si existe (pragma/information_schema) antes de usarla.",
+    "tbldetalle_venta.id_usuario": "Columna legacy de algunas BDs (EyD, contars4). Ningún endpoint la lee ni escribe (grep 2026-11-06). OJO: en EyD es NOT NULL sin default — en sql_mode estricto los INSERT de venta fallarían."
+  }
+}

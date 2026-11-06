@@ -74,6 +74,7 @@
             "electron": "cross-env NODE_ENV=development electron .",
             "electron:dev": "concurrently \"npm run dev\" \"wait-on http://localhost:3000 && npm run electron\"",
             "test:backend": "node scripts/pre-build-tests.mjs",
+            "test:clientes": "node scripts/test-clientes.mjs",
             "setup:php": "node scripts/setup-php-portable.mjs",
             "electron:build": "npm run setup:php && npm run test:backend && npm run build && electron-builder",
             "electron:build:skip-tests": "node scripts/constancia.mjs --borrar && npm run setup:php && npm run build && electron-builder",
