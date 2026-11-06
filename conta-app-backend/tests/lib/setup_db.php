@@ -60,6 +60,12 @@ function resetTestDatabaseSqlite() {
     $pdo->exec('PRAGMA busy_timeout = 5000');
     $pdo->exec('PRAGMA foreign_keys = OFF'); // off durante bulk ops
 
+    // Un archivo que existe pero SIN tablas (p.ej. lo creó un request al
+    // backend antes del reset) se trata como BD nueva.
+    if (!$esNueva && intval($pdo->query("SELECT COUNT(*) FROM sqlite_master WHERE type='table'")->fetchColumn()) === 0) {
+        $esNueva = true;
+    }
+
     if ($esNueva) {
         // Cargar schema completo + catálogo DIAN (una vez)
         foreach (preg_split('~;\s*(?:\n|$)~', file_get_contents($schema)) as $stmt) {
@@ -121,6 +127,9 @@ function resetTestDatabaseSqlite() {
  * En SQLite: escribe api/config/config.json apuntando al archivo .db de fixtures.
  */
 function switchBackendToTestDb() {
+    // Con TEST_BACKEND_URL el backend bajo prueba es un php -S del repo que ya
+    // recibe la BD de pruebas por CONTA_CONFIG_PATH: no se toca Apache/htdocs.
+    if (getenv('TEST_BACKEND_URL')) return;
     if (conta_test_driver() === 'sqlite') {
         $cfgDst = 'C:/WebServer/Apache24/htdocs/conta-app-backend/api/config/config.json';
         // Ruta absoluta sin realpath — el archivo .db puede no existir aún en este punto
@@ -144,6 +153,7 @@ function switchBackendToTestDb() {
 }
 
 function restoreBackendDatabase() {
+    if (getenv('TEST_BACKEND_URL')) return;
     // Modo SQLite: borrar config.json que escribimos
     $cfgDst = 'C:/WebServer/Apache24/htdocs/conta-app-backend/api/config/config.json';
     if (file_exists($cfgDst)) @unlink($cfgDst);

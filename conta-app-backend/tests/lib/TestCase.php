@@ -17,6 +17,10 @@ abstract class TestCase {
     public $failed = 0;
 
     public function setUp() {
+        // TEST_BACKEND_URL (lo pone pre-build-tests.mjs): php -S sobre el
+        // backend DEL REPO → se prueba exactamente el commit, no la copia
+        // sincronizada en htdocs de Apache.
+        $this->baseUrl = getenv('TEST_BACKEND_URL') ?: $this->baseUrl;
         $driver = $_ENV['TEST_DB_DRIVER'] ?? getenv('TEST_DB_DRIVER') ?: 'mysql';
         if ($driver === 'sqlite') {
             $dbPath = __DIR__ . '/../fixtures/conta_test.db';

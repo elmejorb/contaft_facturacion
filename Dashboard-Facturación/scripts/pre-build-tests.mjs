@@ -4,8 +4,9 @@
 // Encadenado en package.json → "electron:build":
 //   "npm run test:backend && npm run build && electron-builder"
 //
-// Chequea también que Apache+MySQL de XAMPP estén arriba — si no, no tiene
-// sentido correr tests que hablan HTTP contra Apache.
+// La suite habla HTTP con un php -S levantado aquí sobre el backend DEL REPO
+// (no con Apache/htdocs), así se prueba exactamente el commit. Requiere el
+// MySQL de XAMPP arriba. Después corre test-clientes.mjs (bases reales).
 //
 // CONSTANCIA (desde 4.8.19): al terminar bien escribe
 //   dist-electron/verificacion-build.json
@@ -15,8 +16,9 @@
 // Al empezar se BORRA la constancia anterior: un build fallido o sin pruebas
 // nunca puede reutilizar una constancia vieja.
 
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { borrarConstancia, RUTA_CONSTANCIA } from './constancia.mjs';
@@ -64,14 +66,12 @@ if (!existsSync(MYSQL)) fatal(`No encontré mysql.exe en ${MYSQL}. ¿Está insta
 const runnerPath = join(BACKEND, 'tests', 'run.php');
 if (!existsSync(runnerPath)) fatal(`No encontré el runner de tests en ${runnerPath}`);
 
-// 2. Chequeo rápido: Apache y MySQL respondiendo
-info('Verificando Apache en localhost:80...');
-try {
-  const r = await fetch('http://localhost:80/conta-app-backend/api/health.php', { signal: AbortSignal.timeout(3000) });
-  if (!r.ok && r.status !== 404) info(`  Apache responde HTTP ${r.status}`);
-} catch (e) {
-  fatal(`Apache no responde en localhost:80. Arrancalo desde XAMPP Control Panel.`);
-}
+// 2. MySQL respondiendo. (Apache ya NO se usa: la suite corre contra un
+//    php -S sobre el backend DEL REPO — se prueba exactamente el commit, no
+//    la copia sincronizada en htdocs.)
+const PHP_PORTABLE = join(RAIZ, 'php-portable', 'php.exe');
+const PHP_PORTABLE_INI = join(RAIZ, 'php-portable', 'php.ini');
+if (!existsSync(PHP_PORTABLE)) fatal(`No encontré ${PHP_PORTABLE}. Corre "npm run setup:php".`);
 
 info('Verificando MySQL...');
 const mysqlCheck = spawnSync(MYSQL, ['-uroot', '-proot', '-e', 'SELECT 1'], { encoding: 'utf-8' });
@@ -82,17 +82,44 @@ if (mysqlCheck.status !== 0) {
 // 3. Correr la suite contra AMBOS drivers (MySQL legacy + SQLite nuevo).
 //    Si cualquiera falla, el build se cancela — así clientes actuales (MySQL)
 //    y clientes nuevos (SQLite) ambos reciben código que funciona.
+// Backend bajo prueba: php -S sobre conta-app-backend del repo.
+//   mysql  → PHP de XAMPP (el que usan los clientes MySQL) + BD conta_test
+//   sqlite → php-portable (el que se EMPACA para embebidos) + fixtures/conta_test.db
+const TMP_CFG = join(tmpdir(), 'contaft-prebuild');
+mkdirSync(TMP_CFG, { recursive: true });
+async function levantarBackend(driver, port) {
+  const cfgPath = join(TMP_CFG, `config-${driver}.json`);
+  const cfg = driver === 'sqlite'
+    ? { driver: 'sqlite', sqlite: { path: join(BACKEND, 'tests', 'fixtures', 'conta_test.db').replace(/\\/g, '/') } }
+    : { driver: 'mysql', mysql: { host: '127.0.0.1', database: 'conta_test', username: 'root', password: 'root' } };
+  writeFileSync(cfgPath, JSON.stringify(cfg));
+  const bin = driver === 'sqlite' ? PHP_PORTABLE : PHP;
+  const a = driver === 'sqlite' ? ['-c', PHP_PORTABLE_INI] : [];
+  a.push('-d', `auto_prepend_file=${join(BACKEND, 'prepend.php')}`, '-S', `127.0.0.1:${port}`, '-t', join(BACKEND, 'api'));
+  const p = spawn(bin, a, { cwd: join(BACKEND, 'api'), env: { ...process.env, CONTA_CONFIG_PATH: cfgPath, CONTAFT_BACKUP_DIR: TMP_CFG }, stdio: 'ignore' });
+  for (let i = 0; i < 50; i++) {
+    try { await fetch(`http://127.0.0.1:${port}/__ping_no_existe__`, { signal: AbortSignal.timeout(2000) }); return p; } // 404 sin tocar la BD
+    catch { await new Promise(r => setTimeout(r, 200)); }
+  }
+  spawnSync('taskkill', ['/PID', String(p.pid), '/T', '/F'], { stdio: 'ignore' });
+  fatal(`No pude levantar php -S (${driver}) en el puerto ${port}.`);
+}
+
 const pruebas = {};
 let totalPruebas = 0;
 const drivers = ['mysql', 'sqlite'];
 for (const driver of drivers) {
-  info(`Corriendo suite [driver=${driver}]...`);
+  info(`Corriendo suite [driver=${driver}] contra php -S del repo...`);
   console.log('');
+  const port = driver === 'sqlite' ? 8291 : 8290;
+  const srv = await levantarBackend(driver, port);
   const result = spawnSync(PHP, [runnerPath, `--driver=${driver}`], {
     cwd: BACKEND,
     encoding: 'utf-8',
     maxBuffer: 64 * 1024 * 1024,
+    env: { ...process.env, TEST_BACKEND_URL: `http://127.0.0.1:${port}` },
   });
+  spawnSync('taskkill', ['/PID', String(srv.pid), '/T', '/F'], { stdio: 'ignore' });
   process.stdout.write(result.stdout || '');
   process.stderr.write(result.stderr || '');
   if (result.status !== 0) {
