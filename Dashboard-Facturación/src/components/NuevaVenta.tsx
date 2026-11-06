@@ -605,7 +605,8 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
       const paso = (!cfg.permitirFacturarNegativo && dispRestante > 0 && dispRestante < 1)
         ? dispRestante : 1;
       const nuevaCant = existente.Cantidad + paso;
-      if (!cfg.permitirFacturarNegativo && nuevaCant > existente.Existencia + 1e-9) {
+      // Cotización no afecta inventario — el control de stock no aplica.
+      if (tipoDocumento !== 'cotizacion' && !cfg.permitirFacturarNegativo && nuevaCant > existente.Existencia + 1e-9) {
         toast.error(`No hay existencia suficiente de ${art.Codigo} ${art.Nombres_Articulo} (disponible: ${existente.Existencia})`, { duration: 5000 });
         return;
       }
@@ -618,7 +619,7 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
         const dispRestante = (art.Existencia || 0) - cantTotalEnGrid;
         cantInicial = (!cfg.permitirFacturarNegativo && dispRestante > 0 && dispRestante < 1)
           ? dispRestante : 1;
-        if (!cfg.permitirFacturarNegativo && (cantTotalEnGrid + cantInicial) > (art.Existencia || 0) + 1e-9) {
+        if (tipoDocumento !== 'cotizacion' && !cfg.permitirFacturarNegativo && (cantTotalEnGrid + cantInicial) > (art.Existencia || 0) + 1e-9) {
           toast.error(`No hay existencia suficiente de ${art.Codigo} ${art.Nombres_Articulo} (disponible: ${art.Existencia}, ya en factura: ${cantTotalEnGrid})`, { duration: 5000 });
           return;
         }
@@ -716,7 +717,8 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
 
       // Validar stock al cambiar cantidad (suma todas las líneas del mismo Items).
       // Servicios saltan toda validación de stock — su existencia no aplica.
-      if (field === 'Cantidad' && !cfg.permitirFacturarNegativo && !lineaActual.EsServicio) {
+      // Cotización tampoco — es una propuesta que no afecta inventario.
+      if (field === 'Cantidad' && !cfg.permitirFacturarNegativo && !lineaActual.EsServicio && tipoDocumento !== 'cotizacion') {
         const cantSumandoEsta = prev
           .filter(l => l.Items === lineaActual.Items && l.id !== id)
           .reduce((s, l) => s + (l.Cantidad || 0), 0) + value;
@@ -1373,11 +1375,11 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
 
   const aceptarContingencia = async () => {
     if (!contingenciaPrompt) return;
-    const { factN, motivo } = contingenciaPrompt;
+    const { factN, motivo, docLocalId } = contingenciaPrompt;
     try {
       const r = await fetch(API_FE, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'marcar_contingencia', factura_n: factN, motivo })
+        body: JSON.stringify({ action: 'marcar_contingencia', factura_n: factN, motivo, ...(docLocalId ? { doc_elec_id: docLocalId } : {}) })
       });
       const d = await r.json();
       if (!d.success) { toast.error(d.message || 'Error marcando contingencia'); return; }
@@ -1404,6 +1406,9 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: 'factura', factura_n: factN, send_email: enviarEmailFE,
+          // Sin doc_elec_id el backend toma el flujo legacy y enviaría a DIAN
+          // la venta POS con ese número en vez de esta FE.
+          ...(docLocalId ? { doc_elec_id: docLocalId } : {}),
           customer_email: cliente.email || '',
           payment_method_id: medioDian,
         })
@@ -1688,13 +1693,15 @@ export function NuevaVenta({ onFacturaCreada, initialState, onStateChange, onCot
             } else {
               toast.dismiss('dian');
               setGuardando(false);
-              setContingenciaPrompt({ factN, motivo: dDian.message || 'DIAN rechazó la factura', intentos: 1, docLocalId: dDian.doc_local_id ?? null });
+              setContingenciaPrompt({ factN, motivo: dDian.message || 'DIAN rechazó la factura', intentos: 1, docLocalId: dDian.doc_local_id ?? docElecId ?? null });
               return; // El modal maneja el resto
             }
           } catch (e) {
             toast.dismiss('dian');
             setGuardando(false);
-            setContingenciaPrompt({ factN, motivo: 'Sin conexión con la API de facturación electrónica', intentos: 1, docLocalId: null });
+            // docElecId: sin él, reintento/contingencia/borrador caían al flujo
+            // legacy y actuaban sobre la venta POS con ese número (bug 4.6–4.8.18).
+            setContingenciaPrompt({ factN, motivo: 'Sin conexión con la API de facturación electrónica', intentos: 1, docLocalId: docElecId ?? null });
             return;
           }
         }

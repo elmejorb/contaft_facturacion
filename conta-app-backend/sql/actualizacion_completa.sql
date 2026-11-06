@@ -2683,3 +2683,47 @@ FOR EACH ROW
     WHEN COALESCE(NEW.id_mediopago, 0) > 0 AND COALESCE(NEW.TipoPago, 0) = 0 THEN 1
     ELSE COALESCE(NEW.TipoPago, 0)
   END;
+
+-- ============================================================
+-- Fix 4.8.19 (2026-11-06): FE no autorizada NO suma + pagos FE mal enlazados
+-- Caso Nutrigranos (Juan Guillermo Gimenez: deuda falsa FE9).
+--
+-- (a) tblpagos.Nfact_electronica debe ser el id numérico del documento
+--     (vw_facturas_elec_cliente_saldos hace CAST(... AS UNSIGNED) = id).
+--     Versiones viejas guardaron 'FE9' (prefijo+número) y el abono inicial
+--     de FE a crédito guardaba 'FE-16'/'FCON-16' (prefijo-id). El CAST da 0,
+--     el pago no descuenta la factura y el cliente aparece debiendo.
+--     Solo se corrige cuando el texto corresponde a UNA ÚNICA FE del mismo
+--     cliente; los ambiguos no se tocan.
+-- (b) Desde 4.8.19 el abono inicial de una FE nace 'Pendiente' y pasa a
+--     'Valida' solo cuando DIAN autoriza. Backfill: abonos iniciales de FE
+--     que siguen en borrador/rechazado/error → 'Pendiente' (no suman en
+--     caja, cartera ni informes); los de FE autorizada → 'Valida'.
+-- Idempotente — no borra ni crea pagos, no cambia valores.
+-- ============================================================
+UPDATE tblpagos p
+JOIN electronic_documents ed
+  ON ed.cod_cliente = p.Codigo
+ AND (   CONCAT(ed.prefix, ed.number) = p.Nfact_electronica
+      OR CONCAT(ed.prefix, '-', ed.id) = p.Nfact_electronica
+      OR (p.DetallePago LIKE 'Abono inicial FE%' AND p.Nfact_electronica LIKE CONCAT('%-', ed.id)))
+SET p.Nfact_electronica = CAST(ed.id AS CHAR)
+WHERE p.Estado IN ('Valida', 'Pendiente')
+  AND p.Nfact_electronica IS NOT NULL
+  AND p.Nfact_electronica <> ''
+  AND p.Nfact_electronica NOT REGEXP '^[0-9]+$'
+  AND (SELECT COUNT(*) FROM electronic_documents e2
+        WHERE e2.cod_cliente = p.Codigo
+          AND (   CONCAT(e2.prefix, e2.number) = p.Nfact_electronica
+               OR CONCAT(e2.prefix, '-', e2.id) = p.Nfact_electronica
+               OR (p.DetallePago LIKE 'Abono inicial FE%' AND p.Nfact_electronica LIKE CONCAT('%-', e2.id)))) = 1;
+
+UPDATE tblpagos p
+JOIN electronic_documents ed
+  ON ed.id = CAST(p.Nfact_electronica AS UNSIGNED)
+ AND ed.cod_cliente = p.Codigo
+SET p.Estado = CASE WHEN ed.status IN ('autorizado', 'pendiente') THEN 'Valida' ELSE 'Pendiente' END
+WHERE p.DetallePago LIKE 'Abono inicial FE%'
+  AND p.Estado IN ('Valida', 'Pendiente')
+  AND p.Nfact_electronica REGEXP '^[0-9]+$'
+  AND ed.status IN ('autorizado', 'pendiente', 'borrador', 'rechazado', 'error');

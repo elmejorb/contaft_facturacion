@@ -79,9 +79,26 @@ $db->beginTransaction();
 try {
     $ph = implode(',', array_fill(0, count($elegibles), '?'));
 
-    // 1. Borrar detalle. La tabla puede o no existir según la versión.
-    if (conta_tiene_tabla($db, "tbldetalle_documento_electronico")) {
-        $db->prepare("DELETE FROM tbldetalle_documento_electronico WHERE id_doc_electronico IN ($ph)")
+    // 0. Abonos iniciales de esos documentos → 'Anulada' (no se borran: libro
+    // inmutable). Si no, el abono de una FE que nunca se autorizó quedaba
+    // huérfano y seguía sumando en caja.
+    $stmtAb = $db->prepare("
+        UPDATE tblpagos SET Estado = 'Anulada'
+        WHERE DetallePago LIKE 'Abono inicial FE%'
+          AND Estado IN ('Valida', 'Pendiente')
+          AND (Nfact_electronica = ? OR Nfact_electronica LIKE ?)
+          AND Codigo = (SELECT cod_cliente FROM electronic_documents WHERE id = ?)
+    ");
+    foreach ($elegibles as $idEl) {
+        $stmtAb->execute([(string)$idEl, '%-' . $idEl, $idEl]);
+    }
+
+    // 1. Borrar detalle. El typo anterior ("tbldetalle_documento_electronico")
+    // nunca matcheaba la tabla real (`detalle_document_electronic`), así que
+    // el DELETE no corría y las líneas quedaban huérfanas tras borrar el
+    // encabezado — caso real detectado en conta_innovacion.
+    if (conta_tiene_tabla($db, "detalle_document_electronic")) {
+        $db->prepare("DELETE FROM detalle_document_electronic WHERE factura_n IN ($ph)")
            ->execute($elegibles);
     }
 

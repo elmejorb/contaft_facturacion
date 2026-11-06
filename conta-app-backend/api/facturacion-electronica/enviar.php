@@ -246,7 +246,15 @@ function buildInvoiceJSON($db, $factura, $items, $companyId, $customerEmailOverr
     }
 
     $totalInclusive = $totalBase + $totalIva;
-    $descGlobal = floatval($factura['Descuento'] ?? 0);
+    // tblventas.Descuento guarda descuento_global + Σ descuentos_de_línea (ver
+    // ventas/nueva.php:194+210). Para UBL, los desc_línea ya van reflejados
+    // dentro de cada invoice_line (allowance_charges + line_extension_amount
+    // con el desc restado) y dentro de totalBase. En legal_monetary_totals
+    // solo debe ir el desc_global puro; si enviamos el inflado, DIAN resta
+    // dos veces y payable_amount queda por debajo del valor real cobrado.
+    $totalDescLinea = 0;
+    foreach ($items as $it) { $totalDescLinea += floatval($it['Descuento'] ?? 0); }
+    $descGlobal = max(0, floatval($factura['Descuento'] ?? 0) - $totalDescLinea);
 
     // Payment form: 1=Contado, 2=Crédito
     $paymentFormId = $factura['Tipo'] === 'Contado' ? 1 : 2;
@@ -462,10 +470,97 @@ try {
     $data = json_decode(file_get_contents('php://input'), true);
     $action = $data['action'] ?? '';
 
+    // ------------------------------------------------------------------
+    // REGLA (4.8.19): una FE que no está autorizada NO suma ni hace nada.
+    // El abono inicial de una FE a crédito nace 'Pendiente' en tblpagos
+    // (ventas/nueva.php) y solo pasa a 'Valida' cuando la FE queda
+    // autorizada. Así un borrador/rechazado no entra a caja, cartera ni
+    // informes (todos filtran tblpagos.Estado='Valida').
+    // Funciones locales a propósito: los clientes legacy no reciben
+    // helpers nuevos (ver feedback_no_usar_helpers_externos_en_endpoints).
+    // ------------------------------------------------------------------
+    if (!function_exists('fe_sync_abonos_iniciales')) {
+        function fe_sync_abonos_iniciales($db, $docId) {
+            $docId = intval($docId);
+            if ($docId <= 0) return;
+            try {
+                $st = $db->prepare("SELECT status, cod_cliente FROM electronic_documents WHERE id = ?");
+                $st->execute([$docId]);
+                $doc = $st->fetch();
+                if (!$doc) return;
+                $status = (string)$doc['status'];
+                if (in_array($status, ['autorizado', 'pendiente'], true)) {
+                    $nuevo = 'Valida';
+                } elseif (in_array($status, ['borrador', 'rechazado', 'error'], true)) {
+                    $nuevo = 'Pendiente';
+                } else {
+                    return; // anulado u otros: no tocar
+                }
+                // Normaliza también la referencia al id numérico (formato que
+                // espera vw_facturas_elec_cliente_saldos). Acepta el formato
+                // viejo "PREFIJO-id" que guardaba nueva.php.
+                $db->prepare("
+                    UPDATE tblpagos
+                    SET Estado = ?, Nfact_electronica = ?
+                    WHERE Codigo = ?
+                      AND DetallePago LIKE 'Abono inicial FE%'
+                      AND Estado IN ('Valida', 'Pendiente')
+                      AND (Nfact_electronica = ? OR Nfact_electronica LIKE ?)
+                ")->execute([$nuevo, (string)$docId, $doc['cod_cliente'], (string)$docId, '%-' . $docId]);
+            } catch (\Throwable $e) {
+                error_log('[fe_sync_abonos_iniciales] ' . $e->getMessage());
+            }
+        }
+    }
+
+    // Devuelve una FE del flujo nuevo (electronic_documents) a borrador.
+    // NUNCA toca tblventas: desde 4.6.0 el id de una FE no es un número de
+    // venta POS (bug: anulaba la POS con ese número y copiaba sus datos).
+    if (!function_exists('fe_volver_a_borrador')) {
+        function fe_volver_a_borrador($db, $docId) {
+            $docId = intval($docId);
+            $st = $db->prepare("SELECT id, status, cufe FROM electronic_documents WHERE id = ?");
+            $st->execute([$docId]);
+            $doc = $st->fetch();
+            if (!$doc) return ['success' => false, 'message' => "Documento FE #$docId no encontrado"];
+            if ($doc['status'] === 'autorizado' || !empty($doc['cufe'])) {
+                return ['success' => false, 'message' => "El documento FE #$docId ya fue autorizado por DIAN; no se puede volver a borrador."];
+            }
+            $db->beginTransaction();
+            try {
+                // Liberar el slot (FCON, 0) por la UNIQUE (prefix, number).
+                $db->prepare("
+                    UPDATE electronic_documents
+                    SET number = 9000000000 + id
+                    WHERE prefix = 'FCON' AND number = 0 AND status IN ('pendiente','rechazado','borrador') AND id != ?
+                ")->execute([$docId]);
+                $db->prepare("UPDATE electronic_documents SET status = 'borrador', number = 0 WHERE id = ?")
+                   ->execute([$docId]);
+                fe_sync_abonos_iniciales($db, $docId);
+                $db->commit();
+            } catch (\Throwable $e) {
+                $db->rollBack();
+                return ['success' => false, 'message' => 'Error guardando borrador: ' . $e->getMessage()];
+            }
+            return [
+                'success' => true,
+                'message' => "Guardado como borrador FE #$docId. No suma en caja ni cartera hasta que DIAN lo autorice. Reenvíelo desde Facturación Electrónica > Borradores.",
+                'borrador_id' => $docId,
+            ];
+        }
+    }
+
     // --- Acciones OFFLINE (no requieren login DIAN) ---
     if ($action === 'marcar_contingencia') {
         $factN = intval($data['factura_n'] ?? 0);
         $motivo = trim($data['motivo'] ?? 'Sin conexión con la DIAN');
+        // Flujo FE (4.6+): la contingencia de tblventas no aplica. La FE queda
+        // como borrador para reenviarla; no toca ninguna venta POS.
+        $docElecIdCont = intval($data['doc_elec_id'] ?? 0);
+        if ($docElecIdCont > 0) {
+            echo json_encode(fe_volver_a_borrador($db, $docElecIdCont), JSON_UNESCAPED_UNICODE);
+            exit;
+        }
         if (!$factN) { echo json_encode(['success' => false, 'message' => 'Factura requerida']); exit; }
         $db->prepare("UPDATE tblventas SET en_contingencia = 1, contingencia_fecha = CURRENT_TIMESTAMP, contingencia_motivo = ?, contingencia_reenviada = 0 WHERE Factura_N = ?")
            ->execute([$motivo, $factN]);
@@ -950,6 +1045,9 @@ try {
                 $db->prepare("UPDATE electronic_documents SET status = 'rechazado', dian_response = ? WHERE id = ?")
                    ->execute([json_encode($result), $docElecId]);
             }
+
+            // Abono inicial: 'Valida' solo si quedó autorizada; si no, 'Pendiente'.
+            fe_sync_abonos_iniciales($db, $docElecId);
 
             echo json_encode([
                 'success' => $result['success'] ?? false,
@@ -1695,6 +1793,16 @@ try {
         case 'convertir_a_borrador':
             $factN = intval($data['factura_n'] ?? 0);
             $docId = intval($data['doc_local_id'] ?? 0);
+
+            // Flujo FE (4.6+): el documento vive solo en electronic_documents.
+            // Se vuelve a borrador SIN tocar tblventas. Antes este caso caía al
+            // camino legacy y anulaba la venta POS cuyo Factura_N coincidía con
+            // el id de la FE (caso Nutrigranos FV-276 / FV-457, oct-2026).
+            if ($docId > 0) {
+                echo json_encode(fe_volver_a_borrador($db, $docId), JSON_UNESCAPED_UNICODE);
+                break;
+            }
+
             if (!$factN) {
                 echo json_encode(['success' => false, 'message' => 'factura_n requerido']);
                 exit;
@@ -1714,6 +1822,15 @@ try {
                 if ($venta['EstadoFact'] === 'Anulada') {
                     $db->rollBack();
                     echo json_encode(['success' => false, 'message' => "La venta FV-$factN ya está anulada"]);
+                    exit;
+                }
+                // Freno de seguridad del camino legacy: solo se convierte una
+                // venta POS recién hecha (hoy o ayer). Una venta vieja aquí
+                // significa que llegó un id equivocado — nunca anularla.
+                $fechaVenta = substr((string)$venta['Fecha'], 0, 10);
+                if ($fechaVenta < date('Y-m-d', strtotime('-1 day'))) {
+                    $db->rollBack();
+                    echo json_encode(['success' => false, 'message' => "La venta FV-$factN es del $fechaVenta; no se convierte a borrador (protección contra anular una venta equivocada)."], JSON_UNESCAPED_UNICODE);
                     exit;
                 }
 
@@ -2034,7 +2151,7 @@ try {
             $id = intval($data['id'] ?? 0);
             if (!$id) { echo json_encode(['success' => false, 'message' => 'ID requerido']); exit; }
 
-            $stmt = $db->prepare("SELECT status, cufe FROM electronic_documents WHERE id = ?");
+            $stmt = $db->prepare("SELECT status, cufe, cod_cliente FROM electronic_documents WHERE id = ?");
             $stmt->execute([$id]);
             $row = $stmt->fetch();
             if (!$row) { echo json_encode(['success' => false, 'message' => 'No encontrado']); exit; }
@@ -2043,6 +2160,13 @@ try {
             }
 
             $db->beginTransaction();
+            // El abono inicial del borrador se anula (no se borra: libro inmutable).
+            $db->prepare("
+                UPDATE tblpagos SET Estado = 'Anulada'
+                WHERE Codigo = ? AND DetallePago LIKE 'Abono inicial FE%'
+                  AND Estado IN ('Valida', 'Pendiente')
+                  AND (Nfact_electronica = ? OR Nfact_electronica LIKE ?)
+            ")->execute([$row['cod_cliente'], (string)$id, '%-' . $id]);
             $db->prepare("DELETE FROM detalle_document_electronic WHERE factura_n = ?")->execute([$id]);
             $db->prepare("DELETE FROM electronic_documents WHERE id = ?")->execute([$id]);
             $db->commit();

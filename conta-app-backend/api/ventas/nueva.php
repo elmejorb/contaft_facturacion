@@ -19,12 +19,20 @@ try {
         // Clientes que no corrieron actualizacion_completa no las tienen y el
         // SELECT crashea con "Unknown column FactorConversion".
         // Inline — no usar helpers externos (ver [[feedback-no-usar-helpers-externos-en-endpoints]])
-        $artCols = array_column(
-            $db->query("SELECT COLUMN_NAME FROM information_schema.COLUMNS
-                        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tblarticulos'")
-               ->fetchAll(PDO::FETCH_ASSOC),
-            'COLUMN_NAME'
-        );
+        // Portable MySQL/SQLite: information_schema no existe en SQLite.
+        if ($db->getAttribute(PDO::ATTR_DRIVER_NAME) === 'sqlite') {
+            $artCols = array_column(
+                $db->query("PRAGMA table_info('tblarticulos')")->fetchAll(PDO::FETCH_ASSOC),
+                'name'
+            );
+        } else {
+            $artCols = array_column(
+                $db->query("SELECT COLUMN_NAME FROM information_schema.COLUMNS
+                            WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tblarticulos'")
+                   ->fetchAll(PDO::FETCH_ASSOC),
+                'COLUMN_NAME'
+            );
+        }
         $selFactor    = in_array('FactorConversion', $artCols)   ? 'COALESCE(a.FactorConversion, 1)' : '1';
         $selNombreEmp = in_array('NombreEmpaque', $artCols)      ? 'a.NombreEmpaque'                 : 'NULL';
         $selVenderEmp = in_array('VenderComoEmpaque', $artCols)  ? 'COALESCE(a.VenderComoEmpaque, 0)' : '0';
@@ -296,12 +304,19 @@ try {
 
         // Columna 'saldo' no está en todas las BDs (existe en distrisalsa, no
         // en innovacion). Chequeo defensivo para INSERT compatible.
-        $tieneSaldo = (int) $db->query("
-            SELECT COUNT(*) FROM information_schema.COLUMNS
-            WHERE TABLE_SCHEMA = DATABASE()
-              AND TABLE_NAME = 'electronic_documents'
-              AND COLUMN_NAME = 'saldo'
-        ")->fetchColumn();
+        // Portable MySQL/SQLite.
+        if ($db->getAttribute(PDO::ATTR_DRIVER_NAME) === 'sqlite') {
+            $tieneSaldo = (int) $db->query(
+                "SELECT COUNT(*) FROM pragma_table_info('electronic_documents') WHERE name='saldo'"
+            )->fetchColumn();
+        } else {
+            $tieneSaldo = (int) $db->query("
+                SELECT COUNT(*) FROM information_schema.COLUMNS
+                WHERE TABLE_SCHEMA = DATABASE()
+                  AND TABLE_NAME = 'electronic_documents'
+                  AND COLUMN_NAME = 'saldo'
+            ")->fetchColumn();
+        }
         $colSaldo = $tieneSaldo ? ', saldo' : '';
         $valSaldo = $tieneSaldo ? ', ?' : '';
 
@@ -340,12 +355,18 @@ try {
         // Columna 'entregado' defensiva — solo existe desde v4.7. Si no está
         // (BD sin migrar) el INSERT se ejecuta sin ella y la columna queda
         // en su default.
-        $tieneEntregadoFE = (int) $db->query("
-            SELECT COUNT(*) FROM information_schema.COLUMNS
-            WHERE TABLE_SCHEMA = DATABASE()
-              AND TABLE_NAME = 'detalle_document_electronic'
-              AND COLUMN_NAME = 'entregado'
-        ")->fetchColumn();
+        if ($db->getAttribute(PDO::ATTR_DRIVER_NAME) === 'sqlite') {
+            $tieneEntregadoFE = (int) $db->query(
+                "SELECT COUNT(*) FROM pragma_table_info('detalle_document_electronic') WHERE name='entregado'"
+            )->fetchColumn();
+        } else {
+            $tieneEntregadoFE = (int) $db->query("
+                SELECT COUNT(*) FROM information_schema.COLUMNS
+                WHERE TABLE_SCHEMA = DATABASE()
+                  AND TABLE_NAME = 'detalle_document_electronic'
+                  AND COLUMN_NAME = 'entregado'
+            ")->fetchColumn();
+        }
         $colEntregadoFE = $tieneEntregadoFE ? ', entregado' : '';
         $valEntregadoFE = $tieneEntregadoFE ? ', ?' : '';
         $stmtDetFE = $db->prepare("
@@ -406,7 +427,12 @@ try {
         }
 
         // Abono inicial en FE a crédito → tblpagos con Nfact_electronica
-        // (NO Fact_N, para que no colisione con una venta POS del mismo número)
+        // (NO Fact_N, para que no colisione con una venta POS del mismo número).
+        // 4.8.19: nace 'Pendiente' — el documento todavía es borrador y una FE
+        // no autorizada no suma en caja/cartera/informes. enviar.php lo pasa a
+        // 'Valida' cuando DIAN autoriza (fe_sync_abonos_iniciales).
+        // Nfact_electronica = id numérico (lo que espera la vista de saldos;
+        // antes se guardaba "PREFIJO-id" → CAST = 0 → deuda falsa).
         if ($tipo !== 'Contado' && $abono > 0) {
             $rec = (int)$db->query("SELECT COALESCE(MAX(RecCajaN), 0) + 1 FROM tblpagos")->fetchColumn();
             $abonoMedio = isset($data->abono_medio_pago) && $data->abono_medio_pago !== null
@@ -416,12 +442,12 @@ try {
                 INSERT INTO tblpagos (RecCajaN, Codigo, Fact_N, ValorPago, Fecha, DetallePago,
                     ValorFact, SaldoAct, Descuento, Retencion, Estado, Afectada, id_mediopago,
                     NFactAnt, Nfact_electronica, FechaMod, id_usuario)
-                VALUES (?, ?, NULL, ?, CURRENT_TIMESTAMP, ?, ?, ?, 0, 0, 'Valida', '1110', ?, '', ?, CURRENT_TIMESTAMP, ?)
+                VALUES (?, ?, NULL, ?, CURRENT_TIMESTAMP, ?, ?, ?, 0, 0, 'Pendiente', '1110', ?, '', ?, CURRENT_TIMESTAMP, ?)
             ")->execute([
                 $rec, $clienteId, $abono,
                 "Abono inicial FE $refKardex",
                 $total, max($total - $abono, 0),
-                $abonoMedio, $refKardex, $vendedor
+                $abonoMedio, (string)$docElecId, $vendedor
             ]);
         }
 
