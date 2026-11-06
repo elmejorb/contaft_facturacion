@@ -1,0 +1,2952 @@
+[
+ {
+  "modulo": "auth",
+  "endpoint": "auth/login.php",
+  "metodo": "POST",
+  "action": null,
+  "pantallas": [
+   "components/LoginPage.tsx",
+   "contexts/AuthContext.tsx",
+   "components/ConfigurarServidor.tsx"
+  ],
+  "lee": [
+   "tblusuarios",
+   "tbltiposusuario"
+  ],
+  "escribe": [],
+  "efectos": [
+   "sesion (sessionStorage token/user)",
+   "dispara actualizacion/aplicar-sql.php desde el frontend"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [
+   "config/database.php",
+   "utils/passwordEncoder.php"
+  ],
+  "externo": []
+ },
+ {
+  "modulo": "auth",
+  "endpoint": "auth/verify-admin.php",
+  "metodo": "POST",
+  "action": null,
+  "pantallas": [
+   "components/AutorizacionAdminModal.tsx",
+   "components/CajaRegistradora.tsx",
+   "components/DetalleCompraModal.tsx",
+   "components/DetalleDocElectronico.tsx",
+   "components/DetalleFacturaModal.tsx",
+   "components/ListadoPagos.tsx",
+   "components/NuevaVenta.tsx",
+   "components/SalesManagement.tsx"
+  ],
+  "lee": [
+   "tblusuarios"
+  ],
+  "escribe": [],
+  "efectos": [],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [
+   "config/database.php"
+  ],
+  "externo": []
+ },
+ {
+  "modulo": "usuarios",
+  "endpoint": "usuarios/listar.php",
+  "metodo": "GET",
+  "action": "list",
+  "pantallas": [
+   "components/UsuariosManagement.tsx"
+  ],
+  "lee": [
+   "tblusuarios",
+   "tbltiposusuario",
+   "tblcajas"
+  ],
+  "escribe": [],
+  "efectos": [],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [
+   "config/database.php"
+  ],
+  "externo": []
+ },
+ {
+  "modulo": "usuarios",
+  "endpoint": "usuarios/listar.php",
+  "metodo": "GET",
+  "action": "tipos",
+  "pantallas": [],
+  "lee": [
+   "tbltiposusuario"
+  ],
+  "escribe": [],
+  "efectos": [],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [
+   "config/database.php"
+  ],
+  "externo": []
+ },
+ {
+  "modulo": "usuarios",
+  "endpoint": "usuarios/listar.php",
+  "metodo": "POST",
+  "action": "create",
+  "pantallas": [
+   "components/UsuariosManagement.tsx"
+  ],
+  "lee": [],
+  "escribe": [
+   "tblusuarios"
+  ],
+  "efectos": [
+   "caja (asignacion Id_Caja)"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [
+   "config/database.php"
+  ],
+  "externo": []
+ },
+ {
+  "modulo": "usuarios",
+  "endpoint": "usuarios/listar.php",
+  "metodo": "POST",
+  "action": "update",
+  "pantallas": [
+   "components/UsuariosManagement.tsx"
+  ],
+  "lee": [],
+  "escribe": [
+   "tblusuarios"
+  ],
+  "efectos": [
+   "caja (asignacion Id_Caja)"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [
+   "config/database.php"
+  ],
+  "externo": []
+ },
+ {
+  "modulo": "usuarios",
+  "endpoint": "usuarios/listar.php",
+  "metodo": "POST",
+  "action": "cambiar-pass",
+  "pantallas": [
+   "components/UsuariosManagement.tsx",
+   "components/Dashboard.tsx"
+  ],
+  "lee": [],
+  "escribe": [
+   "tblusuarios"
+  ],
+  "efectos": [],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [
+   "config/database.php"
+  ],
+  "externo": []
+ },
+ {
+  "modulo": "usuarios",
+  "endpoint": "usuarios/listar.php",
+  "metodo": "POST",
+  "action": "delete",
+  "pantallas": [
+   "components/UsuariosManagement.tsx"
+  ],
+  "lee": [],
+  "escribe": [
+   "tblusuarios"
+  ],
+  "efectos": [],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [
+   "config/database.php"
+  ],
+  "externo": []
+ },
+ {
+  "modulo": "usuarios",
+  "endpoint": "usuarios/permisos.php",
+  "metodo": "GET",
+  "action": null,
+  "pantallas": [
+   "components/ConfigPermisos.tsx"
+  ],
+  "lee": [
+   "tbltiposusuario"
+  ],
+  "escribe": [],
+  "efectos": [],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [
+   "config/database.php"
+  ],
+  "externo": []
+ },
+ {
+  "modulo": "usuarios",
+  "endpoint": "usuarios/permisos.php",
+  "metodo": "POST",
+  "action": "guardar",
+  "pantallas": [
+   "components/ConfigPermisos.tsx"
+  ],
+  "lee": [],
+  "escribe": [
+   "tbltiposusuario"
+  ],
+  "efectos": [
+   "permisos (aplican en siguiente login)"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [
+   "config/database.php"
+  ],
+  "externo": []
+ },
+ {
+  "modulo": "modulos",
+  "endpoint": "modulos/estado.php",
+  "metodo": "GET",
+  "action": null,
+  "pantallas": [
+   "hooks/useModulos.ts",
+   "components/Dashboard.tsx",
+   "components/ConfigModulos.tsx"
+  ],
+  "lee": [
+   "tbl_modulos_activos",
+   "tbldatosempresa"
+  ],
+  "escribe": [],
+  "efectos": [],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [
+   "config/database.php",
+   "config/helpers_polyfill.php"
+  ],
+  "externo": []
+ },
+ {
+  "modulo": "modulos",
+  "endpoint": "modulos/estado.php",
+  "metodo": "POST",
+  "action": "activar",
+  "pantallas": [
+   "components/ConfigModulos.tsx"
+  ],
+  "lee": [
+   "tbl_modulos_activos",
+   "sql/modulo_nomina.sql"
+  ],
+  "escribe": [
+   "tbl_modulos_activos",
+   "tbldatosempresa",
+   "DDL de modulo_nomina.sql"
+  ],
+  "efectos": [
+   "DDL",
+   "evento modulos:refresh"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [
+   "config/database.php",
+   "config/helpers_polyfill.php"
+  ],
+  "externo": []
+ },
+ {
+  "modulo": "modulos",
+  "endpoint": "modulos/estado.php",
+  "metodo": "POST",
+  "action": "desactivar",
+  "pantallas": [
+   "components/ConfigModulos.tsx"
+  ],
+  "lee": [],
+  "escribe": [
+   "tbl_modulos_activos",
+   "tbldatosempresa"
+  ],
+  "efectos": [
+   "evento modulos:refresh"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [
+   "config/database.php",
+   "config/helpers_polyfill.php"
+  ],
+  "externo": []
+ },
+ {
+  "modulo": "mantenimiento",
+  "endpoint": "actualizacion/aplicar-sql.php",
+  "metodo": "POST",
+  "action": null,
+  "pantallas": [
+   "contexts/AuthContext.tsx"
+  ],
+  "lee": [
+   "tbldatosempresa",
+   "information_schema.COLUMNS",
+   "sql/actualizacion_completa.sql"
+  ],
+  "escribe": [
+   "tbldatosempresa",
+   "TODO el esquema (DDL/vistas/triggers de actualizacion_completa.sql)"
+  ],
+  "efectos": [
+   "DDL",
+   "sincronizacion (recrea trg_sync_*)"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [
+   "config/database.php (Reflection de propiedades, mysqli directo)"
+  ],
+  "externo": []
+ },
+ {
+  "modulo": "mantenimiento",
+  "endpoint": "migraciones/aplicar.php",
+  "metodo": "POST",
+  "action": null,
+  "pantallas": [
+   "hooks/useAutoHotfixes.ts"
+  ],
+  "lee": [
+   "tbl_hotfixes_aplicados"
+  ],
+  "escribe": [
+   "tbl_hotfixes_aplicados",
+   "SQL arbitrario del hotfix"
+  ],
+  "efectos": [
+   "DDL/DML arbitrario"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [
+   "config/database.php"
+  ],
+  "externo": [
+   "https://innovacion-digital.com/hotfixes-contaft/index.json (lo descarga el frontend)"
+  ]
+ },
+ {
+  "modulo": "mantenimiento",
+  "endpoint": "mantenimiento/ejecutar-sql.php",
+  "metodo": "GET",
+  "action": "listar",
+  "pantallas": [
+   "components/MantenimientoBD.tsx"
+  ],
+  "lee": [
+   "archivos sql/ de la whitelist"
+  ],
+  "escribe": [],
+  "efectos": [],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [
+   "config/database.php"
+  ],
+  "externo": []
+ },
+ {
+  "modulo": "mantenimiento",
+  "endpoint": "mantenimiento/ejecutar-sql.php",
+  "metodo": "POST",
+  "action": "script (auditar_bd|actualizacion_completa|reparar_autoincrement|optimizar_indices|fix_saldos_proveedores)",
+  "pantallas": [
+   "components/MantenimientoBD.tsx"
+  ],
+  "lee": [
+   "information_schema",
+   "sql/*.sql"
+  ],
+  "escribe": [
+   "esquema completo segun script",
+   "tblpedidos.Saldo (fix_vista_saldos_proveedores, sin verificar)"
+  ],
+  "efectos": [
+   "DDL"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [
+   "config/database.php (Reflection de propiedades, mysqli directo)"
+  ],
+  "externo": []
+ },
+ {
+  "modulo": "backup",
+  "endpoint": "backup/index.php",
+  "metodo": "GET",
+  "action": "estado",
+  "pantallas": [
+   "components/Dashboard.tsx",
+   "components/BackupBD.tsx"
+  ],
+  "lee": [
+   "C:\\ContaFT-Backups (archivos)"
+  ],
+  "escribe": [
+   "backup-debug.log"
+  ],
+  "efectos": [
+   "backup"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [
+   "config/database.php",
+   "config/db_factory.php (conta_config_cargar si existe)"
+  ],
+  "externo": []
+ },
+ {
+  "modulo": "backup",
+  "endpoint": "backup/index.php",
+  "metodo": "POST",
+  "action": "generar",
+  "pantallas": [
+   "components/Dashboard.tsx",
+   "components/BackupBD.tsx",
+   "electron/main.js (subirBackupNube)"
+  ],
+  "lee": [
+   "todas las tablas base, vistas y triggers (MySQL) | conta.db (SQLite)"
+  ],
+  "escribe": [
+   "C:\\ContaFT-Backups\\contaft-*.sql|.db",
+   "backup-debug.log"
+  ],
+  "efectos": [
+   "backup",
+   "rotacion >30 dias"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [
+   "config/database.php",
+   "config/db_factory.php (conta_config_cargar si existe)"
+  ],
+  "externo": []
+ },
+ {
+  "modulo": "backup",
+  "endpoint": "backup/index.php",
+  "metodo": "POST",
+  "action": "eliminar",
+  "pantallas": [
+   "components/BackupBD.tsx"
+  ],
+  "lee": [],
+  "escribe": [
+   "C:\\ContaFT-Backups (unlink)"
+  ],
+  "efectos": [
+   "backup"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [
+   "config/database.php"
+  ],
+  "externo": []
+ },
+ {
+  "modulo": "version",
+  "endpoint": "version/changelog.php",
+  "metodo": "GET",
+  "action": null,
+  "pantallas": [
+   "components/HistorialVersiones.tsx",
+   "components/ConfiguracionSistema.tsx"
+  ],
+  "lee": [
+   "CHANGELOG.md"
+  ],
+  "escribe": [],
+  "efectos": [],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [],
+  "externo": []
+ },
+ {
+  "modulo": "diagnostico",
+  "endpoint": "diagnostico/inventario-30d.php",
+  "metodo": "GET",
+  "action": null,
+  "pantallas": [
+   "components/DiagnosticoInventario.tsx"
+  ],
+  "lee": [
+   "vw_diagnostico_inventario_30d"
+  ],
+  "escribe": [],
+  "efectos": [],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [
+   "config/database.php"
+  ],
+  "externo": []
+ },
+ {
+  "modulo": "backend-core",
+  "endpoint": "utils/test-encoder.php",
+  "metodo": "GET",
+  "action": null,
+  "pantallas": [],
+  "lee": [],
+  "escribe": [],
+  "efectos": [
+   "script de prueba expuesto por HTTP"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [
+   "utils/passwordEncoder.php"
+  ],
+  "externo": []
+ },
+ {
+  "modulo": "backend-core",
+  "endpoint": "utils/check-table-structure.php",
+  "metodo": "GET",
+  "action": null,
+  "pantallas": [],
+  "lee": [
+   "tblArticulos (DESCRIBE)"
+  ],
+  "escribe": [],
+  "efectos": [
+   "script de prueba expuesto por HTTP"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [
+   "config/database.php"
+  ],
+  "externo": []
+ },
+ {
+  "modulo": "backend-core",
+  "endpoint": "config/database.php",
+  "metodo": "INCLUDE",
+  "action": null,
+  "pantallas": [],
+  "lee": [
+   "env CONTA_CONFIG_PATH -> backend-config.json | api/config/config.json"
+  ],
+  "escribe": [],
+  "efectos": [
+   "CORS *",
+   "timezone America/Bogota",
+   "conexion PDO mysql|sqlite"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [
+   "config/db_factory.php"
+  ],
+  "externo": [],
+  "consumidores": "135 de 144 PHP de api/"
+ },
+ {
+  "modulo": "backend-core",
+  "endpoint": "config/helpers_polyfill.php",
+  "metodo": "INCLUDE",
+  "action": null,
+  "pantallas": [],
+  "lee": [
+   "information_schema | sqlite_master/pragma_table_info"
+  ],
+  "escribe": [],
+  "efectos": [],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [],
+  "externo": [],
+  "consumidores": [
+   "caja/sesion.php",
+   "clientes/cartera.php",
+   "clientes/pagos.php",
+   "compras/nueva.php",
+   "dashboard/resumen.php",
+   "dian/consultar-adquiriente.php",
+   "facturacion-electronica/eliminar.php",
+   "facturacion-electronica/email.php",
+   "familias/stock-bajo.php",
+   "informes/ingresos-totales.php",
+   "informes/resumen.php",
+   "inicio/consulta-ia.php",
+   "inicio/sugerencias.php",
+   "inventario/actualizar-articulo.php",
+   "inventario/articulos.php",
+   "inventario/crear-articulo.php",
+   "inventario/eliminar-articulo.php",
+   "modulos/estado.php",
+   "movs-directos/crear.php",
+   "vendedores/pedidos.php",
+   "vendedores/push-all.php",
+   "ventas/pendientes-entrega.php"
+  ]
+ },
+ {
+  "modulo": "backend-core",
+  "endpoint": "config/saldo_helper.php",
+  "metodo": "INCLUDE",
+  "action": "recalcularSaldoFactura",
+  "pantallas": [],
+  "lee": [
+   "tblventas",
+   "tblpagos",
+   "tbl_retenciones_pago"
+  ],
+  "escribe": [
+   "tblventas"
+  ],
+  "efectos": [
+   "cartera"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [],
+  "externo": [],
+  "consumidores": [
+   "clientes/pagos.php",
+   "ventas/detalle-factura.php"
+  ]
+ },
+ {
+  "modulo": "frontend-shell",
+  "endpoint": "https://innovacion-digital.com/hotfixes-contaft/index.json",
+  "metodo": "GET",
+  "action": null,
+  "pantallas": [
+   "hooks/useAutoHotfixes.ts"
+  ],
+  "lee": [],
+  "escribe": [],
+  "efectos": [
+   "indice de hotfixes; throttle 6h en localStorage.hotfix_last_check"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [],
+  "externo": [
+   "innovacion-digital.com"
+  ]
+ },
+ {
+  "modulo": "frontend-shell",
+  "endpoint": "<fix.url del index.json de hotfixes>",
+  "metodo": "GET",
+  "action": null,
+  "pantallas": [
+   "hooks/useAutoHotfixes.ts"
+  ],
+  "lee": [],
+  "escribe": [],
+  "efectos": [
+   "descarga .sql que luego se POSTea a migraciones/aplicar.php"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [
+   "migraciones/aplicar.php"
+  ],
+  "helpers": [],
+  "externo": [
+   "(sin verificar) dominio indicado en index.json"
+  ]
+ },
+ {
+  "modulo": "frontend-shell",
+  "endpoint": "empresa/datos.php",
+  "metodo": "GET",
+  "action": null,
+  "pantallas": [
+   "components/Dashboard.tsx"
+  ],
+  "lee": [
+   "tbldatosempresa"
+  ],
+  "escribe": [],
+  "efectos": [
+   "localStorage.empresa_cache (saveEmpresaCache)"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [
+   "config/database.php"
+  ],
+  "externo": []
+ },
+ {
+  "modulo": "frontend-shell",
+  "endpoint": "lotes/index.php",
+  "metodo": "GET",
+  "action": "por_vencer=1",
+  "pantallas": [
+   "hooks/useNotificaciones.ts",
+   "components/Dashboard.tsx",
+   "components/PantallaInicio.tsx"
+  ],
+  "lee": [
+   "vw_lotes_por_vencer"
+  ],
+  "escribe": [],
+  "efectos": [
+   "notificaciones (badge campana)"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [
+   "config/database.php"
+  ],
+  "externo": []
+ },
+ {
+  "modulo": "frontend-shell",
+  "endpoint": "familias/stock-bajo.php",
+  "metodo": "GET",
+  "action": null,
+  "pantallas": [
+   "hooks/useNotificaciones.ts",
+   "hooks/useStockBajoCount.ts",
+   "components/Dashboard.tsx",
+   "components/PantallaInicio.tsx"
+  ],
+  "lee": [
+   "tblarticulos",
+   "tblproveedores",
+   "tblfamilias_producto",
+   "tblfamilia_items",
+   "tbletiquetas",
+   "tblbodegas"
+  ],
+  "escribe": [],
+  "efectos": [
+   "notificaciones (badge Inventario y campana)"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [
+   "config/database.php",
+   "config/helpers_polyfill.php"
+  ],
+  "externo": []
+ },
+ {
+  "modulo": "frontend-shell",
+  "endpoint": "clientes/cumpleanos.php",
+  "metodo": "GET",
+  "action": null,
+  "pantallas": [
+   "hooks/useNotificaciones.ts (sin params)",
+   "hooks/useCumpleanosHoy.ts (?rango=7)",
+   "components/Dashboard.tsx",
+   "components/PantallaInicio.tsx"
+  ],
+  "lee": [
+   "tblclientes"
+  ],
+  "escribe": [],
+  "efectos": [
+   "notificaciones (campana) — useNotificaciones lee claves inexistentes (cumpleanos/dias_para_cumple) => siempre 0"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [
+   "config/database.php"
+  ],
+  "externo": []
+ },
+ {
+  "modulo": "frontend-shell",
+  "endpoint": "inicio/sugerencias.php",
+  "metodo": "GET",
+  "action": null,
+  "pantallas": [
+   "components/NotificacionEmergente.tsx",
+   "components/Dashboard.tsx"
+  ],
+  "lee": [
+   "tblventas",
+   "tbldetalle_venta",
+   "tblarticulos",
+   "tblclientes",
+   "vw_facturas_cliente_saldos",
+   "vw_productos_stock_bajo",
+   "information_schema / sqlite_master"
+  ],
+  "escribe": [],
+  "efectos": [
+   "notificaciones emergentes (solo admin, cada 60s)"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [
+   "config/database.php",
+   "config/helpers_polyfill.php"
+  ],
+  "externo": []
+ },
+ {
+  "modulo": "frontend-shell",
+  "endpoint": "vendedores/config.php",
+  "metodo": "GET",
+  "action": null,
+  "pantallas": [
+   "hooks/useVendedoresConfig.ts",
+   "hooks/useAutoSyncVendedores.ts",
+   "components/Dashboard.tsx",
+   "components/PantallaInicio.tsx"
+  ],
+  "lee": [
+   "tbl_config_vendedores",
+   "tbl_pedidos_vendedor",
+   "electronic_documents"
+  ],
+  "escribe": [],
+  "efectos": [
+   "gating menu Vendedores (fallback mientras cargan entitlements)",
+   "badge pedidos pendientes"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [
+   "config/database.php"
+  ],
+  "externo": []
+ },
+ {
+  "modulo": "frontend-shell",
+  "endpoint": "vendedores/config.php",
+  "metodo": "POST",
+  "action": "guardar|probar|pull_ahora",
+  "pantallas": [
+   "hooks/useVendedoresConfig.ts",
+   "components/VendedoresMovil.tsx",
+   "components/VendedoresPedidos.tsx"
+  ],
+  "lee": [
+   "tbl_config_vendedores"
+  ],
+  "escribe": [
+   "tbl_config_vendedores (UPDATE en guardar)",
+   "(sin verificar) pull_ahora"
+  ],
+  "efectos": [
+   "sincronizacion hub movil"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [
+   "(sin verificar) vendedores/pull.php en pull_ahora"
+  ],
+  "helpers": [
+   "config/database.php"
+  ],
+  "externo": [
+   "{api_url}/health (probar, curl)"
+  ]
+ },
+ {
+  "modulo": "frontend-shell",
+  "endpoint": "vendedores/pull.php",
+  "metodo": "GET",
+  "action": null,
+  "pantallas": [
+   "hooks/useAutoSyncVendedores.ts",
+   "components/Dashboard.tsx"
+  ],
+  "lee": [
+   "tbl_config_vendedores",
+   "tbl_vendedores_movil",
+   "tbl_pedidos_vendedor",
+   "tblclientes",
+   "electronic_documents"
+  ],
+  "escribe": [
+   "tbl_pedidos_vendedor",
+   "tblclientes",
+   "tbl_vendedores_movil",
+   "tbl_config_vendedores",
+   "electronic_documents"
+  ],
+  "efectos": [
+   "sincronizacion hub movil cada N min (15s tras login)"
+  ],
+  "transaccion": true,
+  "llama_endpoints": [],
+  "helpers": [
+   "config/database.php"
+  ],
+  "externo": [
+   "hub Lumen vendedores (curl, URL de tbl_config_vendedores.api_url)"
+  ]
+ },
+ {
+  "modulo": "frontend-shell",
+  "endpoint": "caja/sesion.php",
+  "metodo": "GET",
+  "action": "usuario={id}",
+  "pantallas": [
+   "App.tsx"
+  ],
+  "lee": [
+   "tblsesiones_caja",
+   "tblusuarios",
+   "tblcajas"
+  ],
+  "escribe": [],
+  "efectos": [
+   "confirmacion al cerrar ventana con caja abierta"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [
+   "config/database.php",
+   "config/helpers_polyfill.php"
+  ],
+  "externo": []
+ },
+ {
+  "modulo": "electron-main",
+  "endpoint": "ipc:entitlements:get",
+  "metodo": "IPC-handle",
+  "action": null,
+  "pantallas": [
+   "hooks/useEntitlements.ts",
+   "components/ConfiguracionSistema.tsx"
+  ],
+  "lee": [
+   "config.json:api_token",
+   "config.json:apiUrlRuntime",
+   "config.json:apiUrl",
+   "config.json:_entitlements_cache"
+  ],
+  "escribe": [
+   "config.json:_entitlements_cache"
+  ],
+  "efectos": [
+   "API externa CRM",
+   "verificacion JWT RS256",
+   "fallback cache 7 dias / modo emergencia"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [
+   "empresa/datos.php"
+  ],
+  "helpers": [],
+  "externo": [
+   "https://crm.innovacion-digital.com/api/public/api/v1/suscripcion-token/{token}"
+  ]
+ },
+ {
+  "modulo": "electron-main",
+  "endpoint": "ipc:empresas:activar",
+  "metodo": "IPC-handle",
+  "action": null,
+  "pantallas": [
+   "components/ConfiguracionSistema.tsx"
+  ],
+  "lee": [
+   "config.json:api_token",
+   "config.json:_entitlements_cache"
+  ],
+  "escribe": [
+   "config.json:_entitlements_cache"
+  ],
+  "efectos": [
+   "API externa CRM",
+   "API externa hub Lumen (provisiona empresa)"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [
+   "empresa/datos.php"
+  ],
+  "helpers": [],
+  "externo": [
+   "https://crm.innovacion-digital.com/api/public/api/v1/suscripcion-token/{token}",
+   "{apiUrlLumen}/api/empresas/activar"
+  ]
+ },
+ {
+  "modulo": "electron-main",
+  "endpoint": "ipc:empresas:renovarCodigoPairing",
+  "metodo": "IPC-handle",
+  "action": null,
+  "pantallas": [
+   "components/VendedoresMovil.tsx"
+  ],
+  "lee": [
+   "config.json:api_token",
+   "config.json:_entitlements_cache"
+  ],
+  "escribe": [
+   "config.json:_entitlements_cache"
+  ],
+  "efectos": [
+   "API externa CRM",
+   "API externa hub Lumen"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [
+   "empresa/datos.php"
+  ],
+  "helpers": [],
+  "externo": [
+   "https://crm.innovacion-digital.com/api/public/api/v1/suscripcion-token/{token}",
+   "{apiUrlLumen}/api/empresa/renovar-codigo"
+  ]
+ },
+ {
+  "modulo": "electron-main",
+  "endpoint": "ipc:updater:check",
+  "metodo": "IPC-handle",
+  "action": null,
+  "pantallas": [
+   "components/Dashboard.tsx"
+  ],
+  "lee": [
+   "config.json:api_token",
+   "config.json:apiUrlRuntime",
+   "config.json:apiUrl"
+  ],
+  "escribe": [],
+  "efectos": [
+   "API externa CRM (estricto)",
+   "electron-updater checkForUpdates + autoDownload",
+   "evento subscription:status"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [
+   "empresa/datos.php"
+  ],
+  "helpers": [],
+  "externo": [
+   "https://crm.innovacion-digital.com/api/public/api/v1/consulta-plan/{token}",
+   "https://innovacion-digital.com/updates/contaft4.8/"
+  ]
+ },
+ {
+  "modulo": "electron-main",
+  "endpoint": "ipc:updater:install",
+  "metodo": "IPC-handle",
+  "action": null,
+  "pantallas": [
+   "components/AutoUpdater.tsx"
+  ],
+  "lee": [],
+  "escribe": [],
+  "efectos": [
+   "quitAndInstall silencioso + relanzar",
+   "salta confirmacion de cierre por caja abierta"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [],
+  "externo": []
+ },
+ {
+  "modulo": "electron-main",
+  "endpoint": "ipc:backup-cloud:subir",
+  "metodo": "IPC-handle",
+  "action": null,
+  "pantallas": [
+   "components/BackupBD.tsx"
+  ],
+  "lee": [
+   "config.json:api_token",
+   "config.json:backendMode",
+   "config.json:apiUrlRuntime",
+   "config.json:apiUrl",
+   "userData/backend-config.json",
+   "C:\\ContaFT-Backups\\<archivo>",
+   "userData/conta.db"
+  ],
+  "escribe": [
+   "config.json:ultimo_backup_nube"
+  ],
+  "efectos": [
+   "backup",
+   "dump BD via PHP",
+   "upload gzip externo"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [
+   "empresa/datos.php",
+   "backup/index.php?action=generar"
+  ],
+  "helpers": [],
+  "externo": [
+   "https://innovacion-digital.com/backups-contaft/upload.php"
+  ]
+ },
+ {
+  "modulo": "electron-main",
+  "endpoint": "ipc:backup-cloud:estado",
+  "metodo": "IPC-handle",
+  "action": null,
+  "pantallas": [
+   "components/BackupBD.tsx",
+   "components/Dashboard.tsx"
+  ],
+  "lee": [
+   "config.json:ultimo_backup_nube"
+  ],
+  "escribe": [],
+  "efectos": [],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [],
+  "externo": []
+ },
+ {
+  "modulo": "electron-main",
+  "endpoint": "ipc:trial:getStatus",
+  "metodo": "IPC-handle",
+  "action": null,
+  "pantallas": [],
+  "lee": [
+   "config.json:trial_inicio",
+   "config.json:suscripcion_activa"
+  ],
+  "escribe": [],
+  "efectos": [],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [],
+  "externo": []
+ },
+ {
+  "modulo": "electron-main",
+  "endpoint": "ipc:subscription:check",
+  "metodo": "IPC-handle",
+  "action": null,
+  "pantallas": [
+   "components/SubscriptionGate.tsx"
+  ],
+  "lee": [
+   "config.json:api_token",
+   "config.json:apiUrlRuntime",
+   "config.json:apiUrl",
+   "config.json:_subscription_cache",
+   "config.json:_entitlements_cache",
+   "config.json:offline_activation"
+  ],
+  "escribe": [
+   "config.json:_subscription_cache"
+  ],
+  "efectos": [
+   "API externa CRM",
+   "telemetria maquina (machine_id, hostname, usuario SO)"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [
+   "empresa/datos.php"
+  ],
+  "helpers": [],
+  "externo": [
+   "https://crm.innovacion-digital.com/api/public/api/v1/consulta-plan/{token}"
+  ]
+ },
+ {
+  "modulo": "electron-main",
+  "endpoint": "ipc:subscription:checkUpdate",
+  "metodo": "IPC-handle",
+  "action": null,
+  "pantallas": [],
+  "lee": [
+   "config.json:api_token",
+   "config.json:apiUrlRuntime",
+   "config.json:apiUrl"
+  ],
+  "escribe": [],
+  "efectos": [
+   "API externa CRM"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [
+   "empresa/datos.php"
+  ],
+  "helpers": [],
+  "externo": [
+   "https://crm.innovacion-digital.com/api/public/api/v1/consulta-plan/{token}"
+  ]
+ },
+ {
+  "modulo": "electron-main",
+  "endpoint": "ipc:subscription:setOfflineCode",
+  "metodo": "IPC-handle",
+  "action": null,
+  "pantallas": [
+   "components/SubscriptionGate.tsx"
+  ],
+  "lee": [],
+  "escribe": [
+   "config.json:offline_activation"
+  ],
+  "efectos": [
+   "verificacion HMAC local"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [],
+  "externo": []
+ },
+ {
+  "modulo": "electron-main",
+  "endpoint": "ipc:subscription:clearOfflineCode",
+  "metodo": "IPC-handle",
+  "action": null,
+  "pantallas": [],
+  "lee": [],
+  "escribe": [
+   "config.json:offline_activation"
+  ],
+  "efectos": [],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [],
+  "externo": []
+ },
+ {
+  "modulo": "electron-main",
+  "endpoint": "ipc:subscription:getVencimiento",
+  "metodo": "IPC-handle",
+  "action": null,
+  "pantallas": [
+   "components/TrialBanner.tsx"
+  ],
+  "lee": [
+   "config.json:api_token",
+   "config.json:apiUrlRuntime",
+   "config.json:apiUrl",
+   "config.json:_vencimiento_cache"
+  ],
+  "escribe": [
+   "config.json:_vencimiento_cache"
+  ],
+  "efectos": [
+   "API externa CRM",
+   "telemetria maquina"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [
+   "empresa/datos.php"
+  ],
+  "helpers": [],
+  "externo": [
+   "https://crm.innovacion-digital.com/api/public/api/v1/consulta-vencimiento/{token}"
+  ]
+ },
+ {
+  "modulo": "electron-main",
+  "endpoint": "ipc:pago:planes",
+  "metodo": "IPC-handle",
+  "action": null,
+  "pantallas": [
+   "components/ActivarLicenciaModal.tsx"
+  ],
+  "lee": [],
+  "escribe": [],
+  "efectos": [
+   "API externa CRM"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [],
+  "externo": [
+   "https://crm.innovacion-digital.com/api/public/api/v1/planes-publicos"
+  ]
+ },
+ {
+  "modulo": "electron-main",
+  "endpoint": "ipc:pago:planActual",
+  "metodo": "IPC-handle",
+  "action": null,
+  "pantallas": [
+   "components/ActivarLicenciaModal.tsx"
+  ],
+  "lee": [
+   "config.json:api_token",
+   "config.json:apiUrlRuntime",
+   "config.json:apiUrl"
+  ],
+  "escribe": [],
+  "efectos": [
+   "API externa CRM"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [
+   "empresa/datos.php"
+  ],
+  "helpers": [],
+  "externo": [
+   "https://crm.innovacion-digital.com/api/public/api/v1/consulta-plan/{token}"
+  ]
+ },
+ {
+  "modulo": "electron-main",
+  "endpoint": "ipc:pago:crearLinkWompi",
+  "metodo": "IPC-handle",
+  "action": null,
+  "pantallas": [
+   "components/ActivarLicenciaModal.tsx"
+  ],
+  "lee": [
+   "config.json:api_token",
+   "config.json:apiUrlRuntime",
+   "config.json:apiUrl"
+  ],
+  "escribe": [],
+  "efectos": [
+   "API externa CRM",
+   "abre navegador externo (shell.openExternal)"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [
+   "empresa/datos.php"
+  ],
+  "helpers": [],
+  "externo": [
+   "https://crm.innovacion-digital.com/api/public/api/v1/pago/wompi/crear-link/{token}",
+   "url_checkout (Wompi, devuelta por CRM)"
+  ]
+ },
+ {
+  "modulo": "electron-main",
+  "endpoint": "ipc:pago:subirComprobante",
+  "metodo": "IPC-handle",
+  "action": null,
+  "pantallas": [
+   "components/SubirComprobanteForm.tsx"
+  ],
+  "lee": [
+   "config.json:api_token",
+   "config.json:apiUrlRuntime",
+   "config.json:apiUrl",
+   "archivo comprobante local"
+  ],
+  "escribe": [],
+  "efectos": [
+   "API externa CRM (multipart)"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [
+   "empresa/datos.php"
+  ],
+  "helpers": [],
+  "externo": [
+   "https://crm.innovacion-digital.com/api/public/api/v1/pago/comprobante/{token}"
+  ]
+ },
+ {
+  "modulo": "electron-main",
+  "endpoint": "ipc:pago:elegirArchivoComprobante",
+  "metodo": "IPC-handle",
+  "action": null,
+  "pantallas": [
+   "components/SubirComprobanteForm.tsx"
+  ],
+  "lee": [
+   "archivo elegido (stat)"
+  ],
+  "escribe": [],
+  "efectos": [
+   "dialogo nativo abrir archivo"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [],
+  "externo": []
+ },
+ {
+  "modulo": "electron-main",
+  "endpoint": "ipc:subscription:setApiToken",
+  "metodo": "IPC-handle",
+  "action": null,
+  "pantallas": [
+   "components/SubscriptionGate.tsx"
+  ],
+  "lee": [
+   "config.json:apiUrlRuntime",
+   "config.json:apiUrl"
+  ],
+  "escribe": [
+   "config.json:api_token"
+  ],
+  "efectos": [
+   "intenta persistir token en BD via PHP (tbldatosempresa.api_token, sin verificar)"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [
+   "empresa/configurar-token.php"
+  ],
+  "helpers": [],
+  "externo": []
+ },
+ {
+  "modulo": "electron-main",
+  "endpoint": "ipc:config:read",
+  "metodo": "IPC-handle",
+  "action": null,
+  "pantallas": [
+   "config/api.ts",
+   "App.tsx"
+  ],
+  "lee": [
+   "config.json:*"
+  ],
+  "escribe": [],
+  "efectos": [],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [],
+  "externo": []
+ },
+ {
+  "modulo": "electron-main",
+  "endpoint": "ipc:config:write",
+  "metodo": "IPC-handle",
+  "action": null,
+  "pantallas": [
+   "config/api.ts",
+   "components/ConfigServidor.tsx",
+   "components/ConfigurarServidor.tsx"
+  ],
+  "lee": [
+   "config.json:*"
+  ],
+  "escribe": [
+   "config.json:* (sin whitelist; en uso: apiUrl)"
+  ],
+  "efectos": [],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [],
+  "externo": []
+ },
+ {
+  "modulo": "electron-main",
+  "endpoint": "ipc:config:getPath",
+  "metodo": "IPC-handle",
+  "action": null,
+  "pantallas": [
+   "config/api.ts",
+   "components/ConfigServidor.tsx"
+  ],
+  "lee": [],
+  "escribe": [],
+  "efectos": [],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [],
+  "externo": []
+ },
+ {
+  "modulo": "electron-main",
+  "endpoint": "ipc:print:listPrinters",
+  "metodo": "IPC-handle",
+  "action": null,
+  "pantallas": [
+   "components/ConfiguracionSistema.tsx"
+  ],
+  "lee": [
+   "impresoras del SO"
+  ],
+  "escribe": [],
+  "efectos": [],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [],
+  "externo": []
+ },
+ {
+  "modulo": "electron-main",
+  "endpoint": "ipc:print:silent",
+  "metodo": "IPC-handle",
+  "action": null,
+  "pantallas": [
+   "components/ImpresionFactura.tsx",
+   "components/Dashboard.tsx",
+   "components/ConfiguracionSistema.tsx"
+  ],
+  "lee": [],
+  "escribe": [],
+  "efectos": [
+   "impresion silenciosa (ventana oculta)"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [],
+  "externo": []
+ },
+ {
+  "modulo": "electron-main",
+  "endpoint": "ipc:app:cerrar-confirmado",
+  "metodo": "IPC-on",
+  "action": null,
+  "pantallas": [
+   "App.tsx"
+  ],
+  "lee": [],
+  "escribe": [],
+  "efectos": [
+   "cierra ventana -> app.quit -> mata PHP embebido"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [],
+  "externo": []
+ },
+ {
+  "modulo": "electron-main",
+  "endpoint": "ipc:app:cierre-cancelado",
+  "metodo": "IPC-on",
+  "action": null,
+  "pantallas": [
+   "App.tsx"
+  ],
+  "lee": [],
+  "escribe": [],
+  "efectos": [],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [],
+  "externo": []
+ },
+ {
+  "modulo": "electron-main",
+  "endpoint": "ipc:sync:estado",
+  "metodo": "IPC-handle",
+  "action": null,
+  "pantallas": [
+   "hooks/useSincronizacion.ts"
+  ],
+  "lee": [
+   "estado en memoria del SincroWorker"
+  ],
+  "escribe": [],
+  "efectos": [],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [
+   "electron/sincroWorker.js"
+  ],
+  "externo": []
+ },
+ {
+  "modulo": "electron-main",
+  "endpoint": "ipc:sync:forzar",
+  "metodo": "IPC-handle",
+  "action": null,
+  "pantallas": [
+   "hooks/useSincronizacion.ts"
+  ],
+  "lee": [
+   "config.json (via sincroWorker)"
+  ],
+  "escribe": [
+   "config.json:_entitlements_cache"
+  ],
+  "efectos": [
+   "sincronizacion",
+   "API externa CRM (entitlements)"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [
+   "empresa/datos.php"
+  ],
+  "helpers": [
+   "electron/sincroWorker.js"
+  ],
+  "externo": [
+   "https://crm.innovacion-digital.com/api/public/api/v1/suscripcion-token/{token}",
+   "(destinos SaaS del worker: ver ficha sincroWorker)"
+  ]
+ },
+ {
+  "modulo": "electron-main",
+  "endpoint": "ipc:sync:backfill",
+  "metodo": "IPC-handle",
+  "action": null,
+  "pantallas": [
+   "hooks/useSincronizacion.ts"
+  ],
+  "lee": [
+   "config.json (via sincroWorker)"
+  ],
+  "escribe": [
+   "tbl_sync_outbox (via sincroWorker, ver su ficha)",
+   "config.json:_entitlements_cache"
+  ],
+  "efectos": [
+   "sincronizacion",
+   "dispara forzarCiclo"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [
+   "empresa/datos.php"
+  ],
+  "helpers": [
+   "electron/sincroWorker.js"
+  ],
+  "externo": [
+   "https://crm.innovacion-digital.com/api/public/api/v1/suscripcion-token/{token}"
+  ]
+ },
+ {
+  "modulo": "vendedores-movil",
+  "endpoint": "vendedores/config.php",
+  "metodo": "POST",
+  "action": "guardar",
+  "pantallas": [
+   "components/ConfiguracionSistema.tsx",
+   "hooks/useVendedoresConfig.ts"
+  ],
+  "lee": [],
+  "escribe": [
+   "tbl_config_vendedores"
+  ],
+  "efectos": [
+   "sincronizacion"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [
+   "config/database.php"
+  ],
+  "externo": [
+   "{api_url}/sync/empresa/modos (llamado desde el renderer, ConfiguracionSistema.tsx:519)"
+  ]
+ },
+ {
+  "modulo": "vendedores-movil",
+  "endpoint": "vendedores/config.php",
+  "metodo": "POST",
+  "action": "probar",
+  "pantallas": [
+   "components/ConfiguracionSistema.tsx",
+   "hooks/useVendedoresConfig.ts"
+  ],
+  "lee": [],
+  "escribe": [],
+  "efectos": [
+   "api_externa"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [
+   "config/database.php"
+  ],
+  "externo": [
+   "{api_url}/health"
+  ]
+ },
+ {
+  "modulo": "vendedores-movil",
+  "endpoint": "vendedores/config.php",
+  "metodo": "POST",
+  "action": "pull_ahora",
+  "pantallas": [
+   "hooks/useVendedoresConfig.ts"
+  ],
+  "lee": [
+   "tbl_config_vendedores",
+   "electronic_documents",
+   "tbl_pedidos_vendedor",
+   "tbl_vendedores_movil",
+   "tblclientes"
+  ],
+  "escribe": [
+   "electronic_documents",
+   "tbl_pedidos_vendedor",
+   "tbl_config_vendedores",
+   "tbl_vendedores_movil",
+   "tblclientes"
+  ],
+  "efectos": [
+   "sincronizacion",
+   "api_externa"
+  ],
+  "transaccion": true,
+  "llama_endpoints": [
+   "vendedores/pull.php (include)"
+  ],
+  "helpers": [
+   "config/database.php"
+  ],
+  "externo": [
+   "{api_url}/sync/ventas/pendientes",
+   "{api_url}/sync/vendedores/todos",
+   "{api_url}/sync/clientes/nuevos",
+   "{api_url}/sync/clientes/confirmar-mapeo",
+   "{api_url}/sync/clientes/ediciones-pendientes",
+   "{api_url}/sync/clientes/ediciones-confirmadas"
+  ]
+ },
+ {
+  "modulo": "vendedores-movil",
+  "endpoint": "vendedores/push-all.php",
+  "metodo": "POST",
+  "action": null,
+  "pantallas": [
+   "components/VendedoresMovil.tsx",
+   "components/ConfiguracionSistema.tsx"
+  ],
+  "lee": [
+   "tbl_config_vendedores",
+   "tblcategoria",
+   "tblarticulos",
+   "tblclientes",
+   "tbl_vendedores_movil"
+  ],
+  "escribe": [
+   "tbl_vendedores_movil",
+   "tbl_config_vendedores"
+  ],
+  "efectos": [
+   "sincronizacion",
+   "api_externa"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [
+   "config/database.php",
+   "config/helpers_polyfill.php"
+  ],
+  "externo": [
+   "{api_url}/sync/categorias/batch",
+   "{api_url}/sync/productos/batch",
+   "{api_url}/sync/clientes/batch",
+   "{api_url}/sync/vendedores/batch"
+  ]
+ },
+ {
+  "modulo": "vendedores-movil",
+  "endpoint": "vendedores/vendedores.php",
+  "metodo": "GET",
+  "action": null,
+  "pantallas": [
+   "components/VendedoresMovil.tsx",
+   "components/VendedoresPedidos.tsx"
+  ],
+  "lee": [
+   "tbl_vendedores_movil",
+   "tblempleados"
+  ],
+  "escribe": [],
+  "efectos": [],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [
+   "config/database.php"
+  ],
+  "externo": []
+ },
+ {
+  "modulo": "vendedores-movil",
+  "endpoint": "vendedores/vendedores.php",
+  "metodo": "GET",
+  "action": "empleados_disponibles",
+  "pantallas": [
+   "components/VendedoresMovil.tsx"
+  ],
+  "lee": [
+   "tblempleados",
+   "tbl_vendedores_movil"
+  ],
+  "escribe": [],
+  "efectos": [],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [
+   "config/database.php"
+  ],
+  "externo": []
+ },
+ {
+  "modulo": "vendedores-movil",
+  "endpoint": "vendedores/vendedores.php",
+  "metodo": "POST",
+  "action": "crear",
+  "pantallas": [
+   "components/VendedoresMovil.tsx"
+  ],
+  "lee": [
+   "tbl_vendedores_movil"
+  ],
+  "escribe": [
+   "tbl_vendedores_movil"
+  ],
+  "efectos": [],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [
+   "config/database.php"
+  ],
+  "externo": []
+ },
+ {
+  "modulo": "vendedores-movil",
+  "endpoint": "vendedores/vendedores.php",
+  "metodo": "POST",
+  "action": "editar",
+  "pantallas": [
+   "components/VendedoresMovil.tsx"
+  ],
+  "lee": [],
+  "escribe": [
+   "tbl_vendedores_movil"
+  ],
+  "efectos": [],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [
+   "config/database.php"
+  ],
+  "externo": []
+ },
+ {
+  "modulo": "vendedores-movil",
+  "endpoint": "vendedores/vendedores.php",
+  "metodo": "POST",
+  "action": "sincronizar",
+  "pantallas": [
+   "components/VendedoresMovil.tsx"
+  ],
+  "lee": [
+   "tbl_config_vendedores",
+   "tbl_vendedores_movil"
+  ],
+  "escribe": [
+   "tbl_vendedores_movil"
+  ],
+  "efectos": [
+   "sincronizacion",
+   "api_externa"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [
+   "config/database.php"
+  ],
+  "externo": [
+   "{api_url}/sync/vendedores/batch"
+  ]
+ },
+ {
+  "modulo": "vendedores-movil",
+  "endpoint": "vendedores/vendedores.php",
+  "metodo": "POST",
+  "action": "toggle_activo",
+  "pantallas": [
+   "components/VendedoresMovil.tsx"
+  ],
+  "lee": [],
+  "escribe": [
+   "tbl_vendedores_movil"
+  ],
+  "efectos": [],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [
+   "config/database.php"
+  ],
+  "externo": []
+ },
+ {
+  "modulo": "vendedores-movil",
+  "endpoint": "vendedores/asignar-clientes.php",
+  "metodo": "GET",
+  "action": null,
+  "pantallas": [
+   "components/VendedoresMovil.tsx"
+  ],
+  "lee": [
+   "tbl_config_vendedores",
+   "tblclientes"
+  ],
+  "escribe": [],
+  "efectos": [
+   "api_externa"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [
+   "config/database.php"
+  ],
+  "externo": [
+   "{api_url}/sync/vendedor-clientes/asignados"
+  ]
+ },
+ {
+  "modulo": "vendedores-movil",
+  "endpoint": "vendedores/asignar-clientes.php",
+  "metodo": "POST",
+  "action": null,
+  "pantallas": [
+   "components/VendedoresMovil.tsx"
+  ],
+  "lee": [
+   "tbl_config_vendedores"
+  ],
+  "escribe": [],
+  "efectos": [
+   "api_externa"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [
+   "config/database.php"
+  ],
+  "externo": [
+   "{api_url}/sync/vendedor-clientes/asignar"
+  ]
+ },
+ {
+  "modulo": "vendedores-movil",
+  "endpoint": "vendedores/pedidos.php",
+  "metodo": "GET",
+  "action": null,
+  "pantallas": [
+   "components/VendedoresPedidos.tsx"
+  ],
+  "lee": [
+   "tbl_pedidos_vendedor",
+   "electronic_documents",
+   "tblclientes"
+  ],
+  "escribe": [],
+  "efectos": [],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [
+   "config/database.php",
+   "config/helpers_polyfill.php"
+  ],
+  "externo": []
+ },
+ {
+  "modulo": "vendedores-movil",
+  "endpoint": "vendedores/pedidos.php",
+  "metodo": "GET",
+  "action": "cargar_venta",
+  "pantallas": [
+   "components/NuevaVenta.tsx"
+  ],
+  "lee": [
+   "tbl_pedidos_vendedor",
+   "tblclientes",
+   "tblarticulos"
+  ],
+  "escribe": [
+   "tblclientes"
+  ],
+  "efectos": [
+   "sincronizacion"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [
+   "config/database.php",
+   "config/helpers_polyfill.php"
+  ],
+  "externo": []
+ },
+ {
+  "modulo": "vendedores-movil",
+  "endpoint": "vendedores/pedidos.php",
+  "metodo": "POST",
+  "action": "convertir",
+  "pantallas": [],
+  "lee": [
+   "tbl_pedidos_vendedor"
+  ],
+  "escribe": [
+   "tblventas",
+   "tbldetalle_venta",
+   "tblarticulos",
+   "tbl_pedidos_vendedor"
+  ],
+  "efectos": [
+   "stock",
+   "sincronizacion"
+  ],
+  "transaccion": true,
+  "llama_endpoints": [],
+  "helpers": [
+   "config/database.php",
+   "config/helpers_polyfill.php"
+  ],
+  "externo": []
+ },
+ {
+  "modulo": "vendedores-movil",
+  "endpoint": "vendedores/pedidos.php",
+  "metodo": "POST",
+  "action": "anular",
+  "pantallas": [
+   "components/VendedoresPedidos.tsx"
+  ],
+  "lee": [],
+  "escribe": [
+   "tbl_pedidos_vendedor"
+  ],
+  "efectos": [],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [
+   "config/database.php"
+  ],
+  "externo": []
+ },
+ {
+  "modulo": "vendedores-movil",
+  "endpoint": "vendedores/pedidos.php",
+  "metodo": "POST",
+  "action": "marcar_procesado",
+  "pantallas": [
+   "components/NuevaVenta.tsx"
+  ],
+  "lee": [
+   "tbl_pedidos_vendedor",
+   "tbl_vendedores_movil"
+  ],
+  "escribe": [
+   "tbl_pedidos_vendedor",
+   "tblventas"
+  ],
+  "efectos": [
+   "sincronizacion"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [
+   "config/database.php"
+  ],
+  "externo": []
+ },
+ {
+  "modulo": "vendedores-movil",
+  "endpoint": "vendedores/sync-catalogos.php",
+  "metodo": "CLI",
+  "action": null,
+  "pantallas": [],
+  "lee": [
+   "tblarticulos",
+   "tblclientes"
+  ],
+  "escribe": [
+   "conta_movil.productos",
+   "conta_movil.clientes",
+   "conta_movil.ventas",
+   "conta_movil.venta_detalles"
+  ],
+  "efectos": [
+   "sincronizacion"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [],
+  "externo": [
+   "mysql localhost root/root conta_test_negocio -> conta_movil (script dev)"
+  ]
+ },
+ {
+  "modulo": "vendedores-movil",
+  "endpoint": "cargues-vendedor/list.php",
+  "metodo": "GET",
+  "action": null,
+  "pantallas": [
+   "components/CarguesVendedor.tsx"
+  ],
+  "lee": [
+   "tbl_cargues_vendedor",
+   "tbl_cargues_vendedor_detalle",
+   "tbl_vendedores_movil"
+  ],
+  "escribe": [],
+  "efectos": [],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [
+   "config/database.php"
+  ],
+  "externo": []
+ },
+ {
+  "modulo": "vendedores-movil",
+  "endpoint": "cargues-vendedor/detalle.php",
+  "metodo": "GET",
+  "action": null,
+  "pantallas": [
+   "components/CarguesVendedor.tsx"
+  ],
+  "lee": [
+   "tbl_cargues_vendedor",
+   "tbl_vendedores_movil",
+   "tbl_cargues_vendedor_detalle",
+   "tblarticulos"
+  ],
+  "escribe": [],
+  "efectos": [],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [
+   "config/database.php"
+  ],
+  "externo": []
+ },
+ {
+  "modulo": "vendedores-movil",
+  "endpoint": "cargues-vendedor/pull-from-hub.php",
+  "metodo": "GET",
+  "action": null,
+  "pantallas": [
+   "components/CarguesVendedor.tsx"
+  ],
+  "lee": [
+   "tbl_config_vendedores",
+   "tbl_vendedores_movil",
+   "tbl_cargues_vendedor"
+  ],
+  "escribe": [
+   "tbl_cargues_vendedor",
+   "tbl_cargues_vendedor_detalle"
+  ],
+  "efectos": [
+   "sincronizacion",
+   "api_externa"
+  ],
+  "transaccion": true,
+  "llama_endpoints": [],
+  "helpers": [
+   "config/database.php"
+  ],
+  "externo": [
+   "{api_url}/sync/cargues/pendientes-desktop"
+  ]
+ },
+ {
+  "modulo": "vendedores-movil",
+  "endpoint": "cargues-vendedor/aprobar.php",
+  "metodo": "POST",
+  "action": null,
+  "pantallas": [
+   "components/CarguesVendedor.tsx"
+  ],
+  "lee": [
+   "tbl_cargues_vendedor",
+   "tbl_config_vendedores"
+  ],
+  "escribe": [
+   "tbl_cargues_vendedor"
+  ],
+  "efectos": [
+   "api_externa"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [
+   "config/database.php"
+  ],
+  "externo": [
+   "{api_url}/sync/cargues/aprobar"
+  ]
+ },
+ {
+  "modulo": "vendedores-movil",
+  "endpoint": "cargues-vendedor/rechazar.php",
+  "metodo": "POST",
+  "action": null,
+  "pantallas": [
+   "components/CarguesVendedor.tsx"
+  ],
+  "lee": [
+   "tbl_cargues_vendedor",
+   "tbl_config_vendedores"
+  ],
+  "escribe": [
+   "tbl_cargues_vendedor"
+  ],
+  "efectos": [
+   "api_externa"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [
+   "config/database.php"
+  ],
+  "externo": [
+   "{api_url}/sync/cargues/rechazar"
+  ]
+ },
+ {
+  "modulo": "vendedores-movil",
+  "endpoint": "cargues-vendedor/cuadrar.php",
+  "metodo": "POST",
+  "action": null,
+  "pantallas": [
+   "components/CarguesVendedor.tsx"
+  ],
+  "lee": [
+   "tbl_cargues_vendedor"
+  ],
+  "escribe": [
+   "tbl_cargues_vendedor"
+  ],
+  "efectos": [],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [
+   "config/database.php"
+  ],
+  "externo": []
+ },
+ {
+  "modulo": "vendedores-movil",
+  "endpoint": "worker:sincroWorker.js",
+  "metodo": "IPC/timer",
+  "action": null,
+  "pantallas": [
+   "hooks/useSincronizacion.ts",
+   "components/Dashboard.tsx"
+  ],
+  "lee": [
+   "tbl_sync_outbox",
+   "tblclientes",
+   "tblarticulos",
+   "tblproveedores",
+   "tblventas",
+   "tbldetalle_venta",
+   "tblpagos",
+   "tblpedidos",
+   "tbldetalle_pedido",
+   "tblegresos",
+   "tbldatosempresa",
+   "information_schema.TABLES"
+  ],
+  "escribe": [
+   "tbl_sync_outbox",
+   "tbl_sync_estado"
+  ],
+  "efectos": [
+   "sincronizacion",
+   "api_externa"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [
+   "IPC sync:estado",
+   "IPC sync:forzar",
+   "IPC sync:backfill"
+  ],
+  "helpers": [
+   "electron/main.js consultarEntitlements",
+   "electron/main.js readConfig",
+   "userData/backend-config.json",
+   "{backendPath}/api/config/database.php (parseo regex)"
+  ],
+  "externo": [
+   "https://conta-basic.innovacion-digital.com/api-conta/public/sync/v2/{clientes|productos|proveedores|ventas|pagos|compras|gastos}/batch",
+   "https://crm.innovacion-digital.com/api/public/api/v1/suscripcion-token/{token} (via consultarEntitlements cada ciclo)"
+  ]
+ },
+ {
+  "modulo": "bd-triggers-vistas",
+  "endpoint": "trigger:trg_sync_venta_insert",
+  "metodo": "TRIGGER AFTER INSERT ON tblventas",
+  "action": null,
+  "pantallas": [],
+  "lee": [],
+  "escribe": [
+   "tbl_sync_outbox"
+  ],
+  "efectos": [
+   "sincronizacion"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [],
+  "externo": [],
+  "consumidores": [
+   "Dashboard-Facturación/electron/sincroWorker.js"
+  ]
+ },
+ {
+  "modulo": "bd-triggers-vistas",
+  "endpoint": "trigger:trg_sync_venta_update",
+  "metodo": "TRIGGER AFTER UPDATE ON tblventas",
+  "action": null,
+  "pantallas": [],
+  "lee": [],
+  "escribe": [
+   "tbl_sync_outbox"
+  ],
+  "efectos": [
+   "sincronizacion"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [],
+  "externo": [],
+  "consumidores": [
+   "Dashboard-Facturación/electron/sincroWorker.js"
+  ]
+ },
+ {
+  "modulo": "bd-triggers-vistas",
+  "endpoint": "trigger:trg_sync_cliente_insert",
+  "metodo": "TRIGGER AFTER INSERT ON tblclientes",
+  "action": null,
+  "pantallas": [],
+  "lee": [],
+  "escribe": [
+   "tbl_sync_outbox"
+  ],
+  "efectos": [
+   "sincronizacion"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [],
+  "externo": [],
+  "consumidores": [
+   "Dashboard-Facturación/electron/sincroWorker.js"
+  ]
+ },
+ {
+  "modulo": "bd-triggers-vistas",
+  "endpoint": "trigger:trg_sync_cliente_update",
+  "metodo": "TRIGGER AFTER UPDATE ON tblclientes",
+  "action": null,
+  "pantallas": [],
+  "lee": [],
+  "escribe": [
+   "tbl_sync_outbox"
+  ],
+  "efectos": [
+   "sincronizacion"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [],
+  "externo": [],
+  "consumidores": [
+   "Dashboard-Facturación/electron/sincroWorker.js"
+  ]
+ },
+ {
+  "modulo": "bd-triggers-vistas",
+  "endpoint": "trigger:trg_sync_proveedor_insert",
+  "metodo": "TRIGGER AFTER INSERT ON tblproveedores",
+  "action": null,
+  "pantallas": [],
+  "lee": [],
+  "escribe": [
+   "tbl_sync_outbox"
+  ],
+  "efectos": [
+   "sincronizacion"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [],
+  "externo": [],
+  "consumidores": [
+   "Dashboard-Facturación/electron/sincroWorker.js"
+  ]
+ },
+ {
+  "modulo": "bd-triggers-vistas",
+  "endpoint": "trigger:trg_sync_proveedor_update",
+  "metodo": "TRIGGER AFTER UPDATE ON tblproveedores",
+  "action": null,
+  "pantallas": [],
+  "lee": [],
+  "escribe": [
+   "tbl_sync_outbox"
+  ],
+  "efectos": [
+   "sincronizacion"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [],
+  "externo": [],
+  "consumidores": [
+   "Dashboard-Facturación/electron/sincroWorker.js"
+  ]
+ },
+ {
+  "modulo": "bd-triggers-vistas",
+  "endpoint": "trigger:trg_sync_pago_insert",
+  "metodo": "TRIGGER AFTER INSERT ON tblpagos",
+  "action": null,
+  "pantallas": [],
+  "lee": [],
+  "escribe": [
+   "tbl_sync_outbox"
+  ],
+  "efectos": [
+   "sincronizacion"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [],
+  "externo": [],
+  "consumidores": [
+   "Dashboard-Facturación/electron/sincroWorker.js"
+  ]
+ },
+ {
+  "modulo": "bd-triggers-vistas",
+  "endpoint": "trigger:trg_sync_pago_update",
+  "metodo": "TRIGGER AFTER UPDATE ON tblpagos",
+  "action": null,
+  "pantallas": [],
+  "lee": [],
+  "escribe": [
+   "tbl_sync_outbox"
+  ],
+  "efectos": [
+   "sincronizacion"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [],
+  "externo": [],
+  "consumidores": [
+   "Dashboard-Facturación/electron/sincroWorker.js"
+  ]
+ },
+ {
+  "modulo": "bd-triggers-vistas",
+  "endpoint": "trigger:trg_sync_compra_insert",
+  "metodo": "TRIGGER AFTER INSERT ON tblpedidos",
+  "action": null,
+  "pantallas": [],
+  "lee": [],
+  "escribe": [
+   "tbl_sync_outbox"
+  ],
+  "efectos": [
+   "sincronizacion"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [],
+  "externo": [],
+  "consumidores": [
+   "Dashboard-Facturación/electron/sincroWorker.js"
+  ]
+ },
+ {
+  "modulo": "bd-triggers-vistas",
+  "endpoint": "trigger:trg_sync_compra_update",
+  "metodo": "TRIGGER AFTER UPDATE ON tblpedidos",
+  "action": null,
+  "pantallas": [],
+  "lee": [],
+  "escribe": [
+   "tbl_sync_outbox"
+  ],
+  "efectos": [
+   "sincronizacion"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [],
+  "externo": [],
+  "consumidores": [
+   "Dashboard-Facturación/electron/sincroWorker.js"
+  ]
+ },
+ {
+  "modulo": "bd-triggers-vistas",
+  "endpoint": "trigger:trg_sync_gasto_insert",
+  "metodo": "TRIGGER AFTER INSERT ON tblegresos",
+  "action": null,
+  "pantallas": [],
+  "lee": [],
+  "escribe": [
+   "tbl_sync_outbox"
+  ],
+  "efectos": [
+   "sincronizacion"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [],
+  "externo": [],
+  "consumidores": [
+   "Dashboard-Facturación/electron/sincroWorker.js"
+  ]
+ },
+ {
+  "modulo": "bd-triggers-vistas",
+  "endpoint": "trigger:trg_sync_gasto_update",
+  "metodo": "TRIGGER AFTER UPDATE ON tblegresos",
+  "action": null,
+  "pantallas": [],
+  "lee": [],
+  "escribe": [
+   "tbl_sync_outbox"
+  ],
+  "efectos": [
+   "sincronizacion"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [],
+  "externo": [],
+  "consumidores": [
+   "Dashboard-Facturación/electron/sincroWorker.js"
+  ]
+ },
+ {
+  "modulo": "bd-triggers-vistas",
+  "endpoint": "trigger:trg_sync_articulo_insert",
+  "metodo": "TRIGGER AFTER INSERT ON tblarticulos",
+  "action": null,
+  "pantallas": [],
+  "lee": [],
+  "escribe": [
+   "tbl_sync_outbox"
+  ],
+  "efectos": [
+   "sincronizacion"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [],
+  "externo": [],
+  "consumidores": [
+   "Dashboard-Facturación/electron/sincroWorker.js"
+  ]
+ },
+ {
+  "modulo": "bd-triggers-vistas",
+  "endpoint": "trigger:trg_sync_articulo_update",
+  "metodo": "TRIGGER AFTER UPDATE ON tblarticulos",
+  "action": null,
+  "pantallas": [],
+  "lee": [],
+  "escribe": [
+   "tbl_sync_outbox"
+  ],
+  "efectos": [
+   "sincronizacion"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [],
+  "externo": [],
+  "consumidores": [
+   "Dashboard-Facturación/electron/sincroWorker.js"
+  ]
+ },
+ {
+  "modulo": "bd-triggers-vistas",
+  "endpoint": "trigger:trg_egresos_tipopago_sync",
+  "metodo": "TRIGGER BEFORE INSERT ON tblegresos",
+  "action": null,
+  "pantallas": [],
+  "lee": [
+   "tblegresos"
+  ],
+  "escribe": [
+   "tblegresos"
+  ],
+  "efectos": [
+   "caja"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [],
+  "externo": [],
+  "consumidores": [
+   "api/compras/nueva.php",
+   "api/movimientos/gastos.php",
+   "api/proveedores/listar.php"
+  ]
+ },
+ {
+  "modulo": "bd-triggers-vistas",
+  "endpoint": "view:vw_item_ventas_30d",
+  "metodo": "VIEW",
+  "action": null,
+  "pantallas": [],
+  "lee": [
+   "tbldetalle_venta",
+   "tblventas"
+  ],
+  "escribe": [],
+  "efectos": [
+   "inventario"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [],
+  "externo": [],
+  "consumidores": [
+   "view:vw_diagnostico_inventario_30d"
+  ]
+ },
+ {
+  "modulo": "bd-triggers-vistas",
+  "endpoint": "view:vw_diagnostico_inventario_30d",
+  "metodo": "VIEW",
+  "action": null,
+  "pantallas": [],
+  "lee": [
+   "tblarticulos",
+   "vw_item_ventas_30d"
+  ],
+  "escribe": [],
+  "efectos": [
+   "inventario"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [],
+  "externo": [],
+  "consumidores": [
+   "api/diagnostico/inventario-30d.php"
+  ]
+ },
+ {
+  "modulo": "bd-triggers-vistas",
+  "endpoint": "view:vw_item_ventas_90d",
+  "metodo": "VIEW",
+  "action": null,
+  "pantallas": [],
+  "lee": [
+   "tbldetalle_venta",
+   "tblventas"
+  ],
+  "escribe": [],
+  "efectos": [
+   "inventario"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [],
+  "externo": [],
+  "consumidores": [
+   "view:vw_auditoria_inventario_90d"
+  ]
+ },
+ {
+  "modulo": "bd-triggers-vistas",
+  "endpoint": "view:vw_auditoria_inventario_90d",
+  "metodo": "VIEW",
+  "action": null,
+  "pantallas": [],
+  "lee": [
+   "tblarticulos",
+   "vw_item_ventas_90d",
+   "tblcategoria",
+   "tblproveedores"
+  ],
+  "escribe": [],
+  "efectos": [
+   "inventario"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [],
+  "externo": [],
+  "consumidores": [
+   "api/auditoria/inventario-90d.php"
+  ]
+ },
+ {
+  "modulo": "bd-triggers-vistas",
+  "endpoint": "view:vw_productos_stock_bajo",
+  "metodo": "VIEW",
+  "action": null,
+  "pantallas": [],
+  "lee": [
+   "tblarticulos",
+   "tblfamilia_items",
+   "tblfamilias_producto"
+  ],
+  "escribe": [],
+  "efectos": [
+   "stock"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [],
+  "externo": [],
+  "consumidores": [
+   "api/inicio/sugerencias.php"
+  ]
+ },
+ {
+  "modulo": "bd-triggers-vistas",
+  "endpoint": "view:vw_lotes_por_vencer",
+  "metodo": "VIEW",
+  "action": null,
+  "pantallas": [],
+  "lee": [
+   "tblproductos_lotes",
+   "tblarticulos"
+  ],
+  "escribe": [],
+  "efectos": [
+   "stock"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [],
+  "externo": [],
+  "consumidores": [
+   "api/lotes/index.php"
+  ]
+ },
+ {
+  "modulo": "bd-triggers-vistas",
+  "endpoint": "view:vw_componentes_detalle",
+  "metodo": "VIEW",
+  "action": null,
+  "pantallas": [],
+  "lee": [
+   "tblproducto_componentes",
+   "tblarticulos"
+  ],
+  "escribe": [],
+  "efectos": [
+   "stock"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [],
+  "externo": [],
+  "consumidores": [
+   "api/componentes/index.php"
+  ]
+ },
+ {
+  "modulo": "bd-triggers-vistas",
+  "endpoint": "view:vw_capacidad_compuestos",
+  "metodo": "VIEW",
+  "action": null,
+  "pantallas": [],
+  "lee": [
+   "tblproducto_componentes",
+   "tblarticulos"
+  ],
+  "escribe": [],
+  "efectos": [
+   "stock"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [],
+  "externo": [],
+  "consumidores": [
+   "api/componentes/index.php"
+  ]
+ },
+ {
+  "modulo": "bd-triggers-vistas",
+  "endpoint": "view:vw_facturas_cliente_saldos",
+  "metodo": "VIEW",
+  "action": null,
+  "pantallas": [],
+  "lee": [
+   "tblventas",
+   "tblclientes",
+   "tblpagos"
+  ],
+  "escribe": [],
+  "efectos": [
+   "cartera"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [],
+  "externo": [],
+  "consumidores": [
+   "api/clientes/cartera.php",
+   "api/clientes/comportamiento.php",
+   "api/clientes/detalle.php",
+   "api/clientes/info-credito.php",
+   "api/clientes/pagos.php",
+   "api/dashboard/resumen.php",
+   "api/informes/resumen.php",
+   "api/inicio/sugerencias.php",
+   "api/ventas/listar.php",
+   "api/ventas/por-tipo-pago.php"
+  ]
+ },
+ {
+  "modulo": "bd-triggers-vistas",
+  "endpoint": "view:vw_facturas_anteriores_cliente",
+  "metodo": "VIEW",
+  "action": null,
+  "pantallas": [],
+  "lee": [
+   "tblfacturasanteriores",
+   "tblpagos"
+  ],
+  "escribe": [],
+  "efectos": [
+   "cartera"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [],
+  "externo": [],
+  "consumidores": [
+   "api/clientes/cartera.php",
+   "api/clientes/detalle.php",
+   "api/clientes/info-credito.php",
+   "api/clientes/pagos.php",
+   "api/informes/resumen.php"
+  ]
+ },
+ {
+  "modulo": "bd-triggers-vistas",
+  "endpoint": "view:vw_facturas_elec_cliente_saldos",
+  "metodo": "VIEW",
+  "action": null,
+  "pantallas": [],
+  "lee": [
+   "electronic_documents",
+   "tblclientes",
+   "tblpagos"
+  ],
+  "escribe": [],
+  "efectos": [
+   "cartera"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [],
+  "externo": [],
+  "consumidores": [
+   "api/clientes/cartera.php",
+   "api/clientes/detalle.php",
+   "api/clientes/info-credito.php",
+   "api/clientes/pagos.php"
+  ]
+ },
+ {
+  "modulo": "bd-triggers-vistas",
+  "endpoint": "view:vw_prov_facturas_anteriores_saldos",
+  "metodo": "VIEW",
+  "action": null,
+  "pantallas": [],
+  "lee": [
+   "tblfacturasanterioresproveedor",
+   "tblproveedores",
+   "tblegresos"
+  ],
+  "escribe": [],
+  "efectos": [
+   "cartera"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [],
+  "externo": [],
+  "consumidores": [
+   "api/proveedores/listar.php",
+   "view:vw_prov_cxp_aging"
+  ]
+ },
+ {
+  "modulo": "bd-triggers-vistas",
+  "endpoint": "view:vw_prov_pedidos_credito_saldos",
+  "metodo": "VIEW",
+  "action": null,
+  "pantallas": [],
+  "lee": [
+   "tblpedidos",
+   "tblproveedores"
+  ],
+  "escribe": [],
+  "efectos": [
+   "cartera"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [],
+  "externo": [],
+  "consumidores": [
+   "api/proveedores/listar.php",
+   "view:vw_prov_cxp_aging"
+  ]
+ },
+ {
+  "modulo": "bd-triggers-vistas",
+  "endpoint": "view:vw_prov_cxp_aging",
+  "metodo": "VIEW",
+  "action": null,
+  "pantallas": [],
+  "lee": [
+   "vw_prov_facturas_anteriores_saldos",
+   "vw_prov_pedidos_credito_saldos"
+  ],
+  "escribe": [],
+  "efectos": [
+   "cartera"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [],
+  "externo": [],
+  "consumidores": [
+   "api/proveedores/listar.php",
+   "view:vw_proveedores_saldo_actual"
+  ]
+ },
+ {
+  "modulo": "bd-triggers-vistas",
+  "endpoint": "view:vw_proveedores_saldo_actual",
+  "metodo": "VIEW",
+  "action": null,
+  "pantallas": [],
+  "lee": [
+   "vw_prov_cxp_aging"
+  ],
+  "escribe": [],
+  "efectos": [
+   "cartera"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [],
+  "externo": [],
+  "consumidores": []
+ }
+]

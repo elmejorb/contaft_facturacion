@@ -1,0 +1,1443 @@
+[
+ {
+  "modulo": "compras",
+  "endpoint": "compras/nueva.php",
+  "metodo": "GET",
+  "action": "codigo|buscar|lookup_pedido|proveedores|listar|detalle|next",
+  "pantallas": [
+   "components/NuevaCompra.tsx",
+   "components/PurchasesManagement.tsx",
+   "components/BuscarCompraModal.tsx",
+   "components/DetalleCompraModal.tsx",
+   "components/Kardex.tsx",
+   "components/MovsDirectos.tsx",
+   "components/NuevaOrdenCompra.tsx"
+  ],
+  "lee": [
+   "tblarticulos",
+   "tblcategoria",
+   "tbldetalle_pedido",
+   "tblpedidos",
+   "tblproveedores"
+  ],
+  "escribe": [],
+  "efectos": [],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [
+   "config/helpers_polyfill.php"
+  ],
+  "externo": []
+ },
+ {
+  "modulo": "compras",
+  "endpoint": "compras/nueva.php",
+  "metodo": "POST",
+  "action": "crear",
+  "pantallas": [
+   "components/NuevaCompra.tsx"
+  ],
+  "lee": [
+   "tblusuarios",
+   "tbltiposusuario",
+   "tblpedidos",
+   "tblarticulos",
+   "tblproveedores",
+   "tblsesiones_caja",
+   "tblegresos"
+  ],
+  "escribe": [
+   "tblpedidos",
+   "tbldetalle_pedido",
+   "tblarticulos",
+   "tblkardex",
+   "tblegresos",
+   "tblmov_caja",
+   "tblcajas"
+  ],
+  "efectos": [
+   "stock",
+   "kardex",
+   "caja",
+   "cxp",
+   "sync_triggers"
+  ],
+  "transaccion": true,
+  "llama_endpoints": [
+   "lotes/index.php (desde el frontend, fuera de la transaccion)"
+  ],
+  "helpers": [
+   "config/helpers_polyfill.php"
+  ],
+  "externo": []
+ },
+ {
+  "modulo": "compras",
+  "endpoint": "compras/nueva.php",
+  "metodo": "POST",
+  "action": "editar (pedido_n>0)",
+  "pantallas": [
+   "components/NuevaCompra.tsx"
+  ],
+  "lee": [
+   "tbldetalle_pedido",
+   "tblarticulos",
+   "tblpedidos",
+   "tblegresos",
+   "tblmov_caja"
+  ],
+  "escribe": [
+   "tbldetalle_pedido (INSERT/UPDATE/DELETE)",
+   "tblarticulos",
+   "tblkardex",
+   "tblpedidos",
+   "tblegresos",
+   "tblmov_caja",
+   "tblcajas"
+  ],
+  "efectos": [
+   "stock",
+   "kardex",
+   "caja",
+   "cxp (sobrescribe Saldo=Total)",
+   "sync_triggers"
+  ],
+  "transaccion": true,
+  "llama_endpoints": [],
+  "helpers": [
+   "config/helpers_polyfill.php"
+  ],
+  "externo": []
+ },
+ {
+  "modulo": "compras",
+  "endpoint": "compras/anular.php",
+  "metodo": "POST",
+  "action": null,
+  "pantallas": [
+   "components/DetalleCompraModal.tsx"
+  ],
+  "lee": [
+   "tblusuarios",
+   "tblpedidos",
+   "tblegresos",
+   "tblsesiones_caja",
+   "tblcajas",
+   "tbldetalle_pedido",
+   "tblarticulos"
+  ],
+  "escribe": [
+   "tblarticulos",
+   "tblkardex",
+   "tblpedidos",
+   "tblegresos",
+   "tblmov_caja",
+   "tblcajas"
+  ],
+  "efectos": [
+   "stock",
+   "kardex",
+   "caja",
+   "cxp",
+   "sync_triggers"
+  ],
+  "transaccion": true,
+  "llama_endpoints": [],
+  "helpers": [],
+  "externo": []
+ },
+ {
+  "modulo": "compras",
+  "endpoint": "compras/borradores.php",
+  "metodo": "GET/POST",
+  "action": "listar|guardar|cargar|eliminar",
+  "pantallas": [
+   "components/ComprasTabs.tsx",
+   "components/NuevaCompra.tsx"
+  ],
+  "lee": [
+   "tbl_borradores_compra"
+  ],
+  "escribe": [
+   "tbl_borradores_compra (CREATE TABLE IF NOT EXISTS en cada request)"
+  ],
+  "efectos": [],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [],
+  "externo": []
+ },
+ {
+  "modulo": "compras",
+  "endpoint": "compras/historial-precios.php",
+  "metodo": "GET",
+  "action": null,
+  "pantallas": [
+   "components/HistorialPreciosModal.tsx"
+  ],
+  "lee": [
+   "tblarticulos",
+   "tbldetalle_pedido",
+   "tblpedidos",
+   "tblproveedores"
+  ],
+  "escribe": [],
+  "efectos": [],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [],
+  "externo": []
+ },
+ {
+  "modulo": "ordenes-compra",
+  "endpoint": "ordenes-compra/crear.php",
+  "metodo": "POST",
+  "action": null,
+  "pantallas": [
+   "components/NuevaOrdenCompra.tsx"
+  ],
+  "lee": [
+   "tbl_ordenes_compra"
+  ],
+  "escribe": [
+   "tbl_ordenes_compra",
+   "tbl_detalle_orden_compra"
+  ],
+  "efectos": [],
+  "transaccion": true,
+  "llama_endpoints": [],
+  "helpers": [],
+  "externo": []
+ },
+ {
+  "modulo": "ordenes-compra",
+  "endpoint": "ordenes-compra/listar.php",
+  "metodo": "GET",
+  "action": null,
+  "pantallas": [
+   "components/OrdenesCompraManagement.tsx"
+  ],
+  "lee": [
+   "tbl_ordenes_compra",
+   "tbl_detalle_orden_compra",
+   "tblproveedores"
+  ],
+  "escribe": [],
+  "efectos": [],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [],
+  "externo": []
+ },
+ {
+  "modulo": "ordenes-compra",
+  "endpoint": "ordenes-compra/detalle.php",
+  "metodo": "GET",
+  "action": null,
+  "pantallas": [
+   "components/OrdenesCompraManagement.tsx"
+  ],
+  "lee": [
+   "tbl_ordenes_compra",
+   "tbl_detalle_orden_compra",
+   "tblproveedores",
+   "tblusuarios",
+   "tblarticulos"
+  ],
+  "escribe": [],
+  "efectos": [],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [],
+  "externo": []
+ },
+ {
+  "modulo": "ordenes-compra",
+  "endpoint": "ordenes-compra/recibir.php",
+  "metodo": "POST",
+  "action": null,
+  "pantallas": [
+   "components/OrdenesCompraManagement.tsx"
+  ],
+  "lee": [
+   "tbl_ordenes_compra (FOR UPDATE)",
+   "tbl_detalle_orden_compra",
+   "tblarticulos"
+  ],
+  "escribe": [
+   "tblpedidos",
+   "tbldetalle_pedido",
+   "tblarticulos",
+   "tblkardex",
+   "tbl_detalle_orden_compra",
+   "tbl_ordenes_compra"
+  ],
+  "efectos": [
+   "stock",
+   "kardex",
+   "cxp",
+   "sync_triggers"
+  ],
+  "transaccion": true,
+  "llama_endpoints": [],
+  "helpers": [],
+  "externo": []
+ },
+ {
+  "modulo": "ordenes-compra",
+  "endpoint": "ordenes-compra/anular.php",
+  "metodo": "POST",
+  "action": null,
+  "pantallas": [
+   "components/OrdenesCompraManagement.tsx"
+  ],
+  "lee": [
+   "tbl_ordenes_compra"
+  ],
+  "escribe": [
+   "tbl_ordenes_compra"
+  ],
+  "efectos": [],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [],
+  "externo": []
+ },
+ {
+  "modulo": "proveedores-cxp",
+  "endpoint": "proveedores/listar.php",
+  "metodo": "GET",
+  "action": "listado|detalle (?id=)",
+  "pantallas": [
+   "components/ProveedoresManagement.tsx"
+  ],
+  "lee": [
+   "tblproveedores",
+   "vw_prov_cxp_aging",
+   "vw_prov_facturas_anteriores_saldos",
+   "vw_prov_pedidos_credito_saldos",
+   "tblfacturasanterioresproveedor",
+   "tblpedidos",
+   "tblegresos"
+  ],
+  "escribe": [],
+  "efectos": [],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [],
+  "externo": []
+ },
+ {
+  "modulo": "proveedores-cxp",
+  "endpoint": "proveedores/listar.php",
+  "metodo": "POST",
+  "action": "pagar",
+  "pantallas": [
+   "components/ProveedoresManagement.tsx"
+  ],
+  "lee": [
+   "tblegresos",
+   "tblproveedores",
+   "tblpedidos",
+   "tblfacturasanterioresproveedor",
+   "tblsesiones_caja"
+  ],
+  "escribe": [
+   "tblegresos",
+   "tblpedidos (Saldo)",
+   "tblfacturasanterioresproveedor (Saldo)",
+   "tblmov_caja",
+   "tblcajas"
+  ],
+  "efectos": [
+   "caja",
+   "cxp",
+   "sync_triggers"
+  ],
+  "transaccion": true,
+  "llama_endpoints": [],
+  "helpers": [],
+  "externo": []
+ },
+ {
+  "modulo": "proveedores-cxp",
+  "endpoint": "proveedores/listar.php",
+  "metodo": "POST",
+  "action": "crear proveedor (sin action)",
+  "pantallas": [
+   "components/ProveedoresManagement.tsx"
+  ],
+  "lee": [
+   "tblproveedores"
+  ],
+  "escribe": [
+   "tblproveedores"
+  ],
+  "efectos": [
+   "sync_triggers"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [],
+  "externo": []
+ },
+ {
+  "modulo": "proveedores-cxp",
+  "endpoint": "proveedores/listar.php",
+  "metodo": "PUT",
+  "action": null,
+  "pantallas": [
+   "components/ProveedoresManagement.tsx"
+  ],
+  "lee": [],
+  "escribe": [
+   "tblproveedores"
+  ],
+  "efectos": [
+   "sync_triggers"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [],
+  "externo": []
+ },
+ {
+  "modulo": "proveedores-cxp",
+  "endpoint": "proveedores/factura-anterior.php",
+  "metodo": "GET/POST",
+  "action": "siguiente|crear|eliminar",
+  "pantallas": [
+   "components/ProveedoresManagement.tsx"
+  ],
+  "lee": [
+   "tblfacturasanterioresproveedor",
+   "tblproveedores",
+   "tblegresos"
+  ],
+  "escribe": [
+   "tblfacturasanterioresproveedor (INSERT / DELETE fisico)"
+  ],
+  "efectos": [
+   "cxp"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [],
+  "externo": []
+ },
+ {
+  "modulo": "proveedores-cxp",
+  "endpoint": "proveedores/productos.php",
+  "metodo": "GET",
+  "action": null,
+  "pantallas": [
+   "components/ProductosProveedor.tsx"
+  ],
+  "lee": [
+   "tblproveedores",
+   "tblarticulos",
+   "tbldetalle_venta",
+   "tblventas"
+  ],
+  "escribe": [],
+  "efectos": [],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [],
+  "externo": []
+ },
+ {
+  "modulo": "proveedores-cxp",
+  "endpoint": "movimientos/pagos-proveedores.php",
+  "metodo": "GET",
+  "action": null,
+  "pantallas": [
+   "components/ListadoPagos.tsx"
+  ],
+  "lee": [
+   "tblegresos",
+   "tblproveedores",
+   "tblmedios_pago"
+  ],
+  "escribe": [],
+  "efectos": [],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [],
+  "externo": []
+ },
+ {
+  "modulo": "proveedores-cxp",
+  "endpoint": "movimientos/pagos-proveedores.php",
+  "metodo": "POST",
+  "action": "anular",
+  "pantallas": [
+   "components/ListadoPagos.tsx"
+  ],
+  "lee": [
+   "tblegresos",
+   "tblsesiones_caja"
+  ],
+  "escribe": [
+   "tblegresos",
+   "tblmov_caja",
+   "tblcajas"
+  ],
+  "efectos": [
+   "caja",
+   "sync_triggers"
+  ],
+  "transaccion": true,
+  "llama_endpoints": [],
+  "helpers": [],
+  "externo": []
+ },
+ {
+  "modulo": "proveedores-cxp",
+  "endpoint": "movimientos/pagos-proveedores.php",
+  "metodo": "POST",
+  "action": "editar_medio",
+  "pantallas": [
+   "components/ListadoPagos.tsx"
+  ],
+  "lee": [
+   "tblegresos",
+   "tblmedios_pago",
+   "tblsesiones_caja"
+  ],
+  "escribe": [
+   "tblegresos",
+   "tblmov_caja",
+   "tblcajas",
+   "logs/egresos_editados_YYYYMM.log"
+  ],
+  "efectos": [
+   "caja",
+   "sync_triggers"
+  ],
+  "transaccion": true,
+  "llama_endpoints": [],
+  "helpers": [],
+  "externo": []
+ },
+ {
+  "modulo": "nomina",
+  "endpoint": "nomina/empleados.php",
+  "metodo": "GET/POST",
+  "action": "listar|crear|actualizar|retirar|reactivar",
+  "pantallas": [
+   "components/NominaManagement.tsx"
+  ],
+  "lee": [
+   "tbl_empleados",
+   "tbl_mov_empleado"
+  ],
+  "escribe": [
+   "tbl_empleados"
+  ],
+  "efectos": [],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [],
+  "externo": []
+ },
+ {
+  "modulo": "nomina",
+  "endpoint": "nomina/movimientos.php",
+  "metodo": "GET",
+  "action": null,
+  "pantallas": [
+   "components/NominaManagement.tsx"
+  ],
+  "lee": [
+   "tbl_mov_empleado"
+  ],
+  "escribe": [],
+  "efectos": [],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [],
+  "externo": []
+ },
+ {
+  "modulo": "nomina",
+  "endpoint": "nomina/movimientos.php",
+  "metodo": "POST",
+  "action": "anticipo|prestamo",
+  "pantallas": [
+   "components/NominaManagement.tsx"
+  ],
+  "lee": [
+   "tbl_empleados",
+   "tbl_mov_empleado",
+   "tblegresos",
+   "tblsesiones_caja"
+  ],
+  "escribe": [
+   "tblegresos",
+   "tbl_mov_empleado",
+   "tblmov_caja"
+  ],
+  "efectos": [
+   "caja (sin actualizar tblcajas.Saldo)",
+   "sync_triggers"
+  ],
+  "transaccion": true,
+  "llama_endpoints": [
+   "caja/sesion.php (desde el frontend para elegir caja)"
+  ],
+  "helpers": [],
+  "externo": []
+ },
+ {
+  "modulo": "nomina",
+  "endpoint": "nomina/movimientos.php",
+  "metodo": "POST",
+  "action": "cargo",
+  "pantallas": [
+   "components/NominaManagement.tsx"
+  ],
+  "lee": [
+   "tbl_mov_empleado"
+  ],
+  "escribe": [
+   "tbl_mov_empleado"
+  ],
+  "efectos": [],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [],
+  "externo": []
+ },
+ {
+  "modulo": "nomina",
+  "endpoint": "nomina/movimientos.php",
+  "metodo": "POST",
+  "action": "abono",
+  "pantallas": [
+   "components/NominaManagement.tsx"
+  ],
+  "lee": [
+   "tbl_mov_empleado",
+   "tblsesiones_caja"
+  ],
+  "escribe": [
+   "tbl_mov_empleado",
+   "tblmov_caja"
+  ],
+  "efectos": [
+   "caja (sin actualizar tblcajas.Saldo)"
+  ],
+  "transaccion": true,
+  "llama_endpoints": [],
+  "helpers": [],
+  "externo": []
+ },
+ {
+  "modulo": "nomina",
+  "endpoint": "nomina/movimientos.php",
+  "metodo": "POST",
+  "action": "anular",
+  "pantallas": [
+   "components/NominaManagement.tsx"
+  ],
+  "lee": [
+   "tbl_mov_empleado"
+  ],
+  "escribe": [
+   "tbl_mov_empleado",
+   "tblegresos"
+  ],
+  "efectos": [
+   "sync_triggers"
+  ],
+  "transaccion": true,
+  "llama_endpoints": [],
+  "helpers": [],
+  "externo": []
+ },
+ {
+  "modulo": "nomina",
+  "endpoint": "nomina/liquidar.php",
+  "metodo": "GET",
+  "action": "propuesta (?empleado)|listar|id",
+  "pantallas": [
+   "components/NominaManagement.tsx",
+   "components/DesprendibleNomina.tsx"
+  ],
+  "lee": [
+   "tbl_empleados",
+   "tbl_mov_empleado",
+   "tbl_nomina",
+   "tbl_nomina_detalle"
+  ],
+  "escribe": [],
+  "efectos": [],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [],
+  "externo": []
+ },
+ {
+  "modulo": "nomina",
+  "endpoint": "nomina/liquidar.php",
+  "metodo": "POST",
+  "action": "liquidar",
+  "pantallas": [
+   "components/NominaManagement.tsx"
+  ],
+  "lee": [
+   "tbl_empleados",
+   "tbl_mov_empleado",
+   "tblegresos"
+  ],
+  "escribe": [
+   "tbl_nomina",
+   "tbl_nomina_detalle",
+   "tbl_mov_empleado",
+   "tblegresos"
+  ],
+  "efectos": [
+   "caja (egreso TipoPago=0 cuenta en cuadre sin tblmov_caja)",
+   "sync_triggers"
+  ],
+  "transaccion": true,
+  "llama_endpoints": [],
+  "helpers": [],
+  "externo": []
+ },
+ {
+  "modulo": "nomina",
+  "endpoint": "nomina/liquidar.php",
+  "metodo": "POST",
+  "action": "anular",
+  "pantallas": [
+   "components/NominaManagement.tsx"
+  ],
+  "lee": [
+   "tbl_nomina",
+   "tbl_mov_empleado"
+  ],
+  "escribe": [
+   "tbl_nomina",
+   "tblegresos",
+   "tbl_mov_empleado"
+  ],
+  "efectos": [
+   "sync_triggers"
+  ],
+  "transaccion": true,
+  "llama_endpoints": [],
+  "helpers": [],
+  "externo": []
+ },
+ {
+  "modulo": "informes",
+  "endpoint": "informes/resumen.php",
+  "metodo": "GET",
+  "action": "tipo=cierre_mes",
+  "pantallas": [
+   "components/informes/InformeCierreMes.tsx"
+  ],
+  "lee": [
+   "tblventas",
+   "electronic_documents",
+   "tblpedidos",
+   "tblegresos",
+   "tblpagos",
+   "tbldetalle_venta",
+   "detalle_document_electronic"
+  ],
+  "escribe": [],
+  "efectos": [],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [
+   "config/helpers_polyfill.php",
+   "config/db_factory.php (conta_tiene_tabla)"
+  ],
+  "externo": []
+ },
+ {
+  "modulo": "informes",
+  "endpoint": "informes/resumen.php",
+  "metodo": "GET",
+  "action": "tipo=estado_resultados",
+  "pantallas": [
+   "components/informes/InformeEstadoResultados.tsx"
+  ],
+  "lee": [
+   "tblventas",
+   "electronic_documents",
+   "tbldetalle_venta",
+   "detalle_document_electronic",
+   "tblegresos",
+   "tblcategorias_gasto"
+  ],
+  "escribe": [],
+  "efectos": [],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [
+   "config/helpers_polyfill.php",
+   "config/db_factory.php (conta_tiene_tabla)"
+  ],
+  "externo": []
+ },
+ {
+  "modulo": "informes",
+  "endpoint": "informes/resumen.php",
+  "metodo": "GET",
+  "action": "tipo=cuadre_caja",
+  "pantallas": [
+   "components/informes/InformeCuadreCaja.tsx"
+  ],
+  "lee": [
+   "tblventas",
+   "electronic_documents",
+   "tblmedios_pago",
+   "tblclientes",
+   "tblegresos",
+   "tblproveedores",
+   "tblpagos"
+  ],
+  "escribe": [],
+  "efectos": [],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [
+   "config/helpers_polyfill.php",
+   "config/db_factory.php (conta_tiene_tabla)"
+  ],
+  "externo": []
+ },
+ {
+  "modulo": "informes",
+  "endpoint": "informes/resumen.php",
+  "metodo": "GET",
+  "action": "tipo=top_productos",
+  "pantallas": [
+   "components/informes/InformeTopProductos.tsx"
+  ],
+  "lee": [
+   "tbldetalle_venta",
+   "tblventas",
+   "tblarticulos"
+  ],
+  "escribe": [],
+  "efectos": [],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [
+   "config/helpers_polyfill.php",
+   "config/db_factory.php (conta_tiene_tabla)"
+  ],
+  "externo": []
+ },
+ {
+  "modulo": "informes",
+  "endpoint": "informes/resumen.php",
+  "metodo": "GET",
+  "action": "tipo=cartera",
+  "pantallas": [
+   "components/informes/InformeCartera.tsx",
+   "components/informes/InformeCarteraResumida.tsx"
+  ],
+  "lee": [
+   "tblclientes",
+   "vw_facturas_cliente_saldos",
+   "vw_facturas_anteriores_cliente"
+  ],
+  "escribe": [],
+  "efectos": [],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [
+   "config/helpers_polyfill.php",
+   "config/db_factory.php (conta_tiene_tabla)"
+  ],
+  "externo": []
+ },
+ {
+  "modulo": "informes",
+  "endpoint": "informes/resumen.php",
+  "metodo": "GET",
+  "action": "tipo=ventas_listado",
+  "pantallas": [
+   "components/informes/InformeVentasListado.tsx"
+  ],
+  "lee": [
+   "tblventas",
+   "tblmedios_pago",
+   "vw_facturas_cliente_saldos"
+  ],
+  "escribe": [],
+  "efectos": [],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [
+   "config/helpers_polyfill.php",
+   "config/db_factory.php (conta_tiene_tabla)"
+  ],
+  "externo": []
+ },
+ {
+  "modulo": "informes",
+  "endpoint": "informes/resumen.php",
+  "metodo": "GET",
+  "action": "tipo=compras_listado",
+  "pantallas": [
+   "components/informes/InformeComprasListado.tsx"
+  ],
+  "lee": [
+   "tblpedidos",
+   "tblproveedores",
+   "tbldetalle_pedido"
+  ],
+  "escribe": [],
+  "efectos": [],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [
+   "config/helpers_polyfill.php",
+   "config/db_factory.php (conta_tiene_tabla)"
+  ],
+  "externo": []
+ },
+ {
+  "modulo": "informes",
+  "endpoint": "informes/resumen.php",
+  "metodo": "GET",
+  "action": "tipo=inventario_valorizado",
+  "pantallas": [
+   "components/informes/InformeInventarioValorizado.tsx"
+  ],
+  "lee": [
+   "tblarticulos",
+   "tblcategoria"
+  ],
+  "escribe": [],
+  "efectos": [],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [
+   "config/helpers_polyfill.php",
+   "config/db_factory.php (conta_tiene_tabla)"
+  ],
+  "externo": []
+ },
+ {
+  "modulo": "informes",
+  "endpoint": "informes/resumen.php",
+  "metodo": "GET",
+  "action": "tipo=productos_agotados",
+  "pantallas": [
+   "components/informes/InformeProductosAgotados.tsx"
+  ],
+  "lee": [
+   "tblarticulos",
+   "tblcategoria",
+   "tblproveedores"
+  ],
+  "escribe": [],
+  "efectos": [],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [
+   "config/helpers_polyfill.php",
+   "config/db_factory.php (conta_tiene_tabla)"
+  ],
+  "externo": []
+ },
+ {
+  "modulo": "informes",
+  "endpoint": "informes/resumen.php",
+  "metodo": "GET",
+  "action": "tipo=gastos_listado",
+  "pantallas": [
+   "components/informes/InformeGastos.tsx"
+  ],
+  "lee": [
+   "tblegresos",
+   "tblcategorias_gasto"
+  ],
+  "escribe": [],
+  "efectos": [],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [
+   "config/helpers_polyfill.php",
+   "config/db_factory.php (conta_tiene_tabla)"
+  ],
+  "externo": []
+ },
+ {
+  "modulo": "informes",
+  "endpoint": "informes/resumen.php",
+  "metodo": "GET",
+  "action": "tipo=top_clientes",
+  "pantallas": [
+   "components/informes/InformeTopClientes.tsx"
+  ],
+  "lee": [
+   "tblventas",
+   "tblclientes",
+   "vw_facturas_cliente_saldos"
+  ],
+  "escribe": [],
+  "efectos": [],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [
+   "config/helpers_polyfill.php",
+   "config/db_factory.php (conta_tiene_tabla)"
+  ],
+  "externo": []
+ },
+ {
+  "modulo": "informes",
+  "endpoint": "informes/resumen.php",
+  "metodo": "GET",
+  "action": "tipo=ventas_por_categoria",
+  "pantallas": [
+   "components/informes/InformeVentasPorCategoria.tsx"
+  ],
+  "lee": [
+   "tbldetalle_venta",
+   "tblventas",
+   "tblarticulos",
+   "tblcategoria"
+  ],
+  "escribe": [],
+  "efectos": [],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [
+   "config/helpers_polyfill.php",
+   "config/db_factory.php (conta_tiene_tabla)"
+  ],
+  "externo": []
+ },
+ {
+  "modulo": "informes",
+  "endpoint": "informes/resumen.php",
+  "metodo": "GET",
+  "action": "tipo=pagos_proveedores",
+  "pantallas": [
+   "components/informes/InformePagosProveedores.tsx"
+  ],
+  "lee": [
+   "tblegresos",
+   "tblproveedores"
+  ],
+  "escribe": [],
+  "efectos": [],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [
+   "config/helpers_polyfill.php",
+   "config/db_factory.php (conta_tiene_tabla)"
+  ],
+  "externo": []
+ },
+ {
+  "modulo": "informes",
+  "endpoint": "informes/resumen.php",
+  "metodo": "GET",
+  "action": "tipo=graficos",
+  "pantallas": [
+   "components/informes/InformeGraficos.tsx"
+  ],
+  "lee": [
+   "tblventas",
+   "tbldetalle_venta",
+   "tblarticulos",
+   "tblegresos",
+   "tblcategorias_gasto"
+  ],
+  "escribe": [],
+  "efectos": [],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [
+   "config/helpers_polyfill.php",
+   "config/db_factory.php (conta_tiene_tabla)"
+  ],
+  "externo": []
+ },
+ {
+  "modulo": "informes",
+  "endpoint": "informes/resumen.php",
+  "metodo": "GET",
+  "action": "tipo=comparativo_anual",
+  "pantallas": [
+   "components/informes/InformeComparativoAnual.tsx"
+  ],
+  "lee": [
+   "tblventas"
+  ],
+  "escribe": [],
+  "efectos": [],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [
+   "config/helpers_polyfill.php",
+   "config/db_factory.php (conta_tiene_tabla)"
+  ],
+  "externo": []
+ },
+ {
+  "modulo": "informes",
+  "endpoint": "informes/resumen.php",
+  "metodo": "GET",
+  "action": "tipo=proveedores_listado",
+  "pantallas": [
+   "components/informes/InformeProveedoresListado.tsx"
+  ],
+  "lee": [
+   "tblproveedores",
+   "tblfacturasanterioresproveedor",
+   "tblpedidos"
+  ],
+  "escribe": [],
+  "efectos": [],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [
+   "config/helpers_polyfill.php",
+   "config/db_factory.php (conta_tiene_tabla)"
+  ],
+  "externo": []
+ },
+ {
+  "modulo": "informes",
+  "endpoint": "informes/resumen.php",
+  "metodo": "GET",
+  "action": "tipo=proveedores_saldos",
+  "pantallas": [
+   "components/informes/InformeSaldosProveedores.tsx"
+  ],
+  "lee": [
+   "tblproveedores",
+   "tblfacturasanterioresproveedor",
+   "tblpedidos"
+  ],
+  "escribe": [],
+  "efectos": [],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [
+   "config/helpers_polyfill.php",
+   "config/db_factory.php (conta_tiene_tabla)"
+  ],
+  "externo": []
+ },
+ {
+  "modulo": "informes",
+  "endpoint": "informes/resumen.php",
+  "metodo": "GET",
+  "action": "tipo=ventas_mensual",
+  "pantallas": [
+   "components/informes/InformeVentasMensual.tsx"
+  ],
+  "lee": [
+   "tblventas",
+   "tbldetalle_venta"
+  ],
+  "escribe": [],
+  "efectos": [],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [
+   "config/helpers_polyfill.php",
+   "config/db_factory.php (conta_tiene_tabla)"
+  ],
+  "externo": []
+ },
+ {
+  "modulo": "informes",
+  "endpoint": "informes/resumen.php",
+  "metodo": "GET",
+  "action": "tipo=ventas_diario",
+  "pantallas": [
+   "components/informes/InformeVentasDiario.tsx"
+  ],
+  "lee": [
+   "tblventas",
+   "tbldetalle_venta"
+  ],
+  "escribe": [],
+  "efectos": [],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [
+   "config/helpers_polyfill.php",
+   "config/db_factory.php (conta_tiene_tabla)"
+  ],
+  "externo": []
+ },
+ {
+  "modulo": "informes",
+  "endpoint": "informes/resumen.php",
+  "metodo": "GET",
+  "action": "tipo=iva",
+  "pantallas": [
+   "components/informes/InformeIVA.tsx"
+  ],
+  "lee": [
+   "tbldetalle_venta",
+   "tblventas",
+   "tblpedidos"
+  ],
+  "escribe": [],
+  "efectos": [],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [
+   "config/helpers_polyfill.php",
+   "config/db_factory.php (conta_tiene_tabla)"
+  ],
+  "externo": []
+ },
+ {
+  "modulo": "informes",
+  "endpoint": "informes/resumen.php",
+  "metodo": "GET",
+  "action": "tipo=facturas_vendedor",
+  "pantallas": [
+   "components/informes/InformeFacturasVendedor.tsx"
+  ],
+  "lee": [
+   "tblventas",
+   "tblusuarios"
+  ],
+  "escribe": [],
+  "efectos": [],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [
+   "config/helpers_polyfill.php",
+   "config/db_factory.php (conta_tiene_tabla)"
+  ],
+  "externo": []
+ },
+ {
+  "modulo": "informes",
+  "endpoint": "informes/resumen.php",
+  "metodo": "GET",
+  "action": "tipo=panel_gerencial",
+  "pantallas": [
+   "components/informes/PanelGerencial.tsx"
+  ],
+  "lee": [
+   "tblventas",
+   "tbldetalle_venta",
+   "tblegresos",
+   "tblcontrolcaja",
+   "tblauxiliarbanco",
+   "tblarticulos",
+   "tblpedidos"
+  ],
+  "escribe": [],
+  "efectos": [],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [
+   "config/helpers_polyfill.php",
+   "config/db_factory.php (conta_tiene_tabla)"
+  ],
+  "externo": []
+ },
+ {
+  "modulo": "informes",
+  "endpoint": "informes/ingresos-totales.php",
+  "metodo": "GET",
+  "action": null,
+  "pantallas": [
+   "components/InformeIngresosTotales.tsx"
+  ],
+  "lee": [
+   "tblventas",
+   "electronic_documents",
+   "tblpagos",
+   "tbl_retenciones_pago"
+  ],
+  "escribe": [],
+  "efectos": [],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [
+   "config/helpers_polyfill.php"
+  ],
+  "externo": []
+ },
+ {
+  "modulo": "informes",
+  "endpoint": "informes/ventas-por-producto.php",
+  "metodo": "GET",
+  "action": null,
+  "pantallas": [
+   "components/informes/InformeVentasPorProducto.tsx"
+  ],
+  "lee": [
+   "tblarticulos",
+   "tbldetalle_venta",
+   "tblventas",
+   "tblclientes"
+  ],
+  "escribe": [],
+  "efectos": [],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [],
+  "externo": []
+ },
+ {
+  "modulo": "informes",
+  "endpoint": "informes/vendedores.php",
+  "metodo": "GET",
+  "action": null,
+  "pantallas": [
+   "components/InformeVendedores.tsx"
+  ],
+  "lee": [
+   "tbl_vendedores_movil",
+   "tblempleados",
+   "tbl_pedidos_vendedor",
+   "tblventas"
+  ],
+  "escribe": [],
+  "efectos": [],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [],
+  "externo": []
+ },
+ {
+  "modulo": "informes",
+  "endpoint": "informes/produccion-dia.php",
+  "metodo": "GET",
+  "action": null,
+  "pantallas": [
+   "components/InformeProduccionDia.tsx"
+  ],
+  "lee": [
+   "tblkardex",
+   "tblarticulos"
+  ],
+  "escribe": [],
+  "efectos": [],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [],
+  "externo": []
+ },
+ {
+  "modulo": "dashboard-inicio",
+  "endpoint": "dashboard/resumen.php",
+  "metodo": "GET",
+  "action": null,
+  "pantallas": [
+   "components/IncomeOverview.tsx"
+  ],
+  "lee": [
+   "tblventas",
+   "electronic_documents",
+   "vw_facturas_cliente_saldos",
+   "tblpagos",
+   "tblarticulos",
+   "tbldetalle_venta",
+   "detalle_document_electronic",
+   "tbldatosempresa"
+  ],
+  "escribe": [],
+  "efectos": [],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [
+   "config/helpers_polyfill.php"
+  ],
+  "externo": []
+ },
+ {
+  "modulo": "dashboard-inicio",
+  "endpoint": "dashboard/estadisticas.php",
+  "metodo": "GET",
+  "action": null,
+  "pantallas": [],
+  "lee": [
+   "tblArticulos"
+  ],
+  "escribe": [],
+  "efectos": [],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [],
+  "externo": []
+ },
+ {
+  "modulo": "dashboard-inicio",
+  "endpoint": "dashboard/top-productos.php",
+  "metodo": "GET",
+  "action": null,
+  "pantallas": [],
+  "lee": [
+   "tblArticulos",
+   "tblventasdetalle (NO EXISTE en esquema)",
+   "tblventas"
+  ],
+  "escribe": [],
+  "efectos": [],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [],
+  "externo": []
+ },
+ {
+  "modulo": "dashboard-inicio",
+  "endpoint": "inicio/sugerencias.php",
+  "metodo": "GET",
+  "action": null,
+  "pantallas": [
+   "components/PanelSugerencias.tsx (solo DEV)",
+   "components/NotificacionEmergente.tsx"
+  ],
+  "lee": [
+   "vw_facturas_cliente_saldos",
+   "vw_productos_stock_bajo",
+   "tbldetalle_venta",
+   "tblventas",
+   "tblclientes",
+   "tblarticulos"
+  ],
+  "escribe": [],
+  "efectos": [],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [],
+  "externo": []
+ },
+ {
+  "modulo": "dashboard-inicio",
+  "endpoint": "inicio/consulta-ia.php",
+  "metodo": "POST",
+  "action": null,
+  "pantallas": [],
+  "lee": [
+   "tbldatosempresa (groq_api_key)",
+   "config/secrets.php"
+  ],
+  "escribe": [],
+  "efectos": [
+   "api_externa"
+  ],
+  "transaccion": false,
+  "llama_endpoints": [],
+  "helpers": [
+   "config/helpers_polyfill.php"
+  ],
+  "externo": [
+   "Groq https://api.groq.com/openai/v1/chat/completions"
+  ]
+ }
+]
