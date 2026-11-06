@@ -82,3 +82,6 @@ spike-sqlite/conta.db
 conta-app-backend/tests/fixtures/conta_test.db*
 Dashboard-Facturación/php-portable/
 dist-electron-480/
+
+# Archivos subidos en runtime (logo del cliente) — nunca se commitean
+conta-app-backend/uploads/

@@ -6,14 +6,24 @@
 //
 // Chequea también que Apache+MySQL de XAMPP estén arriba — si no, no tiene
 // sentido correr tests que hablan HTTP contra Apache.
+//
+// CONSTANCIA (desde 4.8.19): al terminar bien escribe
+//   dist-electron/verificacion-build.json
+// con versión + commit HEAD + resultado de las suites. scripts/publicar-version.ps1
+// (servidor Vultr) se niega a publicar sin esa constancia, si es de otra
+// versión/commit, o si el repo tiene cambios sin commit.
+// Al empezar se BORRA la constancia anterior: un build fallido o sin pruebas
+// nunca puede reutilizar una constancia vieja.
 
 import { spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { borrarConstancia, RUTA_CONSTANCIA } from './constancia.mjs';
 
 const RAIZ    = dirname(dirname(fileURLToPath(import.meta.url)));
-const BACKEND = join(RAIZ, '..', 'conta-app-backend');
+const REPO    = join(RAIZ, '..');
+const BACKEND = join(REPO, 'conta-app-backend');
 const PHP     = 'C:/xampp/php/php.exe';
 const MYSQL   = 'C:/xampp/mysql/bin/mysql.exe';
 
@@ -25,6 +35,27 @@ function fatal(msg) {
 function info(msg) {
   console.log('\x1b[36m[pre-build]\x1b[0m ' + msg);
 }
+
+function git(args) {
+  const r = spawnSync('git', args, { cwd: REPO, encoding: 'utf-8' });
+  if (r.status !== 0) fatal(`git ${args.join(' ')} falló: ${(r.stderr || '').trim()}`);
+  return r.stdout.replace(/\s+$/, '');
+}
+
+// 0. Constancia: borrar la anterior ANTES de cualquier otra cosa.
+borrarConstancia();
+info(`Constancia anterior eliminada (${RUTA_CONSTANCIA})`);
+
+// 0b. Repo limpio: la constancia certifica un commit exacto. Si hay cambios
+//     sin commit, lo que se prueba no es lo que dice el commit.
+const sucio = git(['status', '--porcelain', '--untracked-files=no']);
+if (sucio) {
+  fatal(`El repo tiene cambios sin commit — no se puede certificar el build:\n${sucio}\n` +
+        `Haz commit (y push) antes de buildear.`);
+}
+const commit  = git(['rev-parse', 'HEAD']);
+const version = JSON.parse(readFileSync(join(RAIZ, 'package.json'), 'utf-8')).version;
+info(`Versión ${version} — commit ${commit}`);
 
 // 1. Verificar servicios locales — sin ellos la suite no corre
 if (!existsSync(PHP))   fatal(`No encontré PHP en ${PHP}. ¿Está instalado XAMPP?`);
@@ -51,19 +82,70 @@ if (mysqlCheck.status !== 0) {
 // 3. Correr la suite contra AMBOS drivers (MySQL legacy + SQLite nuevo).
 //    Si cualquiera falla, el build se cancela — así clientes actuales (MySQL)
 //    y clientes nuevos (SQLite) ambos reciben código que funciona.
+const pruebas = {};
+let totalPruebas = 0;
 const drivers = ['mysql', 'sqlite'];
 for (const driver of drivers) {
   info(`Corriendo suite [driver=${driver}]...`);
   console.log('');
   const result = spawnSync(PHP, [runnerPath, `--driver=${driver}`], {
-    stdio: 'inherit',
     cwd: BACKEND,
+    encoding: 'utf-8',
+    maxBuffer: 64 * 1024 * 1024,
   });
+  process.stdout.write(result.stdout || '');
+  process.stderr.write(result.stderr || '');
   if (result.status !== 0) {
     console.error('');
     fatal(`La suite de tests falló para driver=${driver} (exit ${result.status}). El build fue CANCELADO para proteger a los clientes.`);
   }
+  const m = /RESUMEN:\s*(\d+)\s+aserciones OK,\s*(\d+)\s+fallidas/.exec(result.stdout || '');
+  if (!m) fatal(`No pude leer el RESUMEN de la suite driver=${driver}; no se emite constancia.`);
+  if (Number(m[2]) !== 0) fatal(`La suite driver=${driver} reporta ${m[2]} aserciones fallidas.`);
+  totalPruebas += Number(m[1]);
+  pruebas[driver] = 'ok';
   console.log('');
 }
 
+// 4. Pruebas con bases reales de clientes (scripts/test-clientes.mjs).
+//    Mientras no exista el script la constancia lo declara explícitamente.
+let basesProbadas = 0;
+const testClientes = join(RAIZ, 'scripts', 'test-clientes.mjs');
+if (existsSync(testClientes)) {
+  info('Corriendo pruebas con bases reales de clientes...');
+  const rc = spawnSync(process.execPath, [testClientes, '--json-resumen'], {
+    cwd: RAIZ, encoding: 'utf-8', maxBuffer: 256 * 1024 * 1024,
+  });
+  process.stderr.write(rc.stderr || '');
+  const lineas = (rc.stdout || '').trim().split(/\r?\n/);
+  let resumen = null;
+  try { resumen = JSON.parse(lineas[lineas.length - 1]); } catch { /* abajo */ }
+  process.stdout.write(lineas.slice(0, -1).join('\n') + '\n');
+  if (rc.status !== 0 || !resumen || resumen.ok !== true) {
+    fatal('Las pruebas con bases de clientes fallaron. El build fue CANCELADO.');
+  }
+  basesProbadas = resumen.bases_probadas;
+  totalPruebas += resumen.total_pruebas;
+  pruebas.clientes = 'ok';
+} else {
+  pruebas.clientes = 'no_implementado';
+  info('\x1b[33mscripts/test-clientes.mjs no existe todavía — constancia con clientes="no_implementado".\x1b[0m');
+}
+
+// 5. Re-verificar que nada cambió durante las pruebas (mismo HEAD, repo limpio).
+if (git(['rev-parse', 'HEAD']) !== commit) fatal('El HEAD cambió mientras corrían las pruebas.');
+if (git(['status', '--porcelain', '--untracked-files=no'])) fatal('El repo quedó con cambios sin commit durante las pruebas.');
+
+// 6. Emitir constancia.
+mkdirSync(dirname(RUTA_CONSTANCIA), { recursive: true });
+const constancia = {
+  version,
+  commit,
+  fecha: new Date().toISOString(),
+  pruebas,
+  bases_probadas: basesProbadas,
+  total_pruebas: totalPruebas,
+};
+writeFileSync(RUTA_CONSTANCIA, JSON.stringify(constancia, null, 2) + '\n', 'utf-8');
+info(`Constancia escrita: ${RUTA_CONSTANCIA}`);
 info('\x1b[32m✓ Todos los tests pasan en MySQL Y SQLite — se autoriza continuar con el build.\x1b[0m');
