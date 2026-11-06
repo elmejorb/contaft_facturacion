@@ -23,14 +23,10 @@ $db = (new Database())->getConnection();
 
 /**
  * Verifica si una columna existe en la tabla dada.
+ * Wrapper al helper portable (MySQL/SQLite) de helpers_polyfill.
  */
 function columnExists(PDO $db, string $tabla, string $col): bool {
-    $stmt = $db->prepare("SELECT COUNT(*) FROM information_schema.COLUMNS
-                          WHERE TABLE_SCHEMA = DATABASE()
-                            AND TABLE_NAME = ?
-                            AND COLUMN_NAME = ?");
-    $stmt->execute([$tabla, $col]);
-    return (int)$stmt->fetchColumn() > 0;
+    return conta_tiene_columna($db, $tabla, $col);
 }
 
 /**

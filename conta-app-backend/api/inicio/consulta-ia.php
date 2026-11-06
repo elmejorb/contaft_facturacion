@@ -27,6 +27,7 @@
  */
 
 require_once '../config/database.php';
+require_once __DIR__ . '/../config/helpers_polyfill.php';
 
 const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
 const GROQ_MODEL = 'llama-3.3-70b-versatile';
@@ -35,13 +36,7 @@ const GROQ_MODEL = 'llama-3.3-70b-versatile';
 // luego cae al secrets.php global del servidor.
 function resolverApiKey($db): ?string {
     try {
-        $col = (int) $db->query("
-            SELECT COUNT(*) FROM information_schema.COLUMNS
-            WHERE TABLE_SCHEMA = DATABASE()
-              AND TABLE_NAME = 'tbldatosempresa'
-              AND COLUMN_NAME = 'groq_api_key'
-        ")->fetchColumn();
-        if (intval($col) > 0) {
+        if (conta_tiene_columna($db, 'tbldatosempresa', 'groq_api_key')) {
             $key = $db->query("SELECT groq_api_key FROM tbldatosempresa LIMIT 1")->fetchColumn();
             if ($key && trim($key) !== '') return trim($key);
         }

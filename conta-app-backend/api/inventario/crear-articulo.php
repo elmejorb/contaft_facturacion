@@ -46,7 +46,7 @@ try {
     // Detectar columnas presentes en tblarticulos. Los campos de conversion se
     // agregaron en 4.3.95 — si el cliente no corrio actualizacion_completa,
     // el INSERT rigido crashea con "Unknown column" (frontend: "error de conexion").
-    $cols = array_column($db->query("SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tblarticulos'")->fetchAll(PDO::FETCH_ASSOC), 'COLUMN_NAME');
+    $cols = conta_columnas_tabla($db, 'tblarticulos');
     $tieneFactor = in_array('FactorConversion', $cols);
     $tieneNombreEmp = in_array('NombreEmpaque', $cols);
     $tieneVenderEmp = in_array('VenderComoEmpaque', $cols);

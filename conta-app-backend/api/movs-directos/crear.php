@@ -27,6 +27,7 @@
  *  }
  */
 require_once '../config/database.php';
+require_once __DIR__ . '/../config/helpers_polyfill.php';
 $db = (new Database())->getConnection();
 
 try {
@@ -98,10 +99,7 @@ try {
     }
     if ($tipo === 'entrada' && $precioVentaEmp !== null) {
         // Verificar que la columna exista (defensivo, para BDs sin migracion)
-        $colStmt = $db->query("SELECT COUNT(*) FROM information_schema.COLUMNS
-            WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tblarticulos'
-              AND COLUMN_NAME = 'Precio_Venta_Empaque'");
-        if (intval($colStmt->fetchColumn()) > 0) {
+        if (conta_tiene_columna($db, 'tblarticulos', 'Precio_Venta_Empaque')) {
             $sets[] = 'Precio_Venta_Empaque = ?';
             $params[] = $precioVentaEmp;
         }

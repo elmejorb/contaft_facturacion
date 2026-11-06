@@ -1487,22 +1487,48 @@ function migrarUserDataDesdeVersionesViejas() {
 let phpProcess = null;
 let phpPortActivo = null;
 
-async function puertoLibre(preferido) {
-  const probar = (p) => new Promise((resolve) => {
+// Pide siempre un puerto nuevo al OS (listen(0)).
+//
+// Antes probábamos primero el puerto preferido (8089) y lo reusábamos. En
+// Windows ese pattern deja el socket en TIME_WAIT por unos segundos, y
+// cuando php.exe hace su propio bind al mismo puerto inmediatamente después
+// falla silencioso con "address already in use", el proceso muere y el
+// usuario queda con el login pegado (caso Abastos la Mona 4.8.18).
+// Pedir siempre uno fresco al OS evita esa carrera.
+async function puertoLibreOS() {
+  return new Promise((resolve, reject) => {
     const srv = net.createServer();
-    srv.once('error', () => resolve(false));
-    srv.once('listening', () => srv.close(() => resolve(true)));
-    srv.listen(p, '127.0.0.1');
-  });
-  if (await probar(preferido)) return preferido;
-  // Si el preferido está ocupado, pedir uno aleatorio al OS
-  return await new Promise((resolve) => {
-    const srv = net.createServer();
+    srv.once('error', reject);
     srv.listen(0, '127.0.0.1', () => {
       const p = srv.address().port;
       srv.close(() => resolve(p));
     });
   });
+}
+
+// Log persistente a %APPDATA%/dashboard-facturacion/logs/main.log.
+// Antes el único log era console.log, que en el .exe empaquetado se pierde
+// porque no hay DevTools. Esto deja rastro para diagnosticar PHP muerto o
+// config mal leído sin tener que reproducir en vivo.
+function logMain(...args) {
+  const ts = new Date().toISOString();
+  const msg = args.map(a => (typeof a === 'string' ? a : JSON.stringify(a))).join(' ');
+  const line = `[${ts}] ${msg}\n`;
+  console.log(msg);
+  try {
+    const logsDir = path.join(app.getPath('userData'), 'logs');
+    if (!fs.existsSync(logsDir)) fs.mkdirSync(logsDir, { recursive: true });
+    const file = path.join(logsDir, 'main.log');
+    fs.appendFileSync(file, line);
+    // Truncar si pasa de 5MB (dejamos los últimos 2MB para no inflar userData)
+    try {
+      const st = fs.statSync(file);
+      if (st.size > 5 * 1024 * 1024) {
+        const data = fs.readFileSync(file, 'utf8');
+        fs.writeFileSync(file, data.slice(-2 * 1024 * 1024));
+      }
+    } catch { /* ignore */ }
+  } catch { /* nunca bloquear por logging */ }
 }
 
 // Bootstrap de la BD SQLite en primera corrida: crea conta.db desde el
@@ -1708,7 +1734,11 @@ function getTrialStatus() {
 
 async function startEmbeddedPHP() {
   const cfg = readConfig();
-  if (cfg.backendMode !== 'embedded') return; // Modo legacy: nada que hacer.
+  logMain('[php] startEmbeddedPHP invocado, backendMode=', cfg.backendMode);
+  if (cfg.backendMode !== 'embedded') {
+    logMain('[php] backendMode != embedded — nada que arrancar');
+    return;
+  }
 
   const isPackaged = app.isPackaged;
   const phpDir = isPackaged
@@ -1721,7 +1751,13 @@ async function startEmbeddedPHP() {
   const phpExe = path.join(phpDir, 'php.exe');
   const phpIni = path.join(phpDir, 'php.ini');
   if (!fs.existsSync(phpExe)) {
-    console.error('[php] No se encontró php.exe en', phpExe, '— modo embebido deshabilitado para esta corrida.');
+    logMain('[php] ERROR: php.exe no encontrado en', phpExe);
+    try {
+      dialog.showErrorBox(
+        'Conta FT — PHP no encontrado',
+        `No se encontró el runtime PHP interno en:\n${phpExe}\n\nReinstalar la aplicación suele corregir esto.`
+      );
+    } catch {}
     return;
   }
 
@@ -1736,45 +1772,96 @@ async function startEmbeddedPHP() {
       mysql: cfg.backendMysql || { host: 'localhost', database: 'conta_demo', username: 'root', password: '' },
     };
     fs.writeFileSync(configBackendPath, JSON.stringify(backendCfg, null, 2));
-    console.log('[php] backend-config.json creado en', configBackendPath);
+    logMain('[php] backend-config.json creado en', configBackendPath);
   }
 
-  phpPortActivo = await puertoLibre(cfg.phpPreferredPort || 8089);
   const docRoot = path.join(backendDir, 'api');
   const prependPath = path.join(backendDir, 'prepend.php');
 
-  console.log(`[php] arrancando built-in server en 127.0.0.1:${phpPortActivo} (doc root: ${docRoot})`);
-  // auto_prepend_file hace chdir() al directorio del script antes de cada
-  // request, para que `require_once '../config/database.php'` resuelva igual
-  // que en Apache. Sin esto, el built-in server mantiene CWD en api/ y los
-  // requires relativos del backend se rompen (cientos de ocurrencias).
-  const phpArgs = ['-c', phpIni];
-  if (fs.existsSync(prependPath)) {
-    phpArgs.push('-d', `auto_prepend_file=${prependPath}`);
-  }
-  phpArgs.push('-S', `127.0.0.1:${phpPortActivo}`, '-t', docRoot);
-  phpProcess = spawn(phpExe, phpArgs, {
-    cwd: docRoot,
-    env: { ...process.env, CONTA_CONFIG_PATH: configBackendPath },
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
+  // Hasta 3 intentos con puerto nuevo cada vez. Un spawn que muere en los
+  // primeros 2 segundos se trata como fracaso (típicamente "address already
+  // in use" por TIME_WAIT u otro bind issue). Caso Abastos la Mona 4.8.18:
+  // antes era 1 solo intento y moría silencioso.
+  const MAX_INTENTOS = 3;
+  let ultimoCode = null;
+  let ultimoSignal = null;
+  let stderrBuf = '';
 
-  phpProcess.stdout.on('data', (d) => console.log('[php stdout]', d.toString().trim()));
-  phpProcess.stderr.on('data', (d) => console.log('[php stderr]', d.toString().trim()));
-  phpProcess.on('exit', (code, signal) => {
-    console.log(`[php] built-in server terminó (code=${code}, signal=${signal})`);
-    phpProcess = null;
-  });
+  for (let intento = 1; intento <= MAX_INTENTOS; intento++) {
+    const puerto = await puertoLibreOS();
+    const phpArgs = ['-c', phpIni];
+    if (fs.existsSync(prependPath)) {
+      phpArgs.push('-d', `auto_prepend_file=${prependPath}`);
+    }
+    phpArgs.push('-S', `127.0.0.1:${puerto}`, '-t', docRoot);
+    logMain(`[php] intento ${intento}/${MAX_INTENTOS} — spawn 127.0.0.1:${puerto} (doc root: ${docRoot})`);
 
-  // Si config.json tiene apiUrl pointing al puerto 80 clásico Y el modo es
-  // embebido, lo redirigimos al puerto dinámico (en memoria, no persistimos
-  // para no romper si vuelven a modo legacy).
-  const apiUrlNueva = `http://127.0.0.1:${phpPortActivo}`;
-  if (!cfg.apiUrl || cfg.apiUrl.includes('localhost:80') || cfg.apiUrl.includes('127.0.0.1:80')) {
-    // Guardar en runtime para que el frontend sepa a dónde llamar
-    writeConfig({ apiUrlRuntime: apiUrlNueva });
-    console.log(`[php] apiUrl runtime fijada en ${apiUrlNueva}`);
+    let proc;
+    try {
+      proc = spawn(phpExe, phpArgs, {
+        cwd: docRoot,
+        env: { ...process.env, CONTA_CONFIG_PATH: configBackendPath },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+    } catch (e) {
+      logMain(`[php] spawn lanzó excepción: ${e?.message || e}`);
+      continue;
+    }
+
+    stderrBuf = '';
+    proc.stdout.on('data', (d) => logMain('[php stdout]', d.toString().trim()));
+    proc.stderr.on('data', (d) => {
+      const s = d.toString();
+      stderrBuf += s;
+      if (stderrBuf.length > 4000) stderrBuf = stderrBuf.slice(-2000);
+      logMain('[php stderr]', s.trim());
+    });
+
+    const resultado = await new Promise((resolve) => {
+      const vivo = setTimeout(() => resolve({ ok: true }), 2000);
+      proc.once('exit', (code, signal) => {
+        clearTimeout(vivo);
+        resolve({ ok: false, code, signal });
+      });
+    });
+
+    if (resultado.ok) {
+      // PHP está vivo pasados 2s → spawn exitoso.
+      phpProcess = proc;
+      phpPortActivo = puerto;
+      proc.on('exit', (code, signal) => {
+        logMain(`[php] built-in server terminó (code=${code}, signal=${signal})`);
+        phpProcess = null;
+      });
+      logMain(`[php] arrancó OK en puerto ${puerto}`);
+
+      // apiUrlRuntime para que el frontend sepa a dónde llamar.
+      const apiUrlNueva = `http://127.0.0.1:${puerto}`;
+      if (!cfg.apiUrl || cfg.apiUrl.includes('localhost:80') || cfg.apiUrl.includes('127.0.0.1:80')) {
+        writeConfig({ apiUrlRuntime: apiUrlNueva });
+        logMain(`[php] apiUrl runtime fijada en ${apiUrlNueva}`);
+      }
+      return;
+    }
+
+    ultimoCode = resultado.code;
+    ultimoSignal = resultado.signal;
+    logMain(`[php] intento ${intento} falló — exit=${ultimoCode} signal=${ultimoSignal} stderr=${stderrBuf.slice(0, 300)}`);
   }
+
+  // Los 3 intentos murieron. Avisar al usuario con dialog nativo en vez de
+  // dejarlo con el login pegado sin saber qué pasa.
+  logMain('[php] TODOS LOS INTENTOS FALLARON');
+  try {
+    const logFile = path.join(app.getPath('userData'), 'logs', 'main.log');
+    dialog.showErrorBox(
+      'Conta FT — no se pudo iniciar el servicio local',
+      `El runtime PHP no arrancó después de ${MAX_INTENTOS} intentos.\n\n` +
+      `Último exit code: ${ultimoCode} (signal: ${ultimoSignal})\n\n` +
+      `Salida de PHP:\n${stderrBuf.slice(0, 600) || '(vacía)'}\n\n` +
+      `Cerrá Conta FT y volvé a intentar. Si persiste, mandá el log de:\n${logFile}`
+    );
+  } catch {}
 }
 
 function stopEmbeddedPHP() {

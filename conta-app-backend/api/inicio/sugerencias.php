@@ -27,6 +27,7 @@
  */
 
 require_once '../config/database.php';
+require_once __DIR__ . '/../config/helpers_polyfill.php';
 $database = new Database();
 $db = $database->getConnection();
 
@@ -105,8 +106,16 @@ try {
     // (para no pesar), así que las agregamos aquí con JOIN a tbldetalle_venta
     // ya indexado por Factura_N + Items. Query rápido con idx_items en
     // tbldetalle_venta.
-    $tieneVistaStockBajo = $db->query("SELECT COUNT(*) FROM information_schema.VIEWS
-        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'vw_productos_stock_bajo'")->fetchColumn();
+    // Portable MySQL/SQLite: information_schema.VIEWS no existe en SQLite.
+    // En SQLite las vistas viven en sqlite_master con type='view'.
+    if ($db->getAttribute(PDO::ATTR_DRIVER_NAME) === 'sqlite') {
+        $stmtView = $db->prepare("SELECT COUNT(*) FROM sqlite_master WHERE type='view' AND name = ?");
+        $stmtView->execute(['vw_productos_stock_bajo']);
+        $tieneVistaStockBajo = $stmtView->fetchColumn();
+    } else {
+        $tieneVistaStockBajo = $db->query("SELECT COUNT(*) FROM information_schema.VIEWS
+            WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'vw_productos_stock_bajo'")->fetchColumn();
+    }
     if (intval($tieneVistaStockBajo) > 0) {
         $stmt = $db->query("
             SELECT COUNT(*) AS n FROM (

@@ -7,6 +7,7 @@
  * POST action=anular                                → anular pedido
  */
 require_once '../config/database.php';
+require_once __DIR__ . '/../config/helpers_polyfill.php';
 $database = new Database();
 $db = $database->getConnection();
 
@@ -53,10 +54,7 @@ try {
                     $colsExtras = [];
                     $valsExtras = [];
                     foreach ($colsFE as $c) {
-                        $chk = $db->prepare("SELECT COUNT(*) FROM information_schema.COLUMNS
-                                             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tblclientes' AND COLUMN_NAME = ?");
-                        $chk->execute([$c]);
-                        if ((int)$chk->fetchColumn() > 0) {
+                        if (conta_tiene_columna($db, 'tblclientes', $c)) {
                             $colsExtras[] = $c;
                             // id_documento → 2 (cédula por defecto); resto NULL
                             $valsExtras[] = $c === 'id_documento' ? '2' : 'NULL';

@@ -15,6 +15,7 @@
  * `fallidos[]` para que el frontend muestre el desglose.
  */
 require_once '../config/database.php';
+require_once __DIR__ . '/../config/helpers_polyfill.php';
 
 $API_BASE = 'https://api-electronica.innovacion-digital.com/public';
 
@@ -165,13 +166,7 @@ try {
 
         // Asegurar columna email_recipient (silencioso si ya existe)
         try {
-            $colExists = (int) $db->query("
-                SELECT COUNT(*) FROM information_schema.COLUMNS
-                WHERE TABLE_SCHEMA = DATABASE()
-                  AND TABLE_NAME = 'electronic_documents'
-                  AND COLUMN_NAME = 'email_recipient'
-            ")->fetchColumn();
-            if (intval($colExists) === 0) {
+            if (!conta_tiene_columna($db, 'electronic_documents', 'email_recipient')) {
                 $db->exec("ALTER TABLE electronic_documents ADD COLUMN email_recipient VARCHAR(500) NULL");
                 $logWrite(['event' => 'schema_fix', 'message' => 'Columna email_recipient agregada']);
             }

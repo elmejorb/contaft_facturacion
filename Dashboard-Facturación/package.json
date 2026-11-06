@@ -1,6 +1,6 @@
 {
       "name": "dashboard-facturacion",
-      "version": "4.8.18",
+      "version": "4.8.19",
       "private": true,
       "main": "electron/main.js",
       "dependencies": {
@@ -76,7 +76,7 @@
             "test:backend": "node scripts/pre-build-tests.mjs",
             "setup:php": "node scripts/setup-php-portable.mjs",
             "electron:build": "npm run setup:php && npm run test:backend && npm run build && electron-builder",
-            "electron:build:skip-tests": "npm run setup:php && npm run build && electron-builder",
+            "electron:build:skip-tests": "node scripts/constancia.mjs --borrar && npm run setup:php && npm run build && electron-builder",
             "dev:cdp": "node scripts/probar-app.mjs",
             "analizar": "node scripts/analizar-perf.mjs",
             "analizar:watch": "node scripts/analizar-perf.mjs --watch",

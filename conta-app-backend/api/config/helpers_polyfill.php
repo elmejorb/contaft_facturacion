@@ -16,12 +16,18 @@
  * después de `require_once '../config/database.php';` en el endpoint.
  */
 
+// Portable MySQL/SQLite: en SQLite no existe `information_schema`, hay que
+// usar `sqlite_master` para tablas y `pragma_table_info` para columnas. Caso
+// real Abastos la Mona (4.8.18): inventario y otros módulos devolvían
+// "Error al cargar los articulos" porque los helpers hacían query MySQL-only.
+
 if (!function_exists('conta_tiene_tabla')) {
     function conta_tiene_tabla(PDO $db, string $tabla): bool {
-        $stmt = $db->prepare("
-            SELECT COUNT(*) FROM information_schema.TABLES
-            WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?
-        ");
+        if ($db->getAttribute(PDO::ATTR_DRIVER_NAME) === 'sqlite') {
+            $stmt = $db->prepare("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name = ?");
+        } else {
+            $stmt = $db->prepare("SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?");
+        }
         $stmt->execute([$tabla]);
         return ((int) $stmt->fetchColumn()) > 0;
     }
@@ -29,22 +35,25 @@ if (!function_exists('conta_tiene_tabla')) {
 
 if (!function_exists('conta_tiene_columna')) {
     function conta_tiene_columna(PDO $db, string $tabla, string $columna): bool {
-        $stmt = $db->prepare("
-            SELECT COUNT(*) FROM information_schema.COLUMNS
-            WHERE TABLE_SCHEMA = DATABASE()
-              AND TABLE_NAME = ? AND COLUMN_NAME = ?
-        ");
-        $stmt->execute([$tabla, $columna]);
+        if ($db->getAttribute(PDO::ATTR_DRIVER_NAME) === 'sqlite') {
+            $stmt = $db->prepare("SELECT COUNT(*) FROM pragma_table_info(?) WHERE name = ?");
+            $stmt->execute([$tabla, $columna]);
+        } else {
+            $stmt = $db->prepare("SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?");
+            $stmt->execute([$tabla, $columna]);
+        }
         return ((int) $stmt->fetchColumn()) > 0;
     }
 }
 
 if (!function_exists('conta_columnas_tabla')) {
     function conta_columnas_tabla(PDO $db, string $tabla): array {
-        $stmt = $db->prepare("
-            SELECT COLUMN_NAME FROM information_schema.COLUMNS
-            WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?
-        ");
+        if ($db->getAttribute(PDO::ATTR_DRIVER_NAME) === 'sqlite') {
+            $stmt = $db->prepare("SELECT name FROM pragma_table_info(?)");
+            $stmt->execute([$tabla]);
+            return array_column($stmt->fetchAll(PDO::FETCH_ASSOC), 'name');
+        }
+        $stmt = $db->prepare("SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?");
         $stmt->execute([$tabla]);
         return array_column($stmt->fetchAll(PDO::FETCH_ASSOC), 'COLUMN_NAME');
     }

@@ -46,7 +46,7 @@ try {
     // no corrieron actualizacion_completa. Sin este chequeo el SELECT crashea
     // con "Unknown column" o "Table doesn't exist" y el listado queda en
     // "Error al cargar los articulos".
-    $artCols = array_column($db->query("SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tblarticulos'")->fetchAll(PDO::FETCH_ASSOC), 'COLUMN_NAME');
+    $artCols = conta_columnas_tabla($db, 'tblarticulos');
     $tblExists = conta_tablas_schema($db);
 
     $selFactor    = in_array('FactorConversion', $artCols)   ? 'COALESCE(a.FactorConversion, 1)' : '1';

@@ -8,6 +8,7 @@
  * GET ?desde=YYYY-MM-DD&hasta=YYYY-MM-DD (opcional, default: últimos 90 días)
  */
 require_once '../config/database.php';
+require_once __DIR__ . '/../config/helpers_polyfill.php';
 
 $db = (new Database())->getConnection();
 
@@ -49,12 +50,7 @@ try {
     ";
 
     // FE: detalle_document_electronic (solo si existe)
-    $tieneFE = (int) $db->query("
-        SELECT COUNT(*) FROM information_schema.COLUMNS
-        WHERE TABLE_SCHEMA = DATABASE()
-          AND TABLE_NAME = 'detalle_document_electronic'
-          AND COLUMN_NAME = 'entregado'
-    ")->fetchColumn();
+    $tieneFE = conta_tiene_columna($db, 'detalle_document_electronic', 'entregado');
 
     $rows = [];
     $stmt = $db->prepare($sqlPos);

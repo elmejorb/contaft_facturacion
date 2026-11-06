@@ -20,6 +20,7 @@
  * Respuesta 500: { success:false, message: "..." }
  */
 require_once '../config/database.php';
+require_once __DIR__ . '/../config/helpers_polyfill.php';
 header('Content-Type: application/json; charset=utf-8');
 
 const API_DIAN = 'https://api-electronica.innovacion-digital.com/public/api/consulta-adquiriente';
@@ -123,9 +124,7 @@ try {
     $db = (new Database())->getConnection();
 
     // Asegurar columna cache (idempotente)
-    $stmt = $db->query("SELECT COUNT(*) FROM information_schema.COLUMNS
-        WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='tbldatosempresa' AND COLUMN_NAME='fe_company_id'");
-    if (!intval($stmt->fetchColumn())) {
+    if (!conta_tiene_columna($db, 'tbldatosempresa', 'fe_company_id')) {
         $db->exec("ALTER TABLE tbldatosempresa
             ADD COLUMN fe_company_id INT NULL,
             ADD COLUMN fe_company_id_at DATETIME NULL");
