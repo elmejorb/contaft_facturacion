@@ -641,6 +641,32 @@ if (process.env.NODE_ENV !== 'development') {
   }
 }
 
+// Canal de actualización por cliente (política 2026-11-06): 'estable' o
+// 'piloto'. Prioridad: JWT de entitlements del CRM (canal_actualizacion) >
+// config.json "canal_actualizacion" (soporte puede forzarlo a mano) > estable.
+const UPDATES_BASE = 'https://innovacion-digital.com/updates';
+const CANALES_VALIDOS = ['estable', 'piloto'];
+const FEED_HISTORICO = `${UPDATES_BASE}/contaft4.8/`; // respaldo mientras el servidor no publique los canales
+function resolverCanalActualizacion() {
+  const cfg = readConfig();
+  try {
+    const jwt = cfg._entitlements_cache?.jwt;
+    if (jwt) {
+      const c = verifyEntitlementsJwt(jwt)?.canal_actualizacion;
+      if (CANALES_VALIDOS.includes(c)) return { canal: c, origen: 'crm' };
+    }
+  } catch (_) { /* JWT vencido o inválido → siguiente opción */ }
+  if (CANALES_VALIDOS.includes(cfg.canal_actualizacion)) return { canal: cfg.canal_actualizacion, origen: 'config' };
+  return { canal: 'estable', origen: 'defecto' };
+}
+function aplicarCanalActualizacion() {
+  const { canal, origen } = resolverCanalActualizacion();
+  const url = `${UPDATES_BASE}/contaft-${canal}/`;
+  autoUpdater.setFeedURL({ provider: 'generic', url, channel: 'latest' });
+  console.log(`[updater] canal=${canal} (${origen}) feed=${url}`);
+  return { canal, origen };
+}
+
 async function checkUpdatesGuarded() {
   if (!autoUpdater) return { ok: false, reason: 'dev-or-unavailable' };
 
@@ -653,8 +679,21 @@ async function checkUpdatesGuarded() {
   }
 
   try {
-    const r = await autoUpdater.checkForUpdates();
-    return { ok: true, version: r?.updateInfo?.version, estado: sub.estado };
+    // Después de validateForUpdate: el JWT recién consultado ya trae el canal.
+    const { canal, origen } = aplicarCanalActualizacion();
+    let r, feed = 'canal';
+    try {
+      r = await autoUpdater.checkForUpdates();
+    } catch (e) {
+      // Si el feed del canal aún no existe en el servidor (404), no dejar al
+      // cliente sin actualizaciones: volver al feed histórico.
+      if (!/\b404\b/.test(String(e?.message || e))) throw e;
+      console.warn(`[updater] feed del canal "${canal}" no disponible (404) → ${FEED_HISTORICO}`);
+      autoUpdater.setFeedURL({ provider: 'generic', url: FEED_HISTORICO, channel: 'latest' });
+      feed = 'historico';
+      r = await autoUpdater.checkForUpdates();
+    }
+    return { ok: true, version: r?.updateInfo?.version, estado: sub.estado, canal, origen, feed };
   } catch (e) {
     return { ok: false, reason: e?.message };
   }

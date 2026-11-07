@@ -1,7 +1,7 @@
 /**
  * e2e del INSTALADOR REAL (app empaquetada, modo embebido SQLite, como un
  * cliente nuevo). Flujos: abrir sin pantalla blanca → activar licencia con la
- * empresa de prueba del CRM → login → (venta, FE, caja, backup en los
+ * licencia del CRM → login → (venta, FE, caja, backup en los
  * siguientes bloques).
  *
  * Aislamiento: --user-data-dir apunta a una carpeta temporal, así que la app
@@ -27,7 +27,7 @@ test.describe.configure({ mode: 'serial' });
 
 test.beforeAll(async () => {
   test.skip(!existsSync(EXE), `No existe ${EXE}. Haz el build local: npm run build && npx electron-builder --dir`);
-  test.skip(!existsSync(DATOS_E2E), `Falta ${DATOS_E2E} (token de la empresa de prueba del CRM)`);
+  test.skip(!existsSync(DATOS_E2E), `Falta ${DATOS_E2E} (token de la licencia del CRM)`);
   userData = mkdtempSync(join(tmpdir(), 'contaft-e2e-'));
   backupDir = join(userData, 'respaldos');
   const env = { ...process.env, CONTAFT_BACKUP_DIR: backupDir } as Record<string, string>;
@@ -66,7 +66,7 @@ test('1. abre sin pantalla blanca', async () => {
   expect(erroresConsola.filter(e => /pageerror|Uncaught/i.test(e)), 'sin errores JS no capturados').toEqual([]);
 });
 
-test('2. activa la licencia con la empresa de prueba (CRM real)', async () => {
+test('2. activa la licencia (token del CRM en e2e.json)', async () => {
   const { token_crm } = JSON.parse(readFileSync(DATOS_E2E, 'utf-8'));
   const yaLogin = await win.getByPlaceholder('Ingrese su usuario').isVisible().catch(() => false);
   if (!yaLogin) {
@@ -180,6 +180,9 @@ test('5. vende POS contado: total, stock y kardex', async () => {
 test.fixme('6. factura electrónica (requiere mock de la API DIAN)', async () => {
   // Pendiente: enviar.php tiene la URL de la API DIAN fija. Se habilita cuando
   // exista el mock local (variable de entorno para la base de la API).
+  // REGLA: la licencia de e2e.json es la de una empresa REAL con FE en
+  // producción ante la DIAN. Este paso debe usar SOLO el mock local y fallar
+  // si la base de la API DIAN no es 127.0.0.1 — nunca la URL ni credenciales reales.
 });
 
 test('7. cierra la caja y cuadra', async () => {
@@ -219,4 +222,22 @@ test('8. backup local contiene la venta', async () => {
     expect(n, 'la copia incluye la venta recién hecha (WAL volcado)').toBeGreaterThan(0);
     expect(Number(copia.prepare('SELECT Existencia FROM tblarticulos WHERE Codigo = ?').get(COD).Existencia)).toBe(9);
   } finally { copia.close(); }
+});
+
+test('9. canal de actualización viene del CRM', async () => {
+  const r = await win.evaluate(async () => {
+    // nodeIntegration activo en la app: mismo camino que el botón "Buscar actualizaciones".
+    const { ipcRenderer } = (window as any).require('electron');
+    return ipcRenderer.invoke('updater:check');
+  });
+  expect(r?.reason, 'el chequeo no fue bloqueado: ' + JSON.stringify(r)).not.toBe('subscription');
+  // El canal lo decide el CRM por empresa (la licencia del e2e puede estar en piloto).
+  expect(r?.origen, 'canal resuelto desde el JWT del CRM: ' + JSON.stringify(r)).toBe('crm');
+  expect(['estable', 'piloto']).toContain(r?.canal);
+  // Aunque el feed del canal no exista aún, el cliente NO se queda sin actualizaciones.
+  expect(r?.ok, 'el chequeo encuentra un feed válido: ' + JSON.stringify(r)).toBe(true);
+  if (r?.feed === 'historico') {
+    test.info().annotations.push({ type: 'aviso', description: `El feed contaft-${r.canal} aún da 404 en el servidor; se usó contaft4.8.` });
+    console.log(`[e2e] AVISO: contaft-${r.canal} aún no publicado en el servidor → respaldo contaft4.8`);
+  }
 });

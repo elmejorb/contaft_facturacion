@@ -3,7 +3,7 @@
 // verificar-paquete (necesita el .exe). Lo encadena `npm run electron:build`.
 //
 // Uso directo: node scripts/e2e-instalador.mjs
-//   Requiere C:\ContaFT-pruebas\e2e.json (token de la empresa de PRUEBA del
+//   Requiere C:\ContaFT-pruebas\e2e.json (token de licencia del
 //   CRM, fuera del repo). Si algo falla, BORRA la constancia: sin e2e no se
 //   publica.
 
@@ -27,7 +27,7 @@ const constancia = JSON.parse(readFileSync(RUTA_CONSTANCIA, 'utf-8'));
 const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: RAIZ, encoding: 'utf-8' }).stdout.trim();
 if (constancia.commit !== head) fallar(`La constancia es del commit ${constancia.commit}, HEAD es ${head}.`);
 if (!existsSync(join(RAIZ, 'dist-electron', 'win-unpacked', 'Conta FT 4.3.exe'))) fallar('No existe dist-electron/win-unpacked (falta el build).');
-if (!existsSync('C:/ContaFT-pruebas/e2e.json')) fallar('Falta C:\\ContaFT-pruebas\\e2e.json (token de la empresa de prueba del CRM).');
+if (!existsSync('C:/ContaFT-pruebas/e2e.json')) fallar('Falta C:\\ContaFT-pruebas\\e2e.json (token de la licencia del CRM).');
 
 console.log('[e2e-instalador] Corriendo Playwright contra la app empaquetada...');
 const r = spawnSync('npx', ['playwright', 'test', '-c', 'playwright.instalador.config.ts'], {

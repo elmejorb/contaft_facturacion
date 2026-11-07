@@ -10,7 +10,7 @@
 | **Suite funcional** | Casos en `conta-app-backend/tests/cases/test_*.php`. HTTP real contra `php -S` sobre el backend **del repo**, BD de prueba recargada antes de cada caso. Corre en **MySQL** (PHP de XAMPP) y **SQLite** (php-portable que se empaca). | `node scripts/pre-build-tests.mjs` (todo) · `php tests/run.php <filtro> --driver=mysql\|sqlite` |
 | **Bases reales** (`test:clientes`) | Por cada dump en `C:\ContaFT-pruebas\bases\`: migración sin errores, **invariantes** antes/después (ventas, FE, existencia por producto, kardex, pagos, cartera POS/FE, caja, egresos, compras), idempotencia, **humo** de ~40 endpoints en modo legacy XAMPP y en SQLite, MySQL == SQLite. | `npm run test:clientes` |
 | **Paquete** (`test:paquete`) | El instalador no lleva datos ni nombres de clientes. | `npm run test:paquete` · real tras `electron-builder` |
-| **e2e instalador** | Playwright contra la app **empaquetada** (`dist-electron/win-unpacked`, SQLite embebido, userData temporal, licencia real de la empresa de prueba del CRM): abre sin pantalla blanca → activa token → login → abre caja → vende POS → cierra caja → backup. Verifica en `conta.db` (stock, kardex, cuadre, hora local, copia íntegra). Al final del build registra `pruebas.e2e` en la constancia. | `npm run test:e2e:instalador` · encadenado en `electron:build` |
+| **e2e instalador** | Playwright contra la app **empaquetada** (`dist-electron/win-unpacked`, SQLite embebido, userData temporal, licencia real del CRM (e2e.json)): abre sin pantalla blanca → activa token → login → abre caja → vende POS → cierra caja → backup. Verifica en `conta.db` (stock, kardex, cuadre, hora local, copia íntegra). Al final del build registra `pruebas.e2e` en la constancia. | `npm run test:e2e:instalador` · encadenado en `electron:build` |
 
 Leyenda: ✅ probado con verificación de resultados · 🟡 solo humo (responde sin error, no valida cálculos) / parcial · ❌ sin prueba · — no aplica.
 
@@ -68,7 +68,7 @@ Bases reales: Nutrigranos (06-11), AhorraMas (06-11), EyD (27-10), Manos Creativ
 | mantenimiento-migraciones-backup | `actualizacion_completa.sql` sin errores e idempotente; migraciones SQLite | — | — | ✅ 4 bases | aplicar-sql al login, hotfixes remotos |
 | backend-core | MySQL legacy (database.php viejo) y SQLite responden; SQLite guarda hora de Colombia (`test_sqlite_hora_local`) | 🟡 | 🟡 | ✅ modo legacy real | Compatibilidad de funciones SQL por motor |
 | bd-triggers-vistas | Invariantes con triggers activos | — | — | 🟡 | Vistas SQLite equivalentes |
-| electron-main | e2e: arranque embebido, php -S, licencia, userData aislado | — | ✅ e2e | — | Cierre con caja abierta, updater, canal |
+| electron-main | e2e: arranque embebido, php -S, licencia, userData aislado, canal de actualización desde el CRM (con respaldo al feed histórico si el del canal da 404) | — | ✅ e2e | — | Cierre con caja abierta, descarga e instalación de update |
 | arranque | e2e: abre sin pantalla blanca, sin errores JS | — | ✅ e2e | — | Arranque con BD grande (rendimiento) |
 | frontend-shell | e2e: login, pestañas (Caja se recarga al activarse) | — | ✅ e2e | — | Resto de pantallas |
 
