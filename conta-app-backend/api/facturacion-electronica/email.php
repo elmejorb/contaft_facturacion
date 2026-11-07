@@ -104,7 +104,12 @@ try {
         exit;
     }
     $token = $loginResult['body']['token'];
-    $companyId = $loginResult['body']['id_empresa'] ?? 1;
+    // Nunca suponer empresa (el viejo "?? 1" apuntaba a la empresa 1 de la API, una real).
+    $companyId = intval($loginResult['body']['id_empresa'] ?? 0);
+    if ($companyId <= 0) {
+        echo json_encode(['success' => false, 'message' => 'La API FE no devolvió la empresa (id_empresa). No se envía nada.']);
+        exit;
+    }
 
     // Preparar archivo de log por CUFE — útil para auditoría y debugging
     $logsDir = __DIR__ . '/logs';

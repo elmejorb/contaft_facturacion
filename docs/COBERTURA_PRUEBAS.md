@@ -10,7 +10,7 @@
 | **Suite funcional** | Casos en `conta-app-backend/tests/cases/test_*.php`. HTTP real contra `php -S` sobre el backend **del repo**, BD de prueba recargada antes de cada caso. Corre en **MySQL** (PHP de XAMPP) y **SQLite** (php-portable que se empaca). | `node scripts/pre-build-tests.mjs` (todo) · `php tests/run.php <filtro> --driver=mysql\|sqlite` |
 | **Bases reales** (`test:clientes`) | Por cada dump en `C:\ContaFT-pruebas\bases\`: migración sin errores, **invariantes** antes/después (ventas, FE, existencia por producto, kardex, pagos, cartera POS/FE, caja, egresos, compras), idempotencia, **humo** de ~40 endpoints en modo legacy XAMPP y en SQLite, MySQL == SQLite. | `npm run test:clientes` |
 | **Paquete** (`test:paquete`) | El instalador no lleva datos ni nombres de clientes. | `npm run test:paquete` · real tras `electron-builder` |
-| **e2e instalador** | Playwright contra la app **empaquetada** (`dist-electron/win-unpacked`, SQLite embebido, userData temporal, licencia real del CRM (e2e.json)): abre sin pantalla blanca → activa token → login → abre caja → vende POS → cierra caja → backup. Verifica en `conta.db` (stock, kardex, cuadre, hora local, copia íntegra). Al final del build registra `pruebas.e2e` en la constancia. | `npm run test:e2e:instalador` · encadenado en `electron:build` |
+| **e2e instalador** | Playwright contra la app **empaquetada** (`dist-electron/win-unpacked`, SQLite embebido, userData temporal, licencia DEMO del CRM + FE simulada de la API (empresa 18, nada llega a la DIAN)): abre sin pantalla blanca → activa token → login → abre caja → vende POS → emite FE (simulada) → cierra caja → backup → canal de actualización. Verifica en `conta.db` (stock, kardex, cuadre, hora local, copia íntegra). Al final del build registra `pruebas.e2e` en la constancia. | `npm run test:e2e:instalador` · encadenado en `electron:build` |
 
 Leyenda: ✅ probado con verificación de resultados · 🟡 solo humo (responde sin error, no valida cálculos) / parcial · ❌ sin prueba · — no aplica.
 
@@ -29,7 +29,7 @@ Bases reales: Nutrigranos (06-11), AhorraMas (06-11), EyD (27-10), Manos Creativ
 | Módulo | Qué se prueba hoy | MySQL | SQLite | Bases reales | e2e | Pendiente |
 |---|---|---|---|---|---|---|
 | ventas-pos | Venta contado y crédito: total, IVA extraído, saldo, pagada, efectivo; baja stock + kardex C_D=2; marca entregado (`test_pos_*`, `test_flujo_completo_dia`) | ✅ | ✅ | 🟡 listar + invariantes | ✅ venta contado: total, stock 10→9, kardex, fecha de hoy | Descuento por línea y global, servicios, compuestos, multi-medio de pago, gross-up retención, cupo/stock negativo en backend |
-| fe-emision | Borrador no toca stock; abono inicial 'Pendiente' y enlazado por id (`test_fe_borrador_*`, `test_fe_fallida_*`) | ✅ | ✅ | 🟡 listar + cartera FE | ⏸ espera mock DIAN | Autorización (requiere mock de API DIAN): stock/kardex al autorizar, `number` vs `consecutive`, descuento de línea en UBL, retenciones |
+| fe-emision | Borrador no toca stock; abono inicial 'Pendiente' y enlazado por id (`test_fe_borrador_*`, `test_fe_fallida_*`) | ✅ | ✅ | 🟡 listar + cartera FE | ✅ FE contado autorizada contra la API real en modo SIMULADO (empresa 18, prefijo SIMU): number, CUFE, sin venta POS, baja stock, entra al cuadre. Con 3 frenos (empresa 18, licencia demo, login API) | Autorización (requiere mock de API DIAN): stock/kardex al autorizar, `number` vs `consecutive`, descuento de línea en UBL, retenciones |
 | fe-contingencia | Convertir a borrador / contingencia NO tocan POS ajena; freno legacy; eliminar borrador anula abono (`test_fe_fallida_*`) | ✅ | ✅ | — | — | Reenvío de contingencia (mock DIAN) |
 | fe-notas-credito | — | ❌ | ❌ | — | — | NC total/parcial, concepto, reversión de stock, guard anti doble NC (mock DIAN) |
 | devoluciones POS | Anulación total repone stock + kardex (`test_flujo_completo_dia`) | 🟡 | 🟡 | — | — | Devolución parcial (IVA incluido), anular tras devolución parcial (doble stock), egreso de reembolso |
@@ -76,5 +76,5 @@ Bases reales: Nutrigranos (06-11), AhorraMas (06-11), EyD (27-10), Manos Creativ
 
 1. **Mock de la API DIAN** (servidor local que imita autorizar/rechazar) para probar FE autorizada, NC y contingencia sin llamar a la DIAN.
 2. Casos de prioridad 1 en este orden: devoluciones POS, caja (`sesion.php`), compras, NC, cartera con retenciones, inventario (edición de artículo), backup, sync.
-3. ~~e2e Playwright contra el instalador~~ hecho (falta el paso FE, depende del mock DIAN).
+3. ~~e2e Playwright contra el instalador~~ hecho, incluida la FE contra la API simulada (empresa 18). El mock local queda para casos que la API simulada no cubra (NC, contingencia, rechazos).
 4. Cada bug corregido entra con su caso en `tests/cases/` (regresión).

@@ -59,10 +59,15 @@ function loginFE($db, $apiBase) {
 
     $result = apiRequest("$apiBase/login", 'POST', ['email' => $email, 'password' => $pass]);
     if (isset($result['token'])) {
+        // Nunca suponer empresa: el viejo "?? 1" mandaba la factura a nombre de
+        // la empresa 1 de la API (una empresa REAL) si el login no la traía.
+        if (intval($result['id_empresa'] ?? 0) <= 0) {
+            return ['success' => false, 'message' => 'La API FE no devolvió la empresa (id_empresa). No se envía nada.'];
+        }
         return [
             'success' => true,
             'token' => $result['token'],
-            'company_id' => $result['id_empresa'] ?? 1,
+            'company_id' => intval($result['id_empresa']),
             'resolucion' => $result['resolucion'] ?? null,
             'usuario' => $result['usuario'] ?? null
         ];

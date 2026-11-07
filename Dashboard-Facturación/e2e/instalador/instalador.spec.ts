@@ -15,7 +15,14 @@ import { join } from 'node:path';
 
 const RAIZ = join(__dirname, '..', '..');
 const EXE = join(RAIZ, 'dist-electron', 'win-unpacked', 'Conta FT 4.3.exe');
-const DATOS_E2E = 'C:/ContaFT-pruebas/e2e.json';
+// Licencia: SOLO la empresa DEMO del CRM (NIT 900123456), cuya FE está en la
+// API en modo SIMULADO (company_id 18: nada llega a la DIAN). Nunca usar aquí
+// la licencia ni las credenciales FE de una empresa real.
+const DATOS_E2E = 'C:/ContaFT-pruebas/e2e-negocio-demo.json';
+const API_SIMULADA = 'C:/ContaFT-pruebas/api-dian-simulada.json';
+const NIT_DEMO = '900123456';
+const EMPRESA_SIMULADA = 18;
+let feEmitida = false;
 
 let app: ElectronApplication;
 let win: Page;
@@ -27,7 +34,7 @@ test.describe.configure({ mode: 'serial' });
 
 test.beforeAll(async () => {
   test.skip(!existsSync(EXE), `No existe ${EXE}. Haz el build local: npm run build && npx electron-builder --dir`);
-  test.skip(!existsSync(DATOS_E2E), `Falta ${DATOS_E2E} (token de la licencia del CRM)`);
+  test.skip(!existsSync(DATOS_E2E) || !existsSync(API_SIMULADA), `Falta ${DATOS_E2E} o ${API_SIMULADA} (licencia demo / API simulada)`);
   userData = mkdtempSync(join(tmpdir(), 'contaft-e2e-'));
   backupDir = join(userData, 'respaldos');
   const env = { ...process.env, CONTAFT_BACKUP_DIR: backupDir } as Record<string, string>;
@@ -55,7 +62,10 @@ test.afterAll(async () => {
     // taskkill /T: también el php -S embebido (si no, retiene conta.db)
     if (!cerro) spawnSync('taskkill', ['/PID', String(app.process().pid), '/T', '/F'], { stdio: 'ignore' });
   }
-  if (userData && !process.env.E2E_CONSERVAR) rmSync(userData, { recursive: true, force: true });
+  if (userData && !process.env.E2E_CONSERVAR) {
+    try { rmSync(userData, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 }); }
+    catch (e) { console.log('[e2e] no se pudo borrar la carpeta temporal (archivo en uso): ' + userData); }
+  }
 });
 
 test('1. abre sin pantalla blanca', async () => {
@@ -66,7 +76,7 @@ test('1. abre sin pantalla blanca', async () => {
   expect(erroresConsola.filter(e => /pageerror|Uncaught/i.test(e)), 'sin errores JS no capturados').toEqual([]);
 });
 
-test('2. activa la licencia (token del CRM en e2e.json)', async () => {
+test('2. activa la licencia DEMO del CRM', async () => {
   const { token_crm } = JSON.parse(readFileSync(DATOS_E2E, 'utf-8'));
   const yaLogin = await win.getByPlaceholder('Ingrese su usuario').isVisible().catch(() => false);
   if (!yaLogin) {
@@ -177,12 +187,61 @@ test('5. vende POS contado: total, stock y kardex', async () => {
   expect(trg, 'el arranque instaló los triggers de hora local').toBeGreaterThan(30);
 });
 
-test.fixme('6. factura electrónica (requiere mock de la API DIAN)', async () => {
-  // Pendiente: enviar.php tiene la URL de la API DIAN fija. Se habilita cuando
-  // exista el mock local (variable de entorno para la base de la API).
-  // REGLA: la licencia de e2e.json es la de una empresa REAL con FE en
-  // producción ante la DIAN. Este paso debe usar SOLO el mock local y fallar
-  // si la base de la API DIAN no es 127.0.0.1 — nunca la URL ni credenciales reales.
+test('6. factura electrónica contra la API en modo SIMULADO (empresa 18)', async () => {
+  // ── Tres frenos ANTES de emitir: si alguno falla, no se envía nada. ──
+  const sim = JSON.parse(readFileSync(API_SIMULADA, 'utf-8'));
+  expect(sim.company_id, 'freno a: api-dian-simulada.json es la empresa simulada').toBe(EMPRESA_SIMULADA);
+  const cfg = JSON.parse(readFileSync(join(userData, 'datos', 'config.json'), 'utf-8'));
+  const jwt = cfg._entitlements_cache?.jwt || '';
+  const lic = JSON.parse(Buffer.from(jwt.split('.')[1] || 'e30', 'base64url').toString());
+  expect(String(lic.nit || '').replace(/[^0-9]/g, '').slice(0, 9), 'freno b: la licencia activa es la empresa DEMO').toBe(NIT_DEMO);
+  const login = await (await fetch(sim.api_url.replace(/\/$/, '') + '/login', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: sim.email, password: sim.password }),
+  })).json();
+  expect(Number(login.id_empresa), 'freno c: la API confirma la empresa simulada').toBe(EMPRESA_SIMULADA);
+
+  // Credenciales FE de la empresa simulada en la BD de esta instalación temporal.
+  {
+    const { DatabaseSync } = require('node:sqlite');
+    const d = new DatabaseSync(join(userData, 'datos', 'conta.db'));
+    try { d.prepare('UPDATE tbldatosempresa SET email_factelect = ?, password_factelect = ?').run(sim.email, sim.password); }
+    finally { d.close(); }
+  }
+  const ventasPosAntes = Number(uno('SELECT COUNT(*) n FROM tblventas').n);
+  const stockAntes = Number(uno('SELECT Existencia FROM tblarticulos WHERE Codigo = ?', COD).Existencia);
+  const docsAntes = Number(uno('SELECT COUNT(*) n FROM electronic_documents').n);
+
+  await irAInicio();
+  await win.getByText('Nueva Venta', { exact: true }).first().click();
+  const panel = win.locator('[data-venta-codigo-input]:visible');
+  await win.locator('select:visible').filter({ has: win.locator('option', { hasText: 'Factura Electrónica' }) })
+    .first().selectOption({ label: 'Factura Electrónica' });
+  await expect.poll(() => win.evaluate(() => [...document.querySelectorAll('input')].some(i => (i as HTMLInputElement).value === '222222222')),
+    { message: 'en FE el cliente pasa a CONSUMIDOR FINAL (NIT 222222222)', timeout: 10_000 }).toBe(true);
+  await panel.fill(COD);
+  await panel.press('Enter');
+  await expect(win.getByText('ARTICULO PRUEBA E2E').last()).toBeVisible({ timeout: 15_000 });
+  await win.keyboard.press('F9');
+  const imprimir = win.getByLabel(/Imprimir al guardar/);
+  if (await imprimir.isVisible().catch(() => false) && await imprimir.isChecked()) await imprimir.uncheck();
+  const efectivo = win.locator('[data-pago-efectivo]:visible');
+  if (await efectivo.isVisible().catch(() => false)) { await efectivo.fill(String(PRECIO)); await efectivo.press('Enter'); }
+  const enviar = win.getByRole('button', { name: /Enviar a DIAN/ });
+  await enviar.waitFor({ timeout: 15_000 });
+  await enviar.click();
+  await expect(win.getByText(/DIAN: Factura .*aprobada/).first()).toBeVisible({ timeout: 120_000 });
+
+  const doc = uno('SELECT * FROM electronic_documents ORDER BY id DESC LIMIT 1');
+  expect(Number(uno('SELECT COUNT(*) n FROM electronic_documents').n)).toBe(docsAntes + 1);
+  expect(doc.status, 'FE autorizada (simulada)').toBe('autorizado');
+  expect(doc.prefix, 'resolución de la empresa simulada').toBe('SIMU');
+  expect(Number(doc.number), 'number = consecutivo real (entero)').toBeGreaterThan(0);
+  expect(String(doc.cufe || '').length, 'tiene CUFE').toBeGreaterThan(20);
+  expect(Number(doc.total)).toBe(PRECIO);
+  expect(Number(uno('SELECT COUNT(*) n FROM tblventas').n), 'v4.6+: la FE NO crea venta POS').toBe(ventasPosAntes);
+  expect(Number(uno('SELECT Existencia FROM tblarticulos WHERE Codigo = ?', COD).Existencia), 'la FE autorizada descuenta stock').toBe(stockAntes - 1);
+  feEmitida = true;
 });
 
 test('7. cierra la caja y cuadra', async () => {
@@ -190,10 +249,11 @@ test('7. cierra la caja y cuadra', async () => {
   await win.getByText('Caja', { exact: true }).first().click();
   // La pestaña de Caja (abierta en el paso 4) debe recargarse sola al volver,
   // sin pulsar Refrescar: el cajero no puede cerrar viendo cifras viejas.
-  await expect(win.getByText('Ventas Contado (1)'), 'al volver a Caja el resumen ya incluye la venta').toBeVisible({ timeout: 15_000 });
+  await expect(win.getByText(feEmitida ? /Ventas Contado \([12]\)/ : 'Ventas Contado (1)').first(), 'al volver a Caja el resumen ya incluye la venta').toBeVisible({ timeout: 15_000 });
+  const conteo = BASE + PRECIO * (feEmitida ? 2 : 1); // la FE de contado también entra al efectivo
   await win.getByRole('button', { name: 'Cerrar', exact: true }).click();
   await expect(win.getByText('Cierre de Caja')).toBeVisible();
-  await win.locator('input[placeholder="$ 0"]:visible').last().fill(String(BASE + PRECIO));
+  await win.locator('input[placeholder="$ 0"]:visible').last().fill(String(conteo));
   await expect(win.getByText('Cuadra')).toBeVisible();
   await win.getByRole('button', { name: /Cerrar Caja/ }).last().click();
   // Diálogo de confirmación propio de la app
@@ -201,8 +261,8 @@ test('7. cierra la caja y cuadra', async () => {
   await expect.poll(() => uno('SELECT Estado FROM tblsesiones_caja ORDER BY Id_Sesion DESC LIMIT 1').Estado, { timeout: 20_000 }).toBe('cerrada');
 
   const s = uno('SELECT * FROM tblsesiones_caja ORDER BY Id_Sesion DESC LIMIT 1');
-  expect(Number(s.ConteoFinal)).toBe(BASE + PRECIO);
-  expect(Number(s.DiferenciaFinal), 'la venta de contado entra al cuadre').toBe(0);
+  expect(Number(s.ConteoFinal)).toBe(conteo);
+  expect(Number(s.DiferenciaFinal), 'las ventas de contado (POS y FE) entran al cuadre').toBe(0);
   expect(minutosDesdeAhora(s.FechaCierre), `FechaCierre ${s.FechaCierre} en hora de Colombia`).toBeLessThan(5);
 });
 
@@ -220,7 +280,7 @@ test('8. backup local contiene la venta', async () => {
     expect(copia.prepare('PRAGMA integrity_check').get().integrity_check).toBe('ok');
     const n = Number(copia.prepare('SELECT COUNT(*) n FROM tblventas WHERE Total = ?').get(PRECIO).n);
     expect(n, 'la copia incluye la venta recién hecha (WAL volcado)').toBeGreaterThan(0);
-    expect(Number(copia.prepare('SELECT Existencia FROM tblarticulos WHERE Codigo = ?').get(COD).Existencia)).toBe(9);
+    expect(Number(copia.prepare('SELECT Existencia FROM tblarticulos WHERE Codigo = ?').get(COD).Existencia)).toBe(feEmitida ? 8 : 9);
   } finally { copia.close(); }
 });
 

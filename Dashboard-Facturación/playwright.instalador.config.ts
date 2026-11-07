@@ -4,8 +4,8 @@ import { defineConfig } from '@playwright/test';
  * e2e contra la app EMPAQUETADA (dist-electron/win-unpacked), no contra Vite.
  * Se corre con: npm run test:e2e:instalador
  * Requiere: build local (`npm run build && npx electron-builder --dir`) y
- * C:\ContaFT-pruebas\e2e.json (token de licencia del CRM —
- * fuera del repo).
+ * C:\ContaFT-pruebas\e2e-negocio-demo.json (licencia DEMO del CRM) y
+ * api-dian-simulada.json (FE simulada, empresa 18) — fuera del repo.
  * Cada corrida usa un userData TEMPORAL (--user-data-dir): nunca toca la
  * configuración ni la BD reales del equipo.
  */
