@@ -1137,7 +1137,7 @@ function ensureConfigExists() {
       //
       // (A) Blindaje: cliente con apiUrl + backendPath apuntando a XAMPP y SIN
       //     backendMode era un cliente XAMPP legítimo. En 4.8.0..4.8.9 lo
-      //     migrábamos a embedded y rompía su conexión a MySQL (caso Ammi).
+      //     migrábamos a embedded y rompía su conexión a MySQL (caso real 4.8.9).
       //     Ahora marcamos backendMode="legacy" explícito para blindarlo.
       //
       // (B) Recuperación: cliente con backendMode="embedded" pero que conserva
@@ -1493,7 +1493,7 @@ let phpPortActivo = null;
 // Windows ese pattern deja el socket en TIME_WAIT por unos segundos, y
 // cuando php.exe hace su propio bind al mismo puerto inmediatamente después
 // falla silencioso con "address already in use", el proceso muere y el
-// usuario queda con el login pegado (caso Abastos la Mona 4.8.18).
+// usuario queda con el login pegado (caso real 4.8.18).
 // Pedir siempre uno fresco al OS evita esa carrera.
 async function puertoLibreOS() {
   return new Promise((resolve, reject) => {
@@ -1780,7 +1780,7 @@ async function startEmbeddedPHP() {
 
   // Hasta 3 intentos con puerto nuevo cada vez. Un spawn que muere en los
   // primeros 2 segundos se trata como fracaso (típicamente "address already
-  // in use" por TIME_WAIT u otro bind issue). Caso Abastos la Mona 4.8.18:
+  // in use" por TIME_WAIT u otro bind issue). Caso real 4.8.18:
   // antes era 1 solo intento y moría silencioso.
   const MAX_INTENTOS = 3;
   let ultimoCode = null;

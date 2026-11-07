@@ -726,7 +726,7 @@ export function ConfiguracionSistema() {
                   checked={config.formatoCuadreCaja === 'tabular-mc'}
                   onChange={e => set('formatoCuadreCaja', e.target.checked ? 'tabular-mc' : 'tirilla')}
                 />
-                <span>Cuadre tabular (modelo Manos Creativas) — reemplaza el formato de arriba cuando este usuario root imprime</span>
+                <span>Cuadre tabular (formato por columnas) — reemplaza el formato de arriba cuando este usuario root imprime</span>
               </label>
             </div>
           )}

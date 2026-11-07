@@ -52,7 +52,7 @@ ALTER TABLE tbldetalle_venta ADD COLUMN UsuarioEntrego INTEGER DEFAULT NULL;
 
 -- =====================================================================
 -- 4.8.19 — Brechas MySQL→SQLite detectadas por `npm run test:clientes`
--- (bases reales de Nutrigranos y AhorraMas): tablas y columnas que los
+-- (bases reales de clientes): tablas y columnas que los
 -- clientes MySQL usan y el esquema embebido no tenía. Sin ellas, en modo
 -- embebido fallaban bodegas, conceptos de retefuente, módulos activos,
 -- movimientos directos, devoluciones (INSERT con id_usuario) y config de

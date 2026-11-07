@@ -76,7 +76,7 @@ try {
 
     // Also check tblventas with CUFE for docs not in electronic_documents.
     //
-    // Fix Nutrigranos 2026-10-21: antes esto traia TODAS las ventas con
+    // Fix 2026-10-21: antes esto traia TODAS las ventas con
     // enviada_dian=1, aunque la FE ya existiera en electronic_documents con
     // el mismo CUFE. El cliente las veia duplicadas y al hacer click en
     // "Ver detalle" del grid legacy, se mandaba el Factura_N de tblventas

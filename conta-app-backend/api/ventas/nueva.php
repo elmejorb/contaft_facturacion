@@ -302,7 +302,7 @@ try {
         $saldoFE = $tipo === 'Contado' ? 0 : max($total - $abono, 0);
         $pagadaFE = $tipo === 'Contado' ? 'S' : ($saldoFE <= 0 ? 'S' : 'N');
 
-        // Columna 'saldo' no está en todas las BDs (existe en distrisalsa, no
+        // Columna 'saldo' no está en todas las BDs (existe en algunas BDs, no
         // en innovacion). Chequeo defensivo para INSERT compatible.
         // Portable MySQL/SQLite.
         if ($db->getAttribute(PDO::ATTR_DRIVER_NAME) === 'sqlite') {
@@ -349,7 +349,7 @@ try {
         // Bug previo (v4.6–v4.7.13): acá se bajaba stock + kardex al crear
         // el borrador, y enviar.php volvía a bajarlo al autorizar DIAN =>
         // doble descuento por cada FE autorizada (32 pares detectados en
-        // Nutrigranos). Fix: eliminar la bajada local y dejar un solo
+        // un cliente). Fix: eliminar la bajada local y dejar un solo
         // responsable (enviar.php).
         //
         // Columna 'entregado' defensiva — solo existe desde v4.7. Si no está
@@ -502,7 +502,7 @@ try {
     // CantidadEntregada / FechaEntrega: cuando Entregado='S' se setean
     // iguales a Cantidad y now() respectivamente, para que la UI de preview
     // no muestre botón "Entregar" sobre líneas ya entregadas al vender.
-    // Antes faltaba este par y provocaba "falso pendiente" en Manos Creativas.
+    // Antes faltaba este par y provocaba "falso pendiente" en un cliente.
     $stmtDetalle = $db->prepare("
         INSERT INTO tbldetalle_venta (Factura_N, Items, Cantidad, PrecioC, PrecioV,
             Impuesto, Subtotal, IVA, Descuento, Entregado,
@@ -535,7 +535,7 @@ try {
         // el catálogo dice tblarticulos.Servicio=0, prevalece el catálogo.
         // Evita que un flujo raro del cliente (versión vieja, cache stale,
         // pedido móvil malformado) marque un producto como servicio y deje
-        // el stock desincronizado. Caso real: 5 ventas de Ammi (jul-2026)
+        // el stock desincronizado. Caso real: 5 ventas de un cliente (jul-2026)
         // corregidas manualmente por este mismo síntoma.
         $esServicio = !empty($item->es_servicio);
         if ($esServicio) {

@@ -143,7 +143,7 @@ try {
         //   - NETO (ef_neto, tr_neto, t_neto, c_neto): solo Valida. Es el
         //     número que ve la cajera para cuadrar con sus facturas físicas.
         //     Imprimir el bruto como "TOTAL VENTA DEL DÍA" infla el total y
-        //     la cajera lo marca como falso (bug Ruth / Manos Creativas).
+        //     la cajera lo marca como falso (reporte de un cliente, 2026-10).
         $stmt = $db->prepare("SELECT
             COALESCE(SUM(efectivo - COALESCE(Cambio,0)),0) as ef,
             COALESCE(SUM(valorpagado1),0) as tr,
@@ -223,7 +223,7 @@ try {
         // Rango por DIA de apertura (no por hora exacta): a diferencia de las
         // ventas/pagos (que exigen caja abierta en el POS), los egresos pueden
         // registrarse en cualquier momento, incluso antes de abrir caja.
-        // Bug Manos Creativas: 12 egresos registrados entre 08:39-10:21 no
+        // Bug reportado por un cliente (2026-10): 12 egresos registrados entre 08:39-10:21 no
         // entraban al cuadre porque la caja se abrio a las 10:22 ($2.148.850
         // fuera del cuadre).
         $diaAp  = substr($fechaApertura, 0, 10);
@@ -483,7 +483,7 @@ try {
 
             // Solo egresos en efectivo (TipoPago=0) restan del efectivo real de caja.
             // Mismo criterio por dia de apertura que en el GET (ver comentario arriba
-            // sobre el bug Manos Creativas): un egreso registrado antes de abrir
+            // sobre ese bug): un egreso registrado antes de abrir
             // caja igual pertenece a esa jornada.
             $diaApC  = substr($fa, 0, 10);
             $diaSigC = date('Y-m-d', strtotime($diaApC . ' +1 day'));

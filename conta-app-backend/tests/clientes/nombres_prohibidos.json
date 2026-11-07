@@ -1,0 +1,17 @@
+{
+  "_doc": "Nombres de clientes (empresas) y de personas que NUNCA pueden aparecer dentro del instalador (backend empacado ni app.asar). Los usa scripts/verificar-paquete.mjs. Expresiones regulares, sin distinguir mayúsculas. Esta carpeta (tests/) no se empaca. Al sumar un cliente nuevo, agregarlo aquí.",
+  "empresas": [
+    "nutri ?granos", "\\bammi\\b", "dbammi", "\\beyd\\b", "dist_eyd", "manos ?creativas", "merca ?ya",
+    "icoplastic", "ferro ?abdala", "moto ?guada", "moto ?soluciones", "distri ?salsas?", "ahorra ?mas",
+    "abastos", "celu ?movil", "celu ?accesorios", "angelitos ?kits", "agro ?cuernavaca", "oasis farma",
+    "granjeras", "tavo ?pan", "casa del hierro", "ceramicas ?planeta", "gabriel villalba", "agroferreteria",
+    "tecnocell", "planeta ?digital", "alitas", "contars4_review"
+  ],
+  "personas": [
+    "juan guillermo", "gimenez", "jairo manchego", "pedro guerra", "yonis", "jaime osten", "\\bruth\\b"
+  ],
+  "archivos_prohibidos": [
+    "_rescate_", "backups-contaft-server", "/tests/", "/tools/", "/uploads/", "migracion_vb6",
+    "credenciales", "secrets\\.php$", "api/config/config\\.json$", "\\.db$", "\\.sqlite$", "\\.bak$", "\\.log$"
+  ]
+}

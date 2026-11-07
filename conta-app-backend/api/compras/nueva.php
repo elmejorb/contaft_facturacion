@@ -848,7 +848,7 @@ try {
             // medio como Bancolombia/Nequi/Tarjeta (1). El cuadre de caja usa
             // ESE campo (COALESCE(TipoPago,0)=0) para restar del efectivo
             // real — si queda en 0 cuando fue transferencia, el cuadre se
-            // descuadra en negativo. Reporte Nutrigranos 2026-10-21.
+            // descuadra en negativo. Reporte de un cliente 2026-10-21.
             $tipoPagoEgreso = $medioPago === 0 ? 0 : 1;
             $db->prepare("
                 INSERT INTO tblegresos

@@ -18,7 +18,7 @@
 
 // Portable MySQL/SQLite: en SQLite no existe `information_schema`, hay que
 // usar `sqlite_master` para tablas y `pragma_table_info` para columnas. Caso
-// real Abastos la Mona (4.8.18): inventario y otros módulos devolvían
+// real de un cliente (4.8.18): inventario y otros módulos devolvían
 // "Error al cargar los articulos" porque los helpers hacían query MySQL-only.
 
 if (!function_exists('conta_tiene_tabla')) {

@@ -105,7 +105,7 @@ try {
             // El cuadre filtra WHERE COALESCE(TipoPago,0)=0 para "egresos
             // efectivo"; si queda en 0 cuando fue por banco, el cuadre se
             // descuadra. Fix hermano del aplicado en compras/nueva.php el
-            // 2026-10-21 (reporte Nutrigranos). Igualmente registra
+            // 2026-10-21 (reporte de un cliente). Igualmente registra
             // id_mediopago para informes financieros.
             $tipoPagoGasto = $origen === 'banco' ? 1 : 0;
             $idMedioPagoGasto = intval($data['id_mediopago'] ?? ($origen === 'banco' ? 2 : 0));

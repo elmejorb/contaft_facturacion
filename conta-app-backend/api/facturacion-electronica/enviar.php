@@ -1156,7 +1156,7 @@ try {
             $origId      = $edRow['id'];                                // id local de electronic_documents
 
             // GUARD anti-doble-NC: si ya existe una NC autorizada contra este CUFE,
-            // NO se envía otra. El caso Nutrigranos 2026-11-02 mandó NC7 y NC8 por
+            // NO se envía otra. Un caso real 2026-11-02 mandó NC7 y NC8 por
             // la misma FE670 porque el primer envío falló al GUARDAR en BD aunque
             // DIAN sí lo había aceptado, y el usuario reintentó pensando que falló.
             $stmtDup = $db->prepare("
@@ -1189,7 +1189,7 @@ try {
             //   (a) pendiente / rechazado / borrador: placeholder normal pre-envio.
             //   (b) autorizado SIN cufe o con consecutive=0 devuelto: la API respondio
             //       pero el INSERT local quedo sin numeracion real — bug visto en
-            //       Nutrigranos 2026-11-04. Si tiene cufe real pero quedo con
+            //       caso real 2026-11-04. Si tiene cufe real pero quedo con
             //       number=0 lo sacamos tambien: no perdemos la fila (queda con
             //       number >= 9000000000), solo liberamos el slot UNIQUE.
             $db->prepare("
@@ -1797,7 +1797,7 @@ try {
             // Flujo FE (4.6+): el documento vive solo en electronic_documents.
             // Se vuelve a borrador SIN tocar tblventas. Antes este caso caía al
             // camino legacy y anulaba la venta POS cuyo Factura_N coincidía con
-            // el id de la FE (caso Nutrigranos FV-276 / FV-457, oct-2026).
+            // el id de la FE (caso real, oct-2026).
             if ($docId > 0) {
                 echo json_encode(fe_volver_a_borrador($db, $docId), JSON_UNESCAPED_UNICODE);
                 break;

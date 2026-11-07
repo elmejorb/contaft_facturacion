@@ -808,7 +808,7 @@ INSERT IGNORE INTO tbl_config_vendedores (id) VALUES (1);
 -- CREATE TABLE IF NOT EXISTS respeta la tabla legacy que ya existía en
 -- clientes anteriores (sin estas columnas), hay que hacer los ALTER
 -- explícitos para que todos las reciban.
--- Bug reportado en Panificadora Granjeras: "Unknown column 'modo_pedidos'
+-- Bug reportado por un cliente: "Unknown column 'modo_pedidos'
 -- in 'field list'" al guardar config de Vendedores Móviles.
 ALTER TABLE tbl_config_vendedores
   ADD COLUMN IF NOT EXISTS modo_pedidos TINYINT(1) NOT NULL DEFAULT 1;
@@ -922,8 +922,8 @@ WHERE COALESCE(Fact_N, 0) = 0
 -- vendedor otorga junto con el abono (ej. "Te descuento $15.000"). Antes la
 -- vista sumaba solo `ValorPago`, dejando el descuento sin restarse del saldo
 -- y mostrando saldo fantasma. Ahora se suman ambos: la factura queda en $0
--- cuando (abonos + descuentos) igualan el Total. Caso AMMI Fact 932: Yonis
--- Guerra con Total 160.000, pagos 145.000 + desc 15.000 aparecía con saldo
+-- cuando (abonos + descuentos) igualan el Total. Caso real: factura con
+-- Total 160.000, pagos 145.000 + desc 15.000 aparecía con saldo
 -- 15.000 en cartera aunque el cache de tblventas ya estaba en 0.
 -- Fix legacy: en dumps VB6 el nombre puede haber quedado como TABLE (no VIEW) por sintaxis antigua rechazada por MariaDB. Eliminar ambos por seguridad.
 DROP TABLE IF EXISTS vw_facturas_cliente_saldos;
@@ -994,7 +994,7 @@ PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 -- Solo se crea si existe la tabla electronic_documents (FE habilitada).
 -- PRERREQUISITO: la columna tblpagos.Nfact_electronica debe existir (la vista
 -- la lee para agrupar pagos por documento electrónico). Se agrega aquí antes
--- de crear la vista para BDs que no la tienen (Mercaya, y en general cualquier
+-- de crear la vista para BDs que no la tienen (algunos clientes, y en general cualquier
 -- BD que se saltó una migración anterior). Idempotente.
 SET @col_nfe = (SELECT COUNT(*) FROM information_schema.COLUMNS
   WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tblpagos' AND COLUMN_NAME = 'Nfact_electronica');
@@ -1247,7 +1247,7 @@ DROP VIEW IF EXISTS vw_prov_pedidos_credito_saldos;
 -- La vista lee del cache `tblpedidos.Saldo` que el sistema mantiene
 -- actualizado al aplicar pagos (proveedores/listar.php action=pagar).
 -- Antes esta vista recalculaba desde tblegresos con JOIN + GROUP BY, tardando
--- 1-3 segundos en BDs con miles de pedidos (bug ICOPLASTIC agosto 2026).
+-- 1-3 segundos en BDs con miles de pedidos (bug reportado agosto 2026).
 -- Ahora tarda ~15ms.
 --
 -- IMPORTANTE: para clientes existentes puede que el cache esté desincronizado
@@ -2624,7 +2624,7 @@ FOR EACH ROW INSERT INTO tbl_sync_outbox (Entidad, Id_Entidad, Operacion)
   VALUES ('articulo', NEW.Items, 'upsert');
 
 -- ============================================================
--- Fix Manos Creativas (2026-10-19): CantidadEntregada "falso pendiente"
+-- Fix (2026-10-19): CantidadEntregada "falso pendiente"
 -- Afectó ventas con Entregado='S' donde nueva.php no rellenaba
 -- CantidadEntregada ni FechaEntrega. El preview mostraba el botón
 -- "Entregar" sobre líneas ya entregadas al vender.
@@ -2642,18 +2642,18 @@ WHERE d.Entregado = 'S'
   AND d.Cantidad > 0;
 
 -- ============================================================
--- Fix Nutrigranos (2026-10-21): TipoPago en egresos — 3 capas
+-- Fix (2026-10-21): TipoPago en egresos — 3 capas
 -- Tercer reporte del mismo bug; esta vez va blindado.
 --
 -- Historial:
 --   v4.3.98 (2026-09-08) arreglo el filtro del cuadre pero nunca toco los
 --   INSERTs — compras/nueva.php y gastos.php seguian insertando TipoPago=0
 --   hardcoded aunque id_mediopago fuera 2 (banco), dejando los pagos por
---   transferencia saliendo del efectivo. Nutrigranos lo vio como "Total
+--   transferencia saliendo del efectivo. Un cliente lo vio como "Total
 --   Efectivo = -2.742.684" en la caja de Deivison.
 --
 -- Capa 1 (codigo PHP): compras/nueva.php, movimientos/gastos.php y
---   proveedores/listar.php (fix EyD 2026-10-27 — ademas antes no guardaba
+--   proveedores/listar.php (fix 2026-10-27 — ademas antes no guardaba
 --   id_mediopago en el INSERT) ahora setean TipoPago = (id_mediopago>0 ? 1 : 0).
 --   Nomina ya estaba bien.
 --
@@ -2686,7 +2686,7 @@ FOR EACH ROW
 
 -- ============================================================
 -- Fix 4.8.19 (2026-11-06): FE no autorizada NO suma + pagos FE mal enlazados
--- Caso Nutrigranos (Juan Guillermo Gimenez: deuda falsa FE9).
+-- Caso real 2026-11: deuda falsa por pago FE no enlazado.
 --
 -- (a) tblpagos.Nfact_electronica debe ser el id numérico del documento
 --     (vw_facturas_elec_cliente_saldos hace CAST(... AS UNSIGNED) = id).

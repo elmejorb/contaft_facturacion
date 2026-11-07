@@ -147,7 +147,7 @@ Publicado como hotfix intermedio antes de 4.5.0. Los fixes están incluidos en 4
 
 ### Fix — Descuento en compras ahora se aplica ANTES del IVA (Art. 454 ET)
 
-- Reportado por cliente Panificadora Granjeras: al registrar una factura con descuento comercial, el sistema calculaba el IVA sobre el bruto y luego restaba el descuento — dando un IVA inflado que no coincidía con la factura del proveedor.
+- Reportado por un cliente: al registrar una factura con descuento comercial, el sistema calculaba el IVA sobre el bruto y luego restaba el descuento — dando un IVA inflado que no coincidía con la factura del proveedor.
 - **Ejemplo del bug**: compra de $1.130.000 con 5% IVA y descuento de $50.000. Sistema mostraba IVA de $56.500 en vez de $54.000, y total $1.136.500 en vez de $1.134.000.
 - **Fix**: el descuento comercial ahora se aplica proporcionalmente a la base sin IVA antes de calcular el impuesto:
   ```
@@ -299,11 +299,11 @@ Para clientes que sí lo corran (manual o desde *Configuración → Mantenimient
 
 ### Fix — Pagos a Facturas Electrónicas no se guardaban
 
-- Reportado en cliente MercaYa: al abonar una FE desde la ficha del cliente, el sistema decía *"Pago registrado"* pero no quedaba en `tblpagos` y la FE seguía en cartera.
+- Reportado por un cliente: al abonar una FE desde la ficha del cliente, el sistema decía *"Pago registrado"* pero no quedaba en `tblpagos` y la FE seguía en cartera.
 - Causa: `pagos.php` no tenía rama para reconocer identificadores tipo `FCON189` (prefijo+número de FE); solo procesaba números tipo `Factura_N` de tblventas. Los pagos a FE se descartaban silenciosamente.
 - Corrección: nueva detección `esElectronica` que separa prefijo y número, busca la FE en `electronic_documents` y guarda el pago con `Nfact_electronica = doc.id`. Además:
   - Vista `vw_facturas_elec_cliente_saldos` para que el detalle del cliente sume correctamente los abonos.
-  - Script `MERCAYA_backfill_pagos_FE.sql` para reasignar pagos históricos huérfanos.
+  - Script de backfill puntual para reasignar pagos históricos huérfanos.
 
 ### Fix — NIT con guion doble en PDF de factura electrónica
 
@@ -334,7 +334,7 @@ Para clientes que sí lo corran (manual o desde *Configuración → Mantenimient
 
 ### Fix — Etiquetas de comportamiento de cliente (Puntual/Regular/Moroso/Crítico)
 
-- Reportado por usuaria de Distrisalsas: clientes con facturas al día aparecían como "En mora".
+- Reportado por una usuaria: clientes con facturas al día aparecían como "En mora".
 - Umbrales ajustados a valores más realistas: Puntual ≤7d (era 3), Regular ≤30d (era 15), Moroso ≤75d (era 60), Crítico >75d. Factura vencida >90d fuerza Crítico (era >60d).
 
 ### Fix — Egreso al editar compra + integración factura recibida
@@ -752,7 +752,7 @@ Nuevo informe que compara ventas mes a mes entre varios años, para ver el compo
 
 ### Fix crítico: saldo pendiente de proveedores inflado
 
-El endpoint de proveedores (listado y detalle) leía el campo cacheado `tblpedidos.Saldo`, que en BDs con historia larga suele estar desincronizado con los egresos reales. Resultado: aparecían facturas "fantasma" ya pagadas sumando al saldo pendiente (ej. Icoplastic mostraba $14.7M cuando el saldo real era $8.5M).
+El endpoint de proveedores (listado y detalle) leía el campo cacheado `tblpedidos.Saldo`, que en BDs con historia larga suele estar desincronizado con los egresos reales. Resultado: aparecían facturas "fantasma" ya pagadas sumando al saldo pendiente (ej. un cliente mostraba $14.7M cuando el saldo real era $8.5M).
 
 Solución: ahora el backend calcula el saldo real desde `tblegresos` usando las mismas vistas que el software VB6 original:
 
@@ -765,7 +765,7 @@ El módulo de Clientes ya calculaba desde `tblpagos`, por eso no tenía el probl
 
 ### Rendimiento en BDs grandes (>50k ventas)
 
-- **Listado de Ventas**: cambio de `YEAR(Fecha) = X AND MONTH(Fecha) = Y` a rango de fechas (`Fecha >= X AND Fecha < Y`), que sí usa el índice. En Icoplastic (101k ventas) pasa de segundos a milisegundos.
+- **Listado de Ventas**: cambio de `YEAR(Fecha) = X AND MONTH(Fecha) = Y` a rango de fechas (`Fecha >= X AND Fecha < Y`), que sí usa el índice. En una BD de 101k ventas pasa de segundos a milisegundos.
 - **Listado de Compras**: LIMIT 500 en el backend + mes actual por defecto en el frontend (antes traía el año completo).
 - **Script `optimizar_indices.sql`** — crea 40+ índices sobre las columnas más consultadas (Fecha, Items, CodigoCli, EstadoFact, etc.). Idempotente: aplica solo lo que falte y valida columnas antes de crear.
 
@@ -1245,7 +1245,7 @@ Cuando se creaba una factura **a crédito** y se ingresaba un abono inicial desd
 
 Ahora `api/ventas/nueva.php` inserta una fila en `tblpagos` (con `DetallePago = "Abono inicial al crear factura N° X"`, `RecCajaN = MAX+1`, `id_mediopago` y `Codigo` del cliente) cuando `tipo != 'Contado' && abono > 0`.
 
-Backfill aplicado para casos detectados en producción (`conta_nutrigranos`): factura 598 (Pedro Guerra, abono $40.000).
+Backfill aplicado para casos detectados en producción: factura 598 (abono $40.000).
 
 ---
 
@@ -1325,7 +1325,7 @@ ALTER TABLE cliente_ediciones_log
 
 ## 4.3.53 — 2026-06-09
 
-### Mejoras de productividad (reportadas por usuaria de Ammi Accesorios)
+### Mejoras de productividad (reportadas por una usuaria)
 
 **1. Búsqueda inteligente de productos.** Al escribir un término en el buscador de Inventario, Productos o en el dropdown de búsqueda dentro de Compras/Ventas, los productos cuyo código o descripción **empieza** con el término ahora aparecen **primero**, antes de los que solo lo contienen. Ejemplo: al buscar "Bolsos", los productos que se llaman "Bolsos cuero", "Bolsos pequeños" aparecen arriba; los que solo contienen la palabra (ej. "Cinturón para bolsos") quedan abajo. Aplicado tanto en frontend (orden) como en backend (SQL `CASE` priorizando `LIKE 'término%'`).
 
@@ -1454,7 +1454,7 @@ UPDATE tblbancos SET Saldo = Saldo - (
 
 ### Correcciones de bugs (pagos)
 - **Backend rechaza `ValorPago < 0` o `Descuento < 0`** en el bulk de pagos: aborta toda la transacción con mensaje claro. Antes solo bloqueaba si AMBOS eran ≤ 0
-- **Pagos: si `saldoActual ≤ 0` se salta la factura** (ya está saldada o el cache está mal). Antes el clamp "no sobrepagar" convertía pagos positivos en negativos cuando el saldo cacheado venía corrupto — caso JAIME OSTEN factura 213 que terminó con `ValorPago = -$4.037.000`
+- **Pagos: si `saldoActual ≤ 0` se salta la factura** (ya está saldada o el cache está mal). Antes el clamp "no sobrepagar" convertía pagos positivos en negativos cuando el saldo cacheado venía corrupto — caso un tercero factura 213 que terminó con `ValorPago = -$4.037.000`
 - **Clamp "no sobrepagar" usa `max(.., 0)`** por defensa adicional: aunque un saldo raro pase los filtros, el ValorPago nunca puede quedar negativo
 - **Label "Pago Final" solo si arrancábamos con saldo > 0**: antes, un abono de $44.000 sobre una factura de $950.000 podía etiquetarse "Pago Final" si el cache del saldo venía corrupto en 0. Aplicado en insert y edición de pago
 
@@ -1467,7 +1467,7 @@ La API Lumen DIAN tenía un typo en el template XML: `<cbc:PrePaidAmount>` con P
 
 ### Correcciones de bugs críticas (FE y pagos)
 - **Reintentar DIAN se bloqueaba con `Duplicate entry 'FCON-0'`**: cuando un envío de FE fallaba, dejaba una fila `(prefix='FCON', number=0, status='rechazado')` en `electronic_documents`. El siguiente intento (reintentar o enviar otra FE) intentaba insertar otra fila con `(FCON, 0)` y violaba el unique constraint `uq_prefix_number`. Ahora antes del INSERT se mueven todas las filas `(FCON, 0, pendiente/rechazado)` a `number = -id` para liberar el slot, preservando historial. Aplicado en envío inicial y en `reenviar_contingencia`
-- **Pagos: clamp "no sobrepagar" convertía pagos positivos en negativos** cuando el saldo cacheado venía corrupto. Caso JAIME OSTEN factura 213: cache en -$4.037.000 + distribución de $456.000 → terminó insertando ValorPago = -$4.037.000. Ahora si `saldoActual ≤ 0` se salta esa factura (ya está saldada o el dato está mal), y el clamp usa `max(.., 0)` por defensa
+- **Pagos: clamp "no sobrepagar" convertía pagos positivos en negativos** cuando el saldo cacheado venía corrupto. Caso real factura 213: cache en -$4.037.000 + distribución de $456.000 → terminó insertando ValorPago = -$4.037.000. Ahora si `saldoActual ≤ 0` se salta esa factura (ya está saldada o el dato está mal), y el clamp usa `max(.., 0)` por defensa
 - **Rechazo explícito de `ValorPago < 0` o `Descuento < 0`** en el bulk de pagos: aborta toda la transacción con mensaje claro. Antes solo bloqueaba si AMBOS eran ≤ 0 (hueco que permitía digitación manual envenenada)
 - **Label "Pago Final" solo si arrancábamos con saldo > 0**: antes, un abono de $44.000 sobre una factura de $950.000 podía etiquetarse como "Pago Final" si el cache del saldo venía corrupto en 0. Aplicado en insert y edición de pago
 
@@ -1476,7 +1476,7 @@ La API Lumen DIAN tenía un typo en el template XML: `<cbc:PrePaidAmount>` con P
 ## 4.3.43 — 2026-05-25
 
 ### Correcciones de bugs críticas (vistas de saldo)
-- **Las vistas `vw_facturas_cliente_saldos`, `vw_facturas_anteriores_cliente` y `vw_facturas_elec_cliente_saldos` no filtraban `ValorPago > 0`**, así que cualquier fila en `tblpagos` con `ValorPago < 0` (residuo de la era del cache desincronizado pre-4.3.41) envenenaba el SUM y la vista devolvía `Saldo > Total`. Cliente de Nutrigranos seguía viendo factura 213 con saldo $5.069.000 sobre un Total de $1.032.000 incluso después de actualizar a 4.3.42, porque la vista en su BD todavía sumaba un pago histórico de -$4.037.000 (Estado='Valida'). Ahora las 3 vistas filtran `tp.ValorPago > 0` defensivamente — el pago corrupto se ignora y el saldo vuelve a ser real
+- **Las vistas `vw_facturas_cliente_saldos`, `vw_facturas_anteriores_cliente` y `vw_facturas_elec_cliente_saldos` no filtraban `ValorPago > 0`**, así que cualquier fila en `tblpagos` con `ValorPago < 0` (residuo de la era del cache desincronizado pre-4.3.41) envenenaba el SUM y la vista devolvía `Saldo > Total`. Un cliente seguía viendo factura 213 con saldo $5.069.000 sobre un Total de $1.032.000 incluso después de actualizar a 4.3.42, porque la vista en su BD todavía sumaba un pago histórico de -$4.037.000 (Estado='Valida'). Ahora las 3 vistas filtran `tp.ValorPago > 0` defensivamente — el pago corrupto se ignora y el saldo vuelve a ser real
 - **Definición de `vw_facturas_elec_cliente_saldos` agregada a `sql/actualizacion_completa.sql`**: antes solo existía en producción creada manualmente, no estaba versionada. Ahora se recrea cada vez que se corre la migración (idempotente, condicionada a que exista `electronic_documents`)
 
 ### Pasos para BDs de clientes con datos legacy
@@ -1498,7 +1498,7 @@ A partir de 4.3.41 cada operación de pago llama `recalcularSaldoFactura()` filt
 ## 4.3.41 — 2026-05-25
 
 ### Correcciones de bugs críticas (saldos de cartera)
-- **Cache de `tblventas.Saldo` desincronizado generaba saldos negativos y montos inflados en informes**. Diagnóstico: el campo `Saldo` se mantenía con `UPDATE` incremental (`Saldo = Saldo - :pago`), pero si entraba un pago con `ValorPago < 0` (anulación mal hecha, edición manual) o se editaba el Total de la factura, el delta componía errores y dejaba el cache desfasado de la realidad (tblpagos). El cliente nuevo de Nutrigranos vio saldo $-2.849.000 en JAIME OSTEN al cabo de 15 días — sin haber hecho nada raro, simplemente el flujo normal lo desincronizaba
+- **Cache de `tblventas.Saldo` desincronizado generaba saldos negativos y montos inflados en informes**. Diagnóstico: el campo `Saldo` se mantenía con `UPDATE` incremental (`Saldo = Saldo - :pago`), pero si entraba un pago con `ValorPago < 0` (anulación mal hecha, edición manual) o se editaba el Total de la factura, el delta componía errores y dejaba el cache desfasado de la realidad (tblpagos). Un cliente vio saldo $-2.849.000 en un tercero al cabo de 15 días — sin haber hecho nada raro, simplemente el flujo normal lo desincronizaba
 - **Self-healing del cache**: nuevo helper [`api/config/saldo_helper.php`](conta-app-backend/api/config/saldo_helper.php) con `recalcularSaldoFactura()` que NO calcula delta — lee `tblventas.Total` + `SUM(ValorPago)` de tblpagos válidos y persiste el saldo real. Se llama después de cada inserción/anulación/edición de pago y después de editar el Total de una factura. Tras cualquier operación, el cache queda en sincronía con la fuente real
 - **Todos los endpoints de lectura de saldo ahora consultan la VISTA `vw_facturas_cliente_saldos` (calculada en vivo desde tblpagos), no el cache**:
   - `api/dashboard/resumen.php` (Cuentas por cobrar del dashboard inicio)
@@ -1561,7 +1561,7 @@ A partir de 4.3.41 cada operación de pago llama `recalcularSaldoFactura()` filt
 - **Backend de ventas (`api/ventas/nueva.php`) ahora respeta el régimen de IVA**: el 4.3.30 había corregido solo el frontend (`NuevaVenta.tsx`), pero el backend seguía guardando el IVA en `tblventas.Impuesto` y `tbldetalle_venta.Impuesto`, inflando el `Total` y dejando `Saldo > 0` (el IVA fantasma) en las facturas a crédito. Ahora el backend lee `tbldatosempresa.Regimen` y si es Simplificado/Simple deja todos los `Impuesto = 0`. Empresas Responsables de IVA (Común) siguen calculando normal
 - **Script de limpieza retroactiva** [`sql/fix_iva_regimen_simplificado.sql`](conta-app-backend/sql/fix_iva_regimen_simplificado.sql): para BDs que ya tenían facturas con IVA mal cargado. Aborta automáticamente si la empresa SÍ es Responsable de IVA. Recalcula `Total = Total - Impuesto`, ajusta `Saldo = max(Saldo - Impuesto, 0)` y marca como pagadas las facturas cuyo saldo era solo el IVA fantasma
 - **Prevención de compras duplicadas** (`api/compras/nueva.php`): si el flujo de edición fallaba (doble click, pérdida de state), se creaba un Pedido nuevo en lugar de actualizar el existente, duplicando inventario y deuda al proveedor. Ahora antes de insertar valida que no exista otro pedido con la **misma FacturaCompra_N + mismo CodigoPro** y bloquea con mensaje claro: "Ya existe una compra registrada con la factura X de este proveedor (Pedido N° Y)..."
-- **Script de limpieza puntual** [`sql/fix_pedido15_duplicado_nutrigranos2.sql`](conta-app-backend/sql/fix_pedido15_duplicado_nutrigranos2.sql): plantilla para revertir un pedido duplicado preservando el pago real. Usa transacción + validación previa + kardex de reverso (inmutable). Se puede adaptar cambiando los números de pedido
+- **Script de limpieza puntual** (script interno): plantilla para revertir un pedido duplicado preservando el pago real. Usa transacción + validación previa + kardex de reverso (inmutable). Se puede adaptar cambiando los números de pedido
 
 ---
 

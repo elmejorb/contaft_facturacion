@@ -195,7 +195,7 @@ try {
                 //   - $idMedioPago: entra en la columna id_mediopago.
                 //   - $tipoPago: solo 0 (efectivo) o 1 (otro medio); el cuadre
                 //     de caja usa COALESCE(TipoPago,0)=0 para contar efectivo.
-                // Guardar los dos consistentemente evita el bug EyD 2026-10-27
+                // Guardar los dos consistentemente evita el bug reportado 2026-10-27
                 // donde TipoPago=0 con id_mediopago=2 descuadraba el cuadre.
                 $idMedioPago = isset($data->tipo_pago) ? intval($data->tipo_pago) : 2;
                 $tipoPago    = $idMedioPago === 0 ? 0 : 1;

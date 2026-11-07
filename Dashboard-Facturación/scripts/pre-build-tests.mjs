@@ -159,6 +159,16 @@ if (existsSync(testClientes)) {
   info('\x1b[33mscripts/test-clientes.mjs no existe todavía — constancia con clientes="no_implementado".\x1b[0m');
 }
 
+// 4b. Composición del paquete: el filtro extraResources no puede dejar pasar
+//     scripts/datos/nombres de clientes (se vuelve a verificar sobre el
+//     paquete REAL después de electron-builder).
+info('Verificando que el paquete no lleve datos ni nombres de clientes...');
+const vp = spawnSync(process.execPath, [join(RAIZ, 'scripts', 'verificar-paquete.mjs'), '--simular'], { cwd: RAIZ, encoding: 'utf-8' });
+process.stdout.write(vp.stdout || '');
+process.stderr.write(vp.stderr || '');
+if (vp.status !== 0) fatal('El paquete llevaría datos o nombres de clientes. Corrige el filtro extraResources o el texto indicado.');
+pruebas.paquete = 'ok';
+
 // 5. Re-verificar que nada cambió durante las pruebas (mismo HEAD, repo limpio).
 if (git(['rev-parse', 'HEAD']) !== commit) fatal('El HEAD cambió mientras corrían las pruebas.');
 if (git(['status', '--porcelain', '--untracked-files=no'])) fatal('El repo quedó con cambios sin commit durante las pruebas.');
