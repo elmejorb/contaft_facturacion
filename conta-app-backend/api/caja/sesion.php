@@ -349,12 +349,14 @@ try {
 
             $stmt = $db->prepare("INSERT INTO tblsesiones_caja (Id_Caja, Id_Usuario, FechaApertura, BaseInicial, Estado) VALUES (?, ?, CURRENT_TIMESTAMP, ?, 'abierta')");
             $stmt->execute([$cajaId, $usuarioId, $base]);
+            // Leer el id YA: en MySQL (mysqlnd) un SELECT posterior lo deja en 0.
+            $idSesionNueva = $db->lastInsertId();
 
             $stmt = $db->prepare("SELECT Nombre FROM tblcajas WHERE Id_Caja = ?");
             $stmt->execute([$cajaId]);
             $nombreCaja = $stmt->fetch()['Nombre'] ?? 'Caja';
 
-            echo json_encode(['success' => true, 'message' => "$nombreCaja abierta con base " . number_format($base, 0, ',', '.'), 'id_sesion' => $db->lastInsertId()]);
+            echo json_encode(['success' => true, 'message' => "$nombreCaja abierta con base " . number_format($base, 0, ',', '.'), 'id_sesion' => $idSesionNueva]);
 
         } elseif ($action === 'corregir_base') {
             // Corrige el BaseInicial de una sesión ABIERTA cuando el usuario

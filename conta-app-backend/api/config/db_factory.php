@@ -167,6 +167,24 @@ function conta_tablas_schema(PDO $db): array {
  */
 class ContaSqlitePDO extends PDO {
     private static function rewrite(string $sql): string {
+        // Hora LOCAL: en SQLite CURRENT_TIMESTAMP / CURRENT_DATE / CURRENT_TIME
+        // son palabras reservadas que devuelven UTC (Colombia = UTC-5), así que
+        // una caja abierta a las 8 a.m. quedaba a la 1 p.m. y lo hecho después
+        // de las 7 p.m. caía al día siguiente. Se traducen a las funciones
+        // registradas (NOW/CURDATE/CURTIME, hora de PHP = America/Bogota), igual
+        // que en MySQL. Los `DEFAULT CURRENT_TIMESTAMP` de un CREATE/ALTER se
+        // dejan intactos (SQLite no admite funciones de usuario en DEFAULT).
+        if (stripos($sql, 'CURRENT_') !== false) {
+            $sql = preg_replace_callback(
+                '~(\bDEFAULT\s+)?\bCURRENT_(TIMESTAMP|DATE|TIME)\b(\s*\(\s*\))?~i',
+                function ($m) {
+                    if (!empty($m[1])) return $m[0];
+                    $fn = ['TIMESTAMP' => 'NOW()', 'DATE' => 'CURDATE()', 'TIME' => 'CURTIME()'];
+                    return $fn[strtoupper($m[2])];
+                },
+                $sql
+            );
+        }
         // INTERVAL con unidades: cubre las unidades reales usadas en el backend.
         // El segundo argumento puede ser un literal (7) o una columna (f.Dias) —
         // en ambos casos lo pasamos a SQLite como '-' || N || ' days' para que
@@ -260,6 +278,10 @@ function conta_sqlite_registrar_funciones_mysql(PDO $pdo): void {
 
     $pdo->sqliteCreateFunction('CURRENT_DATE', function() {
         return date('Y-m-d');
+    }, 0);
+
+    $pdo->sqliteCreateFunction('CURTIME', function() {
+        return date('H:i:s');
     }, 0);
 
     $pdo->sqliteCreateFunction('DATEDIFF', function($a, $b) use ($parseDate) {

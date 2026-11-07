@@ -362,6 +362,14 @@ export function Dashboard({ onLogout, user }: DashboardProps) {
   const [activeTabId, setActiveTabId] = useState<string | null>('inicio');
   const [nuevaVentaCounter, setNuevaVentaCounter] = useState(1);
 
+  // Avisar a la pestaña que se vuelve visible (siguen montadas con display:none
+  // y no se enteran solas) — p. ej. Caja recarga su resumen.
+  useEffect(() => {
+    const v = tabs.find(t => t.id === activeTabId)?.view;
+    if (v) window.dispatchEvent(new CustomEvent('contaft:tab-activada', { detail: v }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTabId]);
+
   // Abre una view en el sistema de tabs (o cae al comportamiento viejo si no es supported).
   // - Views multi-instancia: cada llamada crea una pestaña nueva
   // - Views singleton: reutiliza la existente si ya está abierta

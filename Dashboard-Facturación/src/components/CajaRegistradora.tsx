@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { Lock, Unlock, DollarSign, RefreshCw, Clock, ArrowDownRight, Plus, Settings, Edit3 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../contexts/AuthContext';
@@ -100,6 +100,20 @@ export function CajaRegistradora() {
 
   useEffect(() => { cargarCajas(); }, []);
   useEffect(() => { cargar(); }, [cajaSeleccionada]);
+
+  // Las pestañas quedan montadas (display:none): al volver a Caja después de
+  // vender, el resumen mostraba cifras viejas hasta pulsar Refrescar y el
+  // cajero podía cerrar viendo un "Sistema" desactualizado. Se recarga al
+  // activarse la pestaña (evento que emite Dashboard).
+  const cargarRef = useRef(cargar);
+  cargarRef.current = cargar;
+  useEffect(() => {
+    const alActivar = (e: Event) => {
+      if ((e as CustomEvent).detail === 'caja') cargarRef.current();
+    };
+    window.addEventListener('contaft:tab-activada', alActivar);
+    return () => window.removeEventListener('contaft:tab-activada', alActivar);
+  }, []);
 
   // Pre-rellenar la base con el residual del último cierre cuando NO hay sesión abierta
   useEffect(() => {

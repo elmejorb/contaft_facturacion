@@ -85,3 +85,6 @@ dist-electron-480/
 
 # Archivos subidos en runtime (logo del cliente) — nunca se commitean
 conta-app-backend/uploads/
+
+# Reportes/capturas del e2e contra el instalador (se regeneran en cada build)
+Dashboard-Facturación/e2e/report-instalador/
