@@ -109,6 +109,10 @@ function resetTestDatabaseSqlite() {
         }
     }
 
+    // Igual que la app al arrancar: DEFAULT CURRENT_TIMESTAMP → hora de Colombia.
+    require_once __DIR__ . '/../../api/config/sqlite_hora_local.php';
+    conta_sqlite_triggers_hora_local($pdo);
+
     // Cargar seed SIEMPRE (es el estado inicial que cada test espera)
     $seedSql = file_get_contents($seed);
     $seedSql = implode("\n", array_filter(preg_split('~\r?\n~', $seedSql), fn($l) => !preg_match('~^\s*--~', $l)));

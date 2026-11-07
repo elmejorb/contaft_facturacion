@@ -1694,6 +1694,14 @@ function aplicarMigracionesSqlite(phpExe, phpIni, dbPath, migPath) {
       }
     }
     echo "mig_ok=$ok mig_ya=$ya mig_err=$err\\n";
+    // DEFAULT CURRENT_TIMESTAMP de SQLite = UTC → triggers que lo pasan a hora
+    // de Colombia (ver api/config/sqlite_hora_local.php).
+    $hl = ${JSON.stringify(path.join(path.dirname(migPath), '..', 'api', 'config', 'sqlite_hora_local.php')).replace(/"/g, "'")};
+    if (file_exists($hl)) {
+      require_once $hl;
+      try { echo "hora_local_triggers=" . conta_sqlite_triggers_hora_local($pdo) . "\\n"; }
+      catch (Exception $e) { error_log('[migraciones] hora_local: ' . $e->getMessage()); }
+    }
   `.trim();
   const res = require('child_process').spawnSync(
     phpExe, ['-c', phpIni, '-r', script],

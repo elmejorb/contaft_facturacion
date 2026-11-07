@@ -171,6 +171,10 @@ test('5. vende POS contado: total, stock y kardex', async () => {
   expect(String(v.Fecha).slice(0, 10), 'la venta queda con la fecha de hoy en Colombia').toBe(hoyColombia);
   expect(Number(uno('SELECT Existencia FROM tblarticulos WHERE Codigo = ?', COD).Existencia), 'stock baja 10 → 9').toBe(9);
   expect(Number(uno('SELECT COUNT(*) n FROM tblkardex WHERE Items = ?', art.Items).n), 'kardex registra la salida').toBe(kardexAntes + 1);
+  const k = uno('SELECT Fecha FROM tblkardex WHERE Items = ? ORDER BY Id_kardex DESC LIMIT 1', art.Items);
+  expect(String(k.Fecha).slice(0, 10), `kardex ${k.Fecha} con la fecha de hoy en Colombia`).toBe(hoyColombia);
+  const trg = Number(uno("SELECT COUNT(*) n FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'trg_hora_local_%'").n);
+  expect(trg, 'el arranque instaló los triggers de hora local').toBeGreaterThan(30);
 });
 
 test.fixme('6. factura electrónica (requiere mock de la API DIAN)', async () => {

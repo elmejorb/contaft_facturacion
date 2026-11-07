@@ -118,5 +118,8 @@ foreach ($tablasMysql as $tm) {
     $res['filas'] += $n;
 }
 $sq->exec('PRAGMA foreign_keys = ON');
+// Igual que la app al arrancar: DEFAULT CURRENT_TIMESTAMP → hora de Colombia.
+require_once __DIR__ . '/../../api/config/sqlite_hora_local.php';
+$res['triggers_hora_local'] = conta_sqlite_triggers_hora_local($sq);
 echo json_encode($res, JSON_UNESCAPED_UNICODE) . "\n";
 exit(empty($res['filas_fallidas']) ? 0 : 1);
